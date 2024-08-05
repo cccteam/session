@@ -13,8 +13,8 @@ import (
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
 
+	"session/access"
 	"session/dbx"
-	"session/users"
 	"session/util"
 )
 
@@ -32,9 +32,9 @@ const (
 // Authenticated is the handler reports if the session is authenticated
 func (s *Session) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool                                `json:"authenticated"`
-		Username      string                              `json:"username"`
-		Permissions   map[users.Domain][]users.Permission `json:"permissions"`
+		Authenticated bool                                  `json:"authenticated"`
+		Username      string                                `json:"username"`
+		Permissions   map[access.Domain][]access.Permission `json:"permissions"`
 	}
 
 	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -114,7 +114,7 @@ func (s *Session) CallbackOIDC() http.HandlerFunc {
 			return errors.New("Failed to set XSRF Token Cookie")
 		}
 
-		hasRole, err := s.assignUserRoles(ctx, users.User(claims.Username), claims.Roles)
+		hasRole, err := s.assignUserRoles(ctx, access.User(claims.Username), claims.Roles)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
 
@@ -178,8 +178,8 @@ func sessionIDFromRequest(r *http.Request) string {
 }
 
 // sessionInfoFromRequest extracts session information from the Request Context
-func sessionInfoFromRequest(r *http.Request) *users.SessionInfo {
-	sessionInfo, ok := r.Context().Value(ctxSessionInfo).(*users.SessionInfo)
+func sessionInfoFromRequest(r *http.Request) *access.SessionInfo {
+	sessionInfo, ok := r.Context().Value(ctxSessionInfo).(*access.SessionInfo)
 	if !ok {
 		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionInfo)
 	}
@@ -223,7 +223,7 @@ func (s *Session) startNew(ctx context.Context, w http.ResponseWriter, username,
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
-func (s *Session) assignUserRoles(ctx context.Context, username users.User, roles []string) (hasRole bool, err error) {
+func (s *Session) assignUserRoles(ctx context.Context, username access.User, roles []string) (hasRole bool, err error) {
 	ctx, span := otel.Tracer(s.appName).Start(ctx, "session.assignUserRoles()")
 	defer span.End()
 
@@ -238,10 +238,10 @@ func (s *Session) assignUserRoles(ctx context.Context, username users.User, role
 	}
 
 	for _, domain := range domains {
-		var rolesToAssign []users.Role
+		var rolesToAssign []access.Role
 		for _, r := range roles {
-			if s.userClient.RoleExists(ctx, users.Role(r), domain) {
-				rolesToAssign = append(rolesToAssign, users.Role(r))
+			if s.userClient.RoleExists(ctx, access.Role(r), domain) {
+				rolesToAssign = append(rolesToAssign, access.Role(r))
 			}
 		}
 

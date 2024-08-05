@@ -3,10 +3,11 @@ package session
 import (
 	"context"
 	"net/http"
-	"session/oidc"
-	"session/users"
 	"strconv"
 	"time"
+
+	"session/access"
+	"session/oidc"
 
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
@@ -23,7 +24,7 @@ const (
 type Session struct {
 	sessionTimeout time.Duration
 	oidc           oidc.Authenticator
-	userClient     users.UserManager
+	userClient     access.UserManager
 	appName        string
 	cookieManager
 }
@@ -32,10 +33,11 @@ type Session struct {
 func New(
 	oidc oidc.Authenticator,
 	sessionTimeout time.Duration,
-	userClient users.UserManager,
+	userClient access.UserManager,
 	secureCookie *securecookie.SecureCookie,
-	appName string) *Session {
-	return &Session{oidc: oidc, sessionTimeout: sessionTimeout, userClient: userClient, cookieManager: newCookieClient(secureCookie), appName: appName} //TODO: Validate theres not a better way when we try to implement this into one of our apps
+	appName string,
+) *Session {
+	return &Session{oidc: oidc, sessionTimeout: sessionTimeout, userClient: userClient, cookieManager: newCookieClient(secureCookie), appName: appName} // TODO: Validate theres not a better way when we try to implement this into one of our apps
 }
 
 // SetTimeout is a Handler to set the session timeout
