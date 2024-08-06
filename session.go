@@ -21,7 +21,24 @@ const (
 	ErrUnauthorized = "ErrUnauthorized"
 )
 
-type Session struct {
+type iSession interface {
+	Authenticated() http.HandlerFunc
+	Login() http.HandlerFunc
+	Logout() http.HandlerFunc
+	SetTimeout(next http.Handler) http.Handler
+	Start(next http.Handler) http.Handler
+	Validate(next http.Handler) http.Handler
+	SetXSRFToken(next http.Handler) http.Handler      //specific to angular; needs refactor
+	ValidateXSRFToken(next http.Handler) http.Handler // probably specific to angular too; need refactor
+	StartNew(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (string, error)
+	NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, idGen func() (uuid.UUID, error)) (map[scKey]string, error)
+	ReadAuthCookie(r *http.Request) (map[scKey]string, bool)
+	WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cookieValue map[scKey]string) error
+	SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID string, cookieExpiration time.Duration) (set bool)
+	Handle(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
+}
+
+type session struct {
 	sessionTimeout time.Duration
 	oidc           oidc.Authenticator
 	userClient     access.UserManager
@@ -29,19 +46,17 @@ type Session struct {
 	cookieManager
 }
 
-// TODO: How do we override all this functionality? Do we make it all interfaces and allow them to replace or do we just force a local version?
-func New(
+func NewSession(
 	oidc oidc.Authenticator,
 	sessionTimeout time.Duration,
 	userClient access.UserManager,
 	secureCookie *securecookie.SecureCookie,
-	appName string,
-) *Session {
-	return &Session{oidc: oidc, sessionTimeout: sessionTimeout, userClient: userClient, cookieManager: newCookieClient(secureCookie), appName: appName} // TODO: Validate theres not a better way when we try to implement this into one of our apps
+	appName string) *session {
+	return &session{oidc: oidc, sessionTimeout: sessionTimeout, userClient: userClient, cookieManager: newCookieClient(secureCookie), appName: appName} // TODO: Validate theres not a better way when we try to implement this into one of our apps
 }
 
 // SetTimeout is a Handler to set the session timeout
-func (s *Session) SetTimeout(next http.Handler) http.Handler {
+func (s *session) SetTimeout(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(context.WithValue(r.Context(), ctxSessionExpirationDuration, s.sessionTimeout))
 
@@ -52,8 +67,8 @@ func (s *Session) SetTimeout(next http.Handler) http.Handler {
 // Start establishes a session cookie if none exists
 //
 // It also stores the sessionID in the request context.
-func (s *Session) Start(next http.Handler) http.Handler {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) Start(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.StartSession()")
 		defer span.End()
 
@@ -91,8 +106,8 @@ func (s *Session) Start(next http.Handler) http.Handler {
 
 // Validate checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
-func (s *Session) Validate(next http.Handler) http.Handler {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) Validate(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Validate()")
 		defer span.End()
 
@@ -107,7 +122,7 @@ func (s *Session) Validate(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Session) check(r *http.Request) (req *http.Request, err error) {
+func (s *session) check(r *http.Request) (req *http.Request, err error) {
 	ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.checkSession()")
 	defer span.End()
 

@@ -9,7 +9,7 @@ import (
 )
 
 // handle returns a handler that logs any error coming from our custom handlers
-func (s *Session) handle(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+func (s *session) Handle(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := handler(w, r); err != nil {
 			if httpio.CauseIsError(err) {

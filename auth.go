@@ -30,14 +30,14 @@ const (
 )
 
 // Authenticated is the handler reports if the session is authenticated
-func (s *Session) Authenticated() http.HandlerFunc {
+func (s *session) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool                                  `json:"authenticated"`
 		Username      string                                `json:"username"`
 		Permissions   map[access.Domain][]access.Permission `json:"permissions"`
 	}
 
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Authenticated()")
 		defer span.End()
 
@@ -63,8 +63,8 @@ func (s *Session) Authenticated() http.HandlerFunc {
 	})
 }
 
-func (s *Session) Login() http.HandlerFunc {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) Login() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Login()")
 		defer span.End()
 
@@ -81,13 +81,13 @@ func (s *Session) Login() http.HandlerFunc {
 }
 
 // CallbackOIDC is the handler for the callback from the OIDC auth provider
-func (s *Session) CallbackOIDC() http.HandlerFunc {
+func (s *session) CallbackOIDC() http.HandlerFunc {
 	type claims struct {
 		Username string   `json:"preferred_username"`
 		Roles    []string `json:"roles"`
 	}
 
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.CallbackOIDC()")
 		defer span.End()
 
@@ -100,7 +100,7 @@ func (s *Session) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// user is successfully authenticated, start a new session
-		sessionID, err := s.startNew(ctx, w, claims.Username, oidcSID)
+		sessionID, err := s.StartNew(ctx, w, claims.Username, oidcSID)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
 
@@ -134,8 +134,8 @@ func (s *Session) CallbackOIDC() http.HandlerFunc {
 }
 
 // Logout is a handler which destroys the current session
-func (s *Session) Logout() http.HandlerFunc {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) Logout() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Logout()")
 		defer span.End()
 
@@ -149,8 +149,8 @@ func (s *Session) Logout() http.HandlerFunc {
 }
 
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
-func (s *Session) FrontChannelLogout() http.HandlerFunc {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) FrontChannelLogout() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.FrontChannelLogout()")
 		defer span.End()
 
@@ -197,8 +197,8 @@ func sessionExpirationFromRequest(r *http.Request) time.Duration {
 	return d
 }
 
-// startNew starts a new session for the given username and returns the session ID
-func (s *Session) startNew(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (string, error) {
+// StartNew starts a new session for the given username and returns the session ID
+func (s *session) StartNew(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (string, error) {
 	cookieValue, err := s.newAuthCookie(w, false, uuid.NewV4)
 	if err != nil {
 		return "", err
@@ -223,7 +223,7 @@ func (s *Session) startNew(ctx context.Context, w http.ResponseWriter, username,
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
-func (s *Session) assignUserRoles(ctx context.Context, username access.User, roles []string) (hasRole bool, err error) {
+func (s *session) assignUserRoles(ctx context.Context, username access.User, roles []string) (hasRole bool, err error) {
 	ctx, span := otel.Tracer(s.appName).Start(ctx, "session.assignUserRoles()")
 	defer span.End()
 

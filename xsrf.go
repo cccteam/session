@@ -44,8 +44,8 @@ func (vals methods) contain(s string) bool {
 }
 
 // SetXSRFToken sets the XSRF Token
-func (s *Session) SetXSRFToken(next http.Handler) http.Handler {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) SetXSRFToken(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		if s.setXSRFTokenCookie(w, r, sessionIDFromRequest(r), xsrfCookieLife) && !safeMethods.contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
@@ -61,8 +61,8 @@ func (s *Session) SetXSRFToken(next http.Handler) http.Handler {
 }
 
 // ValidateXSRFToken validates the XSRF Token
-func (s *Session) ValidateXSRFToken(next http.Handler) http.Handler {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *session) ValidateXSRFToken(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		// Validate XSRFToken for non-safe
 		if !safeMethods.contain(r.Method) && !s.hasValidXSRFToken(r) {
 			// Token validation failed

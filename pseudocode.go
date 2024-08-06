@@ -6,6 +6,13 @@ import (
 	"session/access"
 )
 
+func Example() {
+	_ = NewPassword(&SpannerDriver{})
+	_ = NewPassword(&PostgresDriver{})
+	_ = NewOIDC(&SpannerDriver{}, nil /* access.UserManager implementation */)
+	_ = NewOIDC(&PostgresDriver{}, nil /* access.UserManager implementation */)
+}
+
 type PasswordStorage interface {
 	DestroySession(sessionID string) error
 	Session(ctx context.Context, sessionID string) (*access.SessionInfo, error)
@@ -26,7 +33,7 @@ type Accessor interface {
 }
 
 type PasswordSession struct {
-	Session
+	session
 }
 
 func NewPassword(driver PasswordStorage) *PasswordSession {
@@ -34,7 +41,7 @@ func NewPassword(driver PasswordStorage) *PasswordSession {
 }
 
 type OIDCSession struct {
-	Session
+	session
 }
 
 func NewOIDC(driver OIDCStorage, access Accessor) *OIDCSession {
@@ -67,11 +74,4 @@ func (p *PostgresDriver) Session(ctx context.Context, sessionID string) (*access
 
 func (p *PostgresDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
 	return nil
-}
-
-func Example() {
-	_ = NewPassword(&SpannerDriver{})
-	_ = NewPassword(&PostgresDriver{})
-	_ = NewOIDC(&SpannerDriver{}, nil /* access.UserManager implementation */)
-	_ = NewOIDC(&PostgresDriver{}, nil /* access.UserManager implementation */)
 }
