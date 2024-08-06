@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"session/access"
 	"session/oidc"
 
 	"github.com/cccteam/httpio"
@@ -39,20 +38,19 @@ type iSession interface {
 }
 
 type session struct {
+	storage        sessionStorage
 	sessionTimeout time.Duration
 	oidc           oidc.Authenticator
-	userClient     access.UserManager
 	appName        string
 	cookieManager
 }
 
 func NewSession(
-	oidc oidc.Authenticator,
 	sessionTimeout time.Duration,
-	userClient access.UserManager,
 	secureCookie *securecookie.SecureCookie,
-	appName string) *session {
-	return &session{oidc: oidc, sessionTimeout: sessionTimeout, userClient: userClient, cookieManager: newCookieClient(secureCookie), appName: appName} // TODO: Validate theres not a better way when we try to implement this into one of our apps
+	appName string,
+	storage sessionStorage) *session {
+	return &session{sessionTimeout: sessionTimeout, cookieManager: newCookieClient(secureCookie), appName: appName, storage: sessionStorage{}} // TODO: Validate theres not a better way when we try to implement this into one of our apps
 }
 
 // SetTimeout is a Handler to set the session timeout
@@ -127,7 +125,7 @@ func (s *session) check(r *http.Request) (req *http.Request, err error) {
 	defer span.End()
 
 	// Validate that the sessionID is in database
-	sessInfo, err := s.userClient.Session(ctx, sessionIDFromRequest(r))
+	sessInfo, err := s.storage.Session(ctx, sessionIDFromRequest(r)) //Todo: Check that the return type works, we changed it
 	if err != nil {
 		return r, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 	}
@@ -138,7 +136,7 @@ func (s *session) check(r *http.Request) (req *http.Request, err error) {
 	}
 
 	// Update Activity
-	if err := s.userClient.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
+	if err := s.storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
 		return r, errors.Wrap(err, "users.SessionManager.UpdateSessionActivity()")
 	}
 

@@ -4,21 +4,24 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"session/access"
 	"session/oidc"
 
 	"github.com/cccteam/httpio"
+	"github.com/gorilla/securecookie"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
 )
 
 type SessionOIDC struct {
-	appName string
-	oidc    oidc.Authenticator
-	session iSession // this is doing the heavier lifting
+	appName      string
+	oidc         oidc.Authenticator
+	secureCookie *securecookie.SecureCookie
+	session      iSession // this is doing the heavier lifting
 }
 
-func NewSessionOIDC(appName string, session iSession, oidcAuth oidc.Authenticator) *SessionOIDC {
-	return &SessionOIDC{appName: appName, session: session, oidc: oidcAuth}
+func NewSessionOIDC(appName string, session iSession, oidcAuth oidc.Authenticator, client access.UserManager, cookie *securecookie.SecureCookie) *SessionOIDC {
+	return &SessionOIDC{appName: appName, session: session, oidc: oidcAuth, secureCookie: cookie}
 }
 
 // CallbackOIDC is the handler for the callback from the OIDC auth provider
@@ -74,9 +77,24 @@ func (s *SessionOIDC) CallbackOIDC() http.HandlerFunc {
 	})
 }
 
-func (s *SessionOIDC) FrontChannelLogout() {
-	//front channel logout specific to OIDC
-}
+// FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
+// func (s *SessionOIDC) FrontChannelLogout() http.HandlerFunc {
+// 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+// 		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.FrontChannelLogout()")
+// 		defer span.End()
+
+// 		sid := r.URL.Query().Get("sid")
+// 		if sid == "" {
+// 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "missing sid query parameter")
+// 		}
+
+// 		if err := s.userClient.DestroySessionOIDC(ctx, sid); err != nil { //TODO: figure out where to put this, normally it'd go in storage but this is OIDC storage specific
+// 			logger.Req(r).Error("failed to destroy session in db via OIDC sid")
+// 		}
+
+// 		return httpio.NewEncoder(w).Ok(nil)
+// 	})
+// }
 
 func (s *SessionOIDC) Authenticated() {
 	s.session.Authenticated()
