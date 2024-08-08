@@ -4,8 +4,11 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"session/access"
+	"session/dbx"
 	"session/oidc"
 
 	"github.com/cccteam/httpio"
@@ -16,8 +19,16 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type (
+	ctxKey string
+)
+
 const (
 	ErrUnauthorized = "ErrUnauthorized"
+	// Keys used within the request Context
+	ctxSessionID                 ctxKey = "sessionID"
+	ctxSessionInfo               ctxKey = "sessionInfo"
+	ctxSessionExpirationDuration ctxKey = "sessionExpirationDuration"
 )
 
 type iSession interface {
@@ -29,11 +40,13 @@ type iSession interface {
 	Validate(next http.Handler) http.Handler
 	SetXSRFToken(next http.Handler) http.Handler      //specific to angular; needs refactor
 	ValidateXSRFToken(next http.Handler) http.Handler // probably specific to angular too; need refactor
+
 	StartNew(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (string, error)
 	NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, idGen func() (uuid.UUID, error)) (map[scKey]string, error)
 	ReadAuthCookie(r *http.Request) (map[scKey]string, bool)
 	WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cookieValue map[scKey]string) error
 	SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID string, cookieExpiration time.Duration) (set bool)
+
 	Handle(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 }
 
@@ -120,6 +133,109 @@ func (s *session) Validate(next http.Handler) http.Handler {
 	})
 }
 
+// StartNew starts a new session for the given username and returns the session ID
+func (s *session) StartNew(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (string, error) {
+	cookieValue, err := s.newAuthCookie(w, false, uuid.NewV4)
+	if err != nil {
+		return "", err
+	}
+
+	dbSess := &dbx.SessionInfo{
+		ID:        cookieValue[scSessionID],
+		OidcSID:   oidcSID,
+		Username:  username,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Create new Session in database
+	sessInfo, err := s.storage.NewSession(ctx, dbSess) //TODO: this isn't really hooked up to anything but an interface that we don't even have an implementation struct of. Swap it with a real sessionManager
+	if err != nil {
+		return "", errors.Wrap(err, "users.NewSession()")
+	}
+
+	return sessInfo.ID, nil
+}
+
+// Authenticated is the handler reports if the session is authenticated
+func (s *session) Authenticated() http.HandlerFunc {
+	type response struct {
+		Authenticated bool                                  `json:"authenticated"`
+		Username      string                                `json:"username"`
+		Permissions   map[access.Domain][]access.Permission `json:"permissions"`
+	}
+
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Authenticated()")
+		defer span.End()
+
+		r, err := s.check(r.WithContext(ctx))
+		if err != nil {
+			if httpio.HasUnauthorized(err) {
+				return httpio.NewEncoder(w).Ok(response{})
+			}
+
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		sessInfo := sessionInfoFromRequest(r)
+
+		// set response values
+		res := response{
+			Authenticated: true,
+			Username:      sessInfo.Username,
+			Permissions:   sessInfo.Permissions,
+		}
+
+		return httpio.NewEncoder(w).Ok(res)
+	})
+}
+
+func (s *session) Login() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Login()")
+		defer span.End()
+
+		returnURL := r.URL.Query().Get("returnUrl")
+		authCodeURL, err := s.oidc.AuthCodeURL(w, returnURL)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		http.Redirect(w, r, authCodeURL, http.StatusFound)
+
+		return nil
+	})
+}
+
+// Logout is a handler which destroys the current session
+func (s *session) Logout() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.Logout()")
+		defer span.End()
+
+		// Destroy session in database
+		if err := s.storage.DestroySession(ctx, sessionIDFromRequest(r)); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// handle returns a handler that logs any error coming from our custom handlers
+func (s *session) Handle(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := handler(w, r); err != nil {
+			if httpio.CauseIsError(err) {
+				logger.Req(r).Error(err)
+			} else {
+				logger.Req(r).Infof("['%s']", strings.Join(httpio.Messages(err), "', '"))
+			}
+		}
+	})
+}
+
 func (s *session) check(r *http.Request) (req *http.Request, err error) {
 	ctx, span := otel.Tracer(s.appName).Start(r.Context(), "session.checkSession()")
 	defer span.End()
@@ -149,6 +265,36 @@ func (s *session) check(r *http.Request) (req *http.Request, err error) {
 	r = r.WithContext(logger.NewCtx(r.Context(), l))
 
 	return r, nil
+}
+
+// sessionIDFromRequest extracts the Session ID from the Request Context
+func sessionIDFromRequest(r *http.Request) string {
+	id, ok := r.Context().Value(ctxSessionID).(string)
+	if !ok {
+		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionID)
+	}
+
+	return id
+}
+
+// sessionInfoFromRequest extracts session information from the Request Context
+func sessionInfoFromRequest(r *http.Request) *access.SessionInfo {
+	sessionInfo, ok := r.Context().Value(ctxSessionInfo).(*access.SessionInfo)
+	if !ok {
+		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionInfo)
+	}
+
+	return sessionInfo
+}
+
+// sessionExpirationFromRequest extracts the session timeout from the Request Context
+func sessionExpirationFromRequest(r *http.Request) time.Duration {
+	d, ok := r.Context().Value(ctxSessionExpirationDuration).(time.Duration)
+	if !ok {
+		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionExpirationDuration)
+	}
+
+	return d
 }
 
 // validSessionID checks that the sessionID is a valid uuid
