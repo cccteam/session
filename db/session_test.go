@@ -30,13 +30,13 @@ func Test_client_Session(t *testing.T) {
 		{
 			name:      "fails to find session",
 			sessionID: ccc.UUIDMustParse("5f5d3b2c-5fd0-4d07-aec7-bba3d951b11e"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success getting session",
 			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			want: &Session{
 				ID:        ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
 				OidcSID:   "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
@@ -90,7 +90,7 @@ func Test_client_InsertSession(t *testing.T) {
 				CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
 				UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
 			},
-			sourceURL: []string{"file://../schema/migrations"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 0 FROM "Sessions"`,
 			},
@@ -155,13 +155,13 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 		{
 			name:      "fails to find session",
 			sessionID: ccc.UUIDMustParse("ed0c72a4-1f32-469e-b51b-7baa589a945c"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success updating session activity",
 			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 		},
 	}
 	for _, tt := range tests {
@@ -210,7 +210,7 @@ func Test_client_DestroySession(t *testing.T) {
 		{
 			name:      "success without destroying the session (not found)",
 			sessionID: ccc.UUIDMustParse("52dd570b-1280-421b-888e-a63f0ca35be9"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
 				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Id" = 'session1'`,
@@ -222,7 +222,7 @@ func Test_client_DestroySession(t *testing.T) {
 		{
 			name:      "success destroying session",
 			sessionID: ccc.UUIDMustParse("38bd570b-1280-421b-888e-a63f0ca35be7"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT "Expired" = false FROM "Sessions" WHERE "Id" = '38bd570b-1280-421b-888e-a63f0ca35be7'`,
 			},
@@ -270,7 +270,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 		{
 			name:      "success without destroying sessions",
 			oidcSID:   "oidc session4",
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "OidcSid" = 'oidc session4'`,
 				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
@@ -282,7 +282,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 		{
 			name:      "success destroying sessions",
 			oidcSID:   "oidc session aa817d69-f550-474b-8eae-7b29da32e3a8",
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT "Username" = 'test user 1' FROM "Sessions" WHERE "OidcSid" = 'oidc session aa817d69-f550-474b-8eae-7b29da32e3a8'`,
 				`SELECT COUNT(*) = 1               FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = true`,
