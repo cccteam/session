@@ -6,7 +6,7 @@ import (
 
 	"github.com/cccteam/access"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/db"
+	"github.com/cccteam/session/postgresql"
 	"github.com/cccteam/session/sessiontypes"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
@@ -16,7 +16,7 @@ type PostgresqlOIDCSessionManager struct {
 	*PostgresqlSessionManager
 }
 
-func NewPostgresqlOIDCSessionManager(accessor Accessor, dbcon db.Queryer) *PostgresqlOIDCSessionManager {
+func NewPostgresqlOIDCSessionManager(accessor Accessor, dbcon postgresql.Queryer) *PostgresqlOIDCSessionManager {
 	return &PostgresqlOIDCSessionManager{
 		PostgresqlSessionManager: NewPostgresqlManager(accessor, dbcon),
 	}
@@ -52,7 +52,7 @@ func (p *PostgresqlOIDCSessionManager) NewSession(ctx context.Context, username,
 	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlOIDCSessionManager.NewSession()")
 	defer span.End()
 
-	session := &db.InsertSession{
+	session := &postgresql.InsertSession{
 		OidcSID:   oidcSID,
 		Username:  username,
 		CreatedAt: time.Now(),

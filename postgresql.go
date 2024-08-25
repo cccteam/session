@@ -4,20 +4,20 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/db"
+	"github.com/cccteam/session/postgresql"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
 )
 
 type PostgresqlSessionManager struct {
 	access Accessor
-	db     db.DB // has to be some sort of connection pool so I created our own queryer interface
+	db     postgresql.DB
 }
 
-func NewPostgresqlManager(accessor Accessor, dbcon db.Queryer) *PostgresqlSessionManager {
+func NewPostgresqlManager(accessor Accessor, dbcon postgresql.Queryer) *PostgresqlSessionManager {
 	return &PostgresqlSessionManager{
 		access: accessor,
-		db:     db.NewDBConnection(dbcon),
+		db:     postgresql.NewDBConnection(dbcon),
 	}
 }
 

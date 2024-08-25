@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	ccc "github.com/cccteam/ccc"
-	db "github.com/cccteam/session/db"
+	db "github.com/cccteam/session/postgresql"
 	pgx "github.com/jackc/pgx/v5"
 	pgconn "github.com/jackc/pgx/v5/pgconn"
 	gomock "go.uber.org/mock/gomock"
