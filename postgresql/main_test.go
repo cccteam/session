@@ -6,16 +6,16 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cccteam/session/postgrescontainer"
+	dbinitiator "github.com/cccteam/db-initiator"
 	"github.com/go-playground/errors/v5"
 )
 
-var container *postgrescontainer.PostgresContainer
+var container *dbinitiator.PostgresContainer
 
 // TestMain is a wrapper for the test suite. It creates a new PostgresContainer and runs the test suite.
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	c, err := postgrescontainer.New(ctx)
+	c, err := dbinitiator.NewPostgresContainer(ctx, "latest")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 }
 
 // prepareDatabase creates a new database and runs migrations given a variadic param of sourceURL(s).
-func prepareDatabase(ctx context.Context, t *testing.T, sourceURL ...string) (*postgrescontainer.DB, error) {
+func prepareDatabase(ctx context.Context, t *testing.T, sourceURL ...string) (*dbinitiator.PostgresDatabase, error) {
 	db, err := container.CreateDatabase(ctx, t.Name())
 	if err != nil {
 		return nil, errors.Wrapf(err, "postgrescontainer.PostgresContainer.CreateDatabase()")
