@@ -15,35 +15,35 @@ import (
 
 	access "github.com/cccteam/access"
 	ccc "github.com/cccteam/ccc"
-	"github.com/cccteam/session/sessioninfo"
+	sessioninfo "github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
 )
 
-// MockAccessor is a mock of Accessor interface.
-type MockAccessor struct {
+// MockUserManager is a mock of UserManager interface.
+type MockUserManager struct {
 	ctrl     *gomock.Controller
-	recorder *MockAccessorMockRecorder
+	recorder *MockUserManagerMockRecorder
 }
 
-// MockAccessorMockRecorder is the mock recorder for MockAccessor.
-type MockAccessorMockRecorder struct {
-	mock *MockAccessor
+// MockUserManagerMockRecorder is the mock recorder for MockUserManager.
+type MockUserManagerMockRecorder struct {
+	mock *MockUserManager
 }
 
-// NewMockAccessor creates a new mock instance.
-func NewMockAccessor(ctrl *gomock.Controller) *MockAccessor {
-	mock := &MockAccessor{ctrl: ctrl}
-	mock.recorder = &MockAccessorMockRecorder{mock}
+// NewMockUserManager creates a new mock instance.
+func NewMockUserManager(ctrl *gomock.Controller) *MockUserManager {
+	mock := &MockUserManager{ctrl: ctrl}
+	mock.recorder = &MockUserManagerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockAccessor) EXPECT() *MockAccessorMockRecorder {
+func (m *MockUserManager) EXPECT() *MockUserManagerMockRecorder {
 	return m.recorder
 }
 
 // AddUserRoles mocks base method.
-func (m *MockAccessor) AddUserRoles(ctx context.Context, user access.User, roles []access.Role, domain access.Domain) error {
+func (m *MockUserManager) AddUserRoles(ctx context.Context, user access.User, roles []access.Role, domain access.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddUserRoles", ctx, user, roles, domain)
 	ret0, _ := ret[0].(error)
@@ -51,13 +51,13 @@ func (m *MockAccessor) AddUserRoles(ctx context.Context, user access.User, roles
 }
 
 // AddUserRoles indicates an expected call of AddUserRoles.
-func (mr *MockAccessorMockRecorder) AddUserRoles(ctx, user, roles, domain any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, user, roles, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUserRoles", reflect.TypeOf((*MockAccessor)(nil).AddUserRoles), ctx, user, roles, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUserRoles", reflect.TypeOf((*MockUserManager)(nil).AddUserRoles), ctx, user, roles, domain)
 }
 
 // DeleteUserRole mocks base method.
-func (m *MockAccessor) DeleteUserRole(ctx context.Context, user access.User, role access.Role, domain access.Domain) error {
+func (m *MockUserManager) DeleteUserRole(ctx context.Context, user access.User, role access.Role, domain access.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteUserRole", ctx, user, role, domain)
 	ret0, _ := ret[0].(error)
@@ -65,13 +65,13 @@ func (m *MockAccessor) DeleteUserRole(ctx context.Context, user access.User, rol
 }
 
 // DeleteUserRole indicates an expected call of DeleteUserRole.
-func (mr *MockAccessorMockRecorder) DeleteUserRole(ctx, user, role, domain any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) DeleteUserRole(ctx, user, role, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRole", reflect.TypeOf((*MockAccessor)(nil).DeleteUserRole), ctx, user, role, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRole", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRole), ctx, user, role, domain)
 }
 
 // Domains mocks base method.
-func (m *MockAccessor) Domains(ctx context.Context) ([]access.Domain, error) {
+func (m *MockUserManager) Domains(ctx context.Context) ([]access.Domain, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Domains", ctx)
 	ret0, _ := ret[0].([]access.Domain)
@@ -80,13 +80,13 @@ func (m *MockAccessor) Domains(ctx context.Context) ([]access.Domain, error) {
 }
 
 // Domains indicates an expected call of Domains.
-func (mr *MockAccessorMockRecorder) Domains(ctx any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) Domains(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Domains", reflect.TypeOf((*MockAccessor)(nil).Domains), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Domains", reflect.TypeOf((*MockUserManager)(nil).Domains), ctx)
 }
 
 // RoleExists mocks base method.
-func (m *MockAccessor) RoleExists(ctx context.Context, role access.Role, domain access.Domain) bool {
+func (m *MockUserManager) RoleExists(ctx context.Context, role access.Role, domain access.Domain) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, role, domain)
 	ret0, _ := ret[0].(bool)
@@ -94,13 +94,13 @@ func (m *MockAccessor) RoleExists(ctx context.Context, role access.Role, domain 
 }
 
 // RoleExists indicates an expected call of RoleExists.
-func (mr *MockAccessorMockRecorder) RoleExists(ctx, role, domain any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) RoleExists(ctx, role, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleExists", reflect.TypeOf((*MockAccessor)(nil).RoleExists), ctx, role, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleExists", reflect.TypeOf((*MockUserManager)(nil).RoleExists), ctx, role, domain)
 }
 
 // UserPermissions mocks base method.
-func (m *MockAccessor) UserPermissions(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Permission, error) {
+func (m *MockUserManager) UserPermissions(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Permission, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
@@ -113,14 +113,14 @@ func (m *MockAccessor) UserPermissions(ctx context.Context, username access.User
 }
 
 // UserPermissions indicates an expected call of UserPermissions.
-func (mr *MockAccessorMockRecorder) UserPermissions(ctx, username any, domain ...any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) UserPermissions(ctx, username any, domain ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, username}, domain...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissions", reflect.TypeOf((*MockAccessor)(nil).UserPermissions), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissions", reflect.TypeOf((*MockUserManager)(nil).UserPermissions), varargs...)
 }
 
 // UserRoles mocks base method.
-func (m *MockAccessor) UserRoles(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Role, error) {
+func (m *MockUserManager) UserRoles(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Role, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
@@ -133,10 +133,10 @@ func (m *MockAccessor) UserRoles(ctx context.Context, username access.User, doma
 }
 
 // UserRoles indicates an expected call of UserRoles.
-func (mr *MockAccessorMockRecorder) UserRoles(ctx, username any, domain ...any) *gomock.Call {
+func (mr *MockUserManagerMockRecorder) UserRoles(ctx, username any, domain ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, username}, domain...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockAccessor)(nil).UserRoles), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
 }
 
 // MockStorageManager is a mock of StorageManager interface.
