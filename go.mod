@@ -2,6 +2,8 @@ module github.com/cccteam/session
 
 go 1.23.0
 
+replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migrate/v4 v4.17.2-beta.0
+
 require (
 	github.com/cccteam/access v0.1.0
 	github.com/cccteam/ccc v0.1.0
