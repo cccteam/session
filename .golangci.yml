@@ -7,6 +7,18 @@ linters-settings:
         files:
           - $all
         allow:
+          - github.com/cccteam
+          - github.com/coreos/go-oidc/v3
+          - github.com/georgysavva/scany/v2
+          - github.com/go-chi/chi/v5
+          - github.com/go-playground/errors/v5
+          - github.com/gofrs/uuid
+          - github.com/google/go-cmp
+          - github.com/gorilla/securecookie
+          - github.com/jackc/pgx/v5
+          - go.opentelemetry.io/otel
+          - go.uber.org/mock
+          - golang.org/x/oauth2
           - $gostd
   funlen:
     lines: 100
@@ -158,6 +170,16 @@ issues:
         - gochecknoglobals
         - gochecknoinits
         - lll
+
+    - path: oidc\.go
+      linters:
+        - tagliatelle
+      texts: preferred_username
+
+    - path: go\.mod
+      linters:
+        - gomoddirectives
+      text: replacement are not allowed
 
   include:
     - EXC0002

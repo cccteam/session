@@ -42,7 +42,7 @@ func (s *session) Authenticated() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		sessInfo := sessioninfo.SessionInfoFromRequest(r)
+		sessInfo := sessioninfo.FromRequest(r)
 
 		// set response values
 		res := response{

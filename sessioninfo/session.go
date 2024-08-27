@@ -12,7 +12,7 @@ const (
 	CtxSessionInfo ctxKey = "sessionInfo"
 )
 
-func SessionInfoFromRequest(r *http.Request) *SessionInfo {
+func FromRequest(r *http.Request) *SessionInfo {
 	sessionInfo, ok := r.Context().Value(CtxSessionInfo).(*SessionInfo)
 	if !ok {
 		logger.Req(r).Errorf("failed to find %s in request context", CtxSessionInfo)

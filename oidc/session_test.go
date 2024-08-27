@@ -36,7 +36,7 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := sessioninfo.SessionInfoFromRequest(tt.r); !reflect.DeepEqual(got, tt.want) {
+			if got := sessioninfo.FromRequest(tt.r); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sessionInfoFromRequest() = %v, want %v", got, tt.want)
 			}
 		})

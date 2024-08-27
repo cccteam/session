@@ -482,7 +482,7 @@ func TestApp_checkSession(t *testing.T) {
 
 				return
 			}
-			if got := sessioninfo.SessionInfoFromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
+			if got := sessioninfo.FromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sessInfo = %v, wantSessInfo %v", got, tt.want)
 			}
 		})
