@@ -7,7 +7,7 @@ import (
 	"github.com/cccteam/access"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/postgresql"
-	"github.com/cccteam/session/sessiontypes"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
 )
@@ -16,14 +16,14 @@ type PostgresqlOIDCSessionManager struct {
 	*PostgresqlSessionManager
 }
 
-func NewPostgresqlOIDCSessionManager(accessor Accessor, dbcon postgresql.Queryer) *PostgresqlOIDCSessionManager {
+func NewPostgresqlOIDCSessionManager(accessor UserManager, db postgresql.Queryer) *PostgresqlOIDCSessionManager {
 	return &PostgresqlOIDCSessionManager{
-		PostgresqlSessionManager: NewPostgresqlManager(accessor, dbcon),
+		PostgresqlSessionManager: NewPostgresqlManager(accessor, db),
 	}
 }
 
 // Session returns the session information from the database for given sessionID
-func (p *PostgresqlOIDCSessionManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessiontypes.SessionInfo, error) {
+func (p *PostgresqlOIDCSessionManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "Client.Session()")
 	defer span.End()
 
@@ -37,7 +37,7 @@ func (p *PostgresqlOIDCSessionManager) Session(ctx context.Context, sessionID cc
 		return nil, errors.Wrap(err, "Client.UserPermissions()")
 	}
 
-	return &sessiontypes.SessionInfo{
+	return &sessioninfo.SessionInfo{
 		ID:          si.ID,
 		Username:    si.Username,
 		CreatedAt:   si.CreatedAt,

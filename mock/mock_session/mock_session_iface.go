@@ -15,7 +15,7 @@ import (
 
 	access "github.com/cccteam/access"
 	ccc "github.com/cccteam/ccc"
-	sessiontypes "github.com/cccteam/session/sessiontypes"
+	"github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -177,10 +177,10 @@ func (mr *MockStorageManagerMockRecorder) DestroySession(ctx, sessionID any) *go
 }
 
 // Session mocks base method.
-func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessiontypes.SessionInfo, error) {
+func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessiontypes.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -272,10 +272,10 @@ func (mr *MockOIDCAzureSessionStorageMockRecorder) NewSession(ctx, username, oid
 }
 
 // Session mocks base method.
-func (m *MockOIDCAzureSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessiontypes.SessionInfo, error) {
+func (m *MockOIDCAzureSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessiontypes.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

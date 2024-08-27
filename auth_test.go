@@ -12,7 +12,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/mock/mock_session"
-	"github.com/cccteam/session/sessiontypes"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -44,7 +44,7 @@ func TestApp_Authenticated(t *testing.T) {
 		{
 			name: "fails to check the user's session",
 			prepare: func(storage *mock_session.MockStorageManager) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessiontypes.SessionInfo{UpdatedAt: time.Now()}, nil).Times(1)
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now()}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
 			expectedStatus: http.StatusInternalServerError,
@@ -52,7 +52,7 @@ func TestApp_Authenticated(t *testing.T) {
 		{
 			name: "successful authentication",
 			prepare: func(storage *mock_session.MockStorageManager) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessiontypes.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now(),
 					Permissions: map[access.Domain][]access.Permission{

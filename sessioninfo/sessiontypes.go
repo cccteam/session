@@ -1,5 +1,5 @@
-// sessiontypes package contains the shared types for the session package implementations.
-package sessiontypes
+// sessioninfo package handles session information.
+package sessioninfo
 
 import (
 	"time"

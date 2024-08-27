@@ -8,7 +8,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/oidc"
+	"github.com/cccteam/session/sessioninfo"
 	"go.opentelemetry.io/otel"
 )
 
@@ -42,7 +42,7 @@ func (s *session) Authenticated() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		sessInfo := oidc.SessionInfoFromRequest(r)
+		sessInfo := sessioninfo.SessionInfoFromRequest(r)
 
 		// set response values
 		res := response{

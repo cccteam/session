@@ -1,10 +1,9 @@
-package oidc
+package sessioninfo
 
 import (
 	"net/http"
 
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/sessiontypes"
 )
 
 type ctxKey string
@@ -13,8 +12,8 @@ const (
 	CtxSessionInfo ctxKey = "sessionInfo"
 )
 
-func SessionInfoFromRequest(r *http.Request) *sessiontypes.SessionInfo {
-	sessionInfo, ok := r.Context().Value(CtxSessionInfo).(*sessiontypes.SessionInfo)
+func SessionInfoFromRequest(r *http.Request) *SessionInfo {
+	sessionInfo, ok := r.Context().Value(CtxSessionInfo).(*SessionInfo)
 	if !ok {
 		logger.Req(r).Errorf("failed to find %s in request context", CtxSessionInfo)
 	}

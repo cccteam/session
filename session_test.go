@@ -12,8 +12,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/mock/mock_session"
-	"github.com/cccteam/session/oidc"
-	"github.com/cccteam/session/sessiontypes"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -280,7 +279,7 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
 			},
 			prepare: func(storageManager *mock_session.MockStorageManager) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -294,7 +293,7 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodPost, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
 			},
 			prepare: func(storageManager *mock_session.MockStorageManager) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -321,7 +320,7 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
 			},
 			prepare: func(storageManager *mock_session.MockStorageManager) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(&sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now()}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(errors.New("big fat error"))
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -373,7 +372,7 @@ func TestApp_checkSession(t *testing.T) {
 		args             args
 		prepare          func(storageManager *mock_session.MockStorageManager, tt test)
 		wantUnauthorized bool
-		want             *sessiontypes.SessionInfo
+		want             *sessioninfo.SessionInfo
 		wantMsg          string
 		wantErr          bool
 	}
@@ -386,7 +385,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
 			},
-			want: &sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now()},
+			want: &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now()},
 			prepare: func(storageManager *mock_session.MockStorageManager, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f")).Return(tt.want, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f")).Return(nil)
@@ -400,7 +399,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
 			},
-			want: &sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now()},
+			want: &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now()},
 			prepare: func(storageManager *mock_session.MockStorageManager, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f")).Return(tt.want, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f")).Return(errors.New("big fat error"))
@@ -415,7 +414,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
 			},
-			want: &sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now(), Expired: true},
+			want: &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f"), Username: "specialUser", UpdatedAt: time.Now(), Expired: true},
 			prepare: func(storageManager *mock_session.MockStorageManager, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("92922509-82d2-4bc7-853a-d73b8926a55f")).Return(tt.want, nil)
 			},
@@ -431,7 +430,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
 			},
-			want: &sessiontypes.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now().Add(-time.Hour)},
+			want: &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), Username: "specialUser", UpdatedAt: time.Now().Add(-time.Hour)},
 			prepare: func(storageManager *mock_session.MockStorageManager, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(tt.want, nil)
 			},
@@ -483,7 +482,7 @@ func TestApp_checkSession(t *testing.T) {
 
 				return
 			}
-			if got := oidc.SessionInfoFromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
+			if got := sessioninfo.SessionInfoFromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sessInfo = %v, wantSessInfo %v", got, tt.want)
 			}
 		})

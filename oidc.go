@@ -25,13 +25,13 @@ type OIDCAzureSession struct {
 }
 
 func NewOIDCAzure(
-	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, accessManagement Accessor,
+	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
 ) *OIDCAzureSession {
 	return &OIDCAzureSession{
 		oidc: oidcAuthenticator,
 		session: session{
-			access:         accessManagement,
+			access:         userManager,
 			handle:         logHandler,
 			cookieManager:  newCookieClient(secureCookie),
 			sessionTimeout: sessionTimeout,

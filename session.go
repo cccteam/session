@@ -10,7 +10,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/oidc"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
 )
@@ -20,7 +20,7 @@ const name = "github.com/cccteam/session"
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
 type session struct {
-	access         Accessor
+	access         UserManager
 	sessionTimeout time.Duration
 	handle         LogHandler
 	storage        StorageManager
@@ -117,7 +117,7 @@ func (s *session) checkSession(r *http.Request) (req *http.Request, err error) {
 	}
 
 	// Store session info in context
-	r = r.WithContext(context.WithValue(ctx, oidc.CtxSessionInfo, sessInfo))
+	r = r.WithContext(context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessInfo))
 
 	// Add user to logging context
 	logger.Req(r).AddRequestAttribute("username", sessInfo.Username)

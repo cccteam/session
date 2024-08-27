@@ -10,11 +10,11 @@ import (
 )
 
 type PostgresqlSessionManager struct {
-	access Accessor
+	access UserManager
 	db     postgresql.DB
 }
 
-func NewPostgresqlManager(accessor Accessor, dbcon postgresql.Queryer) *PostgresqlSessionManager {
+func NewPostgresqlManager(accessor UserManager, dbcon postgresql.Queryer) *PostgresqlSessionManager {
 	return &PostgresqlSessionManager{
 		access: accessor,
 		db:     postgresql.NewDBConnection(dbcon),

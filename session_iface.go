@@ -5,10 +5,10 @@ import (
 
 	"github.com/cccteam/access"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/sessiontypes"
+	"github.com/cccteam/session/sessioninfo"
 )
 
-type Accessor interface {
+type UserManager interface {
 	Domains(ctx context.Context) ([]access.Domain, error)
 	UserRoles(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Role, error)
 	RoleExists(ctx context.Context, role access.Role, domain access.Domain) bool
@@ -20,7 +20,7 @@ type Accessor interface {
 type StorageManager interface {
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
-	Session(ctx context.Context, sessionID ccc.UUID) (*sessiontypes.SessionInfo, error)
+	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
 }
 
 type OIDCAzureSessionStorage interface {

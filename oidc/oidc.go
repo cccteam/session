@@ -102,24 +102,24 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	oauth2Token, err := o.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
 	if err != nil {
-		return "", "", httpio.NewForbiddenMessage("Failed to exchange token")
+		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		return "", "", httpio.NewForbiddenMessage("No id_token in token response")
+		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
 	}
 
 	verifier := o.provider.Verifier(&oidc.Config{ClientID: o.config.ClientID()})
 
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return "", "", httpio.NewForbiddenMessage("Failed to verify ID token")
+		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
 	}
 
 	// Extract the claims from the ID Token
 	if err := idToken.Claims(&claims); err != nil {
-		return "", "", httpio.NewForbiddenMessage("Failed to parse ID token claims")
+		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims")
 	}
 
 	return returnURL, sid, nil
