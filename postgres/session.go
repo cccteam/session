@@ -1,5 +1,5 @@
 // package postgresql implements the database layer for postgresql
-package postgresql
+package postgres
 
 import (
 	"context"

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	access "github.com/cccteam/access"
+	accesstypes "github.com/cccteam/access/accesstypes"
 	ccc "github.com/cccteam/ccc"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
@@ -43,7 +43,7 @@ func (m *MockUserManager) EXPECT() *MockUserManagerMockRecorder {
 }
 
 // AddUserRoles mocks base method.
-func (m *MockUserManager) AddUserRoles(ctx context.Context, user access.User, roles []access.Role, domain access.Domain) error {
+func (m *MockUserManager) AddUserRoles(ctx context.Context, user accesstypes.User, roles []accesstypes.Role, domain accesstypes.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddUserRoles", ctx, user, roles, domain)
 	ret0, _ := ret[0].(error)
@@ -57,7 +57,7 @@ func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, user, roles, domain any
 }
 
 // DeleteUserRole mocks base method.
-func (m *MockUserManager) DeleteUserRole(ctx context.Context, user access.User, role access.Role, domain access.Domain) error {
+func (m *MockUserManager) DeleteUserRole(ctx context.Context, user accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteUserRole", ctx, user, role, domain)
 	ret0, _ := ret[0].(error)
@@ -71,10 +71,10 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRole(ctx, user, role, domain an
 }
 
 // Domains mocks base method.
-func (m *MockUserManager) Domains(ctx context.Context) ([]access.Domain, error) {
+func (m *MockUserManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Domains", ctx)
-	ret0, _ := ret[0].([]access.Domain)
+	ret0, _ := ret[0].([]accesstypes.Domain)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -86,7 +86,7 @@ func (mr *MockUserManagerMockRecorder) Domains(ctx any) *gomock.Call {
 }
 
 // RoleExists mocks base method.
-func (m *MockUserManager) RoleExists(ctx context.Context, role access.Role, domain access.Domain) bool {
+func (m *MockUserManager) RoleExists(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, role, domain)
 	ret0, _ := ret[0].(bool)
@@ -100,14 +100,14 @@ func (mr *MockUserManagerMockRecorder) RoleExists(ctx, role, domain any) *gomock
 }
 
 // UserPermissions mocks base method.
-func (m *MockUserManager) UserPermissions(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Permission, error) {
+func (m *MockUserManager) UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "UserPermissions", varargs...)
-	ret0, _ := ret[0].(map[access.Domain][]access.Permission)
+	ret0, _ := ret[0].(map[accesstypes.Domain][]accesstypes.Permission)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -120,14 +120,14 @@ func (mr *MockUserManagerMockRecorder) UserPermissions(ctx, username any, domain
 }
 
 // UserRoles mocks base method.
-func (m *MockUserManager) UserRoles(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Role, error) {
+func (m *MockUserManager) UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "UserRoles", varargs...)
-	ret0, _ := ret[0].(map[access.Domain][]access.Role)
+	ret0, _ := ret[0].(map[accesstypes.Domain][]accesstypes.Role)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
