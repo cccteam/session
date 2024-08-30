@@ -4,7 +4,7 @@ package sessioninfo
 import (
 	"time"
 
-	"github.com/cccteam/access"
+	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
 )
 
@@ -15,5 +15,5 @@ type SessionInfo struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	Expired     bool
-	Permissions map[access.Domain][]access.Permission
+	Permissions map[accesstypes.Domain][]accesstypes.Permission
 }

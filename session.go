@@ -23,7 +23,7 @@ type session struct {
 	access         UserManager
 	sessionTimeout time.Duration
 	handle         LogHandler
-	storage        StorageManager
+	storage        storageManager
 	cookieManager
 }
 

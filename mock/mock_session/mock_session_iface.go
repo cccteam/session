@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	access "github.com/cccteam/access"
+	accesstypes "github.com/cccteam/access/accesstypes"
 	ccc "github.com/cccteam/ccc"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
@@ -43,7 +43,7 @@ func (m *MockUserManager) EXPECT() *MockUserManagerMockRecorder {
 }
 
 // AddUserRoles mocks base method.
-func (m *MockUserManager) AddUserRoles(ctx context.Context, user access.User, roles []access.Role, domain access.Domain) error {
+func (m *MockUserManager) AddUserRoles(ctx context.Context, user accesstypes.User, roles []accesstypes.Role, domain accesstypes.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddUserRoles", ctx, user, roles, domain)
 	ret0, _ := ret[0].(error)
@@ -57,7 +57,7 @@ func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, user, roles, domain any
 }
 
 // DeleteUserRole mocks base method.
-func (m *MockUserManager) DeleteUserRole(ctx context.Context, user access.User, role access.Role, domain access.Domain) error {
+func (m *MockUserManager) DeleteUserRole(ctx context.Context, user accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteUserRole", ctx, user, role, domain)
 	ret0, _ := ret[0].(error)
@@ -71,10 +71,10 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRole(ctx, user, role, domain an
 }
 
 // Domains mocks base method.
-func (m *MockUserManager) Domains(ctx context.Context) ([]access.Domain, error) {
+func (m *MockUserManager) Domains(ctx context.Context) ([]accesstypes.Domain, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Domains", ctx)
-	ret0, _ := ret[0].([]access.Domain)
+	ret0, _ := ret[0].([]accesstypes.Domain)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -86,7 +86,7 @@ func (mr *MockUserManagerMockRecorder) Domains(ctx any) *gomock.Call {
 }
 
 // RoleExists mocks base method.
-func (m *MockUserManager) RoleExists(ctx context.Context, role access.Role, domain access.Domain) bool {
+func (m *MockUserManager) RoleExists(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, role, domain)
 	ret0, _ := ret[0].(bool)
@@ -100,14 +100,14 @@ func (mr *MockUserManagerMockRecorder) RoleExists(ctx, role, domain any) *gomock
 }
 
 // UserPermissions mocks base method.
-func (m *MockUserManager) UserPermissions(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Permission, error) {
+func (m *MockUserManager) UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "UserPermissions", varargs...)
-	ret0, _ := ret[0].(map[access.Domain][]access.Permission)
+	ret0, _ := ret[0].(map[accesstypes.Domain][]accesstypes.Permission)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -120,14 +120,14 @@ func (mr *MockUserManagerMockRecorder) UserPermissions(ctx, username any, domain
 }
 
 // UserRoles mocks base method.
-func (m *MockUserManager) UserRoles(ctx context.Context, username access.User, domain ...access.Domain) (map[access.Domain][]access.Role, error) {
+func (m *MockUserManager) UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range domain {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "UserRoles", varargs...)
-	ret0, _ := ret[0].(map[access.Domain][]access.Role)
+	ret0, _ := ret[0].(map[accesstypes.Domain][]accesstypes.Role)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -139,31 +139,31 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, username any, domain ...an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
 }
 
-// MockStorageManager is a mock of StorageManager interface.
-type MockStorageManager struct {
+// MockstorageManager is a mock of storageManager interface.
+type MockstorageManager struct {
 	ctrl     *gomock.Controller
-	recorder *MockStorageManagerMockRecorder
+	recorder *MockstorageManagerMockRecorder
 }
 
-// MockStorageManagerMockRecorder is the mock recorder for MockStorageManager.
-type MockStorageManagerMockRecorder struct {
-	mock *MockStorageManager
+// MockstorageManagerMockRecorder is the mock recorder for MockstorageManager.
+type MockstorageManagerMockRecorder struct {
+	mock *MockstorageManager
 }
 
-// NewMockStorageManager creates a new mock instance.
-func NewMockStorageManager(ctrl *gomock.Controller) *MockStorageManager {
-	mock := &MockStorageManager{ctrl: ctrl}
-	mock.recorder = &MockStorageManagerMockRecorder{mock}
+// NewMockstorageManager creates a new mock instance.
+func NewMockstorageManager(ctrl *gomock.Controller) *MockstorageManager {
+	mock := &MockstorageManager{ctrl: ctrl}
+	mock.recorder = &MockstorageManagerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockStorageManager) EXPECT() *MockStorageManagerMockRecorder {
+func (m *MockstorageManager) EXPECT() *MockstorageManagerMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockStorageManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockstorageManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -171,13 +171,13 @@ func (m *MockStorageManager) DestroySession(ctx context.Context, sessionID ccc.U
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockStorageManagerMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockStorageManager)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockstorageManager)(nil).DestroySession), ctx, sessionID)
 }
 
 // Session mocks base method.
-func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockstorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -186,13 +186,13 @@ func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockStorageManagerMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockStorageManager)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockstorageManager)(nil).Session), ctx, sessionID)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockStorageManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockstorageManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -200,9 +200,9 @@ func (m *MockStorageManager) UpdateSessionActivity(ctx context.Context, sessionI
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockStorageManagerMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockStorageManager)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockstorageManager)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
 // MockOIDCAzureSessionStorage is a mock of OIDCAzureSessionStorage interface.

@@ -1,4 +1,4 @@
-package postgresql
+package spanner
 
 import (
 	"context"
@@ -10,8 +10,6 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/google/go-cmp/cmp"
 )
-
-const PostgresTimestampFormat = "2006-01-02 15:04:05.999999999-07"
 
 func Test_client_Session(t *testing.T) {
 	t.Parallel()
@@ -30,16 +28,16 @@ func Test_client_Session(t *testing.T) {
 		{
 			name:      "fails to find session",
 			sessionID: ccc.UUIDMustParse("5f5d3b2c-5fd0-4d07-aec7-bba3d951b11e"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success getting session",
 			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			want: &Session{
 				ID:        ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-				OidcSID:   "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
+				OidcSID:   "eb0c72a4-1f32-469e-b51b-7baa589a944c",
 				Username:  "test user 2",
 				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
 				UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
@@ -57,7 +55,7 @@ func Test_client_Session(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Connection{conn: conn.Pool}
+			c := &Client{spanner: conn.Client}
 
 			got, err := c.Session(ctx, tt.sessionID)
 			if (err != nil) != tt.wantErr {
@@ -73,7 +71,6 @@ func Test_client_Session(t *testing.T) {
 
 func Test_client_InsertSession(t *testing.T) {
 	t.Parallel()
-
 	tests := []struct {
 		name           string
 		insertSession  *InsertSession
@@ -83,25 +80,41 @@ func Test_client_InsertSession(t *testing.T) {
 		postAssertions []string
 	}{
 		{
+			name: "fails to create session (invalid schema)",
+			insertSession: &InsertSession{
+				Username:  "test user 2",
+				OidcSID:   "oidc session 2",
+				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
+				UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
+				Expired:   true,
+			},
+			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
+			wantErr:   true,
+		},
+		{
 			name: "success creating session",
 			insertSession: &InsertSession{
 				Username:  "test user 2",
-				OidcSID:   "oidc session",
-				CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
-				UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+				OidcSID:   "oidc session 2",
+				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
+				UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
+				Expired:   true,
 			},
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
-				`SELECT COUNT(*) = 0 FROM "Sessions"`,
+				`SELECT COUNT(*) = 2 FROM Sessions WHERE username = 'test user 2'`,
+				`SELECT COUNT(*) = 0 FROM Sessions WHERE Username = 'test user 2' AND OidcSid = 'random'`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 1 FROM "Sessions"
-				 WHERE "Id" = '%s'
-					 AND "Username" = 'test user 2'
-					 AND "OidcSid" = 'oidc session'
-					 AND "CreatedAt" = '2024-01-02 03:04:05+00:00'
-					 AND "UpdatedAt" = '2024-01-02 03:04:05+00:00'
-					 AND "Expired" = false`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE username = 'test user 2'`,
+				`
+				SELECT COUNT(*) = 1 FROM Sessions 
+				WHERE Id = '%s'
+					AND Username = 'test user 2'
+					AND OidcSid = 'oidc session 2'
+					AND CreatedAt = TIMESTAMP '2018-05-03 01:02:03 UTC'
+					AND UpdatedAt = TIMESTAMP '2017-06-04 03:02:01 UTC'
+					AND Expired = true`,
 			},
 			wantErr: false,
 		},
@@ -116,11 +129,11 @@ func Test_client_InsertSession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Connection{conn: conn.Pool}
+			c := &Client{spanner: conn.Client}
 
-			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 
-			id, err := c.InsertSession(ctx, tt.insertSession)
+			got, err := c.InsertSession(ctx, tt.insertSession)
 			if err != nil != tt.wantErr {
 				t.Errorf("client.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -128,11 +141,11 @@ func Test_client_InsertSession(t *testing.T) {
 
 			for i, query := range tt.postAssertions {
 				if strings.Contains(query, "%s") {
-					tt.postAssertions[i] = fmt.Sprintf(query, id.String())
+					tt.postAssertions[i] = fmt.Sprintf(query, got.String())
 				}
 			}
 
-			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})
 	}
 }
@@ -155,13 +168,13 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 		{
 			name:      "fails to find session",
 			sessionID: ccc.UUIDMustParse("ed0c72a4-1f32-469e-b51b-7baa589a945c"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success updating session activity",
 			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 		},
 	}
 	for _, tt := range tests {
@@ -174,17 +187,17 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Connection{conn: conn.Pool}
+			c := &Client{spanner: conn.Client}
 
 			preExecTime := time.Now()
 			if !tt.wantErr {
-				runAssertions(ctx, t, conn.Pool, []string{fmt.Sprintf(`SELECT "UpdatedAt" < '%s' FROM "Sessions" WHERE  "Id" = '%s'`, preExecTime.Format(PostgresTimestampFormat), tt.sessionID)})
+				runAssertions(ctx, t, conn.Client, []string{fmt.Sprintf(`SELECT UpdatedAt < '%s' FROM Sessions WHERE  Id = '%s'`, preExecTime.Format(time.RFC3339), tt.sessionID)})
 			}
 			if err := c.UpdateSessionActivity(ctx, tt.sessionID); (err != nil) != tt.wantErr {
 				t.Errorf("client.UpdateSessionActivity() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr {
-				runAssertions(ctx, t, conn.Pool, []string{fmt.Sprintf(`SELECT "UpdatedAt" > '%s' FROM "Sessions" WHERE  "Id" = '%s'`, preExecTime.Format(PostgresTimestampFormat), tt.sessionID)})
+				runAssertions(ctx, t, conn.Client, []string{fmt.Sprintf(`SELECT UpdatedAt > '%s' FROM Sessions WHERE  Id = '%s'`, preExecTime.Format(time.RFC3339), tt.sessionID)})
 			}
 		})
 	}
@@ -210,24 +223,24 @@ func Test_client_DestroySession(t *testing.T) {
 		{
 			name:      "success without destroying the session (not found)",
 			sessionID: ccc.UUIDMustParse("52dd570b-1280-421b-888e-a63f0ca35be9"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
-				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Id" = 'session1'`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
+				`SELECT COUNT(*) = 0 FROM Sessions WHERE Id = 'session1'`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
 			},
 		},
 		{
 			name:      "success destroying session",
 			sessionID: ccc.UUIDMustParse("38bd570b-1280-421b-888e-a63f0ca35be7"),
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
-				`SELECT "Expired" = false FROM "Sessions" WHERE "Id" = '38bd570b-1280-421b-888e-a63f0ca35be7'`,
+				`SELECT Expired = false FROM Sessions WHERE Id = '38bd570b-1280-421b-888e-a63f0ca35be7'`,
 			},
 			postAssertions: []string{
-				`SELECT "Expired" = true FROM "Sessions" WHERE "Id" = '38bd570b-1280-421b-888e-a63f0ca35be7'`,
+				`SELECT Expired = true FROM Sessions WHERE Id = '38bd570b-1280-421b-888e-a63f0ca35be7'`,
 			},
 		},
 	}
@@ -241,13 +254,13 @@ func Test_client_DestroySession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Connection{conn: conn.Pool}
+			c := &Client{spanner: conn.Client}
 
-			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySession(ctx, tt.sessionID); (err != nil) != tt.wantErr {
 				t.Errorf("client.DestroySession() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})
 	}
 }
@@ -264,35 +277,35 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 	}{
 		{
 			name:    "fails to destroy session",
-			oidcSID: "oidc session 38bd570b-1280-421b-888e-a63f0ca35be7",
+			oidcSID: "38bd570b-1280-421b-888e-a63f0ca35be7",
 			wantErr: true,
 		},
 		{
 			name:      "success without destroying sessions",
 			oidcSID:   "oidc session4",
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
-				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "OidcSid" = 'oidc session4'`,
-				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
+				`SELECT COUNT(*) = 0 FROM Sessions WHERE OidcSid = 'oidc session4'`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
 			},
 		},
 		{
 			name:      "success destroying sessions",
-			oidcSID:   "oidc session aa817d69-f550-474b-8eae-7b29da32e3a8",
-			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			oidcSID:   "aa817d69-f550-474b-8eae-7b29da32e3a8",
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
-				`SELECT "Username" = 'test user 1' FROM "Sessions" WHERE "OidcSid" = 'oidc session aa817d69-f550-474b-8eae-7b29da32e3a8'`,
-				`SELECT COUNT(*) = 1               FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = true`,
-				`SELECT COUNT(*) = 2               FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = false`,
-				`SELECT COUNT(*) = 1               FROM "Sessions" WHERE "Username" <> 'test user 1' AND "Expired" = false`,
+				`SELECT Username = 'test user 1' FROM Sessions WHERE OidcSid = 'aa817d69-f550-474b-8eae-7b29da32e3a8'`,
+				`SELECT COUNT(*) = 1 FROM Sessions WHERE Username = 'test user 1' AND Expired = true`,
+				`SELECT COUNT(*) = 2 FROM Sessions WHERE Username = 'test user 1' AND Expired = false`,
+				`SELECT COUNT(*) = 1 FROM Sessions WHERE Username <> 'test user 1' AND Expired = false`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = true`,
-				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = false`,
-				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" <> 'test user 1' AND "Expired" = false`,
+				`SELECT COUNT(*) = 3 FROM Sessions WHERE Username = 'test user 1' AND Expired = true`,
+				`SELECT COUNT(*) = 0 FROM Sessions WHERE Username = 'test user 1' AND Expired = false`,
+				`SELECT COUNT(*) = 1 FROM Sessions WHERE Username <> 'test user 1' AND Expired = false`,
 			},
 		},
 	}
@@ -306,13 +319,13 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Connection{conn: conn.Pool}
+			c := &Client{spanner: conn.Client}
 
-			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySessionOIDC(ctx, tt.oidcSID); (err != nil) != tt.wantErr {
 				t.Errorf("client.DestroySessionOIDC() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})
 	}
 }

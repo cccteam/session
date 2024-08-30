@@ -5,11 +5,13 @@ go 1.23.0
 replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migrate/v4 v4.17.2-beta.0
 
 require (
-	github.com/cccteam/access v0.1.0
+	cloud.google.com/go/spanner v1.67.0
+	github.com/cccteam/access v0.1.3
 	github.com/cccteam/ccc v0.1.0
-	github.com/cccteam/db-initiator v0.1.2
-	github.com/cccteam/httpio v0.2.5
+	github.com/cccteam/db-initiator v0.2.0
+	github.com/cccteam/httpio v0.3.0
 	github.com/cccteam/logger v0.1.12
+	github.com/cccteam/spxscan v0.0.3
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/georgysavva/scany/v2 v2.1.3
 	github.com/go-chi/chi/v5 v5.1.0
@@ -21,6 +23,7 @@ require (
 	go.opentelemetry.io/otel v1.28.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/oauth2 v0.22.0
+	google.golang.org/grpc v1.65.0
 )
 
 require (
@@ -32,7 +35,6 @@ require (
 	cloud.google.com/go/iam v1.1.12 // indirect
 	cloud.google.com/go/logging v1.11.0 // indirect
 	cloud.google.com/go/longrunning v0.5.11 // indirect
-	cloud.google.com/go/spanner v1.67.0 // indirect
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.14 // indirect
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
@@ -55,6 +57,7 @@ require (
 	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
@@ -120,6 +123,5 @@ require (
 	google.golang.org/genproto v0.0.0-20240730163845-b1a4ccb954bf // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240725223205-93522f1f2a9f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240730163845-b1a4ccb954bf // indirect
-	google.golang.org/grpc v1.65.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
