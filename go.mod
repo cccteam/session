@@ -6,7 +6,7 @@ replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.67.0
-	github.com/cccteam/access v0.1.3-0.20240830020928-ba58817e15a4
+	github.com/cccteam/access v0.1.3
 	github.com/cccteam/ccc v0.1.0
 	github.com/cccteam/db-initiator v0.2.0
 	github.com/cccteam/httpio v0.3.0
