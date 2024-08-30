@@ -6,8 +6,6 @@ import (
 	"github.com/cccteam/ccc"
 )
 
-//go:generate mockgen -source=db_iface.go -destination=mock_spanner/db_iface.go
-
 // DB is the interface for the database methods
 type DB interface {
 	// Session returns the session information from the database for given sessionID.

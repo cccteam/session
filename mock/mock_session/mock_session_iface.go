@@ -139,31 +139,31 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, username any, domain ...an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
 }
 
-// MockStorageManager is a mock of StorageManager interface.
-type MockStorageManager struct {
+// MockstorageManager is a mock of storageManager interface.
+type MockstorageManager struct {
 	ctrl     *gomock.Controller
-	recorder *MockStorageManagerMockRecorder
+	recorder *MockstorageManagerMockRecorder
 }
 
-// MockStorageManagerMockRecorder is the mock recorder for MockStorageManager.
-type MockStorageManagerMockRecorder struct {
-	mock *MockStorageManager
+// MockstorageManagerMockRecorder is the mock recorder for MockstorageManager.
+type MockstorageManagerMockRecorder struct {
+	mock *MockstorageManager
 }
 
-// NewMockStorageManager creates a new mock instance.
-func NewMockStorageManager(ctrl *gomock.Controller) *MockStorageManager {
-	mock := &MockStorageManager{ctrl: ctrl}
-	mock.recorder = &MockStorageManagerMockRecorder{mock}
+// NewMockstorageManager creates a new mock instance.
+func NewMockstorageManager(ctrl *gomock.Controller) *MockstorageManager {
+	mock := &MockstorageManager{ctrl: ctrl}
+	mock.recorder = &MockstorageManagerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockStorageManager) EXPECT() *MockStorageManagerMockRecorder {
+func (m *MockstorageManager) EXPECT() *MockstorageManagerMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockStorageManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockstorageManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -171,13 +171,13 @@ func (m *MockStorageManager) DestroySession(ctx context.Context, sessionID ccc.U
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockStorageManagerMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockStorageManager)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockstorageManager)(nil).DestroySession), ctx, sessionID)
 }
 
 // Session mocks base method.
-func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockstorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -186,13 +186,13 @@ func (m *MockStorageManager) Session(ctx context.Context, sessionID ccc.UUID) (*
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockStorageManagerMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockStorageManager)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockstorageManager)(nil).Session), ctx, sessionID)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockStorageManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockstorageManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -200,9 +200,9 @@ func (m *MockStorageManager) UpdateSessionActivity(ctx context.Context, sessionI
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockStorageManagerMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockstorageManagerMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockStorageManager)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockstorageManager)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
 // MockOIDCAzureSessionStorage is a mock of OIDCAzureSessionStorage interface.
