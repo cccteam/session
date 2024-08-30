@@ -29,13 +29,13 @@ func TestApp_Authenticated(t *testing.T) {
 	tests := []struct {
 		name           string
 		expectedStatus int
-		prepare        func(*mock_session.MockStorageManager)
+		prepare        func(*mock_session.MockstorageManager)
 		cookieError    bool
 		want           *response
 	}{
 		{
 			name: "success but unauthorized",
-			prepare: func(storage *mock_session.MockStorageManager) {
+			prepare: func(storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("invalid session")).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -43,7 +43,7 @@ func TestApp_Authenticated(t *testing.T) {
 		},
 		{
 			name: "fails to check the user's session",
-			prepare: func(storage *mock_session.MockStorageManager) {
+			prepare: func(storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now()}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
@@ -51,7 +51,7 @@ func TestApp_Authenticated(t *testing.T) {
 		},
 		{
 			name: "successful authentication",
-			prepare: func(storage *mock_session.MockStorageManager) {
+			prepare: func(storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now(),
@@ -78,7 +78,7 @@ func TestApp_Authenticated(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			storage := mock_session.NewMockStorageManager(gomock.NewController(t))
+			storage := mock_session.NewMockstorageManager(gomock.NewController(t))
 
 			session := &session{
 				sessionTimeout: 15 * time.Minute,
@@ -123,13 +123,13 @@ func TestApp_Logout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
-		prepare        func(*mock_session.MockStorageManager)
+		prepare        func(*mock_session.MockstorageManager)
 		expectedStatus int
 		wantSessionID  ccc.UUID
 	}{
 		{
 			name: "success logging out, fails to destroy session in db",
-			prepare: func(u *mock_session.MockStorageManager) {
+			prepare: func(u *mock_session.MockstorageManager) {
 				u.EXPECT().DestroySession(gomock.Any(), ccc.UUIDMustParse("bbee630a-0255-4dee-9283-8b7277bad0b0")).Return(httpio.NewNotFoundMessagef("session not found")).Times(1)
 			},
 			expectedStatus: http.StatusNotFound,
@@ -137,7 +137,7 @@ func TestApp_Logout(t *testing.T) {
 		},
 		{
 			name: "success logging out",
-			prepare: func(u *mock_session.MockStorageManager) {
+			prepare: func(u *mock_session.MockstorageManager) {
 				u.EXPECT().DestroySession(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -148,7 +148,7 @@ func TestApp_Logout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			storage := mock_session.NewMockStorageManager(gomock.NewController(t))
+			storage := mock_session.NewMockstorageManager(gomock.NewController(t))
 			tt.prepare(storage)
 			a := &session{
 				sessionTimeout: 15 * time.Minute,
