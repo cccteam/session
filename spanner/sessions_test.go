@@ -168,13 +168,13 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 		{
 			name:      "fails to find session",
 			sessionID: ccc.UUIDMustParse("ed0c72a4-1f32-469e-b51b-7baa589a945c"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success updating session activity",
 			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
-			sourceURL: []string{"file://../schema/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 		},
 	}
 	for _, tt := range tests {
