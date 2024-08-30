@@ -12,6 +12,6 @@ The Session repository is designed to handle the management of user sessions, in
   - Google Cloud Spanner
 - `Login Types`: Supports multiple authentication methods.
   - Azure OIDC
-  - Credentials
+  - Username/Password
 
 ##### Created and maintained by the CCC team.

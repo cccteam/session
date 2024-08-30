@@ -7,6 +7,7 @@ linters-settings:
         files:
           - $all
         allow:
+          - cloud.google.com/go/spanner
           - github.com/cccteam
           - github.com/coreos/go-oidc/v3
           - github.com/georgysavva/scany/v2
@@ -19,6 +20,7 @@ linters-settings:
           - go.opentelemetry.io/otel
           - go.uber.org/mock
           - golang.org/x/oauth2
+          - google.golang.org/grpc/codes
           - $gostd
   funlen:
     lines: 100

@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/cccteam/access"
+	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
@@ -92,7 +92,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 			return errors.New("Failed to set XSRF Token Cookie")
 		}
 
-		hasRole, err := o.assignUserRoles(ctx, access.User(claims.Username), claims.Roles)
+		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
 
@@ -132,7 +132,7 @@ func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
-func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username access.User, roles []string) (hasRole bool, err error) {
+func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "App.assignUserRoles()")
 	defer span.End()
 
@@ -147,10 +147,10 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username access.
 	}
 
 	for _, domain := range domains {
-		var rolesToAssign []access.Role
+		var rolesToAssign []accesstypes.Role
 		for _, r := range roles {
-			if o.access.RoleExists(ctx, access.Role(r), domain) {
-				rolesToAssign = append(rolesToAssign, access.Role(r))
+			if o.access.RoleExists(ctx, accesstypes.Role(r), domain) {
+				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
 			}
 		}
 
