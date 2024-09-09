@@ -7,7 +7,7 @@ replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migr
 require (
 	cloud.google.com/go/spanner v1.67.0
 	github.com/cccteam/access v0.1.3
-	github.com/cccteam/ccc v0.1.0
+	github.com/cccteam/ccc v0.2.1
 	github.com/cccteam/db-initiator v0.2.0
 	github.com/cccteam/httpio v0.3.0
 	github.com/cccteam/logger v0.1.12
@@ -19,11 +19,11 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.6.0
 	github.com/gorilla/securecookie v1.1.2
-	github.com/jackc/pgx/v5 v5.6.0
-	go.opentelemetry.io/otel v1.28.0
+	github.com/jackc/pgx/v5 v5.7.0
+	go.opentelemetry.io/otel v1.29.0
 	go.uber.org/mock v0.4.0
-	golang.org/x/oauth2 v0.22.0
-	google.golang.org/grpc v1.65.0
+	golang.org/x/oauth2 v0.23.0
+	google.golang.org/grpc v1.66.0
 )
 
 require (
@@ -54,7 +54,7 @@ require (
 	github.com/docker/docker v27.1.1+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
+	github.com/envoyproxy/go-control-plane v0.12.1-0.20240621013728-1eb8caab5155 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/flowerinthenight/casbin-spanner-adapter v0.2.3 // indirect
@@ -70,7 +70,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
@@ -97,6 +96,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/pckhoi/casbin-pgx-adapter/v3 v3.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
@@ -109,8 +109,8 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.53.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.53.0 // indirect
-	go.opentelemetry.io/otel/metric v1.28.0 // indirect
-	go.opentelemetry.io/otel/trace v1.28.0 // indirect
+	go.opentelemetry.io/otel/metric v1.29.0 // indirect
+	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/net v0.27.0 // indirect
