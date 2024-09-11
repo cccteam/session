@@ -200,8 +200,8 @@ func TestApp_CallbackOIDC(t *testing.T) {
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
 					"test domain 2": {"testRole2", "testRole4"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Domain("testDomain1")).Return(true).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}, accesstypes.Domain("testDomain1")).Return(errors.New("failed to add user roles")).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), gomock.Any()).Return(true).Times(4)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(errors.New("failed to add user roles")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
@@ -225,9 +225,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
 					"test domain 2": {"testRole2", "testRole4"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Domain("testDomain1")).Return(true).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}, accesstypes.Domain("testDomain1")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(errors.New("failed to delete user roles")).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), gomock.Any()).Return(true).Times(4)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(errors.New("failed to delete user roles")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
@@ -252,8 +252,8 @@ func TestApp_CallbackOIDC(t *testing.T) {
 					"test domain 2": {"testRole2", "testRole4"},
 				}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).Times(8)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("testDomain1")).Return(nil).Times(3)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("test domain 2")).Return(nil).Times(2)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(3)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(2)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
 			wantErr:         true,
@@ -279,17 +279,17 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				}, nil).Times(1)
 
 				// testDomain1
-				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Domain("testDomain1")).Return(true).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}, accesstypes.Domain("testDomain1")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), gomock.Any()).Return(true).Times(4)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(nil).Times(1)
 
 				// test domain 2
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole1"), accesstypes.Domain("test domain 2")).Return(true).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole2"), accesstypes.Domain("test domain 2")).Return(true).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole3"), accesstypes.Domain("test domain 2")).Return(false).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole5"), accesstypes.Domain("test domain 2")).Return(false).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}, accesstypes.Domain("test domain 2")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole4"), accesstypes.Domain("test domain 2")).Return(nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.Role("testRole1")).Return(true).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.Role("testRole2")).Return(true).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.Role("testRole3")).Return(false).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.Role("testRole5")).Return(false).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), accesstypes.Role("testRole4")).Return(nil).Times(1)
 			},
 			wantRedirectURL: "/testReturnUrl",
 		},
