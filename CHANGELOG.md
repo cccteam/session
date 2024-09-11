@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/cccteam/session/compare/v0.1.2...v0.2.0) (2024-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* Fix breaking changes from access ([#14](https://github.com/cccteam/session/issues/14))
+
+### Code Refactoring
+
+* Fix breaking changes from access ([#14](https://github.com/cccteam/session/issues/14)) ([01cfe4b](https://github.com/cccteam/session/commit/01cfe4b8000b223f43c002150fe9d17484fd0296))
+
 ## [0.1.2](https://github.com/cccteam/session/compare/v0.1.1...v0.1.2) (2024-08-30)
 
 
