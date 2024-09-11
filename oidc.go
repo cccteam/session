@@ -149,21 +149,21 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 	for _, domain := range domains {
 		var rolesToAssign []accesstypes.Role
 		for _, r := range roles {
-			if o.access.RoleExists(ctx, accesstypes.Role(r), domain) {
+			if o.access.RoleExists(ctx, domain, accesstypes.Role(r)) {
 				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
 			}
 		}
 
 		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
 		if len(newRoles) > 0 {
-			if err := o.access.AddUserRoles(ctx, username, newRoles, domain); err != nil {
+			if err := o.access.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
 			}
 		}
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
 		for _, r := range removeRoles {
-			if err := o.access.DeleteUserRole(ctx, username, r, domain); err != nil {
+			if err := o.access.DeleteUserRoles(ctx, domain, username, r); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
 		}

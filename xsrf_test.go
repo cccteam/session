@@ -148,7 +148,7 @@ func TestAppValidateXSRFToken(t *testing.T) {
 			fields: fields{secureCookie: sc},
 			args: args{
 				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) }),
-				r:    mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+				r:    mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 			},
 			want: http.StatusAccepted,
 		},
@@ -157,7 +157,7 @@ func TestAppValidateXSRFToken(t *testing.T) {
 			fields: fields{secureCookie: sc},
 			args: args{
 				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) }),
-				r:    mockRequestWithXSRFToken(t, http.MethodPost, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+				r:    mockRequestWithXSRFToken(t, http.MethodPost, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 			},
 			want: http.StatusAccepted,
 		},
@@ -226,8 +226,8 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 			name:         "found valid cookie",
 			secureCookie: sc,
 			args: args{
-				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
-				sessionID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
+				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
+				sessionID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 			},
 			wantSet: false,
 		},
@@ -235,8 +235,8 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 			name:         "xsrf cookie expired, set new cookie",
 			secureCookie: sc,
 			args: args{
-				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), time.Minute),
-				sessionID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
+				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), time.Minute),
+				sessionID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 			},
 			wantSet: true,
 		},
@@ -244,8 +244,8 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 			name:         "session does not match, set new cookie",
 			secureCookie: sc,
 			args: args{
-				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("ba4fdd80-b566-4128-b593-68614e15a753"), xsrfCookieLife),
-				sessionID: ccc.UUIDMustParse("ba4fdd80-b566-4128-b593-68614e15a753"),
+				r:         mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), xsrfCookieLife),
+				sessionID: ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")),
 			},
 			wantSet: true,
 		},
@@ -286,7 +286,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 			want: true,
 		},
 		{
@@ -296,23 +296,23 @@ func Test_hasValidXSRFToken(t *testing.T) {
 		},
 		{
 			name: "failure, missing header",
-			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 			want: false,
 		},
 		{
 			name: "failure, missmatch sessionid",
-			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("ba4fdd80-b566-4128-b593-68614e15a753"), xsrfCookieLife),
+			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), xsrfCookieLife),
 			want: false,
 		},
 		{
 			name: "failure, expired token",
-			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), -time.Minute),
+			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), -time.Minute),
 			want: false,
 		},
 		{
 			name: "failure, invalid expiration",
 			req: func() *http.Request {
-				r := mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife)
+				r := mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife)
 				r.Header.Set(stCookieName, "invalid")
 				return r
 			}(),
@@ -416,7 +416,7 @@ func Test_readXSRFCookie(t *testing.T) {
 		},
 		{
 			name:          "success reading the cookie",
-			req:           mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("ba4fdd80-b566-4128-b593-68614e15a753"), xsrfCookieLife),
+			req:           mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), xsrfCookieLife),
 			secureCookie:  sc,
 			wantSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5",
 			wantOK:        true,
@@ -458,11 +458,11 @@ func Test_readXSRFHeader(t *testing.T) {
 	}{
 		{
 			name: "failure to read xsrf header",
-			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+			req:  mockRequestWithXSRFToken(t, http.MethodGet, sc, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 		},
 		{
 			name:          "success reading xsrf header",
-			req:           mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife),
+			req:           mockRequestWithXSRFToken(t, http.MethodGet, sc, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife),
 			wantSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5",
 			wantOK:        true,
 		},

@@ -130,10 +130,10 @@ func TestApp_Logout(t *testing.T) {
 		{
 			name: "success logging out, fails to destroy session in db",
 			prepare: func(u *mock_session.MockstorageManager) {
-				u.EXPECT().DestroySession(gomock.Any(), ccc.UUIDMustParse("bbee630a-0255-4dee-9283-8b7277bad0b0")).Return(httpio.NewNotFoundMessagef("session not found")).Times(1)
+				u.EXPECT().DestroySession(gomock.Any(), ccc.Must(ccc.UUIDFromString("bbee630a-0255-4dee-9283-8b7277bad0b0"))).Return(httpio.NewNotFoundMessagef("session not found")).Times(1)
 			},
 			expectedStatus: http.StatusNotFound,
-			wantSessionID:  ccc.UUIDMustParse("bbee630a-0255-4dee-9283-8b7277bad0b0"),
+			wantSessionID:  ccc.Must(ccc.UUIDFromString("bbee630a-0255-4dee-9283-8b7277bad0b0")),
 		},
 		{
 			name: "success logging out",

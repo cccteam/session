@@ -132,8 +132,8 @@ func TestApp_CallbackOIDC(t *testing.T) {
 			name: "fails to create new auth cookie",
 			prepare: func(c *MockcookieManager, w http.ResponseWriter, r *http.Request, oidc *mock_oidc.MockAuthenticator, _ *mock_access.MockUserManager, s *mock_session.MockOIDCAzureSessionStorage) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, errors.New("failed to create new auth cookie")).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, errors.New("failed to create new auth cookie")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
@@ -142,9 +142,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 			name: "fails to set new xsrf cookie",
 			prepare: func(c *MockcookieManager, w http.ResponseWriter, r *http.Request, oidc *mock_oidc.MockAuthenticator, _ *mock_access.MockUserManager, s *mock_session.MockOIDCAzureSessionStorage) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(false).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(false).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
@@ -153,9 +153,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 			name: "fails to get domains",
 			prepare: func(c *MockcookieManager, w http.ResponseWriter, r *http.Request, oidc *mock_oidc.MockAuthenticator, u *mock_access.MockUserManager, s *mock_session.MockOIDCAzureSessionStorage) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return(nil, errors.New("failed to get domains")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
@@ -172,9 +172,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(nil, errors.New("failed to get user roles")).Times(1)
 			},
@@ -192,9 +192,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
@@ -217,9 +217,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
@@ -227,7 +227,7 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Domain("testDomain1")).Return(true).Times(4)
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}, accesstypes.Domain("testDomain1")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRole(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(errors.New("failed to delete user roles")).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(errors.New("failed to delete user roles")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
@@ -243,17 +243,17 @@ func TestApp_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
 					"test domain 2": {"testRole2", "testRole4"},
 				}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).Times(8)
-				u.EXPECT().DeleteUserRole(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("testDomain1")).Return(nil).Times(3)
-				u.EXPECT().DeleteUserRole(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("test domain 2")).Return(nil).Times(2)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("testDomain1")).Return(nil).Times(3)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), gomock.Any(), accesstypes.Domain("test domain 2")).Return(nil).Times(2)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
 			wantErr:         true,
@@ -269,9 +269,9 @@ func TestApp_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"), xsrfCookieLife).Return(true).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
+				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(true).Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
@@ -281,7 +281,7 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				// testDomain1
 				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Domain("testDomain1")).Return(true).Times(4)
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}, accesstypes.Domain("testDomain1")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRole(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole0"), accesstypes.Domain("testDomain1")).Return(nil).Times(1)
 
 				// test domain 2
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole1"), accesstypes.Domain("test domain 2")).Return(true).Times(1)
@@ -289,7 +289,7 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole3"), accesstypes.Domain("test domain 2")).Return(false).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Role("testRole5"), accesstypes.Domain("test domain 2")).Return(false).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}, accesstypes.Domain("test domain 2")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRole(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole4"), accesstypes.Domain("test domain 2")).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.User("test username"), accesstypes.Role("testRole4"), accesstypes.Domain("test domain 2")).Return(nil).Times(1)
 			},
 			wantRedirectURL: "/testReturnUrl",
 		},
