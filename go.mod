@@ -1,15 +1,15 @@
 module github.com/cccteam/session
 
-go 1.23.0
+go 1.23.1
 
 replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migrate/v4 v4.17.2-beta.0
 
 require (
 	cloud.google.com/go/spanner v1.67.0
-	github.com/cccteam/access v0.1.3
-	github.com/cccteam/ccc v0.1.0
+	github.com/cccteam/access v0.2.0
+	github.com/cccteam/ccc v0.2.1
 	github.com/cccteam/db-initiator v0.2.0
-	github.com/cccteam/httpio v0.3.0
+	github.com/cccteam/httpio v0.3.1
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.3
 	github.com/coreos/go-oidc/v3 v3.11.0

@@ -22,21 +22,21 @@ func Test_client_Session(t *testing.T) {
 	}{
 		{
 			name:      "fails to get session",
-			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
+			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			wantErr:   true,
 		},
 		{
 			name:      "fails to find session",
-			sessionID: ccc.UUIDMustParse("5f5d3b2c-5fd0-4d07-aec7-bba3d951b11e"),
+			sessionID: ccc.Must(ccc.UUIDFromString("5f5d3b2c-5fd0-4d07-aec7-bba3d951b11e")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success getting session",
-			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
+			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			want: &Session{
-				ID:        ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
+				ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 				OidcSID:   "eb0c72a4-1f32-469e-b51b-7baa589a944c",
 				Username:  "test user 2",
 				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
@@ -161,19 +161,19 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 	}{
 		{
 			name:      "fails to update session activity (invalid schema)",
-			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
+			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
 			wantErr:   true,
 		},
 		{
 			name:      "fails to find session",
-			sessionID: ccc.UUIDMustParse("ed0c72a4-1f32-469e-b51b-7baa589a945c"),
+			sessionID: ccc.Must(ccc.UUIDFromString("ed0c72a4-1f32-469e-b51b-7baa589a945c")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			wantErr:   true,
 		},
 		{
 			name:      "success updating session activity",
-			sessionID: ccc.UUIDMustParse("eb0c72a4-1f32-469e-b51b-7baa589a944c"),
+			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 		},
 	}
@@ -216,13 +216,13 @@ func Test_client_DestroySession(t *testing.T) {
 	}{
 		{
 			name:      "fails to destroy session (invalid schema)",
-			sessionID: ccc.UUIDMustParse("38bd570b-1280-421b-888e-a63f0ca35be7"),
+			sessionID: ccc.Must(ccc.UUIDFromString("38bd570b-1280-421b-888e-a63f0ca35be7")),
 			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
 			wantErr:   true,
 		},
 		{
 			name:      "success without destroying the session (not found)",
-			sessionID: ccc.UUIDMustParse("52dd570b-1280-421b-888e-a63f0ca35be9"),
+			sessionID: ccc.Must(ccc.UUIDFromString("52dd570b-1280-421b-888e-a63f0ca35be9")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
@@ -234,7 +234,7 @@ func Test_client_DestroySession(t *testing.T) {
 		},
 		{
 			name:      "success destroying session",
-			sessionID: ccc.UUIDMustParse("38bd570b-1280-421b-888e-a63f0ca35be7"),
+			sessionID: ccc.Must(ccc.UUIDFromString("38bd570b-1280-421b-888e-a63f0ca35be7")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT Expired = false FROM Sessions WHERE Id = '38bd570b-1280-421b-888e-a63f0ca35be7'`,

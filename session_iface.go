@@ -10,11 +10,11 @@ import (
 
 type UserManager interface {
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)
-	UserRoles(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Role, error)
-	RoleExists(ctx context.Context, role accesstypes.Role, domain accesstypes.Domain) bool
-	AddUserRoles(ctx context.Context, user accesstypes.User, roles []accesstypes.Role, domain accesstypes.Domain) error
-	DeleteUserRole(ctx context.Context, user accesstypes.User, role accesstypes.Role, domain accesstypes.Domain) error
-	UserPermissions(ctx context.Context, username accesstypes.User, domain ...accesstypes.Domain) (map[accesstypes.Domain][]accesstypes.Permission, error)
+	UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error)
+	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool
+	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
 type storageManager interface {

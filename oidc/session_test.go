@@ -26,10 +26,10 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 			name: "gets session info from request",
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
-				req = req.WithContext(context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")}))
+				req = req.WithContext(context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))}))
 				return req
 			}(),
-			want: &sessioninfo.SessionInfo{ID: ccc.UUIDMustParse("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")},
+			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))},
 		},
 	}
 	for _, tt := range tests {
