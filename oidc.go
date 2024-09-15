@@ -163,8 +163,8 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 		}
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
-		for _, r := range removeRoles {
-			if err := o.access.DeleteUserRoles(ctx, domain, username, r); err != nil {
+		if len(removeRoles) > 0 {
+			if err := o.access.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
 			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
