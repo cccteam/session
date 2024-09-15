@@ -159,6 +159,7 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 			if err := o.access.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
 			}
+			logger.Ctx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
 		}
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
@@ -166,6 +167,7 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 			if err := o.access.DeleteUserRoles(ctx, domain, username, r); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
+			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
 		}
 
 		hasRole = hasRole || len(rolesToAssign) > 0
