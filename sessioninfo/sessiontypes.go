@@ -4,8 +4,8 @@ package sessioninfo
 import (
 	"time"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 )
 
 // SessionInfo struct contains information about a session

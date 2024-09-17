@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/sessioninfo"

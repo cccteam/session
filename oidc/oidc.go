@@ -5,7 +5,6 @@ package oidc
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/cccteam/httpio"
@@ -21,8 +20,7 @@ var _ Authenticator = &OIDC{}
 type OIDC struct {
 	provider
 	config
-	secure bool
-	s      *securecookie.SecureCookie
+	s *securecookie.SecureCookie
 }
 
 // New returns a new OIDC Authenticator
@@ -30,11 +28,6 @@ func New(ctx context.Context, s *securecookie.SecureCookie, issuerURL, clientID,
 	provider, err := oidc.NewProvider(ctx, issuerURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "oidc.NewProvider()")
-	}
-
-	u, err := url.Parse(issuerURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "url.Parse()")
 	}
 
 	return &OIDC{
@@ -48,8 +41,7 @@ func New(ctx context.Context, s *securecookie.SecureCookie, issuerURL, clientID,
 				Scopes:       []string{oidc.ScopeOpenID, "profile"},
 			},
 		},
-		secure: u.Scheme == "https",
-		s:      s,
+		s: s,
 	}, nil
 }
 

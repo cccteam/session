@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	accesstypes "github.com/cccteam/access/accesstypes"
 	ccc "github.com/cccteam/ccc"
+	accesstypes "github.com/cccteam/ccc/accesstypes"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
 )

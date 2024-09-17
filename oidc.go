@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/oidc"
@@ -159,13 +159,15 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 			if err := o.access.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
 			}
+			logger.Ctx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
 		}
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
-		for _, r := range removeRoles {
-			if err := o.access.DeleteUserRoles(ctx, domain, username, r); err != nil {
+		if len(removeRoles) > 0 {
+			if err := o.access.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
+			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
 		}
 
 		hasRole = hasRole || len(rolesToAssign) > 0

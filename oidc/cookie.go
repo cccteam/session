@@ -35,7 +35,7 @@ func (o *OIDC) writeOidcCookie(w http.ResponseWriter, cval map[stKey]string) err
 		Expires: time.Now().Add(oidcCookieExpiration),
 		Value:   encoded,
 		Path:    "/",
-		Secure:  o.secure,
+		Secure:  secureCookie(),
 	})
 
 	return nil
@@ -61,6 +61,6 @@ func (o *OIDC) deleteOidcCookie(w http.ResponseWriter) {
 		Name:    stCookieName,
 		Expires: time.Unix(0, 0),
 		Path:    "/",
-		Secure:  o.secure,
+		Secure:  secureCookie(),
 	})
 }

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/access/mock/mock_access"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/mock/mock_oidc"
 	"github.com/cccteam/session/mock/mock_session"
@@ -252,8 +252,8 @@ func TestApp_CallbackOIDC(t *testing.T) {
 					"test domain 2": {"testRole2", "testRole4"},
 				}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).Times(8)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(3)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(2)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
 			wantErr:         true,

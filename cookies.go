@@ -92,7 +92,7 @@ func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 		Name:     scAuthCookieName.String(),
 		Value:    encoded,
 		Path:     "/",
-		Secure:   true,
+		Secure:   secureCookie(),
 		HttpOnly: true,
 		SameSite: sameSite,
 	})
@@ -163,7 +163,7 @@ func (c *cookieClient) writeXSRFCookie(w http.ResponseWriter, cookieExpiration t
 		Expires: time.Now().Add(cookieExpiration),
 		Value:   encoded,
 		Path:    "/",
-		Secure:  true,
+		Secure:  secureCookie(),
 	})
 
 	return nil
@@ -191,7 +191,7 @@ func (c *cookieClient) readXSRFHeader(r *http.Request) (map[stKey]string, bool) 
 	cval := make(map[stKey]string)
 	err := c.secureCookie.Decode(stCookieName, h, &cval)
 	if err != nil {
-		logger.Req(r).Error("securecookie.Decode()")
+		logger.Req(r).Errorf("securecookie.Decode(): %s", err)
 
 		return nil, false
 	}

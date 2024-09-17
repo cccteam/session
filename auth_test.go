@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/mock/mock_session"
 	"github.com/cccteam/session/sessioninfo"
