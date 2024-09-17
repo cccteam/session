@@ -4,8 +4,8 @@ import (
 	"context"
 
 	cloudspanner "cloud.google.com/go/spanner"
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/spanner"
 	"github.com/go-playground/errors/v5"

@@ -3,8 +3,8 @@ package session
 import (
 	"context"
 
-	"github.com/cccteam/access/accesstypes"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/postgres"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
