@@ -2,7 +2,7 @@ module github.com/cccteam/session
 
 go 1.23.1
 
-replace github.com/golang-migrate/migrate/v4 v4.17.1 => github.com/jtwatson/migrate/v4 v4.18.2-beta.0
+replace github.com/golang-migrate/migrate/v4 v4.18.1 => github.com/jtwatson/migrate/v4 v4.18.2-beta.0
 
 require (
 	cloud.google.com/go/spanner v1.67.0
