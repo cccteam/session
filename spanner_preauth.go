@@ -16,14 +16,14 @@ type SpannerPreauthSessionManager struct {
 	*spannerSessionManager
 }
 
-// NewSpannerPreauthSessionManager is the manager that you will attach to a SpannerPreauthSession
+// NewSpannerPreauthSessionManager is the function that you use to create the session manager that handles the session creation and updates
 func NewSpannerPreauthSessionManager(userManager UserManager, db *cloudspanner.Client) *SpannerPreauthSessionManager {
 	return &SpannerPreauthSessionManager{
 		spannerSessionManager: newSpannerSessionManager(userManager, db),
 	}
 }
 
-// NewSession inserts SessionInfo into database
+// NewSession inserts SessionInfo into the spanner database
 func (p *SpannerPreauthSessionManager) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SpannerPreauthSessionManager.NewSession()")
 	defer span.End()
