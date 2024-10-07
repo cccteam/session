@@ -8,4 +8,5 @@ type OIDCAzureHandlers interface {
 	FrontChannelLogout() http.HandlerFunc
 	Login() http.HandlerFunc
 	Logout() http.HandlerFunc
+	sessionHandlers
 }

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
@@ -29,4 +30,12 @@ type OIDCAzureSessionStorage interface {
 
 	// common storage functions that aren't oidc specific
 	storageManager
+}
+
+type sessionHandlers interface {
+	SetSessionTimeout(next http.Handler) http.Handler
+	StartSession(next http.Handler) http.Handler
+	ValidateSession(next http.Handler) http.Handler
+	SetXSRFToken(next http.Handler) http.Handler
+	ValidateXSRFToken(next http.Handler) http.Handler
 }
