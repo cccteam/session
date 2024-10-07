@@ -22,9 +22,9 @@ import (
 func TestApp_Authenticated(t *testing.T) {
 	t.Parallel()
 	type response struct {
-		Authenticated bool                                            `json:"authenticated"`
-		Username      string                                          `json:"username"`
-		Permissions   map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
+		Authenticated bool                                 `json:"authenticated"`
+		Username      string                               `json:"username"`
+		Permissions   accesstypes.UserPermissionCollection `json:"permissions"`
 	}
 	tests := []struct {
 		name           string
@@ -55,9 +55,9 @@ func TestApp_Authenticated(t *testing.T) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now(),
-					Permissions: map[accesstypes.Domain][]accesstypes.Permission{
-						accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"), accesstypes.Permission("ListRolePermissions")},
-						accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"), accesstypes.Permission("DeleteRole")},
+					Permissions: accesstypes.UserPermissionCollection{
+						accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"): {accesstypes.GlobalResource}, accesstypes.Permission("ListRolePermissions"): {accesstypes.GlobalResource}},
+						accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"): {accesstypes.GlobalResource}, accesstypes.Permission("DeleteRole"): {accesstypes.GlobalResource}},
 					},
 				}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -66,9 +66,9 @@ func TestApp_Authenticated(t *testing.T) {
 			want: &response{
 				Authenticated: true,
 				Username:      "test Username",
-				Permissions: map[accesstypes.Domain][]accesstypes.Permission{
-					accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"), accesstypes.Permission("ListRolePermissions")},
-					accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"), accesstypes.Permission("DeleteRole")},
+				Permissions: accesstypes.UserPermissionCollection{
+					accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"): {accesstypes.GlobalResource}, accesstypes.Permission("ListRolePermissions"): {accesstypes.GlobalResource}},
+					accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"): {accesstypes.GlobalResource}, accesstypes.Permission("DeleteRole"): {accesstypes.GlobalResource}},
 				},
 			},
 		},

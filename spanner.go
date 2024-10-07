@@ -45,7 +45,7 @@ func (p *spannerSessionManager) Session(ctx context.Context, sessionID ccc.UUID)
 		CreatedAt:   si.CreatedAt,
 		UpdatedAt:   si.UpdatedAt,
 		Expired:     si.Expired,
-		Permissions: permissions.GlobalPermissions(),
+		Permissions: permissions,
 	}, nil
 }
 
