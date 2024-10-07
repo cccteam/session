@@ -15,5 +15,5 @@ type SessionInfo struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	Expired     bool
-	Permissions map[accesstypes.Domain][]accesstypes.Permission
+	Permissions accesstypes.UserPermissionCollection
 }

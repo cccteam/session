@@ -24,9 +24,9 @@ const (
 // Authenticated is the handler reports if the session is authenticated
 func (s *session) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool                                            `json:"authenticated"`
-		Username      string                                          `json:"username"`
-		Permissions   map[accesstypes.Domain][]accesstypes.Permission `json:"permissions"`
+		Authenticated bool                                 `json:"authenticated"`
+		Username      string                               `json:"username"`
+		Permissions   accesstypes.UserPermissionCollection `json:"permissions"`
 	}
 
 	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
