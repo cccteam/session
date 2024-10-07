@@ -11,6 +11,7 @@ package mock_session
 
 import (
 	context "context"
+	http "net/http"
 	reflect "reflect"
 
 	ccc "github.com/cccteam/ccc"
@@ -308,4 +309,97 @@ func (m *MockOIDCAzureSessionStorage) UpdateSessionActivity(ctx context.Context,
 func (mr *MockOIDCAzureSessionStorageMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockOIDCAzureSessionStorage)(nil).UpdateSessionActivity), ctx, sessionID)
+}
+
+// MocksessionHandlers is a mock of sessionHandlers interface.
+type MocksessionHandlers struct {
+	ctrl     *gomock.Controller
+	recorder *MocksessionHandlersMockRecorder
+}
+
+// MocksessionHandlersMockRecorder is the mock recorder for MocksessionHandlers.
+type MocksessionHandlersMockRecorder struct {
+	mock *MocksessionHandlers
+}
+
+// NewMocksessionHandlers creates a new mock instance.
+func NewMocksessionHandlers(ctrl *gomock.Controller) *MocksessionHandlers {
+	mock := &MocksessionHandlers{ctrl: ctrl}
+	mock.recorder = &MocksessionHandlersMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MocksessionHandlers) EXPECT() *MocksessionHandlersMockRecorder {
+	return m.recorder
+}
+
+// SetSessionTimeout mocks base method.
+func (m *MocksessionHandlers) SetSessionTimeout(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSessionTimeout", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// SetSessionTimeout indicates an expected call of SetSessionTimeout.
+func (mr *MocksessionHandlersMockRecorder) SetSessionTimeout(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTimeout", reflect.TypeOf((*MocksessionHandlers)(nil).SetSessionTimeout), next)
+}
+
+// SetXSRFToken mocks base method.
+func (m *MocksessionHandlers) SetXSRFToken(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetXSRFToken", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// SetXSRFToken indicates an expected call of SetXSRFToken.
+func (mr *MocksessionHandlersMockRecorder) SetXSRFToken(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetXSRFToken", reflect.TypeOf((*MocksessionHandlers)(nil).SetXSRFToken), next)
+}
+
+// StartSession mocks base method.
+func (m *MocksessionHandlers) StartSession(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartSession", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// StartSession indicates an expected call of StartSession.
+func (mr *MocksessionHandlersMockRecorder) StartSession(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartSession", reflect.TypeOf((*MocksessionHandlers)(nil).StartSession), next)
+}
+
+// ValidateSession mocks base method.
+func (m *MocksessionHandlers) ValidateSession(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateSession", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// ValidateSession indicates an expected call of ValidateSession.
+func (mr *MocksessionHandlersMockRecorder) ValidateSession(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateSession", reflect.TypeOf((*MocksessionHandlers)(nil).ValidateSession), next)
+}
+
+// ValidateXSRFToken mocks base method.
+func (m *MocksessionHandlers) ValidateXSRFToken(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateXSRFToken", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// ValidateXSRFToken indicates an expected call of ValidateXSRFToken.
+func (mr *MocksessionHandlersMockRecorder) ValidateXSRFToken(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateXSRFToken", reflect.TypeOf((*MocksessionHandlers)(nil).ValidateXSRFToken), next)
 }
