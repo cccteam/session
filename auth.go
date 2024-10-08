@@ -44,11 +44,16 @@ func (s *session) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromRequest(r)
 
+		permissions, err := s.access.UserPermissions(ctx, accesstypes.User(sessInfo.Username))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		// set response values
 		res := response{
 			Authenticated: true,
 			Username:      sessInfo.Username,
-			Permissions:   sessInfo.Permissions,
+			Permissions:   permissions,
 		}
 
 		return httpio.NewEncoder(w).Ok(res)
