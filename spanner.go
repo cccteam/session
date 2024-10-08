@@ -5,7 +5,6 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/spanner"
 	"github.com/go-playground/errors/v5"
@@ -34,18 +33,12 @@ func (p *spannerSessionManager) Session(ctx context.Context, sessionID ccc.UUID)
 		return nil, errors.Wrap(err, "dbx.DB.Session()")
 	}
 
-	permissions, err := p.access.UserPermissions(ctx, accesstypes.User(si.Username))
-	if err != nil {
-		return nil, errors.Wrap(err, "Client.UserPermissions()")
-	}
-
 	return &sessioninfo.SessionInfo{
-		ID:          si.ID,
-		Username:    si.Username,
-		CreatedAt:   si.CreatedAt,
-		UpdatedAt:   si.UpdatedAt,
-		Expired:     si.Expired,
-		Permissions: permissions,
+		ID:        si.ID,
+		Username:  si.Username,
+		CreatedAt: si.CreatedAt,
+		UpdatedAt: si.UpdatedAt,
+		Expired:   si.Expired,
 	}, nil
 }
 
