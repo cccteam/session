@@ -6,9 +6,9 @@ replace github.com/golang-migrate/migrate/v4 v4.18.1 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.69.0
-	github.com/cccteam/access v0.4.1
+	github.com/cccteam/access v0.5.0
 	github.com/cccteam/ccc v0.2.8
-	github.com/cccteam/ccc/accesstypes v0.3.0
+	github.com/cccteam/ccc/accesstypes v0.4.0
 	github.com/cccteam/db-initiator v0.2.1
 	github.com/cccteam/httpio v0.5.0
 	github.com/cccteam/logger v0.1.12
@@ -21,7 +21,7 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/gorilla/securecookie v1.1.2
 	github.com/jackc/pgx/v5 v5.7.1
-	go.opentelemetry.io/otel v1.30.0
+	go.opentelemetry.io/otel v1.31.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/oauth2 v0.23.0
 	google.golang.org/grpc v1.67.1
@@ -48,6 +48,7 @@ require (
 	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/cccteam/ccc/patchset v0.2.0 // indirect
 	github.com/cccteam/ccc/resourceset v0.3.0 // indirect
+	github.com/cccteam/ccc/resourcestore v0.4.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -118,10 +119,10 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.55.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.30.0 // indirect
-	go.opentelemetry.io/otel/metric v1.30.0 // indirect
+	go.opentelemetry.io/otel/metric v1.31.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.30.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.30.0 // indirect
-	go.opentelemetry.io/otel/trace v1.30.0 // indirect
+	go.opentelemetry.io/otel/trace v1.31.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.28.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
