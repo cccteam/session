@@ -2,11 +2,11 @@ package session
 
 import "net/http"
 
+var _ OIDCAzureHandlers = &OIDCAzureSession{}
+
 type OIDCAzureHandlers interface {
-	Authenticated() http.HandlerFunc
 	CallbackOIDC() http.HandlerFunc
 	FrontChannelLogout() http.HandlerFunc
 	Login() http.HandlerFunc
-	Logout() http.HandlerFunc
 	sessionHandlers
 }

@@ -40,6 +40,8 @@ type PreauthSessionStorage interface {
 }
 
 type sessionHandlers interface {
+	Authenticated() http.HandlerFunc
+	Logout() http.HandlerFunc
 	SetSessionTimeout(next http.Handler) http.Handler
 	StartSession(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
