@@ -18,6 +18,8 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+var _ OIDCAzureHandlers = &OIDCAzureSession{}
+
 type OIDCAzureSession struct {
 	oidc    oidc.Authenticator
 	storage OIDCAzureSessionStorage

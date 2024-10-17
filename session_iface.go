@@ -28,11 +28,20 @@ type OIDCAzureSessionStorage interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
 
-	// common storage functions that aren't oidc specific
+	// common storage functions
+	storageManager
+}
+
+type PreauthSessionStorage interface {
+	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+
+	// common storage functions
 	storageManager
 }
 
 type sessionHandlers interface {
+	Authenticated() http.HandlerFunc
+	Logout() http.HandlerFunc
 	SetSessionTimeout(next http.Handler) http.Handler
 	StartSession(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
