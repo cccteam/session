@@ -10,6 +10,8 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
+var _ PreAuthHandlers = &PreauthSession{}
+
 type PreauthSession struct {
 	storage PreauthSessionStorage
 	session
