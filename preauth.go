@@ -46,9 +46,7 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	if ok := p.setXSRFTokenCookie(w, r, id, xsrfCookieLife); !ok {
-		return ccc.NilUUID, errors.New("Failed to set XSRF Token Cookie")
-	}
+	p.setXSRFTokenCookie(w, r, id, xsrfCookieLife)
 
 	return id, nil
 }
