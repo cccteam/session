@@ -86,11 +86,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// write new XSRF Token Cookie to match the new SessionID
-		if ok := o.setXSRFTokenCookie(w, r, sessionID, xsrfCookieLife); !ok {
-			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
-
-			return errors.New("Failed to set XSRF Token Cookie")
-		}
+		o.setXSRFTokenCookie(w, r, sessionID, xsrfCookieLife)
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
