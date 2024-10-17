@@ -314,6 +314,87 @@ func (mr *MockOIDCAzureSessionStorageMockRecorder) UpdateSessionActivity(ctx, se
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockOIDCAzureSessionStorage)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
+// MockPreauthSessionStorage is a mock of PreauthSessionStorage interface.
+type MockPreauthSessionStorage struct {
+	ctrl     *gomock.Controller
+	recorder *MockPreauthSessionStorageMockRecorder
+}
+
+// MockPreauthSessionStorageMockRecorder is the mock recorder for MockPreauthSessionStorage.
+type MockPreauthSessionStorageMockRecorder struct {
+	mock *MockPreauthSessionStorage
+}
+
+// NewMockPreauthSessionStorage creates a new mock instance.
+func NewMockPreauthSessionStorage(ctrl *gomock.Controller) *MockPreauthSessionStorage {
+	mock := &MockPreauthSessionStorage{ctrl: ctrl}
+	mock.recorder = &MockPreauthSessionStorageMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPreauthSessionStorage) EXPECT() *MockPreauthSessionStorageMockRecorder {
+	return m.recorder
+}
+
+// DestroySession mocks base method.
+func (m *MockPreauthSessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroySession indicates an expected call of DestroySession.
+func (mr *MockPreauthSessionStorageMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPreauthSessionStorage)(nil).DestroySession), ctx, sessionID)
+}
+
+// NewSession mocks base method.
+func (m *MockPreauthSessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewSession", ctx, username)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewSession indicates an expected call of NewSession.
+func (mr *MockPreauthSessionStorageMockRecorder) NewSession(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPreauthSessionStorage)(nil).NewSession), ctx, username)
+}
+
+// Session mocks base method.
+func (m *MockPreauthSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
+	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Session indicates an expected call of Session.
+func (mr *MockPreauthSessionStorageMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPreauthSessionStorage)(nil).Session), ctx, sessionID)
+}
+
+// UpdateSessionActivity mocks base method.
+func (m *MockPreauthSessionStorage) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
+func (mr *MockPreauthSessionStorageMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPreauthSessionStorage)(nil).UpdateSessionActivity), ctx, sessionID)
+}
+
 // MocksessionHandlers is a mock of sessionHandlers interface.
 type MocksessionHandlers struct {
 	ctrl     *gomock.Controller
@@ -336,6 +417,34 @@ func NewMocksessionHandlers(ctrl *gomock.Controller) *MocksessionHandlers {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MocksessionHandlers) EXPECT() *MocksessionHandlersMockRecorder {
 	return m.recorder
+}
+
+// Authenticated mocks base method.
+func (m *MocksessionHandlers) Authenticated() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Authenticated")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// Authenticated indicates an expected call of Authenticated.
+func (mr *MocksessionHandlersMockRecorder) Authenticated() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Authenticated", reflect.TypeOf((*MocksessionHandlers)(nil).Authenticated))
+}
+
+// Logout mocks base method.
+func (m *MocksessionHandlers) Logout() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Logout")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// Logout indicates an expected call of Logout.
+func (mr *MocksessionHandlersMockRecorder) Logout() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Logout", reflect.TypeOf((*MocksessionHandlers)(nil).Logout))
 }
 
 // SetSessionTimeout mocks base method.
