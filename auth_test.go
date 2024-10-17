@@ -61,8 +61,8 @@ func TestApp_Authenticated(t *testing.T) {
 
 				access.EXPECT().UserPermissions(gomock.Any(), accesstypes.User("test Username")).Return(
 					accesstypes.UserPermissionCollection{
-						accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"): {accesstypes.GlobalResource}, accesstypes.Permission("ListRolePermissions"): {accesstypes.GlobalResource}},
-						accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"): {accesstypes.GlobalResource}, accesstypes.Permission("DeleteRole"): {accesstypes.GlobalResource}},
+						accesstypes.GlobalDomain:         {accesstypes.GlobalResource: {accesstypes.Permission("ListRoleUsers"), accesstypes.Permission("ListRolePermissions")}},
+						accesstypes.Domain("testDomain"): {accesstypes.GlobalResource: {accesstypes.Permission("AddRole"), accesstypes.Permission("DeleteRole")}},
 					}, nil,
 				).Times(1)
 			},
@@ -71,8 +71,8 @@ func TestApp_Authenticated(t *testing.T) {
 				Authenticated: true,
 				Username:      "test Username",
 				Permissions: accesstypes.UserPermissionCollection{
-					accesstypes.GlobalDomain:         {accesstypes.Permission("ListRoleUsers"): {accesstypes.GlobalResource}, accesstypes.Permission("ListRolePermissions"): {accesstypes.GlobalResource}},
-					accesstypes.Domain("testDomain"): {accesstypes.Permission("AddRole"): {accesstypes.GlobalResource}, accesstypes.Permission("DeleteRole"): {accesstypes.GlobalResource}},
+					accesstypes.GlobalDomain:         {accesstypes.GlobalResource: {accesstypes.Permission("ListRoleUsers"), accesstypes.Permission("ListRolePermissions")}},
+					accesstypes.Domain("testDomain"): {accesstypes.GlobalResource: {accesstypes.Permission("AddRole"), accesstypes.Permission("DeleteRole")}},
 				},
 			},
 		},
