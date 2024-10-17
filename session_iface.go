@@ -28,7 +28,14 @@ type OIDCAzureSessionStorage interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
 
-	// common storage functions that aren't oidc specific
+	// common storage functions
+	storageManager
+}
+
+type PreauthSessionStorage interface {
+	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+
+	// common storage functions
 	storageManager
 }
 
