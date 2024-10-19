@@ -20,7 +20,7 @@ const name = "github.com/cccteam/session"
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
 type session struct {
-	access         UserManager
+	perms          UserPermissioner
 	sessionTimeout time.Duration
 	handle         LogHandler
 	storage        storageManager
@@ -113,7 +113,7 @@ func (s *session) checkSession(r *http.Request) (req *http.Request, err error) {
 
 	// Update Activity
 	if err := s.storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-		return r, errors.Wrap(err, "users.SessionManager.UpdateSessionActivity()")
+		return r, errors.Wrap(err, "users.SessionStorage.UpdateSessionActivity()")
 	}
 
 	// Store session info in context

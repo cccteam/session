@@ -151,6 +151,50 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, domains ...any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
 }
 
+// MockUserPermissioner is a mock of UserPermissioner interface.
+type MockUserPermissioner struct {
+	ctrl     *gomock.Controller
+	recorder *MockUserPermissionerMockRecorder
+	isgomock struct{}
+}
+
+// MockUserPermissionerMockRecorder is the mock recorder for MockUserPermissioner.
+type MockUserPermissionerMockRecorder struct {
+	mock *MockUserPermissioner
+}
+
+// NewMockUserPermissioner creates a new mock instance.
+func NewMockUserPermissioner(ctrl *gomock.Controller) *MockUserPermissioner {
+	mock := &MockUserPermissioner{ctrl: ctrl}
+	mock.recorder = &MockUserPermissionerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockUserPermissioner) EXPECT() *MockUserPermissionerMockRecorder {
+	return m.recorder
+}
+
+// UserPermissions mocks base method.
+func (m *MockUserPermissioner) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, user}
+	for _, a := range domains {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UserPermissions", varargs...)
+	ret0, _ := ret[0].(accesstypes.UserPermissionCollection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserPermissions indicates an expected call of UserPermissions.
+func (mr *MockUserPermissionerMockRecorder) UserPermissions(ctx, user any, domains ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, user}, domains...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissions", reflect.TypeOf((*MockUserPermissioner)(nil).UserPermissions), varargs...)
+}
+
 // MockstorageManager is a mock of storageManager interface.
 type MockstorageManager struct {
 	ctrl     *gomock.Controller
@@ -318,6 +362,7 @@ func (mr *MockOIDCAzureSessionStorageMockRecorder) UpdateSessionActivity(ctx, se
 type MockPreauthSessionStorage struct {
 	ctrl     *gomock.Controller
 	recorder *MockPreauthSessionStorageMockRecorder
+	isgomock struct{}
 }
 
 // MockPreauthSessionStorageMockRecorder is the mock recorder for MockPreauthSessionStorage.

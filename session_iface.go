@@ -18,6 +18,10 @@ type UserManager interface {
 	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
+type UserPermissioner interface {
+	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
+}
+
 type storageManager interface {
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error

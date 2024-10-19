@@ -11,21 +11,21 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// SpannerPreauthSessionManager is what you use when to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
-type SpannerPreauthSessionManager struct {
-	*spannerSessionManager
+// SpannerPreauthSessionStorage is what you use to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
+type SpannerPreauthSessionStorage struct {
+	*spannerSessionStorage
 }
 
-// NewSpannerPreauthSessionManager is the function that you use to create the session manager that handles the session creation and updates
-func NewSpannerPreauthSessionManager(userManager UserManager, db *cloudspanner.Client) *SpannerPreauthSessionManager {
-	return &SpannerPreauthSessionManager{
-		spannerSessionManager: newSpannerSessionManager(userManager, db),
+// NewSpannerPreauthSessionStorage is the function that you use to create the session manager that handles the session creation and updates
+func NewSpannerPreauthSessionStorage(db *cloudspanner.Client) *SpannerPreauthSessionStorage {
+	return &SpannerPreauthSessionStorage{
+		spannerSessionStorage: newSpannerSessionStorage(db),
 	}
 }
 
 // NewSession inserts SessionInfo into the spanner database
-func (p *SpannerPreauthSessionManager) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerPreauthSessionManager.NewSession()")
+func (p *SpannerPreauthSessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SpannerPreauthSessionStorage.NewSession()")
 	defer span.End()
 
 	session := &spanner.InsertSession{
@@ -36,7 +36,7 @@ func (p *SpannerPreauthSessionManager) NewSession(ctx context.Context, username 
 
 	id, err := p.db.InsertSession(ctx, session)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauthSessionManager.insertSession()")
+		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauthSessionStorage.insertSession()")
 	}
 
 	return id, nil
