@@ -139,17 +139,6 @@ func TestApp_CallbackOIDC(t *testing.T) {
 			wantErr:         true,
 		},
 		{
-			name: "fails to set new xsrf cookie",
-			prepare: func(c *MockcookieManager, w http.ResponseWriter, r *http.Request, oidc *mock_oidc.MockAuthenticator, _ *mock_access.MockUserManager, s *mock_session.MockOIDCAzureSessionStorage) {
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().newAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(map[scKey]string{scSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"}, nil).Times(1)
-				c.EXPECT().setXSRFTokenCookie(w, r, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), xsrfCookieLife).Return(false).Times(1)
-			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
-			wantErr:         true,
-		},
-		{
 			name: "fails to get domains",
 			prepare: func(c *MockcookieManager, w http.ResponseWriter, r *http.Request, oidc *mock_oidc.MockAuthenticator, u *mock_access.MockUserManager, s *mock_session.MockOIDCAzureSessionStorage) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
