@@ -293,7 +293,8 @@ func TestApp_CallbackOIDC(t *testing.T) {
 			sessionStorage := mock_session.NewMockOIDCAzureSessionStorage(ctrl)
 			c := NewMockcookieManager(ctrl)
 			a := &OIDCAzureSession{
-				storage: sessionStorage,
+				userManager: user,
+				storage:     sessionStorage,
 				session: session{
 					storage:       sessionStorage,
 					perms:         user,
