@@ -18,22 +18,24 @@ func TestPreauthSession_NewSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_session.MockPreauthSessionStorage, *MockcookieManager, *httptest.ResponseRecorder)
+		prepare    func(*mock_session.MockPreauthSessionStorage, *MockcookieManager)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager, w *httptest.ResponseRecorder) {
+			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager) {
+				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
 					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil).
 					Times(1)
 
+				// Simulate cookie setting
 				mockCookies.EXPECT().
-					newAuthCookie(w, false, gomock.Any()).
-					DoAndReturn(func(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error) {
+					newAuthCookie(gomock.Any(), false, gomock.Any()).
+					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (map[scKey]string, error) {
 						http.SetCookie(w, &http.Cookie{
 							Name:  "auth",
 							Value: sessionID.String(),
@@ -44,7 +46,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 					Times(1)
 
 				mockCookies.EXPECT().
-					setXSRFTokenCookie(w, gomock.Any(), gomock.Any(), xsrfCookieLife).
+					setXSRFTokenCookie(gomock.Any(), gomock.Any(), gomock.Any(), xsrfCookieLife).
 					Return(true).
 					Times(1)
 			},
@@ -53,7 +55,8 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager, w *httptest.ResponseRecorder) {
+			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, _ *MockcookieManager) {
+				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
 					Return(ccc.NilUUID, errors.New("storage error")).
@@ -64,15 +67,16 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed to set auth cookie",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager, w *httptest.ResponseRecorder) {
+			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager) {
+				// Mock successful session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
 					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil).
 					Times(1)
 
-				// Simulate failure in newAuthCookie
+				// Simulate failure in setting the auth cookie
 				mockCookies.EXPECT().
-					newAuthCookie(w, false, gomock.Any()).
+					newAuthCookie(gomock.Any(), false, gomock.Any()).
 					Return(nil, errors.New("failed to set auth cookie")).
 					Times(1)
 			},
@@ -81,23 +85,27 @@ func TestPreauthSession_NewSession(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
+		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Setup the mock controller
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
 			mockStorage := mock_session.NewMockPreauthSessionStorage(ctrl)
 			mockCookies := NewMockcookieManager(ctrl)
 
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/", nil)
-
+			// Prepare the mock expectations
 			if tt.prepare != nil {
-				tt.prepare(mockStorage, mockCookies, w)
+				tt.prepare(mockStorage, mockCookies)
 			}
 
+			// Setup request and response recorder
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+
+			// Create the PreauthSession instance with mocked dependencies
 			preauth := &PreauthSession{
 				storage: mockStorage,
 				session: session{
@@ -106,8 +114,10 @@ func TestPreauthSession_NewSession(t *testing.T) {
 				},
 			}
 
+			// Call NewSession and capture the result
 			id, err := preauth.NewSession(context.Background(), w, r, tt.username)
 
+			// Validate the results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewSession() error = %v, wantErr = %v", err, tt.wantErr)
 			}
@@ -115,8 +125,11 @@ func TestPreauthSession_NewSession(t *testing.T) {
 				t.Errorf("NewSession() id = %v, expectedID = %v", id, tt.expectedID)
 			}
 
+			// Ensure cookies are only set on success
 			if tt.wantErr {
-				if len(w.Result().Cookies()) > 0 {
+				resp := w.Result()
+				defer resp.Body.Close()
+				if len(resp.Cookies()) > 0 {
 					t.Error("expected no cookies to be set on failure, but found some")
 				}
 			}
