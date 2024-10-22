@@ -24,6 +24,7 @@ import (
 type MockQueryer struct {
 	ctrl     *gomock.Controller
 	recorder *MockQueryerMockRecorder
+	isgomock struct{}
 }
 
 // MockQueryerMockRecorder is the mock recorder for MockQueryer.
@@ -121,6 +122,7 @@ func (mr *MockQueryerMockRecorder) QueryRow(ctx, query any, args ...any) *gomock
 type MockDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockDBMockRecorder
+	isgomock struct{}
 }
 
 // MockDBMockRecorder is the mock recorder for MockDB.
