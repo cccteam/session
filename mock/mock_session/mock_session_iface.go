@@ -24,7 +24,6 @@ import (
 type MockUserManager struct {
 	ctrl     *gomock.Controller
 	recorder *MockUserManagerMockRecorder
-	isgomock struct{}
 }
 
 // MockUserManagerMockRecorder is the mock recorder for MockUserManager.
@@ -155,7 +154,6 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, domains ...any) 
 type MockUserPermissioner struct {
 	ctrl     *gomock.Controller
 	recorder *MockUserPermissionerMockRecorder
-	isgomock struct{}
 }
 
 // MockUserPermissionerMockRecorder is the mock recorder for MockUserPermissioner.
@@ -199,7 +197,6 @@ func (mr *MockUserPermissionerMockRecorder) UserPermissions(ctx, user any, domai
 type MockstorageManager struct {
 	ctrl     *gomock.Controller
 	recorder *MockstorageManagerMockRecorder
-	isgomock struct{}
 }
 
 // MockstorageManagerMockRecorder is the mock recorder for MockstorageManager.
@@ -266,7 +263,6 @@ func (mr *MockstorageManagerMockRecorder) UpdateSessionActivity(ctx, sessionID a
 type MockOIDCAzureSessionStorage struct {
 	ctrl     *gomock.Controller
 	recorder *MockOIDCAzureSessionStorageMockRecorder
-	isgomock struct{}
 }
 
 // MockOIDCAzureSessionStorageMockRecorder is the mock recorder for MockOIDCAzureSessionStorage.
@@ -362,7 +358,6 @@ func (mr *MockOIDCAzureSessionStorageMockRecorder) UpdateSessionActivity(ctx, se
 type MockPreauthSessionStorage struct {
 	ctrl     *gomock.Controller
 	recorder *MockPreauthSessionStorageMockRecorder
-	isgomock struct{}
 }
 
 // MockPreauthSessionStorageMockRecorder is the mock recorder for MockPreauthSessionStorage.
@@ -444,7 +439,6 @@ func (mr *MockPreauthSessionStorageMockRecorder) UpdateSessionActivity(ctx, sess
 type MocksessionHandlers struct {
 	ctrl     *gomock.Controller
 	recorder *MocksessionHandlersMockRecorder
-	isgomock struct{}
 }
 
 // MocksessionHandlersMockRecorder is the mock recorder for MocksessionHandlers.

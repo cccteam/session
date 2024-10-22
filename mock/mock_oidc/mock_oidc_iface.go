@@ -23,7 +23,6 @@ import (
 type MockAuthenticator struct {
 	ctrl     *gomock.Controller
 	recorder *MockAuthenticatorMockRecorder
-	isgomock struct{}
 }
 
 // MockAuthenticatorMockRecorder is the mock recorder for MockAuthenticator.
@@ -78,7 +77,6 @@ func (mr *MockAuthenticatorMockRecorder) Verify(ctx, w, r, claims any) *gomock.C
 type Mockprovider struct {
 	ctrl     *gomock.Controller
 	recorder *MockproviderMockRecorder
-	isgomock struct{}
 }
 
 // MockproviderMockRecorder is the mock recorder for Mockprovider.
@@ -130,7 +128,6 @@ func (mr *MockproviderMockRecorder) Verifier(config any) *gomock.Call {
 type Mockconfig struct {
 	ctrl     *gomock.Controller
 	recorder *MockconfigMockRecorder
-	isgomock struct{}
 }
 
 // MockconfigMockRecorder is the mock recorder for Mockconfig.
