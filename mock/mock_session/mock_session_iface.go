@@ -151,32 +151,32 @@ func (mr *MockUserManagerMockRecorder) UserRoles(ctx, user any, domains ...any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserManager)(nil).UserRoles), varargs...)
 }
 
-// MockUserPermissioner is a mock of UserPermissioner interface.
-type MockUserPermissioner struct {
+// MockUserPermissionManager is a mock of UserPermissionManager interface.
+type MockUserPermissionManager struct {
 	ctrl     *gomock.Controller
-	recorder *MockUserPermissionerMockRecorder
+	recorder *MockUserPermissionManagerMockRecorder
 	isgomock struct{}
 }
 
-// MockUserPermissionerMockRecorder is the mock recorder for MockUserPermissioner.
-type MockUserPermissionerMockRecorder struct {
-	mock *MockUserPermissioner
+// MockUserPermissionManagerMockRecorder is the mock recorder for MockUserPermissionManager.
+type MockUserPermissionManagerMockRecorder struct {
+	mock *MockUserPermissionManager
 }
 
-// NewMockUserPermissioner creates a new mock instance.
-func NewMockUserPermissioner(ctrl *gomock.Controller) *MockUserPermissioner {
-	mock := &MockUserPermissioner{ctrl: ctrl}
-	mock.recorder = &MockUserPermissionerMockRecorder{mock}
+// NewMockUserPermissionManager creates a new mock instance.
+func NewMockUserPermissionManager(ctrl *gomock.Controller) *MockUserPermissionManager {
+	mock := &MockUserPermissionManager{ctrl: ctrl}
+	mock.recorder = &MockUserPermissionManagerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockUserPermissioner) EXPECT() *MockUserPermissionerMockRecorder {
+func (m *MockUserPermissionManager) EXPECT() *MockUserPermissionManagerMockRecorder {
 	return m.recorder
 }
 
 // UserPermissions mocks base method.
-func (m *MockUserPermissioner) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
+func (m *MockUserPermissionManager) UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, user}
 	for _, a := range domains {
@@ -189,10 +189,10 @@ func (m *MockUserPermissioner) UserPermissions(ctx context.Context, user accesst
 }
 
 // UserPermissions indicates an expected call of UserPermissions.
-func (mr *MockUserPermissionerMockRecorder) UserPermissions(ctx, user any, domains ...any) *gomock.Call {
+func (mr *MockUserPermissionManagerMockRecorder) UserPermissions(ctx, user any, domains ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user}, domains...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissions", reflect.TypeOf((*MockUserPermissioner)(nil).UserPermissions), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserPermissions", reflect.TypeOf((*MockUserPermissionManager)(nil).UserPermissions), varargs...)
 }
 
 // MockstorageManager is a mock of storageManager interface.
