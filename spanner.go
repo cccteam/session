@@ -11,20 +11,18 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type spannerSessionManager struct {
-	access UserManager
-	db     spanner.DB
+type spannerSessionStorage struct {
+	db spanner.DB
 }
 
-func newSpannerSessionManager(userManager UserManager, db *cloudspanner.Client) *spannerSessionManager {
-	return &spannerSessionManager{
-		access: userManager,
-		db:     spanner.New(db),
+func newSpannerSessionStorage(db *cloudspanner.Client) *spannerSessionStorage {
+	return &spannerSessionStorage{
+		db: spanner.New(db),
 	}
 }
 
 // Session returns the session information from the database for given sessionID
-func (p *spannerSessionManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (p *spannerSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "Client.Session()")
 	defer span.End()
 
@@ -43,8 +41,8 @@ func (p *spannerSessionManager) Session(ctx context.Context, sessionID ccc.UUID)
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity
-func (p *spannerSessionManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerSessionManager.UpdateSessionActivity()")
+func (p *spannerSessionStorage) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "spannerSessionStorage.UpdateSessionActivity()")
 	defer span.End()
 
 	if err := p.db.UpdateSessionActivity(ctx, sessionID); err != nil {
@@ -55,8 +53,8 @@ func (p *spannerSessionManager) UpdateSessionActivity(ctx context.Context, sessi
 }
 
 // DestroySession marks the session as expired
-func (p *spannerSessionManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerSessionManager.DestroySession()")
+func (p *spannerSessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "spannerSessionStorage.DestroySession()")
 	defer span.End()
 
 	if err := p.db.DestroySession(ctx, sessionID); err != nil {

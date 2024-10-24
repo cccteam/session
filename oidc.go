@@ -18,9 +18,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+var _ OIDCAzureHandlers = &OIDCAzureSession{}
+
 type OIDCAzureSession struct {
-	oidc    oidc.Authenticator
-	storage OIDCAzureSessionStorage
+	userManager UserManager
+	oidc        oidc.Authenticator
+	storage     OIDCAzureSessionStorage
 	session
 }
 
@@ -29,9 +32,10 @@ func NewOIDCAzure(
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
 ) *OIDCAzureSession {
 	return &OIDCAzureSession{
-		oidc: oidcAuthenticator,
+		userManager: userManager,
+		oidc:        oidcAuthenticator,
 		session: session{
-			access:         userManager,
+			perms:          userManager,
 			handle:         logHandler,
 			cookieManager:  newCookieClient(secureCookie),
 			sessionTimeout: sessionTimeout,
@@ -132,12 +136,12 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 	ctx, span := otel.Tracer(name).Start(ctx, "App.assignUserRoles()")
 	defer span.End()
 
-	domains, err := o.access.Domains(ctx)
+	domains, err := o.userManager.Domains(ctx)
 	if err != nil {
 		return false, errors.Wrap(err, "UserManager.Domains()")
 	}
 
-	existingRoles, err := o.access.UserRoles(ctx, username, domains...)
+	existingRoles, err := o.userManager.UserRoles(ctx, username, domains...)
 	if err != nil {
 		return false, errors.Wrap(err, "UserManager.UserRoles()")
 	}
@@ -145,14 +149,14 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 	for _, domain := range domains {
 		var rolesToAssign []accesstypes.Role
 		for _, r := range roles {
-			if o.access.RoleExists(ctx, domain, accesstypes.Role(r)) {
+			if o.userManager.RoleExists(ctx, domain, accesstypes.Role(r)) {
 				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
 			}
 		}
 
 		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
 		if len(newRoles) > 0 {
-			if err := o.access.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
+			if err := o.userManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
 			}
 			logger.Ctx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
@@ -160,7 +164,7 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
 		if len(removeRoles) > 0 {
-			if err := o.access.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
+			if err := o.userManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
 			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
@@ -177,7 +181,7 @@ func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseW
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "users.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
 	if _, err := o.newAuthCookie(w, false, id); err != nil {

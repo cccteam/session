@@ -44,7 +44,7 @@ func (s *session) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromRequest(r)
 
-		permissions, err := s.access.UserPermissions(ctx, accesstypes.User(sessInfo.Username))
+		permissions, err := s.perms.UserPermissions(ctx, accesstypes.User(sessInfo.Username))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

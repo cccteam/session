@@ -11,19 +11,19 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type SpannerOIDCSessionManager struct {
-	*spannerSessionManager
+type SpannerOIDCSessionStorage struct {
+	*spannerSessionStorage
 }
 
-func NewSpannerOIDCSessionManager(userManager UserManager, db *cloudspanner.Client) *SpannerOIDCSessionManager {
-	return &SpannerOIDCSessionManager{
-		spannerSessionManager: newSpannerSessionManager(userManager, db),
+func NewSpannerOIDCSessionStorage(db *cloudspanner.Client) *SpannerOIDCSessionStorage {
+	return &SpannerOIDCSessionStorage{
+		spannerSessionStorage: newSpannerSessionStorage(db),
 	}
 }
 
 // NewSession inserts SessionInfo into database
-func (p *SpannerOIDCSessionManager) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerqlOIDCSessionManager.NewSession()")
+func (p *SpannerOIDCSessionStorage) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SpannerqlOIDCSessionStorage.NewSession()")
 	defer span.End()
 
 	session := &spanner.InsertSession{
@@ -35,15 +35,15 @@ func (p *SpannerOIDCSessionManager) NewSession(ctx context.Context, username, oi
 
 	id, err := p.db.InsertSession(ctx, session)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "SpannerqlOIDCSessionManager.insertSession()")
+		return ccc.NilUUID, errors.Wrap(err, "SpannerqlOIDCSessionStorage.insertSession()")
 	}
 
 	return id, nil
 }
 
 // DestroySessionOIDC marks the session as expired
-func (p *SpannerOIDCSessionManager) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerqlOIDCSessionManager.DestroySessionOIDC()")
+func (p *SpannerOIDCSessionStorage) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "SpannerqlOIDCSessionStorage.DestroySessionOIDC()")
 	defer span.End()
 
 	if err := p.db.DestroySessionOIDC(ctx, oidcSID); err != nil {

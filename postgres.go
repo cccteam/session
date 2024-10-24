@@ -10,20 +10,18 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type postgresSessionManager struct {
-	access UserManager
-	db     postgres.DB
+type postgresSessionStorage struct {
+	db postgres.DB
 }
 
-func newPostgresSessionManager(userManager UserManager, dbcon postgres.Queryer) *postgresSessionManager {
-	return &postgresSessionManager{
-		access: userManager,
-		db:     postgres.NewDBConnection(dbcon),
+func newPostgresSessionStorage(dbcon postgres.Queryer) *postgresSessionStorage {
+	return &postgresSessionStorage{
+		db: postgres.NewDBConnection(dbcon),
 	}
 }
 
 // Session returns the session information from the database for given sessionID
-func (p *postgresSessionManager) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (p *postgresSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "Client.Session()")
 	defer span.End()
 
@@ -42,8 +40,8 @@ func (p *postgresSessionManager) Session(ctx context.Context, sessionID ccc.UUID
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity
-func (p *postgresSessionManager) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlSessionManager.UpdateSessionActivity()")
+func (p *postgresSessionStorage) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlSessionStorage.UpdateSessionActivity()")
 	defer span.End()
 
 	if err := p.db.UpdateSessionActivity(ctx, sessionID); err != nil {
@@ -54,8 +52,8 @@ func (p *postgresSessionManager) UpdateSessionActivity(ctx context.Context, sess
 }
 
 // DestroySession marks the session as expired
-func (p *postgresSessionManager) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlSessionManager.DestroySession()")
+func (p *postgresSessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlSessionStorage.DestroySession()")
 	defer span.End()
 
 	if err := p.db.DestroySession(ctx, sessionID); err != nil {
