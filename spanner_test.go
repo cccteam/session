@@ -12,7 +12,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestSpannerSessionStorage_Session(t *testing.T) {
+func Test_spannerSessionStorage_Session(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -76,7 +76,7 @@ func TestSpannerSessionStorage_Session(t *testing.T) {
 	}
 }
 
-func TestSpannerSessionStorage_UpdateSessionActivity(t *testing.T) {
+func Test_spannerSessionStorage_UpdateSessionActivity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -131,7 +131,7 @@ func TestSpannerSessionStorage_UpdateSessionActivity(t *testing.T) {
 	}
 }
 
-func TestSpannerSessionStorage_DestroySession(t *testing.T) {
+func Test_spannerSessionStorage_DestroySession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

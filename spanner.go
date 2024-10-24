@@ -42,7 +42,7 @@ func (p *spannerSessionStorage) Session(ctx context.Context, sessionID ccc.UUID)
 
 // UpdateSessionActivity updates the database with the current time for the session activity
 func (p *spannerSessionStorage) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerSessionStorage.UpdateSessionActivity()")
+	ctx, span := otel.Tracer(name).Start(ctx, "spannerSessionStorage.UpdateSessionActivity()")
 	defer span.End()
 
 	if err := p.db.UpdateSessionActivity(ctx, sessionID); err != nil {
@@ -54,7 +54,7 @@ func (p *spannerSessionStorage) UpdateSessionActivity(ctx context.Context, sessi
 
 // DestroySession marks the session as expired
 func (p *spannerSessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "SpannerSessionStorage.DestroySession()")
+	ctx, span := otel.Tracer(name).Start(ctx, "spannerSessionStorage.DestroySession()")
 	defer span.End()
 
 	if err := p.db.DestroySession(ctx, sessionID); err != nil {

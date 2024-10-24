@@ -22,7 +22,7 @@ func NewPostgresOIDCSessionStorage(db postgres.Queryer) *PostgresOIDCSessionStor
 
 // NewSession inserts SessionInfo into database
 func (p *PostgresOIDCSessionStorage) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlOIDCSessionStorage.NewSession()")
+	ctx, span := otel.Tracer(name).Start(ctx, "PostgresOIDCSessionStorage.NewSession()")
 	defer span.End()
 
 	session := &postgres.InsertSession{
@@ -34,7 +34,7 @@ func (p *PostgresOIDCSessionStorage) NewSession(ctx context.Context, username, o
 
 	id, err := p.db.InsertSession(ctx, session)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PostgresqlOIDCSessionStorage.insertSession()")
+		return ccc.NilUUID, errors.Wrap(err, "PostgresOIDCSessionStorage.insertSession()")
 	}
 
 	return id, nil
@@ -42,7 +42,7 @@ func (p *PostgresOIDCSessionStorage) NewSession(ctx context.Context, username, o
 
 // DestroySessionOIDC marks the session as expired
 func (p *PostgresOIDCSessionStorage) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "PostgresqlOIDCSessionStorage.DestroySessionOIDC()")
+	ctx, span := otel.Tracer(name).Start(ctx, "PostgresOIDCSessionStorage.DestroySessionOIDC()")
 	defer span.End()
 
 	if err := p.db.DestroySessionOIDC(ctx, oidcSID); err != nil {
