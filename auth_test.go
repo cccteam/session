@@ -29,13 +29,13 @@ func TestApp_Authenticated(t *testing.T) {
 	tests := []struct {
 		name           string
 		expectedStatus int
-		prepare        func(*mock_session.MockUserPermissioner, *mock_session.MockstorageManager)
+		prepare        func(*mock_session.MockUserPermissionManager, *mock_session.MockstorageManager)
 		cookieError    bool
 		want           *response
 	}{
 		{
 			name: "success but unauthorized",
-			prepare: func(_ *mock_session.MockUserPermissioner, storage *mock_session.MockstorageManager) {
+			prepare: func(_ *mock_session.MockUserPermissionManager, storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("invalid session")).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -43,7 +43,7 @@ func TestApp_Authenticated(t *testing.T) {
 		},
 		{
 			name: "fails to check the user's session",
-			prepare: func(_ *mock_session.MockUserPermissioner, storage *mock_session.MockstorageManager) {
+			prepare: func(_ *mock_session.MockUserPermissionManager, storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now()}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
@@ -51,7 +51,7 @@ func TestApp_Authenticated(t *testing.T) {
 		},
 		{
 			name: "successful authentication",
-			prepare: func(access *mock_session.MockUserPermissioner, storage *mock_session.MockstorageManager) {
+			prepare: func(access *mock_session.MockUserPermissionManager, storage *mock_session.MockstorageManager) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now(),
@@ -83,7 +83,7 @@ func TestApp_Authenticated(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			storage := mock_session.NewMockstorageManager(ctrl)
-			access := mock_session.NewMockUserPermissioner(ctrl)
+			access := mock_session.NewMockUserPermissionManager(ctrl)
 
 			session := &session{
 				perms:          access,
