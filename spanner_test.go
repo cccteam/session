@@ -56,8 +56,6 @@ func Test_spannerSessionStorage_Session(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_spanner.NewMockDB(ctrl)
 			storage := &spannerSessionStorage{db: mockDB}
 
@@ -114,8 +112,6 @@ func Test_spannerSessionStorage_UpdateSessionActivity(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_spanner.NewMockDB(ctrl)
 			storage := &spannerSessionStorage{db: mockDB}
 
@@ -169,8 +165,6 @@ func Test_spannerSessionStorage_DestroySession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_spanner.NewMockDB(ctrl)
 			storage := &spannerSessionStorage{db: mockDB}
 

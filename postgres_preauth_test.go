@@ -67,8 +67,6 @@ func TestPostgresPreauthSessionStorage_NewSession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_postgres.NewMockDB(ctrl)
 			storage := &PostgresPreauthSessionStorage{
 				postgresSessionStorage: &postgresSessionStorage{db: mockDB},

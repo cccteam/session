@@ -72,8 +72,6 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_spanner.NewMockDB(ctrl)
 			storage := &SpannerOIDCSessionStorage{
 				spannerSessionStorage: &spannerSessionStorage{db: mockDB},
@@ -132,8 +130,6 @@ func TestSpannerOIDCSessionStorage_DestroySessionOIDC(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockDB := mock_spanner.NewMockDB(ctrl)
 			storage := &SpannerOIDCSessionStorage{
 				spannerSessionStorage: &spannerSessionStorage{db: mockDB},

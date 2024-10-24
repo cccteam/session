@@ -91,8 +91,6 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			mockStorage := mock_session.NewMockPreauthSessionStorage(ctrl)
 			mockCookies := NewMockcookieManager(ctrl)
 
