@@ -181,7 +181,7 @@ func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseW
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "users.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
 	if _, err := o.newAuthCookie(w, false, id); err != nil {

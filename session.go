@@ -113,7 +113,7 @@ func (s *session) checkSession(r *http.Request) (req *http.Request, err error) {
 
 	// Update Activity
 	if err := s.storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-		return r, errors.Wrap(err, "users.SessionStorage.UpdateSessionActivity()")
+		return r, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
 	}
 
 	// Store session info in context
