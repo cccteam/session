@@ -20,7 +20,7 @@ const name = "github.com/cccteam/session"
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
 type session struct {
-	perms          UserPermissioner
+	perms          UserPermissionManager
 	sessionTimeout time.Duration
 	handle         LogHandler
 	storage        storageManager

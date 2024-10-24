@@ -18,7 +18,7 @@ type UserManager interface {
 	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
-type UserPermissioner interface {
+type UserPermissionManager interface {
 	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
