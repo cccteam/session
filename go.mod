@@ -9,7 +9,7 @@ require (
 	github.com/cccteam/ccc v0.2.9
 	github.com/cccteam/ccc/accesstypes v0.4.1
 	github.com/cccteam/db-initiator v0.2.1
-	github.com/cccteam/httpio v0.6.2
+	github.com/cccteam/httpio v0.6.3
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.3
 	github.com/coreos/go-oidc/v3 v3.11.0

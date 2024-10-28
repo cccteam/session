@@ -654,8 +654,8 @@ github.com/cccteam/ccc/resourceset v0.3.3 h1:T/6HTMIYJwcvtjP6Umy8R9rQMZP1LL2sKR6
 github.com/cccteam/ccc/resourceset v0.3.3/go.mod h1:WRe4vcTTOzwvGCiPcYLBQAIsZMlDrn7+w2YVOAb5YG8=
 github.com/cccteam/db-initiator v0.2.1 h1:Vl5qHdEsDyM7A2MGzoFnIJtNwrH/J5KH/dL75Es9lpI=
 github.com/cccteam/db-initiator v0.2.1/go.mod h1:UGMQXEXY1WRPPFHqE0AZJb7HXaphhwXdn79fWIVicbY=
-github.com/cccteam/httpio v0.6.2 h1:VJBVFyyiJIYHmOUiPOB/1IiQn7DMr4GHqiadmTwJyFw=
-github.com/cccteam/httpio v0.6.2/go.mod h1:/pfKsDUOZ/PDdA3Ojn/za0WniizVrQ19YAirmbo/NKI=
+github.com/cccteam/httpio v0.6.3 h1:/LlbflOa3yFA6bdFzs5NQyGC9tVLG2gq5SdzdD23Xrc=
+github.com/cccteam/httpio v0.6.3/go.mod h1:/pfKsDUOZ/PDdA3Ojn/za0WniizVrQ19YAirmbo/NKI=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
 github.com/cccteam/logger v0.1.12/go.mod h1:sctqFYiCg0KkKszjmAkWV4ynkuHNbFwTdsAPn8IlWh0=
 github.com/cccteam/spxscan v0.0.3 h1:nKlNvD3pahrFWgoSy3WK9srxQN3n8QUuj9jNUEfr3ro=
