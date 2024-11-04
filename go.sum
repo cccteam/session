@@ -528,8 +528,8 @@ cloud.google.com/go/shell v1.6.0/go.mod h1:oHO8QACS90luWgxP3N9iZVuEiSF84zNyLytb+
 cloud.google.com/go/spanner v1.41.0/go.mod h1:MLYDBJR/dY4Wt7ZaMIQ7rXOTLjYrmxLE/5ve9vFfWos=
 cloud.google.com/go/spanner v1.44.0/go.mod h1:G8XIgYdOK+Fbcpbs7p2fiprDw4CaZX63whnSMLVBxjk=
 cloud.google.com/go/spanner v1.45.0/go.mod h1:FIws5LowYz8YAE1J8fOS7DJup8ff7xJeetWEo5REA2M=
-cloud.google.com/go/spanner v1.70.0 h1:nj6p/GJTgMDiSQ1gQ034ItsKuJgHiMOjtOlONOg8PSo=
-cloud.google.com/go/spanner v1.70.0/go.mod h1:X5T0XftydYp0K1adeJQDJtdWpbrOeJ7wHecM4tK6FiE=
+cloud.google.com/go/spanner v1.71.0 h1:Gl4eX16JEvqlm3yvZ2lKENaQ6FvCkM3YZfO/Hq8OqZU=
+cloud.google.com/go/spanner v1.71.0/go.mod h1:mw98ua5ggQXVWwp83yjwggqEmW9t8rjs9Po1ohcUGW4=
 cloud.google.com/go/speech v1.6.0/go.mod h1:79tcr4FHCimOp56lwC01xnt/WPJZc4v3gzyT7FoBkCM=
 cloud.google.com/go/speech v1.7.0/go.mod h1:KptqL+BAQIhMsj1kOP2la5DSEEerPDuOP/2mmkhHhZQ=
 cloud.google.com/go/speech v1.8.0/go.mod h1:9bYIl1/tjsAnMgKGHKmBZzXKEkGgtU+MpdDPTE9f7y0=
@@ -652,10 +652,10 @@ github.com/cccteam/ccc/patchset v0.2.2 h1:DTDR8KMLb8ut3WwquVn6vHE0256ciC8sqODCWN
 github.com/cccteam/ccc/patchset v0.2.2/go.mod h1:elmTrBHXQw0xlCgZ26uh3lZzqhCcTKZeCACV4P7syKY=
 github.com/cccteam/ccc/resourceset v0.3.3 h1:T/6HTMIYJwcvtjP6Umy8R9rQMZP1LL2sKR6QrUXyQVE=
 github.com/cccteam/ccc/resourceset v0.3.3/go.mod h1:WRe4vcTTOzwvGCiPcYLBQAIsZMlDrn7+w2YVOAb5YG8=
-github.com/cccteam/db-initiator v0.2.1 h1:Vl5qHdEsDyM7A2MGzoFnIJtNwrH/J5KH/dL75Es9lpI=
-github.com/cccteam/db-initiator v0.2.1/go.mod h1:UGMQXEXY1WRPPFHqE0AZJb7HXaphhwXdn79fWIVicbY=
-github.com/cccteam/httpio v0.6.2 h1:VJBVFyyiJIYHmOUiPOB/1IiQn7DMr4GHqiadmTwJyFw=
-github.com/cccteam/httpio v0.6.2/go.mod h1:/pfKsDUOZ/PDdA3Ojn/za0WniizVrQ19YAirmbo/NKI=
+github.com/cccteam/db-initiator v0.2.3 h1:G6kifMNjVJ2kDs4eR5h+a1XGLXzqTdcM7uXRS3HNmlM=
+github.com/cccteam/db-initiator v0.2.3/go.mod h1:RZpO5vbKWcnfEZvSO8T7tjSnsaHhiAXdPSffowKz2Ro=
+github.com/cccteam/httpio v0.6.3 h1:/LlbflOa3yFA6bdFzs5NQyGC9tVLG2gq5SdzdD23Xrc=
+github.com/cccteam/httpio v0.6.3/go.mod h1:/pfKsDUOZ/PDdA3Ojn/za0WniizVrQ19YAirmbo/NKI=
 github.com/cccteam/logger v0.1.12 h1:qmNPJKb9wOlTHYN+WUUaOkKM1YxVyXsOusuA2Xp7/tE=
 github.com/cccteam/logger v0.1.12/go.mod h1:sctqFYiCg0KkKszjmAkWV4ynkuHNbFwTdsAPn8IlWh0=
 github.com/cccteam/spxscan v0.0.3 h1:nKlNvD3pahrFWgoSy3WK9srxQN3n8QUuj9jNUEfr3ro=
