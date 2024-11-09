@@ -1,4 +1,4 @@
-// spanner provides our data storage API backed by Google Cloud Spanner
+// spanner provides the session storage driver for Spanner
 package spanner
 
 import (
@@ -7,16 +7,18 @@ import (
 
 const name = "github.com/AscendiumApps/ga-lite-app/spanner"
 
-type StorageDriver struct {
+type SessionStorageDriver struct {
 	spanner *spanner.Client
 }
 
-func NewStorageDriver(client *spanner.Client) *StorageDriver {
-	return &StorageDriver{
+// NewSessionStorageDriver creates a new SessionStorageDriver
+func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
+	return &SessionStorageDriver{
 		spanner: client,
 	}
 }
 
-func (d *StorageDriver) Close() {
+// Close closes the spanner client
+func (d *SessionStorageDriver) Close() {
 	d.spanner.Close()
 }

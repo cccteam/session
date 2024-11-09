@@ -1,13 +1,15 @@
+// package postgres implements the session storage driver for PostgreSQL
 package postgres
 
 const name = "github.com/cccteam/session/postgres"
 
-type StorageDriver struct {
+type SessionStorageDriver struct {
 	conn Queryer
 }
 
-func NewStorageDriver(conn Queryer) *StorageDriver {
-	return &StorageDriver{
+// NewSessionStorageDriver creates a new SessionStorageDriver
+func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
+	return &SessionStorageDriver{
 		conn: conn,
 	}
 }

@@ -3,19 +3,12 @@ package session
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
 	"github.com/cccteam/session/mock/mock_session"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
-
-// Custom matcher for InsertSession
-func matchOIDCSession(expected *dbtypes.InsertSessionOIDC) gomock.Matcher {
-	return gomock.AssignableToTypeOf(expected)
-}
 
 func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 	t.Parallel()
@@ -33,14 +26,8 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			username: "user1",
 			oidcSID:  "oidc-12345",
 			prepare: func(mockDB *mock_session.MockDB) {
-				session := &dbtypes.InsertSessionOIDC{
-					Username:  "user1",
-					OidcSID:   "oidc-12345",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), matchOIDCSession(session)).
+					InsertSession(gomock.Any(), gomock.Any()).
 					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174001")), nil).
 					Times(1)
 			},
@@ -51,14 +38,8 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			username: "user2",
 			oidcSID:  "oidc-67890",
 			prepare: func(mockDB *mock_session.MockDB) {
-				session := &dbtypes.InsertSessionOIDC{
-					Username:  "user2",
-					OidcSID:   "oidc-67890",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), matchOIDCSession(session)).
+					InsertSession(gomock.Any(), gomock.Any()).
 					Return(ccc.NilUUID, errors.New("insert failed")).
 					Times(1)
 			},

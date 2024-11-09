@@ -1,4 +1,3 @@
-// package postgresql implements the database layer for postgresql
 package postgres
 
 import (
@@ -14,8 +13,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func (d *StorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.DestroySession()")
+// DestroySession marks the session as expired
+func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.DestroySession()")
 	defer span.End()
 
 	query := `
@@ -30,8 +30,8 @@ func (d *StorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) 
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
-func (d *StorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.UpdateSessionActivity()")
+func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.UpdateSessionActivity()")
 	defer span.End()
 
 	query := `
@@ -51,8 +51,8 @@ func (d *StorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc
 }
 
 // Session returns the session information from the database for given sessionID
-func (d *StorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.Session()")
+func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.Session()")
 	defer span.End()
 
 	query := `
@@ -75,8 +75,8 @@ func (d *StorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtyp
 }
 
 // InsertSession inserts Session into database
-func (d *StorageDriver) InsertSession(ctx context.Context, session *dbtypes.InsertSession) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.InsertSession()")
+func (d *SessionStorageDriver) InsertSession(ctx context.Context, session *dbtypes.InsertSession) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSession()")
 	defer span.End()
 
 	id, err := ccc.NewUUID()

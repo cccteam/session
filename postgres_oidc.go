@@ -18,7 +18,7 @@ type PostgresOIDCSessionStorage struct {
 
 func NewPostgresOIDCSessionStorage(db postgres.Queryer) *PostgresOIDCSessionStorage {
 	return &PostgresOIDCSessionStorage{
-		db: postgres.NewStorageDriver(db),
+		db: postgres.NewSessionStorageDriver(db),
 	}
 }
 

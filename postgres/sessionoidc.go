@@ -14,8 +14,8 @@ import (
 )
 
 // SessionOIDC returns the session information from the database for given sessionID
-func (d *StorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.SessionOIDC()")
+func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.SessionOIDC()")
 	defer span.End()
 
 	query := `
@@ -38,8 +38,8 @@ func (d *StorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*d
 }
 
 // InsertSessionOIDC inserts Session into database
-func (d *StorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.InsertSessionOIDC()")
+func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSessionOIDC()")
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -62,8 +62,8 @@ func (d *StorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtypes.
 }
 
 // DestroySessionOIDC marks the session as expired
-func (d *StorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.DestroySessionOIDC()")
+func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.DestroySessionOIDC()")
 	defer span.End()
 
 	query := `

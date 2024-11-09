@@ -19,7 +19,7 @@ type SpannerOIDCSessionStorage struct {
 
 func NewSpannerOIDCSessionStorage(db *cloudspanner.Client) *SpannerOIDCSessionStorage {
 	return &SpannerOIDCSessionStorage{
-		db: spanner.NewStorageDriver(db),
+		db: spanner.NewSessionStorageDriver(db),
 	}
 }
 

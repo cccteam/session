@@ -20,7 +20,7 @@ type PostgresPreauthSessionStorage struct {
 // NewPostgresPreauthSessionStorage is the function that you use to create the session manager that handles the session creation and updates
 func NewPostgresPreauthSessionStorage(db postgres.Queryer) *PostgresPreauthSessionStorage {
 	return &PostgresPreauthSessionStorage{
-		db: postgres.NewStorageDriver(db),
+		db: postgres.NewSessionStorageDriver(db),
 	}
 }
 

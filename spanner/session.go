@@ -15,8 +15,8 @@ import (
 )
 
 // Session returns the session information from the database for given sessionID
-func (d *StorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
-	_, span := otel.Tracer(name).Start(ctx, "StorageDriver.Session()")
+func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
+	_, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.Session()")
 	defer span.End()
 
 	stmt := spanner.NewStatement(`
@@ -40,8 +40,8 @@ func (d *StorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtyp
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
-func (d *StorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	_, span := otel.Tracer(name).Start(ctx, "StorageDriver.UpdateSessionActivity()")
+func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	_, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.UpdateSessionActivity()")
 	defer span.End()
 
 	sessionUpdate := struct {
@@ -69,8 +69,8 @@ func (d *StorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc
 }
 
 // InsertSession inserts a Session into database
-func (d *StorageDriver) InsertSession(ctx context.Context, insertSession *dbtypes.InsertSession) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "StorageDriver.InsertSession()")
+func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtypes.InsertSession) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSession()")
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -98,8 +98,8 @@ func (d *StorageDriver) InsertSession(ctx context.Context, insertSession *dbtype
 }
 
 // DestroySession marks the session as expired
-func (d *StorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	_, span := otel.Tracer(name).Start(ctx, "StorageDriver.DestroySession()")
+func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	_, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.DestroySession()")
 	defer span.End()
 
 	sessionUpdate := struct {

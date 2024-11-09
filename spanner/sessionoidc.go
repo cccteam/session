@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// InsertSession inserts a Session into database
-func (d *StorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "client.InsertSession()")
+// InsertSessionOIDC inserts a Session into database
+func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "client.InsertSessionOIDC()")
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -42,9 +42,9 @@ func (d *StorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *db
 	return id, nil
 }
 
-// Session returns the session information from the database for given sessionID
-func (d *StorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
-	_, span := otel.Tracer(name).Start(ctx, "client.Session()")
+// SessionOIDC returns the session information from the database for given sessionID
+func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
+	_, span := otel.Tracer(name).Start(ctx, "client.SessionOIDC()")
 	defer span.End()
 
 	stmt := spanner.NewStatement(`
@@ -68,7 +68,7 @@ func (d *StorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*d
 }
 
 // DestroySessionOIDC marks the session as expired using the oidcSID
-func (d *StorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
 	_, span := otel.Tracer(name).Start(ctx, "client.DestroySessionOIDC()")
 	defer span.End()
 

@@ -56,7 +56,7 @@ func Test_client_SessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &StorageDriver{spanner: conn.Client}
+			c := &SessionStorageDriver{spanner: conn.Client}
 
 			got, err := c.Session(ctx, tt.sessionID)
 			if (err != nil) != tt.wantErr {
@@ -130,7 +130,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &StorageDriver{spanner: conn.Client}
+			c := &SessionStorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 
@@ -188,7 +188,7 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &StorageDriver{spanner: conn.Client}
+			c := &SessionStorageDriver{spanner: conn.Client}
 
 			preExecTime := time.Now()
 			if !tt.wantErr {
@@ -255,7 +255,7 @@ func Test_client_DestroySession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &StorageDriver{spanner: conn.Client}
+			c := &SessionStorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySession(ctx, tt.sessionID); (err != nil) != tt.wantErr {
@@ -320,7 +320,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &StorageDriver{spanner: conn.Client}
+			c := &SessionStorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySessionOIDC(ctx, tt.oidcSID); (err != nil) != tt.wantErr {

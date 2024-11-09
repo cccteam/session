@@ -21,7 +21,7 @@ type SpannerPreauthSessionStorage struct {
 // NewSpannerPreauthSessionStorage is the function that you use to create the session manager that handles the session creation and updates
 func NewSpannerPreauthSessionStorage(db *cloudspanner.Client) *SpannerPreauthSessionStorage {
 	return &SpannerPreauthSessionStorage{
-		spanner.NewStorageDriver(db),
+		spanner.NewSessionStorageDriver(db),
 	}
 }
 
