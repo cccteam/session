@@ -13,8 +13,6 @@ import (
 	context "context"
 	reflect "reflect"
 
-	ccc "github.com/cccteam/ccc"
-	postgres "github.com/cccteam/session/postgres"
 	pgx "github.com/jackc/pgx/v5"
 	pgconn "github.com/jackc/pgx/v5/pgconn"
 	gomock "go.uber.org/mock/gomock"
@@ -116,100 +114,4 @@ func (mr *MockQueryerMockRecorder) QueryRow(ctx, query any, args ...any) *gomock
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, query}, args...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryRow", reflect.TypeOf((*MockQueryer)(nil).QueryRow), varargs...)
-}
-
-// MockDB is a mock of DB interface.
-type MockDB struct {
-	ctrl     *gomock.Controller
-	recorder *MockDBMockRecorder
-	isgomock struct{}
-}
-
-// MockDBMockRecorder is the mock recorder for MockDB.
-type MockDBMockRecorder struct {
-	mock *MockDB
-}
-
-// NewMockDB creates a new mock instance.
-func NewMockDB(ctrl *gomock.Controller) *MockDB {
-	mock := &MockDB{ctrl: ctrl}
-	mock.recorder = &MockDBMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockDB) EXPECT() *MockDBMockRecorder {
-	return m.recorder
-}
-
-// DestroySession mocks base method.
-func (m *MockDB) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DestroySession indicates an expected call of DestroySession.
-func (mr *MockDBMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockDB)(nil).DestroySession), ctx, sessionID)
-}
-
-// DestroySessionOIDC mocks base method.
-func (m *MockDB) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroySessionOIDC", ctx, oidcSID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DestroySessionOIDC indicates an expected call of DestroySessionOIDC.
-func (mr *MockDBMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*MockDB)(nil).DestroySessionOIDC), ctx, oidcSID)
-}
-
-// InsertSession mocks base method.
-func (m *MockDB) InsertSession(ctx context.Context, sessionInfo *postgres.InsertSession) (ccc.UUID, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertSession", ctx, sessionInfo)
-	ret0, _ := ret[0].(ccc.UUID)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// InsertSession indicates an expected call of InsertSession.
-func (mr *MockDBMockRecorder) InsertSession(ctx, sessionInfo any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSession", reflect.TypeOf((*MockDB)(nil).InsertSession), ctx, sessionInfo)
-}
-
-// Session mocks base method.
-func (m *MockDB) Session(ctx context.Context, sessionID ccc.UUID) (*postgres.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*postgres.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Session indicates an expected call of Session.
-func (mr *MockDBMockRecorder) Session(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockDB)(nil).Session), ctx, sessionID)
-}
-
-// UpdateSessionActivity mocks base method.
-func (m *MockDB) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockDBMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockDB)(nil).UpdateSessionActivity), ctx, sessionID)
 }

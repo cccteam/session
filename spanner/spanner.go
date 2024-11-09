@@ -7,16 +7,16 @@ import (
 
 const name = "github.com/AscendiumApps/ga-lite-app/spanner"
 
-type Client struct {
+type StorageDriver struct {
 	spanner *spanner.Client
 }
 
-func New(client *spanner.Client) *Client {
-	return &Client{
+func NewStorageDriver(client *spanner.Client) *StorageDriver {
+	return &StorageDriver{
 		spanner: client,
 	}
 }
 
-func (c *Client) Close() {
-	c.spanner.Close()
+func (d *StorageDriver) Close() {
+	d.spanner.Close()
 }

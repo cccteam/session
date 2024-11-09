@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/mock/mock_spanner"
-	"github.com/cccteam/session/spanner"
+	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/mock/mock_session"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
 
 // Custom matcher for InsertSession
-func matchOIDCSession(expected *spanner.InsertSession) gomock.Matcher {
+func matchOIDCSession(expected *dbtypes.InsertSessionOIDC) gomock.Matcher {
 	return gomock.AssignableToTypeOf(expected)
 }
 
@@ -24,7 +24,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 		name       string
 		username   string
 		oidcSID    string
-		prepare    func(*mock_spanner.MockDB)
+		prepare    func(*mock_session.MockDB)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
@@ -32,8 +32,8 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			name:     "successful OIDC session creation",
 			username: "user1",
 			oidcSID:  "oidc-12345",
-			prepare: func(mockDB *mock_spanner.MockDB) {
-				session := &spanner.InsertSession{
+			prepare: func(mockDB *mock_session.MockDB) {
+				session := &dbtypes.InsertSessionOIDC{
 					Username:  "user1",
 					OidcSID:   "oidc-12345",
 					CreatedAt: time.Now(),
@@ -50,8 +50,8 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			name:     "failed OIDC session creation",
 			username: "user2",
 			oidcSID:  "oidc-67890",
-			prepare: func(mockDB *mock_spanner.MockDB) {
-				session := &spanner.InsertSession{
+			prepare: func(mockDB *mock_session.MockDB) {
+				session := &dbtypes.InsertSessionOIDC{
 					Username:  "user2",
 					OidcSID:   "oidc-67890",
 					CreatedAt: time.Now(),
@@ -72,9 +72,9 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_spanner.NewMockDB(ctrl)
+			mockDB := mock_session.NewMockDB(ctrl)
 			storage := &SpannerOIDCSessionStorage{
-				spannerSessionStorage: &spannerSessionStorage{db: mockDB},
+				db: mockDB,
 			}
 
 			if tt.prepare != nil {
@@ -98,13 +98,13 @@ func TestSpannerOIDCSessionStorage_DestroySessionOIDC(t *testing.T) {
 	tests := []struct {
 		name    string
 		oidcSID string
-		prepare func(*mock_spanner.MockDB)
+		prepare func(*mock_session.MockDB)
 		wantErr bool
 	}{
 		{
 			name:    "successful OIDC session destruction",
 			oidcSID: "oidc-12345",
-			prepare: func(mockDB *mock_spanner.MockDB) {
+			prepare: func(mockDB *mock_session.MockDB) {
 				mockDB.EXPECT().
 					DestroySessionOIDC(gomock.Any(), "oidc-12345").
 					Return(nil).
@@ -114,7 +114,7 @@ func TestSpannerOIDCSessionStorage_DestroySessionOIDC(t *testing.T) {
 		{
 			name:    "failed OIDC session destruction",
 			oidcSID: "oidc-67890",
-			prepare: func(mockDB *mock_spanner.MockDB) {
+			prepare: func(mockDB *mock_session.MockDB) {
 				mockDB.EXPECT().
 					DestroySessionOIDC(gomock.Any(), "oidc-67890").
 					Return(errors.New("destroy failed")).
@@ -130,9 +130,9 @@ func TestSpannerOIDCSessionStorage_DestroySessionOIDC(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_spanner.NewMockDB(ctrl)
+			mockDB := mock_session.NewMockDB(ctrl)
 			storage := &SpannerOIDCSessionStorage{
-				spannerSessionStorage: &spannerSessionStorage{db: mockDB},
+				db: mockDB,
 			}
 
 			if tt.prepare != nil {

@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/dbtypes"
 	"github.com/google/go-cmp/cmp"
 )
 
-func Test_client_Session(t *testing.T) {
+func Test_client_SessionOIDC(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
 		sessionID ccc.UUID
 		sourceURL []string
-		want      *Session
+		want      *dbtypes.SessionOIDC
 		wantErr   bool
 	}{
 		{
@@ -35,7 +36,7 @@ func Test_client_Session(t *testing.T) {
 			name:      "success getting session",
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
-			want: &Session{
+			want: &dbtypes.SessionOIDC{
 				ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 				OidcSID:   "eb0c72a4-1f32-469e-b51b-7baa589a944c",
 				Username:  "test user 2",
@@ -55,7 +56,7 @@ func Test_client_Session(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Client{spanner: conn.Client}
+			c := &StorageDriver{spanner: conn.Client}
 
 			got, err := c.Session(ctx, tt.sessionID)
 			if (err != nil) != tt.wantErr {
@@ -69,11 +70,11 @@ func Test_client_Session(t *testing.T) {
 	}
 }
 
-func Test_client_InsertSession(t *testing.T) {
+func Test_client_InsertSessionOIDC(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
-		insertSession  *InsertSession
+		insertSession  *dbtypes.InsertSessionOIDC
 		sourceURL      []string
 		wantErr        bool
 		preAssertions  []string
@@ -81,7 +82,7 @@ func Test_client_InsertSession(t *testing.T) {
 	}{
 		{
 			name: "fails to create session (invalid schema)",
-			insertSession: &InsertSession{
+			insertSession: &dbtypes.InsertSessionOIDC{
 				Username:  "test user 2",
 				OidcSID:   "oidc session 2",
 				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
@@ -93,7 +94,7 @@ func Test_client_InsertSession(t *testing.T) {
 		},
 		{
 			name: "success creating session",
-			insertSession: &InsertSession{
+			insertSession: &dbtypes.InsertSessionOIDC{
 				Username:  "test user 2",
 				OidcSID:   "oidc session 2",
 				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
@@ -129,11 +130,11 @@ func Test_client_InsertSession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Client{spanner: conn.Client}
+			c := &StorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 
-			got, err := c.InsertSession(ctx, tt.insertSession)
+			got, err := c.InsertSessionOIDC(ctx, tt.insertSession)
 			if err != nil != tt.wantErr {
 				t.Errorf("client.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -187,7 +188,7 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Client{spanner: conn.Client}
+			c := &StorageDriver{spanner: conn.Client}
 
 			preExecTime := time.Now()
 			if !tt.wantErr {
@@ -254,7 +255,7 @@ func Test_client_DestroySession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Client{spanner: conn.Client}
+			c := &StorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySession(ctx, tt.sessionID); (err != nil) != tt.wantErr {
@@ -319,7 +320,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &Client{spanner: conn.Client}
+			c := &StorageDriver{spanner: conn.Client}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 			if err := c.DestroySessionOIDC(ctx, tt.oidcSID); (err != nil) != tt.wantErr {
