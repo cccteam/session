@@ -27,7 +27,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			oidcSID:  "oidc-12345",
 			prepare: func(mockDB *mock_session.MockDB) {
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), gomock.Any()).
+					InsertSessionOIDC(gomock.Any(), gomock.Any()).
 					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174001")), nil).
 					Times(1)
 			},
@@ -39,7 +39,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			oidcSID:  "oidc-67890",
 			prepare: func(mockDB *mock_session.MockDB) {
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), gomock.Any()).
+					InsertSessionOIDC(gomock.Any(), gomock.Any()).
 					Return(ccc.NilUUID, errors.New("insert failed")).
 					Times(1)
 			},
