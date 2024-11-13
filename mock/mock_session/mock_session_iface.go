@@ -16,7 +16,7 @@ import (
 
 	ccc "github.com/cccteam/ccc"
 	accesstypes "github.com/cccteam/ccc/accesstypes"
-	dbtypes "github.com/cccteam/session/dbtype"
+	dbtype "github.com/cccteam/session/dbtype"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -616,7 +616,7 @@ func (mr *MockDBMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 }
 
 // InsertSession mocks base method.
-func (m *MockDB) InsertSession(ctx context.Context, session *dbtypes.InsertSession) (ccc.UUID, error) {
+func (m *MockDB) InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InsertSession", ctx, session)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -631,7 +631,7 @@ func (mr *MockDBMockRecorder) InsertSession(ctx, session any) *gomock.Call {
 }
 
 // InsertSessionOIDC mocks base method.
-func (m *MockDB) InsertSessionOIDC(ctx context.Context, session *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
+func (m *MockDB) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InsertSessionOIDC", ctx, session)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -646,10 +646,10 @@ func (mr *MockDBMockRecorder) InsertSessionOIDC(ctx, session any) *gomock.Call {
 }
 
 // Session mocks base method.
-func (m *MockDB) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
+func (m *MockDB) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*dbtypes.Session)
+	ret0, _ := ret[0].(*dbtype.Session)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -661,10 +661,10 @@ func (mr *MockDBMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SessionOIDC mocks base method.
-func (m *MockDB) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
+func (m *MockDB) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SessionOIDC", ctx, sessionID)
-	ret0, _ := ret[0].(*dbtypes.SessionOIDC)
+	ret0, _ := ret[0].(*dbtype.SessionOIDC)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
