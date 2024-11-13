@@ -1,5 +1,5 @@
-// dbtypes is a package that contains types used by the database driver packages
-package dbtypes
+// dbtype is a package that contains types used by the database driver packages for session storage.
+package dbtype
 
 import (
 	"time"

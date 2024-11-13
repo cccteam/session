@@ -6,7 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
@@ -51,7 +51,7 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 }
 
 // Session returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
+func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.Session()")
 	defer span.End()
 
@@ -62,7 +62,7 @@ func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		WHERE "Id" = $1
 	`
 
-	i := &dbtypes.Session{}
+	i := &dbtype.Session{}
 	if err := pgxscan.Get(ctx, d.conn, i, query, sessionID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
@@ -75,7 +75,7 @@ func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 }
 
 // InsertSession inserts Session into database
-func (d *SessionStorageDriver) InsertSession(ctx context.Context, session *dbtypes.InsertSession) (ccc.UUID, error) {
+func (d *SessionStorageDriver) InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSession()")
 	defer span.End()
 

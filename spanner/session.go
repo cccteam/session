@@ -7,7 +7,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
 	"go.opentelemetry.io/otel"
@@ -15,7 +15,7 @@ import (
 )
 
 // Session returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtypes.Session, error) {
+func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	_, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.Session()")
 	defer span.End()
 
@@ -27,7 +27,7 @@ func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	`)
 	stmt.Params["id"] = sessionID
 
-	s := &dbtypes.Session{}
+	s := &dbtype.Session{}
 	if err := spxscan.Get(ctx, d.spanner.Single(), s, stmt); err != nil {
 		if errors.Is(err, spxscan.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
@@ -69,7 +69,7 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 }
 
 // InsertSession inserts a Session into database
-func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtypes.InsertSession) (ccc.UUID, error) {
+func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSession()")
 	defer span.End()
 
@@ -80,7 +80,7 @@ func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 
 	session := &struct {
 		ID ccc.UUID
-		*dbtypes.InsertSession
+		*dbtype.InsertSession
 	}{
 		ID:            id,
 		InsertSession: insertSession,

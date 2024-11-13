@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/postgres"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -29,7 +29,7 @@ func (p *PostgresPreauthSessionStorage) NewSession(ctx context.Context, username
 	ctx, span := otel.Tracer(name).Start(ctx, "PostgresPreauthSessionStorage.NewSession()")
 	defer span.End()
 
-	session := &dbtypes.InsertSession{
+	session := &dbtype.InsertSession{
 		Username:  username,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),

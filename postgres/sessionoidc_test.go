@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -20,7 +20,7 @@ func Test_client_SessionOIDC(t *testing.T) {
 		name      string
 		sessionID ccc.UUID
 		sourceURL []string
-		want      *dbtypes.SessionOIDC
+		want      *dbtype.SessionOIDC
 		wantErr   bool
 	}{
 		{
@@ -38,7 +38,7 @@ func Test_client_SessionOIDC(t *testing.T) {
 			name:      "success getting session",
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
-			want: &dbtypes.SessionOIDC{
+			want: &dbtype.SessionOIDC{
 				ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 				OidcSID:   "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
 				Username:  "test user 2",
@@ -77,7 +77,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		insertSession  *dbtypes.InsertSessionOIDC
+		insertSession  *dbtype.InsertSessionOIDC
 		sourceURL      []string
 		wantErr        bool
 		preAssertions  []string
@@ -85,7 +85,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 	}{
 		{
 			name: "success creating session",
-			insertSession: &dbtypes.InsertSessionOIDC{
+			insertSession: &dbtype.InsertSessionOIDC{
 				Username:  "test user 2",
 				OidcSID:   "oidc session",
 				CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),

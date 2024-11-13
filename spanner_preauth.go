@@ -6,7 +6,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/spanner"
 	"github.com/go-playground/errors/v5"
@@ -30,7 +30,7 @@ func (p *SpannerPreauthSessionStorage) NewSession(ctx context.Context, username 
 	ctx, span := otel.Tracer(name).Start(ctx, "SpannerPreauthSessionStorage.NewSession()")
 	defer span.End()
 
-	session := &dbtypes.InsertSession{
+	session := &dbtype.InsertSession{
 		Username:  username,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),

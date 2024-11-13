@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/postgres"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -27,7 +27,7 @@ func (p *PostgresOIDCSessionStorage) NewSession(ctx context.Context, username, o
 	ctx, span := otel.Tracer(name).Start(ctx, "PostgresOIDCSessionStorage.NewSession()")
 	defer span.End()
 
-	session := &dbtypes.InsertSessionOIDC{
+	session := &dbtype.InsertSessionOIDC{
 		OidcSID:   oidcSID,
 		Username:  username,
 		CreatedAt: time.Now(),

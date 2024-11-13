@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/mock/mock_session"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
 
 // Custom matcher for InsertSession
-func matchPostgresSession(expected *dbtypes.InsertSession) gomock.Matcher {
+func matchPostgresSession(expected *dbtype.InsertSession) gomock.Matcher {
 	return gomock.AssignableToTypeOf(expected)
 }
 
@@ -31,7 +31,7 @@ func TestPostgresPreauthSessionStorage_NewSession(t *testing.T) {
 			name:     "successful session creation",
 			username: "test_user",
 			prepare: func(mockDB *mock_session.MockDB) {
-				session := &dbtypes.InsertSession{
+				session := &dbtype.InsertSession{
 					Username:  "test_user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
@@ -47,7 +47,7 @@ func TestPostgresPreauthSessionStorage_NewSession(t *testing.T) {
 			name:     "failed session creation",
 			username: "test_user",
 			prepare: func(mockDB *mock_session.MockDB) {
-				session := &dbtypes.InsertSession{
+				session := &dbtype.InsertSession{
 					Username:  "test_user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),

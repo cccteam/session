@@ -6,7 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
@@ -14,7 +14,7 @@ import (
 )
 
 // SessionOIDC returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtypes.SessionOIDC, error) {
+func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.SessionOIDC()")
 	defer span.End()
 
@@ -25,7 +25,7 @@ func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UU
 		WHERE "Id" = $1
 	`
 
-	i := &dbtypes.SessionOIDC{}
+	i := &dbtype.SessionOIDC{}
 	if err := pgxscan.Get(ctx, d.conn, i, query, sessionID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
@@ -38,7 +38,7 @@ func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UU
 }
 
 // InsertSessionOIDC inserts Session into database
-func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtypes.InsertSessionOIDC) (ccc.UUID, error) {
+func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "SessionStorageDriver.InsertSessionOIDC()")
 	defer span.End()
 

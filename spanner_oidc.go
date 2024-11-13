@@ -6,7 +6,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/spanner"
 	"github.com/go-playground/errors/v5"
@@ -28,7 +28,7 @@ func (p *SpannerOIDCSessionStorage) NewSession(ctx context.Context, username, oi
 	ctx, span := otel.Tracer(name).Start(ctx, "SpannerqlOIDCSessionStorage.NewSession()")
 	defer span.End()
 
-	session := &dbtypes.InsertSessionOIDC{
+	session := &dbtype.InsertSessionOIDC{
 		OidcSID:   oidcSID,
 		Username:  username,
 		CreatedAt: time.Now(),

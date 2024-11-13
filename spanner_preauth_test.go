@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/dbtypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/mock/mock_session"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -90,7 +90,7 @@ func TestSpannerPreauthSessionStorage_Session(t *testing.T) {
 			prepare: func(mockDB *mock_session.MockDB) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
-					Return(&dbtypes.Session{
+					Return(&dbtype.Session{
 						ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 						Username:  "test_user",
 						CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
