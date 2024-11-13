@@ -60,7 +60,7 @@ func Test_client_SessionOIDC(t *testing.T) {
 			}
 			c := &SessionStorageDriver{conn: conn.Pool}
 
-			got, err := c.Session(ctx, tt.sessionID)
+			got, err := c.SessionOIDC(ctx, tt.sessionID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("client.Session() error = %v, wantErr %v", err, tt.wantErr)
 				return
