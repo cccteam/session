@@ -1,4 +1,3 @@
-// package postgresql implements the database layer for postgresql
 package postgres
 
 import (
