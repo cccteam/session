@@ -38,7 +38,7 @@ func (p *SpannerPreauthSessionStorage) NewSession(ctx context.Context, username 
 
 	id, err := p.db.InsertSession(ctx, session)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauthSessionStorage.insertSession()")
+		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauthSessionStorage.db.InsertSession()")
 	}
 
 	return id, nil
@@ -46,12 +46,12 @@ func (p *SpannerPreauthSessionStorage) NewSession(ctx context.Context, username 
 
 // Session returns the session information from the database for given sessionID
 func (p *SpannerPreauthSessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "Client.Session()")
+	ctx, span := otel.Tracer(name).Start(ctx, "SpannerPreauthSessionStorage.Session()")
 	defer span.End()
 
 	si, err := p.db.Session(ctx, sessionID)
 	if err != nil {
-		return nil, errors.Wrap(err, "dbx.DB.Session()")
+		return nil, errors.Wrap(err, "SpannerPreauthSessionStorage.db.Session()")
 	}
 
 	return &sessioninfo.SessionInfo{
@@ -69,7 +69,7 @@ func (p *SpannerPreauthSessionStorage) UpdateSessionActivity(ctx context.Context
 	defer span.End()
 
 	if err := p.db.UpdateSessionActivity(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "db.updateSessionActivity()")
+		return errors.Wrap(err, "SpannerPreauthSessionStorage.db.UpdateSessionActivity()")
 	}
 
 	return nil
@@ -81,7 +81,7 @@ func (p *SpannerPreauthSessionStorage) DestroySession(ctx context.Context, sessi
 	defer span.End()
 
 	if err := p.db.DestroySession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "db.DestroySession()")
+		return errors.Wrap(err, "SpannerPreauthSessionStorage.db.DestroySession()")
 	}
 
 	return nil

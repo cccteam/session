@@ -47,7 +47,7 @@ func NewOIDCAzure(
 
 func (o *OIDCAzureSession) Login() http.HandlerFunc {
 	return o.handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Login()")
+		ctx, span := otel.Tracer(name).Start(r.Context(), "OIDCAzureSession.Login()")
 		defer span.End()
 
 		returnURL := r.URL.Query().Get("returnUrl")
@@ -70,7 +70,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 	}
 
 	return o.handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.CallbackOIDC()")
+		ctx, span := otel.Tracer(name).Start(r.Context(), "OIDCAzureSession.CallbackOIDC()")
 		defer span.End()
 
 		claims := &claims{}
@@ -78,7 +78,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
-			return errors.Wrap(err, "oidc.Verify")
+			return errors.Wrap(err, "oidc.Verify()")
 		}
 
 		// user is successfully authenticated, start a new session
@@ -86,7 +86,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "app.startNewSession()")
+			return errors.Wrap(err, "OIDCAzureSession.startNewSession()")
 		}
 
 		// write new XSRF Token Cookie to match the new SessionID
@@ -96,7 +96,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "app.assignUserRoles()")
+			return errors.Wrap(err, "OIDCAzureSession.assignUserRoles()")
 		}
 		if !hasRole {
 			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
@@ -114,7 +114,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
 func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
 	return o.handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := otel.Tracer(name).Start(r.Context(), "App.FrontChannelLogout()")
+		ctx, span := otel.Tracer(name).Start(r.Context(), "OIDCAzureSession.FrontChannelLogout()")
 		defer span.End()
 
 		sid := r.URL.Query().Get("sid")
@@ -133,7 +133,7 @@ func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
 func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "App.assignUserRoles()")
+	ctx, span := otel.Tracer(name).Start(ctx, "OIDCAzureSession.assignUserRoles()")
 	defer span.End()
 
 	domains, err := o.userManager.Domains(ctx)
