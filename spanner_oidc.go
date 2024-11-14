@@ -29,10 +29,12 @@ func (p *SpannerOIDCSessionStorage) NewSession(ctx context.Context, username, oi
 	defer span.End()
 
 	session := &dbtype.InsertSessionOIDC{
-		OidcSID:   oidcSID,
-		Username:  username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		OidcSID: oidcSID,
+		InsertSession: dbtype.InsertSession{
+			Username:  username,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
 	}
 
 	id, err := p.db.InsertSessionOIDC(ctx, session)

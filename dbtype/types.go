@@ -16,12 +16,8 @@ type Session struct {
 }
 
 type SessionOIDC struct {
-	OidcSID   string    `spanner:"OidcSid"   db:"OidcSid"`
-	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
-	Username  string    `spanner:"Username"  db:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"   db:"Expired"`
+	OidcSID string `spanner:"OidcSid" db:"OidcSid"`
+	Session
 }
 
 type InsertSession struct {
@@ -32,9 +28,6 @@ type InsertSession struct {
 }
 
 type InsertSessionOIDC struct {
-	OidcSID   string    `spanner:"OidcSid"   db:"OidcSid"`
-	Username  string    `spanner:"Username"  db:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"   db:"Expired"`
+	OidcSID string `spanner:"OidcSid" db:"OidcSid"`
+	InsertSession
 }

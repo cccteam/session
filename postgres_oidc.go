@@ -28,10 +28,12 @@ func (p *PostgresOIDCSessionStorage) NewSession(ctx context.Context, username, o
 	defer span.End()
 
 	session := &dbtype.InsertSessionOIDC{
-		OidcSID:   oidcSID,
-		Username:  username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		OidcSID: oidcSID,
+		InsertSession: dbtype.InsertSession{
+			Username:  username,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
 	}
 
 	id, err := p.db.InsertSessionOIDC(ctx, session)

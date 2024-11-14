@@ -39,12 +39,14 @@ func Test_client_SessionOIDC(t *testing.T) {
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			want: &dbtype.SessionOIDC{
-				ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
-				OidcSID:   "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
-				Username:  "test user 2",
-				CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
-				UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
-				Expired:   true,
+				OidcSID: "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
+				Session: dbtype.Session{
+					ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
+					Username:  "test user 2",
+					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
+					UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
+					Expired:   true,
+				},
 			},
 		},
 	}
@@ -86,10 +88,12 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 		{
 			name: "success creating session",
 			insertSession: &dbtype.InsertSessionOIDC{
-				Username:  "test user 2",
-				OidcSID:   "oidc session",
-				CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
-				UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+				OidcSID: "oidc session",
+				InsertSession: dbtype.InsertSession{
+					Username:  "test user 2",
+					CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+					UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+				},
 			},
 			sourceURL: []string{"file://../schema/postgresql/oidc/migrations"},
 			preAssertions: []string{
