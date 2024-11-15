@@ -6,6 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/session/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 )
 
@@ -51,4 +52,21 @@ type sessionHandlers interface {
 	ValidateSession(next http.Handler) http.Handler
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+}
+
+type DB interface {
+	// SessionOIDC returns the session information from the database for given sessionID.
+	SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error)
+	// InsertSessionOIDC creates a new session in the database and returns its session ID.
+	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error)
+	// DestroySessionOIDC marks the session as expired by oidcSID.
+	DestroySessionOIDC(ctx context.Context, oidcSID string) error
+	// Session returns the session information from the database for given sessionID.
+	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
+	// InsertSession creates a new session in the database and returns its session ID.
+	InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error)
+	// UpdateSessionActivity updates the session activity column with the current time.
+	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
+	// DestroySession marks the session as expired.
+	DestroySession(ctx context.Context, sessionID ccc.UUID) error
 }
