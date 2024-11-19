@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/cccteam/session/compare/v0.4.0...v0.4.1) (2024-11-15)
+
+
+### Code Refactoring
+
+* Refactor session storage to decouple oidc from non-oidc ([#38](https://github.com/cccteam/session/issues/38)) ([8efc963](https://github.com/cccteam/session/commit/8efc96333d7bad42da349bddb4ac1902413e5956))
+
 ## [0.4.0](https://github.com/cccteam/session/compare/v0.3.1...v0.4.0) (2024-10-24)
 
 
