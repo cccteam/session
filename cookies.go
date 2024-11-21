@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -139,13 +140,16 @@ func (c *cookieClient) hasValidXSRFToken(r *http.Request) bool {
 		return false
 	}
 	if time.Now().After(exp) {
+		fmt.Printf("\n expired xsrf token")
 		return false
 	}
 	if sessionIDFromRequest(r).String() != cval[stSessionID] {
+		fmt.Printf("\n incorrect sessionID")
 		return false
 	}
 	hval, found := c.readXSRFHeader(r)
 	if !found {
+		fmt.Printf("\n no sxrf header")
 		return false
 	}
 
