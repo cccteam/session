@@ -76,7 +76,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		claims := &claims{}
 		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, claims)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape(httpio.Message(err))), http.StatusFound)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
 			return errors.Wrap(err, "oidc.Verify()")
 		}
@@ -84,7 +84,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		// user is successfully authenticated, start a new session
 		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
 			return errors.Wrap(err, "OIDCAzureSession.startNewSession()")
 		}
@@ -94,13 +94,13 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")), http.StatusFound)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
 			return errors.Wrap(err, "OIDCAzureSession.assignUserRoles()")
 		}
 		if !hasRole {
 			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
-			http.Redirect(w, r, fmt.Sprintf("/login?message=%s", url.QueryEscape(httpio.Message(err))), http.StatusFound)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
 			return err
 		}

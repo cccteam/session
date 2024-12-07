@@ -17,10 +17,13 @@ import (
 
 var _ Authenticator = &OIDC{}
 
+const defaultLoginURL = "/login"
+
 type OIDC struct {
 	provider
 	config
-	s *securecookie.SecureCookie
+	s        *securecookie.SecureCookie
+	loginURL string
 }
 
 // New returns a new OIDC Authenticator
@@ -43,6 +46,18 @@ func New(ctx context.Context, s *securecookie.SecureCookie, issuerURL, clientID,
 		},
 		s: s,
 	}, nil
+}
+
+func (o *OIDC) SetLoginURL(url string) {
+	o.loginURL = url
+}
+
+func (o *OIDC) LoginURL() string {
+	if o.loginURL == "" {
+		return defaultLoginURL
+	}
+
+	return o.loginURL
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
