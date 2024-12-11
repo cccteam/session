@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/cccteam/session/compare/v0.4.1...v0.4.2) (2024-12-11)
+
+
+### Features
+
+* Implement ability to control the Login URL used if error occurs during OIDC Callback processing ([#44](https://github.com/cccteam/session/issues/44)) ([98b9c12](https://github.com/cccteam/session/commit/98b9c12155c8daf60ec19664ae951735adefaa54))
+
 ## [0.4.1](https://github.com/cccteam/session/compare/v0.4.0...v0.4.1) (2024-11-15)
 
 
