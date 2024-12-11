@@ -16,11 +16,14 @@ import (
 
 var _ Authenticator = &OIDC{}
 
+const defaultLoginURL = "/login"
+
 type OIDC struct {
 	provider    provider
 	redirectURL string
 	secure      bool
 	s           *securecookie.SecureCookie
+	loginURL    string
 }
 
 func New(_ context.Context, s *securecookie.SecureCookie, _, _, _, redirectURL string) (*OIDC, error) {
@@ -29,6 +32,18 @@ func New(_ context.Context, s *securecookie.SecureCookie, _, _, _, redirectURL s
 		redirectURL: redirectURL,
 		s:           s,
 	}, nil
+}
+
+func (o *OIDC) SetLoginURL(url string) {
+	o.loginURL = url
+}
+
+func (o *OIDC) LoginURL() string {
+	if o.loginURL == "" {
+		return defaultLoginURL
+	}
+
+	return o.loginURL
 }
 
 func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, error) {
