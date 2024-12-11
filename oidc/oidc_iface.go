@@ -17,6 +17,9 @@ type Authenticator interface {
 	//		- the URL to redirect to following successful authentication
 	//		- the 'sid' value from the session_state query parameter
 	Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, oidcSID string, err error)
+
+	// LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
+	LoginURL() string
 }
 
 // Defined for testability
