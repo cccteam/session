@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/cccteam/session/compare/v0.4.2...v0.4.3) (2024-12-17)
+
+
+### Dependencies
+
+* Update dependencies ([#50](https://github.com/cccteam/session/issues/50)) ([d7e92a0](https://github.com/cccteam/session/commit/d7e92a0d8d302298726c06bed6f974f1e942d716))
+
 ## [0.4.2](https://github.com/cccteam/session/compare/v0.4.1...v0.4.2) (2024-12-11)
 
 
