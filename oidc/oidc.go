@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/cccteam/httpio"
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -20,32 +21,62 @@ var _ Authenticator = &OIDC{}
 const defaultLoginURL = "/login"
 
 type OIDC struct {
+	s            *securecookie.SecureCookie
+	loginURL     string
+	issuerURL    string
+	clientID     string
+	clientSecret string
+	redirectURL  string
+
+	mu sync.RWMutex
 	provider
 	config
-	s        *securecookie.SecureCookie
-	loginURL string
 }
 
 // New returns a new OIDC Authenticator
-func New(ctx context.Context, s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) (*OIDC, error) {
-	provider, err := oidc.NewProvider(ctx, issuerURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "oidc.NewProvider()")
+func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
+	return &OIDC{
+		s:            s,
+		issuerURL:    issuerURL,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		redirectURL:  redirectURL,
+	}
+}
+
+func (o *OIDC) init(ctx context.Context) error {
+	o.mu.RLock()
+	if o.provider != nil {
+		o.mu.RUnlock()
+
+		return nil
 	}
 
-	return &OIDC{
-		provider: provider,
-		config: &oAuth2{
-			config: oauth2.Config{
-				ClientID:     clientID,
-				ClientSecret: clientSecret,
-				RedirectURL:  redirectURL,
-				Endpoint:     provider.Endpoint(),
-				Scopes:       []string{oidc.ScopeOpenID, "profile"},
-			},
+	o.mu.RUnlock()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.provider != nil {
+		return nil
+	}
+
+	provider, err := oidc.NewProvider(ctx, o.issuerURL)
+	if err != nil {
+		return errors.Wrap(err, "oidc.NewProvider()")
+	}
+
+	o.provider = provider
+	o.config = &oAuth2{
+		config: oauth2.Config{
+			ClientID:     o.clientID,
+			ClientSecret: o.clientSecret,
+			RedirectURL:  o.redirectURL,
+			Endpoint:     provider.Endpoint(),
+			Scopes:       []string{oidc.ScopeOpenID, "profile"},
 		},
-		s: s,
-	}, nil
+	}
+
+	return nil
 }
 
 func (o *OIDC) SetLoginURL(url string) {
@@ -61,7 +92,11 @@ func (o *OIDC) LoginURL() string {
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, error) {
+func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+	if err := o.init(ctx); err != nil {
+		return "", errors.Wrap(err, "init()")
+	}
+
 	// Using PKCE (Proof Key for Code Exchange) to protect against authorization code interception attacks
 	pkceVerifier := oauth2.GenerateVerifier()
 
@@ -89,6 +124,10 @@ func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, err
 //   - the URL to redirect to following successful authentication
 //   - the 'sid' value from the session_state query parameter
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
+	if err := o.init(ctx); err != nil {
+		return "", "", errors.Wrap(err, "init()")
+	}
+
 	cval, ok := o.readOidcCookie(r)
 	if !ok {
 		return "", "", httpio.NewForbiddenMessage("No OIDC cookie")
