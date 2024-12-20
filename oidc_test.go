@@ -36,7 +36,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 		{
 			name: "fails to get the auth code url",
 			prepare: func(w http.ResponseWriter, oidc *mock_oidc.MockAuthenticator) {
-				oidc.EXPECT().AuthCodeURL(w, "testReturnUrl").Return("", errors.New("failed to get auth code url")).Times(1)
+				oidc.EXPECT().AuthCodeURL(gomock.Any(), w, "testReturnUrl").Return("", errors.New("failed to get auth code url")).Times(1)
 			},
 			wantErr:        true,
 			wantStatusCode: http.StatusInternalServerError,
@@ -44,7 +44,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 		{
 			name: "success initiating login",
 			prepare: func(w http.ResponseWriter, oidc *mock_oidc.MockAuthenticator) {
-				oidc.EXPECT().AuthCodeURL(w, "testReturnUrl").Return("testAuthCodeUrl", nil).Times(1)
+				oidc.EXPECT().AuthCodeURL(gomock.Any(), w, "testReturnUrl").Return("testAuthCodeUrl", nil).Times(1)
 			},
 			wantStatusCode:  http.StatusFound,
 			wantRedirectURL: "/testAuthCodeUrl",

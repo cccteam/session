@@ -51,7 +51,7 @@ func (o *OIDCAzureSession) Login() http.HandlerFunc {
 		defer span.End()
 
 		returnURL := r.URL.Query().Get("returnUrl")
-		authCodeURL, err := o.oidc.AuthCodeURL(w, returnURL)
+		authCodeURL, err := o.oidc.AuthCodeURL(r.Context(), w, returnURL)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
