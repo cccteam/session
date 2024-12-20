@@ -6,9 +6,9 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/cccteam/httpio"
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/securecookie"
@@ -20,32 +20,52 @@ var _ Authenticator = &OIDC{}
 const defaultLoginURL = "/login"
 
 type OIDC struct {
-	provider
-	config
-	s        *securecookie.SecureCookie
-	loginURL string
+	s            *securecookie.SecureCookie
+	loginURL     string
+	issuerURL    string
+	clientID     string
+	clientSecret string
+	redirectURL  string
+
+	mu sync.RWMutex
+	p  oidcProvider
 }
 
 // New returns a new OIDC Authenticator
-func New(ctx context.Context, s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) (*OIDC, error) {
-	provider, err := oidc.NewProvider(ctx, issuerURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "oidc.NewProvider()")
+func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
+	return &OIDC{
+		s:            s,
+		issuerURL:    issuerURL,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		redirectURL:  redirectURL,
+	}
+}
+
+func (o *OIDC) oidcProvider(ctx context.Context) (oidcProvider, error) {
+	o.mu.RLock()
+	if o.p != nil {
+		o.mu.RUnlock()
+
+		return o.p, nil
 	}
 
-	return &OIDC{
-		provider: provider,
-		config: &oAuth2{
-			config: oauth2.Config{
-				ClientID:     clientID,
-				ClientSecret: clientSecret,
-				RedirectURL:  redirectURL,
-				Endpoint:     provider.Endpoint(),
-				Scopes:       []string{oidc.ScopeOpenID, "profile"},
-			},
-		},
-		s: s,
-	}, nil
+	o.mu.RUnlock()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.p != nil {
+		return o.p, nil
+	}
+
+	p, err := newOidcProvider(ctx, o.issuerURL, o.clientID, o.clientSecret, o.redirectURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "newOidcProvider()")
+	}
+
+	o.p = p
+
+	return o.p, nil
 }
 
 func (o *OIDC) SetLoginURL(url string) {
@@ -61,7 +81,12 @@ func (o *OIDC) LoginURL() string {
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, error) {
+func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+	provider, err := o.oidcProvider(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "init()")
+	}
+
 	// Using PKCE (Proof Key for Code Exchange) to protect against authorization code interception attacks
 	pkceVerifier := oauth2.GenerateVerifier()
 
@@ -81,7 +106,7 @@ func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, err
 		return "", errors.Wrap(err, "writeOidcCookie()")
 	}
 
-	return o.config.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
+	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
 }
 
 // Verify performs the necessary verification and processing of the OIDC callback request.
@@ -89,6 +114,11 @@ func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, err
 //   - the URL to redirect to following successful authentication
 //   - the 'sid' value from the session_state query parameter
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
+	provider, err := o.oidcProvider(ctx)
+	if err != nil {
+		return "", "", errors.Wrap(err, "init()")
+	}
+
 	cval, ok := o.readOidcCookie(r)
 	if !ok {
 		return "", "", httpio.NewForbiddenMessage("No OIDC cookie")
@@ -107,7 +137,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := o.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}
@@ -117,9 +147,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
 	}
 
-	verifier := o.provider.Verifier(&oidc.Config{ClientID: o.config.ClientID()})
-
-	idToken, err := verifier.Verify(ctx, rawIDToken)
+	idToken, err := provider.Verifier().Verify(ctx, rawIDToken)
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
 	}
