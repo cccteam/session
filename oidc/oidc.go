@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/cccteam/httpio"
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/securecookie"
@@ -29,8 +28,7 @@ type OIDC struct {
 	redirectURL  string
 
 	mu sync.RWMutex
-	provider
-	config
+	p  oidcProvider
 }
 
 // New returns a new OIDC Authenticator
@@ -44,39 +42,30 @@ func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redire
 	}
 }
 
-func (o *OIDC) init(ctx context.Context) error {
+func (o *OIDC) oidcProvider(ctx context.Context) (oidcProvider, error) {
 	o.mu.RLock()
-	if o.provider != nil {
+	if o.p != nil {
 		o.mu.RUnlock()
 
-		return nil
+		return o.p, nil
 	}
 
 	o.mu.RUnlock()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	if o.provider != nil {
-		return nil
+	if o.p != nil {
+		return o.p, nil
 	}
 
-	provider, err := oidc.NewProvider(ctx, o.issuerURL)
+	p, err := newOidcProvider(ctx, o.issuerURL, o.clientID, o.clientSecret, o.redirectURL)
 	if err != nil {
-		return errors.Wrap(err, "oidc.NewProvider()")
+		return nil, errors.Wrap(err, "newOidcProvider()")
 	}
 
-	o.provider = provider
-	o.config = &oAuth2{
-		config: oauth2.Config{
-			ClientID:     o.clientID,
-			ClientSecret: o.clientSecret,
-			RedirectURL:  o.redirectURL,
-			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile"},
-		},
-	}
+	o.p = p
 
-	return nil
+	return o.p, nil
 }
 
 func (o *OIDC) SetLoginURL(url string) {
@@ -93,7 +82,8 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	if err := o.init(ctx); err != nil {
+	provider, err := o.oidcProvider(ctx)
+	if err != nil {
 		return "", errors.Wrap(err, "init()")
 	}
 
@@ -116,7 +106,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		return "", errors.Wrap(err, "writeOidcCookie()")
 	}
 
-	return o.config.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
+	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
 }
 
 // Verify performs the necessary verification and processing of the OIDC callback request.
@@ -124,7 +114,8 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 //   - the URL to redirect to following successful authentication
 //   - the 'sid' value from the session_state query parameter
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
-	if err := o.init(ctx); err != nil {
+	provider, err := o.oidcProvider(ctx)
+	if err != nil {
 		return "", "", errors.Wrap(err, "init()")
 	}
 
@@ -146,7 +137,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := o.config.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}
@@ -156,9 +147,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
 	}
 
-	verifier := o.provider.Verifier(&oidc.Config{ClientID: o.config.ClientID()})
-
-	idToken, err := verifier.Verify(ctx, rawIDToken)
+	idToken, err := provider.Verifier().Verify(ctx, rawIDToken)
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
 	}
