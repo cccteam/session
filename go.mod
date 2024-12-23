@@ -19,11 +19,11 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.6.0
 	github.com/gorilla/securecookie v1.1.2
-	github.com/jackc/pgx/v5 v5.7.1
+	github.com/jackc/pgx/v5 v5.7.2
 	go.opentelemetry.io/otel v1.33.0
 	go.uber.org/mock v0.5.0
 	golang.org/x/oauth2 v0.24.0
-	google.golang.org/grpc v1.69.0
+	google.golang.org/grpc v1.69.2
 )
 
 require (
