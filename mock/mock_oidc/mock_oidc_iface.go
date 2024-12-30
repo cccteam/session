@@ -14,9 +14,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
-	oidc "github.com/coreos/go-oidc/v3/oidc"
 	gomock "go.uber.org/mock/gomock"
-	oauth2 "golang.org/x/oauth2"
 )
 
 // MockAuthenticator is a mock of Authenticator interface.
@@ -86,81 +84,4 @@ func (m *MockAuthenticator) Verify(ctx context.Context, w http.ResponseWriter, r
 func (mr *MockAuthenticatorMockRecorder) Verify(ctx, w, r, claims any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockAuthenticator)(nil).Verify), ctx, w, r, claims)
-}
-
-// MockoidcProvider is a mock of oidcProvider interface.
-type MockoidcProvider struct {
-	ctrl     *gomock.Controller
-	recorder *MockoidcProviderMockRecorder
-	isgomock struct{}
-}
-
-// MockoidcProviderMockRecorder is the mock recorder for MockoidcProvider.
-type MockoidcProviderMockRecorder struct {
-	mock *MockoidcProvider
-}
-
-// NewMockoidcProvider creates a new mock instance.
-func NewMockoidcProvider(ctrl *gomock.Controller) *MockoidcProvider {
-	mock := &MockoidcProvider{ctrl: ctrl}
-	mock.recorder = &MockoidcProviderMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockoidcProvider) EXPECT() *MockoidcProviderMockRecorder {
-	return m.recorder
-}
-
-// AuthCodeURL mocks base method.
-func (m *MockoidcProvider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
-	m.ctrl.T.Helper()
-	varargs := []any{state}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "AuthCodeURL", varargs...)
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// AuthCodeURL indicates an expected call of AuthCodeURL.
-func (mr *MockoidcProviderMockRecorder) AuthCodeURL(state any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{state}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthCodeURL", reflect.TypeOf((*MockoidcProvider)(nil).AuthCodeURL), varargs...)
-}
-
-// Exchange mocks base method.
-func (m *MockoidcProvider) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, code}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "Exchange", varargs...)
-	ret0, _ := ret[0].(*oauth2.Token)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Exchange indicates an expected call of Exchange.
-func (mr *MockoidcProviderMockRecorder) Exchange(ctx, code any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, code}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exchange", reflect.TypeOf((*MockoidcProvider)(nil).Exchange), varargs...)
-}
-
-// Verifier mocks base method.
-func (m *MockoidcProvider) Verifier() *oidc.IDTokenVerifier {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Verifier")
-	ret0, _ := ret[0].(*oidc.IDTokenVerifier)
-	return ret0
-}
-
-// Verifier indicates an expected call of Verifier.
-func (mr *MockoidcProviderMockRecorder) Verifier() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verifier", reflect.TypeOf((*MockoidcProvider)(nil).Verifier))
 }
