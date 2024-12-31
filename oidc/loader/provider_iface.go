@@ -1,4 +1,4 @@
-package provider
+package loader
 
 import (
 	"context"
@@ -7,7 +7,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type oidcProvider interface {
+type Loader interface {
+	Provider(ctx context.Context) (Provider, error)
+	LoginURL() string
+	SetLoginURL(string)
+}
+
+type Provider interface {
 	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 	Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)
 	Verifier() *oidc.IDTokenVerifier

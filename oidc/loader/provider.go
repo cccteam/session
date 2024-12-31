@@ -1,5 +1,5 @@
 // provider contains interfaces for safely accessing an OIDC Provider
-package provider
+package loader
 
 import (
 	"context"
@@ -12,20 +12,19 @@ import (
 
 const defaultLoginURL = "/login"
 
-type Provider struct {
+type provider struct {
 	loginURL     string
 	issuerURL    string
 	clientID     string
 	clientSecret string
 	redirectURL  string
 
-	provider *oidcConfig
-
-	mu sync.RWMutex
+	mu       sync.RWMutex
+	provider *OIDCConfig
 }
 
-func New(issuerURL, clientID, clientSecret, redirectURL string) *Provider {
-	return &Provider{
+func New(issuerURL, clientID, clientSecret, redirectURL string) Loader {
+	return &provider{
 		issuerURL:    issuerURL,
 		clientID:     clientID,
 		clientSecret: clientSecret,
@@ -33,7 +32,7 @@ func New(issuerURL, clientID, clientSecret, redirectURL string) *Provider {
 	}
 }
 
-func (p *Provider) OidcProvider(ctx context.Context) (oidcProvider, error) {
+func (p *provider) Provider(ctx context.Context) (Provider, error) {
 	p.mu.RLock()
 	if p.provider != nil {
 		p.mu.RUnlock()
@@ -49,19 +48,18 @@ func (p *Provider) OidcProvider(ctx context.Context) (oidcProvider, error) {
 		return p.provider, nil
 	}
 
-	err := p.newOidcProvider(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "newOidcProvider()")
+	if err := p.newProvider(ctx); err != nil {
+		return nil, errors.Wrap(err, "newProvider()")
 	}
 
 	return p.provider, nil
 }
 
-func (p *Provider) SetLoginURL(url string) {
+func (p *provider) SetLoginURL(url string) {
 	p.loginURL = url
 }
 
-func (p *Provider) LoginURL() string {
+func (p *provider) LoginURL() string {
 	if p.loginURL == "" {
 		return defaultLoginURL
 	}
@@ -69,13 +67,13 @@ func (p *Provider) LoginURL() string {
 	return p.loginURL
 }
 
-func (p *Provider) newOidcProvider(ctx context.Context) error {
+func (p *provider) newProvider(ctx context.Context) error {
 	newProvider, err := oidc.NewProvider(ctx, p.issuerURL)
 	if err != nil {
 		return errors.Wrap(err, "oidc.NewProvider()")
 	}
 
-	p.provider = &oidcConfig{
+	p.provider = &OIDCConfig{
 		provider: newProvider,
 		config: oauth2.Config{
 			ClientID:     p.clientID,

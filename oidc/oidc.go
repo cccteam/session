@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/oidc/provider"
+	"github.com/cccteam/session/oidc/loader"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/securecookie"
@@ -19,21 +19,20 @@ var _ Authenticator = &OIDC{}
 
 type OIDC struct {
 	s *securecookie.SecureCookie
-
-	*provider.Provider
+	loader.Loader
 }
 
 // New returns a new OIDC Authenticator
 func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
 	return &OIDC{
-		s:        s,
-		Provider: provider.New(issuerURL, clientID, clientSecret, redirectURL),
+		s:      s,
+		Loader: loader.New(issuerURL, clientID, clientSecret, redirectURL),
 	}
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	oidcProvider, err := o.OidcProvider(ctx)
+	provider, err := o.Provider(ctx)
 	if err != nil {
 		return "", errors.Wrap(err, "init()")
 	}
@@ -57,7 +56,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		return "", errors.Wrap(err, "writeOidcCookie()")
 	}
 
-	return oidcProvider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
+	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
 }
 
 // Verify performs the necessary verification and processing of the OIDC callback request.
@@ -65,7 +64,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 //   - the URL to redirect to following successful authentication
 //   - the 'sid' value from the session_state query parameter
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
-	oidcProvider, err := o.OidcProvider(ctx)
+	provider, err := o.Provider(ctx)
 	if err != nil {
 		return "", "", errors.Wrap(err, "init()")
 	}
@@ -88,7 +87,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := oidcProvider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}
@@ -98,7 +97,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
 	}
 
-	idToken, err := oidcProvider.Verifier().Verify(ctx, rawIDToken)
+	idToken, err := provider.Verifier().Verify(ctx, rawIDToken)
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
 	}

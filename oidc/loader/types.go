@@ -1,4 +1,4 @@
-package provider
+package loader
 
 import (
 	"context"
@@ -8,18 +8,18 @@ import (
 	"golang.org/x/oauth2"
 )
 
-var _ oidcProvider = &oidcConfig{}
+var _ Provider = &OIDCConfig{}
 
-type oidcConfig struct {
+type OIDCConfig struct {
 	provider *oidc.Provider
 	config   oauth2.Config
 }
 
-func (o *oidcConfig) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
+func (o *OIDCConfig) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
 	return o.config.AuthCodeURL(state, opts...)
 }
 
-func (o *oidcConfig) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
+func (o *OIDCConfig) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
 	t, err := o.config.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "oauth2.Config.Exchange()")
@@ -28,6 +28,6 @@ func (o *oidcConfig) Exchange(ctx context.Context, code string, opts ...oauth2.A
 	return t, nil
 }
 
-func (o *oidcConfig) Verifier() *oidc.IDTokenVerifier {
+func (o *OIDCConfig) Verifier() *oidc.IDTokenVerifier {
 	return o.provider.Verifier(&oidc.Config{ClientID: o.config.ClientID})
 }
