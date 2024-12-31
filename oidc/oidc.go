@@ -97,7 +97,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
 	}
 
-	idToken, err := provider.Verifier().Verify(ctx, rawIDToken)
+	idToken, err := provider.Verify(ctx, rawIDToken)
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
 	}

@@ -4,6 +4,7 @@ package loader
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
@@ -68,7 +69,10 @@ func (l *loader) LoginURL() string {
 }
 
 func (l *loader) newProvider(ctx context.Context) error {
-	newProvider, err := oidc.NewProvider(ctx, l.issuerURL)
+	expire, cancel := context.WithTimeoutCause(ctx, 5*time.Second, errors.New("oidc.NewProvider() timeout"))
+	defer cancel()
+
+	newProvider, err := oidc.NewProvider(expire, l.issuerURL)
 	if err != nil {
 		return errors.Wrap(err, "oidc.NewProvider()")
 	}
