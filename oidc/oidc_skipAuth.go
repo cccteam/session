@@ -28,7 +28,7 @@ func New(s *securecookie.SecureCookie, _, _, _, redirectURL string) *OIDC {
 	return &OIDC{
 		redirectURL: redirectURL,
 		s:           s,
-	}
+	}, nil
 }
 
 func (o *OIDC) SetLoginURL(url string) {
