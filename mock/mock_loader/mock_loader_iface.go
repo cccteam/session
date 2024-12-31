@@ -147,16 +147,17 @@ func (mr *MockProviderMockRecorder) Exchange(ctx, code any, opts ...any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exchange", reflect.TypeOf((*MockProvider)(nil).Exchange), varargs...)
 }
 
-// Verifier mocks base method.
-func (m *MockProvider) Verifier() *oidc.IDTokenVerifier {
+// Verify mocks base method.
+func (m *MockProvider) Verify(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Verifier")
-	ret0, _ := ret[0].(*oidc.IDTokenVerifier)
-	return ret0
+	ret := m.ctrl.Call(m, "Verify", ctx, rawIDToken)
+	ret0, _ := ret[0].(*oidc.IDToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// Verifier indicates an expected call of Verifier.
-func (mr *MockProviderMockRecorder) Verifier() *gomock.Call {
+// Verify indicates an expected call of Verify.
+func (mr *MockProviderMockRecorder) Verify(ctx, rawIDToken any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verifier", reflect.TypeOf((*MockProvider)(nil).Verifier))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockProvider)(nil).Verify), ctx, rawIDToken)
 }
