@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.0](https://github.com/cccteam/session/compare/v0.4.3...v0.5.0) (2024-12-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* `oidc.New()` no longer returns an error
+
+### Features
+
+* `oidc.New()` no longer returns an error ([c1800a4](https://github.com/cccteam/session/commit/c1800a4387105dfed42237548ecbbad8161436d4))
+* Add timeouts to OIDC calls ([#56](https://github.com/cccteam/session/issues/56)) ([57182b0](https://github.com/cccteam/session/commit/57182b011bf46d98c4a9418257648b3f592458eb))
+* Change initialization of OIDC to lazy load ([c1800a4](https://github.com/cccteam/session/commit/c1800a4387105dfed42237548ecbbad8161436d4))
+
+
+### Code Upgrade
+
+* Bump the go-dependencies group with 2 updates ([#53](https://github.com/cccteam/session/issues/53)) ([492f955](https://github.com/cccteam/session/commit/492f955b80d493a414378e52588cc897533e7aba))
+* Update go version and dependencies ([#55](https://github.com/cccteam/session/issues/55)) ([44371ad](https://github.com/cccteam/session/commit/44371ad1a25fb1e845f7efdd78f1e7fdab388c66))
+
 ## [0.4.3](https://github.com/cccteam/session/compare/v0.4.2...v0.4.3) (2024-12-17)
 
 
