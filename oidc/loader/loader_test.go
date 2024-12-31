@@ -18,7 +18,7 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want *provider
+		want *loader
 	}{
 		{
 			name: "Test New",
@@ -28,7 +28,7 @@ func TestNew(t *testing.T) {
 				clientSecret: "clientSecret",
 				redirectURL:  "https://example.com/redirect",
 			},
-			want: &provider{
+			want: &loader{
 				issuerURL:    "https://example.com",
 				clientID:     "clientID",
 				clientSecret: "clientSecret",
@@ -68,7 +68,7 @@ func TestProvider_SetLoginURL(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &provider{}
+			p := &loader{}
 			p.SetLoginURL(tt.args.url)
 			if p.loginURL != tt.args.url {
 				t.Errorf("SetLoginURL() = %v, want %v", p.loginURL, tt.args.url)
@@ -105,7 +105,7 @@ func TestProvider_LoginURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := &provider{
+			p := &loader{
 				loginURL: tt.fields.loginURL,
 			}
 			if got := p.LoginURL(); got != tt.want {
