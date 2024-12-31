@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/cccteam/session/compare/v0.5.0...v0.5.1) (2024-12-31)
+
+
+### Bug Fixes
+
+* Fix skipAuth implementation for lazy initialization change ([#57](https://github.com/cccteam/session/issues/57)) ([b1083e0](https://github.com/cccteam/session/commit/b1083e077281e09164bd8b6e4c1c4c875ce85525))
+
 ## [0.5.0](https://github.com/cccteam/session/compare/v0.4.3...v0.5.0) (2024-12-31)
 
 
