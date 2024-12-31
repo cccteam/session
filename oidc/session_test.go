@@ -33,7 +33,6 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := sessioninfo.FromRequest(tt.r); !reflect.DeepEqual(got, tt.want) {

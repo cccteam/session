@@ -48,7 +48,6 @@ func Test_newAuthCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &session{cookieManager: &cookieClient{secureCookie: tt.sc}}
@@ -118,7 +117,6 @@ func Test_readAuthCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -168,7 +166,6 @@ func Test_writeAuthCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

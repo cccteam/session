@@ -95,7 +95,6 @@ func TestAppSetSessionTimeout(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &session{
@@ -211,7 +210,6 @@ func TestAppStartSession(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := NewMockcookieManager(gomock.NewController(t))
@@ -327,7 +325,6 @@ func TestAppValidateSession(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
@@ -452,7 +449,6 @@ func TestApp_checkSession(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
@@ -517,7 +513,6 @@ func Test_validSessionID(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			gotUUID, got := validSessionID(tt.args.sessionID)

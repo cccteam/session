@@ -139,6 +139,7 @@ linters:
     - wastedassign # wastedassign finds wasted assignment statements. [fast: false, auto-fix: false]
     - whitespace # Tool for detection of leading and trailing whitespace [fast: true, auto-fix: true]
     - wrapcheck # Checks that errors returned from external packages are wrapped [fast: false, auto-fix: false]
+    - copyloopvar
     # - dupl # Tool for code clone detection [fast: true, auto-fix: false]
     # - exhaustivestruct # Checks if all struct's fields are initialized [fast: false, auto-fix: false]
     # - forbidigo # Forbids identifiers [fast: true, auto-fix: false]
