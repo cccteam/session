@@ -19,19 +19,16 @@ var _ Authenticator = &OIDC{}
 const defaultLoginURL = "/login"
 
 type OIDC struct {
-	provider    provider
 	redirectURL string
-	secure      bool
 	s           *securecookie.SecureCookie
 	loginURL    string
 }
 
-func New(_ context.Context, s *securecookie.SecureCookie, _, _, _, redirectURL string) (*OIDC, error) {
+func New(s *securecookie.SecureCookie, _, _, _, redirectURL string) *OIDC {
 	return &OIDC{
-		provider:    nil,
 		redirectURL: redirectURL,
 		s:           s,
-	}, nil
+	}
 }
 
 func (o *OIDC) SetLoginURL(url string) {
@@ -46,7 +43,7 @@ func (o *OIDC) LoginURL() string {
 	return o.loginURL
 }
 
-func (o *OIDC) AuthCodeURL(w http.ResponseWriter, returnURL string) (string, error) {
+func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := map[stKey]string{
 		stReturnURL: returnURL, // URL to redirect to following successful authentication
 	}
