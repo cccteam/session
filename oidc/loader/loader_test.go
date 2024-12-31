@@ -37,7 +37,6 @@ func TestNew(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := New(tt.args.issuerURL, tt.args.clientID, tt.args.clientSecret, tt.args.redirectURL); !reflect.DeepEqual(got, tt.want) {
@@ -65,7 +64,6 @@ func TestProvider_SetLoginURL(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := &loader{}
@@ -101,7 +99,6 @@ func TestProvider_LoginURL(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

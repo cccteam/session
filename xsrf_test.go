@@ -90,7 +90,6 @@ func TestAppSetXSRFToken(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &session{
@@ -173,7 +172,6 @@ func TestAppValidateXSRFToken(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &session{
@@ -260,7 +258,6 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
@@ -320,7 +317,6 @@ func Test_hasValidXSRFToken(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cookieClient{secureCookie: sc}
@@ -371,7 +367,6 @@ func Test_writeXSRFCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
@@ -423,7 +418,6 @@ func Test_readXSRFCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cookieClient{secureCookie: tt.secureCookie}
@@ -468,7 +462,6 @@ func Test_readXSRFHeader(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cookieClient{secureCookie: sc}
@@ -513,7 +506,6 @@ func Test_write_read_TokenCookie(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()

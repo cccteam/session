@@ -96,7 +96,6 @@ linters:
     - errcheck # Errcheck is a program for checking for unchecked errors in go programs. These unchecked errors can be critical bugs in some cases [fast: false, auto-fix: false]
     - errorlint # errorlint is a linter for that can be used to find code that will cause problems with the error wrapping scheme introduced in Go 1.13. [fast: false, auto-fix: false]
     - exhaustive # check exhaustiveness of enum switch statements [fast: false, auto-fix: false]
-    - exportloopref # checks for pointers to enclosing loop variables [fast: false, auto-fix: false]
     - forcetypeassert # finds forced type assertions [fast: true, auto-fix: false]
     - funlen # Tool for detection of long functions [fast: true, auto-fix: false]
     - gochecknoinits # Checks that no init functions are present in Go code [fast: true, auto-fix: false]
@@ -140,6 +139,7 @@ linters:
     - wastedassign # wastedassign finds wasted assignment statements. [fast: false, auto-fix: false]
     - whitespace # Tool for detection of leading and trailing whitespace [fast: true, auto-fix: true]
     - wrapcheck # Checks that errors returned from external packages are wrapped [fast: false, auto-fix: false]
+    - copyloopvar
     # - dupl # Tool for code clone detection [fast: true, auto-fix: false]
     # - exhaustivestruct # Checks if all struct's fields are initialized [fast: false, auto-fix: false]
     # - forbidigo # Forbids identifiers [fast: true, auto-fix: false]
@@ -173,7 +173,7 @@ issues:
         - gochecknoinits
         - lll
 
-    - path: oidc\.go
+    - path: oidc\.go|oidc_skipAuth\.go
       linters:
         - tagliatelle
       texts: preferred_username
