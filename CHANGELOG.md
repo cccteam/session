@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/cccteam/session/compare/v0.5.1...v0.5.2) (2025-02-04)
+
+
+### Code Upgrade
+
+* Bump the go-dependencies group across 1 directory with 3 updates ([#66](https://github.com/cccteam/session/issues/66)) ([de68f06](https://github.com/cccteam/session/commit/de68f067bfae43a4a5692cbcc5a70b56c6285cd1))
+* Upgrade to go1.23.5 to resolve GO-2025-3420 & GO-2025-3373 ([#65](https://github.com/cccteam/session/issues/65)) ([ef47705](https://github.com/cccteam/session/commit/ef47705d8964158dba238ae1b90e716c9f831f8c))
+
 ## [0.5.1](https://github.com/cccteam/session/compare/v0.5.0...v0.5.1) (2024-12-31)
 
 
