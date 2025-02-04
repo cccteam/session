@@ -8,13 +8,13 @@ require (
 	cloud.google.com/go/spanner v1.75.0
 	github.com/cccteam/ccc v0.2.9
 	github.com/cccteam/ccc/accesstypes v0.5.0
-	github.com/cccteam/db-initiator v0.2.4
+	github.com/cccteam/db-initiator v0.2.5
 	github.com/cccteam/httpio v0.7.6
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.3
 	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/georgysavva/scany/v2 v2.1.3
-	github.com/go-chi/chi/v5 v5.2.0
+	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.6.0
@@ -22,7 +22,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	go.opentelemetry.io/otel v1.34.0
 	go.uber.org/mock v0.5.0
-	golang.org/x/oauth2 v0.25.0
+	golang.org/x/oauth2 v0.26.0
 	google.golang.org/grpc v1.70.0
 )
 
@@ -107,7 +107,6 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.59.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.59.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.34.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.33.0 // indirect
 	go.opentelemetry.io/otel/metric v1.34.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.34.0 // indirect
