@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/cccteam/session/compare/v0.5.2...v0.5.3) (2025-02-12)
+
+
+### Code Upgrade
+
+* go dependencies ([#70](https://github.com/cccteam/session/issues/70)) ([d80c65a](https://github.com/cccteam/session/commit/d80c65ae48a1c6a483cc71ea3c4ade1a73b1ba4a))
+
 ## [0.5.2](https://github.com/cccteam/session/compare/v0.5.1...v0.5.2) (2025-02-04)
 
 
