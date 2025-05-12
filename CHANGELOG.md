@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/cccteam/session/compare/v0.5.3...v0.5.4) (2025-05-12)
+
+
+### Bug Fixes
+
+* Update go and security scan frequency ([#84](https://github.com/cccteam/session/issues/84)) ([f6c0f52](https://github.com/cccteam/session/commit/f6c0f5260049b0eca99c556b2f5785142ca94546))
+
 ## [0.5.3](https://github.com/cccteam/session/compare/v0.5.2...v0.5.3) (2025-02-12)
 
 
