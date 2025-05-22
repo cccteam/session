@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.5](https://github.com/cccteam/session/compare/v0.5.4...v0.5.5) (2025-05-22)
+
+
+### Code Upgrade
+
+* Bump cccteam/github-workflows from 5.2.0 to 5.5.1 in the github-actions group ([#86](https://github.com/cccteam/session/issues/86)) ([9554665](https://github.com/cccteam/session/commit/955466524c41ae1d7be786eb2b747792689594c2))
+* Update go and go deps ([#90](https://github.com/cccteam/session/issues/90)) ([f5a9502](https://github.com/cccteam/session/commit/f5a9502607a9e699e1b5d060db06a65d934e6b19))
+
 ## [0.5.4](https://github.com/cccteam/session/compare/v0.5.3...v0.5.4) (2025-05-12)
 
 
