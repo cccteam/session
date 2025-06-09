@@ -6,12 +6,12 @@ replace github.com/golang-migrate/migrate/v4 v4.18.3 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.82.0
-	github.com/cccteam/ccc v0.2.9
+	github.com/cccteam/ccc v0.2.10
 	github.com/cccteam/ccc/accesstypes v0.5.2
 	github.com/cccteam/db-initiator v0.2.7
 	github.com/cccteam/httpio v0.7.7
 	github.com/cccteam/logger v0.1.12
-	github.com/cccteam/spxscan v0.0.5
+	github.com/cccteam/spxscan v0.0.6
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.1
@@ -23,7 +23,7 @@ require (
 	go.opentelemetry.io/otel v1.36.0
 	go.uber.org/mock v0.5.2
 	golang.org/x/oauth2 v0.30.0
-	google.golang.org/grpc v1.72.1
+	google.golang.org/grpc v1.73.0
 )
 
 require (
