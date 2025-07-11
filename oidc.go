@@ -12,7 +12,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/oidc"
-	"github.com/cccteam/session/util"
+	"github.com/cccteam/session/roles" // Added roles import
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
 	"go.opentelemetry.io/otel"
@@ -25,14 +25,16 @@ type OIDCAzureOption interface {
 var _ OIDCAzureHandlers = &OIDCAzureSession{}
 
 type OIDCAzureSession struct {
-	userManager UserManager
-	oidc        oidc.Authenticator
-	storage     OIDCAzureSessionStorage
+	userManager  UserManager
+	oidc         oidc.Authenticator
+	storage      OIDCAzureSessionStorage
+	roleAssigner roles.RoleAssigner
 	session
 }
 
 func NewOIDCAzure(
 	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
+	roleAssigner roles.RoleAssigner, // Added roleAssigner
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
 	options ...OIDCAzureOption,
 ) *OIDCAzureSession {
@@ -44,8 +46,9 @@ func NewOIDCAzure(
 	}
 
 	return &OIDCAzureSession{
-		userManager: userManager,
-		oidc:        oidcAuthenticator,
+		userManager:  userManager,
+		oidc:         oidcAuthenticator,
+		roleAssigner: roleAssigner, // Store roleAssigner
 		session: session{
 			perms:          userManager,
 			handle:         logHandler,
@@ -104,11 +107,11 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 		// write new XSRF Token Cookie to match the new SessionID
 		o.setXSRFTokenCookie(w, r, sessionID, xsrfCookieLife)
 
-		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
+		hasRole, err := o.roleAssigner.AssignRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzureSession.assignUserRoles()")
+			return errors.Wrap(err, "roleAssigner.AssignRoles()")
 		}
 		if !hasRole {
 			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
@@ -140,52 +143,6 @@ func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
-}
-
-// assignUserRoles ensures that the user is assigned to the specified roles ONLY
-// returns true if the user has at least one assigned role (after the operation is complete)
-func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "OIDCAzureSession.assignUserRoles()")
-	defer span.End()
-
-	domains, err := o.userManager.Domains(ctx)
-	if err != nil {
-		return false, errors.Wrap(err, "UserManager.Domains()")
-	}
-
-	existingRoles, err := o.userManager.UserRoles(ctx, username, domains...)
-	if err != nil {
-		return false, errors.Wrap(err, "UserManager.UserRoles()")
-	}
-
-	for _, domain := range domains {
-		var rolesToAssign []accesstypes.Role
-		for _, r := range roles {
-			if o.userManager.RoleExists(ctx, domain, accesstypes.Role(r)) {
-				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
-			}
-		}
-
-		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
-		if len(newRoles) > 0 {
-			if err := o.userManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
-			}
-			logger.Ctx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
-		}
-
-		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
-		if len(removeRoles) > 0 {
-			if err := o.userManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
-			}
-			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
-		}
-
-		hasRole = hasRole || len(rolesToAssign) > 0
-	}
-
-	return hasRole, nil
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
