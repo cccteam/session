@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/cccteam/session/compare/v0.5.5...v0.5.6) (2025-07-24)
+
+
+### Features
+
+* Specify Domain in Cookie Writing ([#102](https://github.com/cccteam/session/issues/102)) ([90dce3d](https://github.com/cccteam/session/commit/90dce3dee58f34af1396c0e6fba5b8b8d562ed41))
+
 ## [0.5.5](https://github.com/cccteam/session/compare/v0.5.4...v0.5.5) (2025-05-22)
 
 
