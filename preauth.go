@@ -56,7 +56,7 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 }
 
 // NewSessionWithDomain creates a new session and sets authentication cookies with a specified domain
-func (p *PreauthSession) NewSessionWithDomain(ctx context.Context, w http.ResponseWriter, r *http.Request, username string, domain string) (ccc.UUID, error) {
+func (p *PreauthSession) NewSessionWithDomain(ctx context.Context, w http.ResponseWriter, r *http.Request, username, domain string) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSessionWithDomain()")
 	defer span.End()
 
