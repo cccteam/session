@@ -28,8 +28,10 @@ const (
 // Interface included for testability
 type cookieManager interface {
 	newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error)
+	newAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error)
 	readAuthCookie(r *http.Request) (map[scKey]string, bool)
 	writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error
+	writeAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error
 	setXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (set bool)
 	hasValidXSRFToken(r *http.Request) bool
 }
@@ -53,6 +55,19 @@ func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool,
 	}
 
 	if err := c.writeAuthCookie(w, sameSiteStrict, cval); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	return cval, nil
+}
+
+func (c *cookieClient) newAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
+	// Update cookie
+	cval := map[scKey]string{
+		scSessionID: sessionID.String(),
+	}
+
+	if err := c.writeAuthCookieWithDomain(w, sameSiteStrict, cval, domain); err != nil {
 		return nil, errors.Wrap(err, "")
 	}
 
@@ -92,6 +107,31 @@ func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 		Name:     scAuthCookieName.String(),
 		Value:    encoded,
 		Path:     "/",
+		Secure:   secureCookie(),
+		HttpOnly: true,
+		SameSite: sameSite,
+	})
+
+	return nil
+}
+
+func (c *cookieClient) writeAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
+	cval[scSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
+	encoded, err := c.secureCookie.Encode(scAuthCookieName.String(), cval)
+	if err != nil {
+		return errors.Wrap(err, "securecookie.Encode()")
+	}
+
+	sameSite := http.SameSiteStrictMode
+	if !sameSiteStrict {
+		sameSite = http.SameSiteNoneMode
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     scAuthCookieName.String(),
+		Value:    encoded,
+		Path:     "/",
+		Domain:   domain,
 		Secure:   secureCookie(),
 		HttpOnly: true,
 		SameSite: sameSite,

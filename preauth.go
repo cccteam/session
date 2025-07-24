@@ -54,3 +54,25 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 
 	return id, nil
 }
+
+// NewSessionWithDomain creates a new session and sets authentication cookies with a specified domain
+func (p *PreauthSession) NewSessionWithDomain(ctx context.Context, w http.ResponseWriter, r *http.Request, username, domain string) (ccc.UUID, error) {
+	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSessionWithDomain()")
+	defer span.End()
+
+	// Create new Session in database
+	id, err := p.storage.NewSession(ctx, username)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "PreauthSessionStorage.NewSession()")
+	}
+
+	// Write new Auth Cookie with domain
+	if _, err := p.newAuthCookieWithDomain(w, false, id, domain); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	// Write new XSRF Token Cookie to match the new SessionID
+	p.setXSRFTokenCookie(w, r, id, xsrfCookieLife)
+
+	return id, nil
+}
