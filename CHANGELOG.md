@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/cccteam/session/compare/v0.5.6...v0.5.7) (2025-07-25)
+
+
+### Features
+
+* Allow for Cookie Name and Domain  ([#104](https://github.com/cccteam/session/issues/104)) ([21061c5](https://github.com/cccteam/session/commit/21061c549d442fa6a5aa58497b394176d86094dc))
+
 ## [0.5.6](https://github.com/cccteam/session/compare/v0.5.5...v0.5.6) (2025-07-24)
 
 
