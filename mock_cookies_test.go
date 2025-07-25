@@ -57,33 +57,18 @@ func (mr *MockcookieManagerMockRecorder) hasValidXSRFToken(r any) *gomock.Call {
 }
 
 // newAuthCookie mocks base method.
-func (m *MockcookieManager) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error) {
+func (m *MockcookieManager) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "newAuthCookie", w, sameSiteStrict, sessionID)
+	ret := m.ctrl.Call(m, "newAuthCookie", w, sameSiteStrict, sessionID, domain)
 	ret0, _ := ret[0].(map[scKey]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // newAuthCookie indicates an expected call of newAuthCookie.
-func (mr *MockcookieManagerMockRecorder) newAuthCookie(w, sameSiteStrict, sessionID any) *gomock.Call {
+func (mr *MockcookieManagerMockRecorder) newAuthCookie(w, sameSiteStrict, sessionID, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "newAuthCookie", reflect.TypeOf((*MockcookieManager)(nil).newAuthCookie), w, sameSiteStrict, sessionID)
-}
-
-// newAuthCookieWithDomain mocks base method.
-func (m *MockcookieManager) newAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "newAuthCookieWithDomain", w, sameSiteStrict, sessionID, domain)
-	ret0, _ := ret[0].(map[scKey]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// newAuthCookieWithDomain indicates an expected call of newAuthCookieWithDomain.
-func (mr *MockcookieManagerMockRecorder) newAuthCookieWithDomain(w, sameSiteStrict, sessionID, domain any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "newAuthCookieWithDomain", reflect.TypeOf((*MockcookieManager)(nil).newAuthCookieWithDomain), w, sameSiteStrict, sessionID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "newAuthCookie", reflect.TypeOf((*MockcookieManager)(nil).newAuthCookie), w, sameSiteStrict, sessionID, domain)
 }
 
 // readAuthCookie mocks base method.
@@ -116,29 +101,15 @@ func (mr *MockcookieManagerMockRecorder) setXSRFTokenCookie(w, r, sessionID, coo
 }
 
 // writeAuthCookie mocks base method.
-func (m *MockcookieManager) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error {
+func (m *MockcookieManager) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "writeAuthCookie", w, sameSiteStrict, cval)
+	ret := m.ctrl.Call(m, "writeAuthCookie", w, sameSiteStrict, cval, domain)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // writeAuthCookie indicates an expected call of writeAuthCookie.
-func (mr *MockcookieManagerMockRecorder) writeAuthCookie(w, sameSiteStrict, cval any) *gomock.Call {
+func (mr *MockcookieManagerMockRecorder) writeAuthCookie(w, sameSiteStrict, cval, domain any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "writeAuthCookie", reflect.TypeOf((*MockcookieManager)(nil).writeAuthCookie), w, sameSiteStrict, cval)
-}
-
-// writeAuthCookieWithDomain mocks base method.
-func (m *MockcookieManager) writeAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "writeAuthCookieWithDomain", w, sameSiteStrict, cval, domain)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// writeAuthCookieWithDomain indicates an expected call of writeAuthCookieWithDomain.
-func (mr *MockcookieManagerMockRecorder) writeAuthCookieWithDomain(w, sameSiteStrict, cval, domain any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "writeAuthCookieWithDomain", reflect.TypeOf((*MockcookieManager)(nil).writeAuthCookieWithDomain), w, sameSiteStrict, cval, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "writeAuthCookie", reflect.TypeOf((*MockcookieManager)(nil).writeAuthCookie), w, sameSiteStrict, cval, domain)
 }

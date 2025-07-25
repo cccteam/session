@@ -50,10 +50,10 @@ func Test_newAuthCookie(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := &session{cookieManager: &cookieClient{secureCookie: tt.sc}}
+			a := &session{cookieManager: &cookieClient{secureCookie: tt.sc, cookieName: string(scAuthCookieName)}}
 
 			w := httptest.NewRecorder()
-			got, err := a.newAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{})
+			got, err := a.newAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{}, "")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("newAuthCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -65,7 +65,11 @@ func Test_newAuthCookie(t *testing.T) {
 					t.Errorf("got[scSessionID] not set. expected it set")
 				}
 			}
-			if sameSiteStrict := strings.Contains(w.Header().Get("Set-Cookie"), "; SameSite=Strict"); sameSiteStrict != tt.args.sameSiteStrict {
+
+			cookie := w.Header().Get("Set-Cookie")
+			t.Logf("Cookie header: %s", cookie)
+
+			if sameSiteStrict := strings.Contains(cookie, "; SameSite=Strict"); sameSiteStrict != tt.args.sameSiteStrict {
 				t.Errorf("SameSiteStrict: %v, want SameSiteStrict: %v", sameSiteStrict, tt.args.sameSiteStrict)
 			}
 		})
@@ -76,13 +80,14 @@ func Test_readAuthCookie(t *testing.T) {
 	t.Parallel()
 
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
-	a := &session{cookieManager: &cookieClient{secureCookie: sc}}
+	a := &session{cookieManager: &cookieClient{secureCookie: sc, cookieName: string(scAuthCookieName)}}
 	w := httptest.NewRecorder()
 	cval := map[scKey]string{
-		"key1": "value1",
-		"key2": "value2",
+		"key1":           "value1",
+		"key2":           "value2",
+		scSameSiteStrict: "false",
 	}
-	if err := a.writeAuthCookie(w, false, cval); err != nil {
+	if err := a.writeAuthCookie(w, false, cval, ""); err != nil {
 		t.Fatalf("writeAuthCookie() err = %v", err)
 	}
 	// Copy the Cookie over to a new Request
@@ -120,7 +125,7 @@ func Test_readAuthCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app := &session{cookieManager: &cookieClient{secureCookie: tt.sc}}
+			app := &session{cookieManager: &cookieClient{secureCookie: tt.sc, cookieName: string(scAuthCookieName)}}
 			got, got1 := app.readAuthCookie(tt.req)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("readAuthCookie() got = %v, want %v", got, tt.want)
@@ -173,20 +178,23 @@ func Test_writeAuthCookie(t *testing.T) {
 				"key1": "value1",
 				"key2": "value2",
 			}
-			a := &session{cookieManager: &cookieClient{secureCookie: tt.fields.sc}}
+			a := &session{cookieManager: &cookieClient{secureCookie: tt.fields.sc, cookieName: string(scAuthCookieName)}}
 			w := httptest.NewRecorder()
 
-			if err := a.writeAuthCookie(w, tt.sameSiteStrict, cval); (err != nil) != tt.wantWriteErr {
+			if err := a.writeAuthCookie(w, tt.sameSiteStrict, cval, ""); (err != nil) != tt.wantWriteErr {
 				t.Errorf("writeAuthCookie() error = %v, wantErr %v", err, tt.wantWriteErr)
 			}
 			if tt.wantWriteErr {
 				return
 			}
 
-			if secure := strings.Contains(w.Header().Get("Set-Cookie"), "; Secure"); secure != true {
-				t.Errorf("Secure: %v, want Secure: %v", secure, true)
+			cookie := w.Header().Get("Set-Cookie")
+			t.Logf("Cookie header: %s", cookie)
+
+			if secure := strings.Contains(cookie, "; Secure"); secure != secureCookie() {
+				t.Errorf("Secure: %v, want Secure: %v", secure, secureCookie())
 			}
-			if sameSiteStrict := strings.Contains(w.Header().Get("Set-Cookie"), "; SameSite=Strict"); sameSiteStrict != tt.sameSiteStrict {
+			if sameSiteStrict := strings.Contains(cookie, "; SameSite=Strict"); sameSiteStrict != tt.sameSiteStrict {
 				t.Errorf("SameSiteStrict: %v, want SameSiteStrict: %v", sameSiteStrict, tt.sameSiteStrict)
 			}
 		})

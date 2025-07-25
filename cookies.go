@@ -27,11 +27,9 @@ const (
 
 // Interface included for testability
 type cookieManager interface {
-	newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error)
-	newAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error)
+	newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error)
 	readAuthCookie(r *http.Request) (map[scKey]string, bool)
-	writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error
-	writeAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error
+	writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error
 	setXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (set bool)
 	hasValidXSRFToken(r *http.Request) bool
 }
@@ -40,34 +38,23 @@ var _ cookieManager = &cookieClient{}
 
 type cookieClient struct {
 	secureCookie *securecookie.SecureCookie
+	cookieName   string
 }
 
-func newCookieClient(secureCookie *securecookie.SecureCookie) *cookieClient {
+func newCookieClient(secureCookie *securecookie.SecureCookie, cookieName string) *cookieClient {
 	return &cookieClient{
 		secureCookie: secureCookie,
+		cookieName:   cookieName,
 	}
 }
 
-func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error) {
+func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
 	// Update cookie
 	cval := map[scKey]string{
 		scSessionID: sessionID.String(),
 	}
 
-	if err := c.writeAuthCookie(w, sameSiteStrict, cval); err != nil {
-		return nil, errors.Wrap(err, "")
-	}
-
-	return cval, nil
-}
-
-func (c *cookieClient) newAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
-	// Update cookie
-	cval := map[scKey]string{
-		scSessionID: sessionID.String(),
-	}
-
-	if err := c.writeAuthCookieWithDomain(w, sameSiteStrict, cval, domain); err != nil {
+	if err := c.writeAuthCookie(w, sameSiteStrict, cval, domain); err != nil {
 		return nil, errors.Wrap(err, "")
 	}
 
@@ -77,11 +64,11 @@ func (c *cookieClient) newAuthCookieWithDomain(w http.ResponseWriter, sameSiteSt
 func (c *cookieClient) readAuthCookie(r *http.Request) (map[scKey]string, bool) {
 	cval := make(map[scKey]string)
 
-	cookie, err := r.Cookie(scAuthCookieName.String())
+	cookie, err := r.Cookie(c.cookieName)
 	if err != nil {
 		return cval, false
 	}
-	err = c.secureCookie.Decode(scAuthCookieName.String(), cookie.Value, &cval)
+	err = c.secureCookie.Decode(c.cookieName, cookie.Value, &cval)
 	if err != nil {
 		logger.Req(r).Error(errors.Wrap(err, "secureCookie.Decode()"))
 
@@ -91,9 +78,9 @@ func (c *cookieClient) readAuthCookie(r *http.Request) (map[scKey]string, bool) 
 	return cval, true
 }
 
-func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error {
+func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
 	cval[scSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
-	encoded, err := c.secureCookie.Encode(scAuthCookieName.String(), cval)
+	encoded, err := c.secureCookie.Encode(c.cookieName, cval)
 	if err != nil {
 		return errors.Wrap(err, "securecookie.Encode()")
 	}
@@ -104,31 +91,7 @@ func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     scAuthCookieName.String(),
-		Value:    encoded,
-		Path:     "/",
-		Secure:   secureCookie(),
-		HttpOnly: true,
-		SameSite: sameSite,
-	})
-
-	return nil
-}
-
-func (c *cookieClient) writeAuthCookieWithDomain(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
-	cval[scSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
-	encoded, err := c.secureCookie.Encode(scAuthCookieName.String(), cval)
-	if err != nil {
-		return errors.Wrap(err, "securecookie.Encode()")
-	}
-
-	sameSite := http.SameSiteStrictMode
-	if !sameSiteStrict {
-		sameSite = http.SameSiteNoneMode
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     scAuthCookieName.String(),
+		Name:     c.cookieName,
 		Value:    encoded,
 		Path:     "/",
 		Domain:   domain,
