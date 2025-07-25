@@ -132,7 +132,7 @@ func TestAppStartSession(t *testing.T) {
 					scSameSiteStrict: "true",
 				}, true)
 				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID) {
+					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID, _ string) {
 						tt.wantSessionID = sessionID
 					}).
 					Return(map[scKey]string{
@@ -148,7 +148,7 @@ func TestAppStartSession(t *testing.T) {
 			prepare: func(c *MockcookieManager, tt *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(nil, false)
 				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID) {
+					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID, _ string) {
 						tt.wantSessionID = sessionID
 					}).
 					Return(map[scKey]string{
