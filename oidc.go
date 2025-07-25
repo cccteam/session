@@ -184,7 +184,7 @@ func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseW
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
-	if _, err := o.newAuthCookie(w, false, id); err != nil {
+	if _, err := o.newAuthCookie(w, false, id, ""); err != nil {
 		return ccc.NilUUID, err
 	}
 
