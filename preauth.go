@@ -37,7 +37,7 @@ func NewPreauth(
 }
 
 func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSessions()")
+	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSession()")
 	defer span.End()
 
 	// Create new Session in database
