@@ -381,7 +381,6 @@ func Test_writeXSRFCookie(t *testing.T) {
 			}
 
 			if secure := strings.Contains(w.Header().Get("Set-Cookie"), "; Secure"); secure != secureCookie() {
-				fmt.Println("The value is: ", w.Header().Get("Set-Cookie"))
 				t.Errorf("Secure = %v, wantSecure %v", secure, secureCookie())
 			}
 		})
