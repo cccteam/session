@@ -34,16 +34,38 @@ type cookieManager interface {
 	hasValidXSRFToken(r *http.Request) bool
 }
 
+type CookieOption func(*cookieClient)
+
+func WithCookieName(name string) CookieOption {
+	return func(c *cookieClient) {
+		c.cookieName = name
+	}
+}
+
+func WithCookieDomain(domain string) CookieOption {
+	return func(c *cookieClient) {
+		c.domain = domain
+	}
+}
+
 var _ cookieManager = &cookieClient{}
 
 type cookieClient struct {
 	secureCookie *securecookie.SecureCookie
+	cookieName   string
+	domain       string
 }
 
-func newCookieClient(secureCookie *securecookie.SecureCookie) *cookieClient {
-	return &cookieClient{
+func newCookieClient(secureCookie *securecookie.SecureCookie, options ...CookieOption) *cookieClient {
+	cookie := &cookieClient{
 		secureCookie: secureCookie,
+		cookieName:   scAuthCookieName.String(),
 	}
+	for _, opt := range options {
+		opt(cookie)
+	}
+
+	return cookie
 }
 
 func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error) {
@@ -62,11 +84,11 @@ func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool,
 func (c *cookieClient) readAuthCookie(r *http.Request) (map[scKey]string, bool) {
 	cval := make(map[scKey]string)
 
-	cookie, err := r.Cookie(scAuthCookieName.String())
+	cookie, err := r.Cookie(c.cookieName)
 	if err != nil {
 		return cval, false
 	}
-	err = c.secureCookie.Decode(scAuthCookieName.String(), cookie.Value, &cval)
+	err = c.secureCookie.Decode(c.cookieName, cookie.Value, &cval)
 	if err != nil {
 		logger.Req(r).Error(errors.Wrap(err, "secureCookie.Decode()"))
 
@@ -78,7 +100,7 @@ func (c *cookieClient) readAuthCookie(r *http.Request) (map[scKey]string, bool) 
 
 func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error {
 	cval[scSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
-	encoded, err := c.secureCookie.Encode(scAuthCookieName.String(), cval)
+	encoded, err := c.secureCookie.Encode(c.cookieName, cval)
 	if err != nil {
 		return errors.Wrap(err, "securecookie.Encode()")
 	}
@@ -89,9 +111,10 @@ func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     scAuthCookieName.String(),
+		Name:     c.cookieName,
 		Value:    encoded,
 		Path:     "/",
+		Domain:   c.domain,
 		Secure:   secureCookie(),
 		HttpOnly: true,
 		SameSite: sameSite,

@@ -21,12 +21,13 @@ type PreauthSession struct {
 func NewPreauth(
 	preauthSession PreauthSessionStorage, userPermissionManager UserPermissionManager,
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
+	options ...CookieOption,
 ) *PreauthSession {
 	return &PreauthSession{
 		session: session{
 			perms:          userPermissionManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie),
+			cookieManager:  newCookieClient(secureCookie, options...),
 			sessionTimeout: sessionTimeout,
 			storage:        preauthSession,
 		},
