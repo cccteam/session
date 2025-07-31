@@ -36,16 +36,19 @@ type cookieManager interface {
 
 type CookieOption func(*cookieClient)
 
+func (CookieOption) isPreAuthOption()   {}
+func (CookieOption) isOIDCAzureOption() {}
+
 func WithCookieName(name string) CookieOption {
-	return func(c *cookieClient) {
+	return CookieOption(func(c *cookieClient) {
 		c.cookieName = name
-	}
+	})
 }
 
 func WithCookieDomain(domain string) CookieOption {
-	return func(c *cookieClient) {
+	return CookieOption(func(c *cookieClient) {
 		c.domain = domain
-	}
+	})
 }
 
 var _ cookieManager = &cookieClient{}

@@ -18,6 +18,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type OIDCAzureOption interface {
+	isOIDCAzureOption()
+}
+
 var _ OIDCAzureHandlers = &OIDCAzureSession{}
 
 type OIDCAzureSession struct {
@@ -30,15 +34,22 @@ type OIDCAzureSession struct {
 func NewOIDCAzure(
 	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
-	options ...CookieOption,
+	options ...OIDCAzureOption,
 ) *OIDCAzureSession {
+	cookieOpts := make([]CookieOption, 0, len(options))
+	for _, opt := range options {
+		if o, ok := any(opt).(CookieOption); ok {
+			cookieOpts = append(cookieOpts, o)
+		}
+	}
+
 	return &OIDCAzureSession{
 		userManager: userManager,
 		oidc:        oidcAuthenticator,
 		session: session{
 			perms:          userManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, options...),
+			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
 			sessionTimeout: sessionTimeout,
 			storage:        oidcSession,
 		},
