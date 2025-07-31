@@ -34,7 +34,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 				// Simulate cookie setting
 				mockCookies.EXPECT().
-					newAuthCookie(gomock.Any(), false, gomock.Any(), gomock.Any()).
+					newAuthCookie(gomock.Any(), false, gomock.Any()).
 					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID, _ string) (map[scKey]string, error) {
 						http.SetCookie(w, &http.Cookie{
 							Name:  "auth",
@@ -76,7 +76,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 				// Simulate failure in setting the auth cookie
 				mockCookies.EXPECT().
-					newAuthCookie(gomock.Any(), false, gomock.Any(), gomock.Any()).
+					newAuthCookie(gomock.Any(), false, gomock.Any()).
 					Return(nil, errors.New("failed to set auth cookie")).
 					Times(1)
 			},

@@ -49,7 +49,7 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc
 		}
 
 		a := &session{cookieManager: &cookieClient{secureCookie: sc}}
-		if _, err := a.newAuthCookie(w, false, id, ""); err != nil {
+		if _, err := a.newAuthCookie(w, false, id); err != nil {
 			t.Fatalf("newAuthCookie() = %v", err)
 		}
 
@@ -131,7 +131,7 @@ func TestAppStartSession(t *testing.T) {
 					scSessionID:      "92922509-82d2-4ba-853a-d73b8926a55f",
 					scSameSiteStrict: "true",
 				}, true)
-				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).
 					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID, _ string) {
 						tt.wantSessionID = sessionID
 					}).
@@ -147,7 +147,7 @@ func TestAppStartSession(t *testing.T) {
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "", time.Second*5),
 			prepare: func(c *MockcookieManager, tt *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(nil, false)
-				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).
 					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID, _ string) {
 						tt.wantSessionID = sessionID
 					}).
@@ -167,7 +167,7 @@ func TestAppStartSession(t *testing.T) {
 				}, true)
 				c.EXPECT().writeAuthCookie(gomock.Any(), true, map[scKey]string{
 					scSessionID: "92922509-82d2-4bc7-853a-d73b8926a55f",
-				}, "").Return(nil)
+				}).Return(nil)
 			},
 			wantSessionID:  ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
 			expectedStatus: http.StatusOK,
@@ -195,7 +195,7 @@ func TestAppStartSession(t *testing.T) {
 				c.EXPECT().writeAuthCookie(gomock.Any(), true, map[scKey]string{
 					scSessionID:      "92922509-82d2-4bc7-853a-d73b8926a55f",
 					scSameSiteStrict: "false",
-				}, "").Return(errors.New("error writing cookie"))
+				}).Return(errors.New("error writing cookie"))
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -204,7 +204,7 @@ func TestAppStartSession(t *testing.T) {
 			req:  &http.Request{URL: &url.URL{}},
 			prepare: func(c *MockcookieManager, _ *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(nil, false)
-				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("error creating cookie"))
+				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("error creating cookie"))
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},

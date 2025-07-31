@@ -29,20 +29,38 @@ type OIDCAzureSession struct {
 
 func NewOIDCAzure(
 	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
-	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, cookieName string,
+	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
+	options ...CookieOption,
 ) *OIDCAzureSession {
-	return &OIDCAzureSession{
+	oidc := &OIDCAzureSession{
 		userManager: userManager,
 		oidc:        oidcAuthenticator,
 		session: session{
 			perms:          userManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, cookieName),
+			cookieManager:  newCookieClient(secureCookie),
 			sessionTimeout: sessionTimeout,
 			storage:        oidcSession,
 		},
 		storage: oidcSession,
 	}
+
+	return oidc.WithCookieOptions(options...)
+}
+
+func (o *OIDCAzureSession) WithCookieOptions(options ...CookieOption) *OIDCAzureSession {
+	for _, option := range options {
+		cookieClient, ok := o.cookieManager.(*cookieClient)
+		if !ok {
+			continue
+		}
+		cc := option(cookieClient)
+		if cc != nil {
+			o.cookieManager = cc
+		}
+	}
+
+	return o
 }
 
 func (o *OIDCAzureSession) Login() http.HandlerFunc {
@@ -184,7 +202,7 @@ func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseW
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
-	if _, err := o.newAuthCookie(w, false, id, ""); err != nil {
+	if _, err := o.newAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, err
 	}
 
