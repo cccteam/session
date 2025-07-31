@@ -53,7 +53,7 @@ func Test_newAuthCookie(t *testing.T) {
 			a := &session{cookieManager: &cookieClient{secureCookie: tt.sc, cookieName: string(scAuthCookieName)}}
 
 			w := httptest.NewRecorder()
-			got, err := a.newAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{}, "")
+			got, err := a.newAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("newAuthCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -87,7 +87,7 @@ func Test_readAuthCookie(t *testing.T) {
 		"key2":           "value2",
 		scSameSiteStrict: "false",
 	}
-	if err := a.writeAuthCookie(w, false, cval, ""); err != nil {
+	if err := a.writeAuthCookie(w, false, cval); err != nil {
 		t.Fatalf("writeAuthCookie() err = %v", err)
 	}
 	// Copy the Cookie over to a new Request
@@ -181,7 +181,7 @@ func Test_writeAuthCookie(t *testing.T) {
 			a := &session{cookieManager: &cookieClient{secureCookie: tt.fields.sc, cookieName: string(scAuthCookieName)}}
 			w := httptest.NewRecorder()
 
-			if err := a.writeAuthCookie(w, tt.sameSiteStrict, cval, ""); (err != nil) != tt.wantWriteErr {
+			if err := a.writeAuthCookie(w, tt.sameSiteStrict, cval); (err != nil) != tt.wantWriteErr {
 				t.Errorf("writeAuthCookie() error = %v, wantErr %v", err, tt.wantWriteErr)
 			}
 			if tt.wantWriteErr {

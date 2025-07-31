@@ -20,17 +20,15 @@ type PreauthSession struct {
 
 func NewPreauth(
 	preauthSession PreauthSessionStorage, userPermissionManager UserPermissionManager,
-	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, cookieName string,
-	domain string,
+	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
 ) *PreauthSession {
 	return &PreauthSession{
 		session: session{
 			perms:          userPermissionManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, cookieName),
+			cookieManager:  newCookieClient(secureCookie),
 			sessionTimeout: sessionTimeout,
 			storage:        preauthSession,
-			domain:         domain,
 		},
 		storage: preauthSession,
 	}
@@ -47,7 +45,7 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.newAuthCookie(w, false, id, p.domain); err != nil {
+	if _, err := p.newAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, err
 	}
 

@@ -25,7 +25,6 @@ type session struct {
 	handle         LogHandler
 	storage        storageManager
 	cookieManager
-	domain string
 }
 
 // SetSessionTimeout is a Handler to set the session timeout
@@ -69,7 +68,7 @@ func (s *session) StartSession(next http.Handler) http.Handler {
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
-			cval, err = s.newAuthCookie(w, true, sessionID, s.domain)
+			cval, err = s.newAuthCookie(w, true, sessionID)
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
@@ -78,7 +77,7 @@ func (s *session) StartSession(next http.Handler) http.Handler {
 		// Upgrade cookie to SameSite=Strict
 		// since CallbackOIDC() sets it to None to allow OAuth flow to work
 		if cval[scSameSiteStrict] != strconv.FormatBool(true) {
-			if err := s.writeAuthCookie(w, true, cval, s.domain); err != nil {
+			if err := s.writeAuthCookie(w, true, cval); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
