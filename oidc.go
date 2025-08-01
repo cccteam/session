@@ -18,6 +18,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type OIDCAzureOption interface {
+	isOIDCAzureOption()
+}
+
 var _ OIDCAzureHandlers = &OIDCAzureSession{}
 
 type OIDCAzureSession struct {
@@ -29,15 +33,23 @@ type OIDCAzureSession struct {
 
 func NewOIDCAzure(
 	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
-	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, cookieName string,
+	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
+	options ...OIDCAzureOption,
 ) *OIDCAzureSession {
+	cookieOpts := make([]CookieOption, 0, len(options))
+	for _, opt := range options {
+		if o, ok := any(opt).(CookieOption); ok {
+			cookieOpts = append(cookieOpts, o)
+		}
+	}
+
 	return &OIDCAzureSession{
 		userManager: userManager,
 		oidc:        oidcAuthenticator,
 		session: session{
 			perms:          userManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, cookieName),
+			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
 			sessionTimeout: sessionTimeout,
 			storage:        oidcSession,
 		},
@@ -184,7 +196,7 @@ func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseW
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
-	if _, err := o.newAuthCookie(w, false, id, ""); err != nil {
+	if _, err := o.newAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, err
 	}
 

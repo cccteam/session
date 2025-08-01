@@ -27,11 +27,28 @@ const (
 
 // Interface included for testability
 type cookieManager interface {
-	newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error)
+	newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error)
 	readAuthCookie(r *http.Request) (map[scKey]string, bool)
-	writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error
+	writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error
 	setXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (set bool)
 	hasValidXSRFToken(r *http.Request) bool
+}
+
+type CookieOption func(*cookieClient)
+
+func (CookieOption) isPreAuthOption()   {}
+func (CookieOption) isOIDCAzureOption() {}
+
+func WithCookieName(name string) CookieOption {
+	return CookieOption(func(c *cookieClient) {
+		c.cookieName = name
+	})
+}
+
+func WithCookieDomain(domain string) CookieOption {
+	return CookieOption(func(c *cookieClient) {
+		c.domain = domain
+	})
 }
 
 var _ cookieManager = &cookieClient{}
@@ -39,22 +56,28 @@ var _ cookieManager = &cookieClient{}
 type cookieClient struct {
 	secureCookie *securecookie.SecureCookie
 	cookieName   string
+	domain       string
 }
 
-func newCookieClient(secureCookie *securecookie.SecureCookie, cookieName string) *cookieClient {
-	return &cookieClient{
+func newCookieClient(secureCookie *securecookie.SecureCookie, options ...CookieOption) *cookieClient {
+	cookie := &cookieClient{
 		secureCookie: secureCookie,
-		cookieName:   cookieName,
+		cookieName:   scAuthCookieName.String(),
 	}
+	for _, opt := range options {
+		opt(cookie)
+	}
+
+	return cookie
 }
 
-func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID, domain string) (map[scKey]string, error) {
+func (c *cookieClient) newAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[scKey]string, error) {
 	// Update cookie
 	cval := map[scKey]string{
 		scSessionID: sessionID.String(),
 	}
 
-	if err := c.writeAuthCookie(w, sameSiteStrict, cval, domain); err != nil {
+	if err := c.writeAuthCookie(w, sameSiteStrict, cval); err != nil {
 		return nil, errors.Wrap(err, "")
 	}
 
@@ -78,7 +101,7 @@ func (c *cookieClient) readAuthCookie(r *http.Request) (map[scKey]string, bool) 
 	return cval, true
 }
 
-func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string, domain string) error {
+func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[scKey]string) error {
 	cval[scSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
 	encoded, err := c.secureCookie.Encode(c.cookieName, cval)
 	if err != nil {
@@ -94,7 +117,7 @@ func (c *cookieClient) writeAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 		Name:     c.cookieName,
 		Value:    encoded,
 		Path:     "/",
-		Domain:   domain,
+		Domain:   c.domain,
 		Secure:   secureCookie(),
 		HttpOnly: true,
 		SameSite: sameSite,

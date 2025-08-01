@@ -11,6 +11,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type PreAuthOption interface {
+	isPreAuthOption()
+}
+
 var _ PreAuthHandlers = &PreauthSession{}
 
 type PreauthSession struct {
@@ -20,17 +24,23 @@ type PreauthSession struct {
 
 func NewPreauth(
 	preauthSession PreauthSessionStorage, userPermissionManager UserPermissionManager,
-	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, cookieName string,
-	domain string,
+	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
+	options ...PreAuthOption,
 ) *PreauthSession {
+	cookieOpts := make([]CookieOption, 0, len(options))
+	for _, opt := range options {
+		if o, ok := any(opt).(CookieOption); ok {
+			cookieOpts = append(cookieOpts, o)
+		}
+	}
+
 	return &PreauthSession{
 		session: session{
 			perms:          userPermissionManager,
 			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, cookieName),
+			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
 			sessionTimeout: sessionTimeout,
 			storage:        preauthSession,
-			domain:         domain,
 		},
 		storage: preauthSession,
 	}
@@ -47,7 +57,7 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.newAuthCookie(w, false, id, p.domain); err != nil {
+	if _, err := p.newAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, err
 	}
 
