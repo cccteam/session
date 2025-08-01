@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.8](https://github.com/cccteam/session/compare/v0.5.7...v0.5.8) (2025-08-01)
+
+
+### Features
+
+* Add cookie options for more control over cookie configuration ([e57c483](https://github.com/cccteam/session/commit/e57c483776b97729993262a9cb891a459df3e84f))
+
+
+### Bug Fixes
+
+* Revert braking changes to public interface ([e57c483](https://github.com/cccteam/session/commit/e57c483776b97729993262a9cb891a459df3e84f))
+
 ## [0.5.7](https://github.com/cccteam/session/compare/v0.5.6...v0.5.7) (2025-07-25)
 
 
