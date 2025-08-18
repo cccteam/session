@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.24.4
+go 1.24.6
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface
@@ -10,10 +10,10 @@ retract (
 replace github.com/golang-migrate/migrate/v4 v4.18.3 => github.com/jtwatson/migrate/v4 v4.18.4-beta.0
 
 require (
-	cloud.google.com/go/spanner v1.83.0
+	cloud.google.com/go/spanner v1.84.1
 	github.com/cccteam/ccc v0.2.13
 	github.com/cccteam/ccc/accesstypes v0.5.2
-	github.com/cccteam/db-initiator v0.2.10
+	github.com/cccteam/db-initiator v0.2.12
 	github.com/cccteam/httpio v0.7.8
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.7
@@ -48,6 +48,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.29.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudspannerecosystem/memefish v0.6.2 // indirect
 	github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443 // indirect
