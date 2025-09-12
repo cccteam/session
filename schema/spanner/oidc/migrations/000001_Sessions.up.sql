@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS Sessions
     UpdatedAt TIMESTAMP NOT NULL,
     Expired BOOL NOT NULL,
     CONSTRAINT CK_SessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT CK_SessionsOidcSid CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+    CONSTRAINT CK_SessionsOidcSid CHECK (REGEXP_CONTAINS(OidcSid, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
 
 -- DROP INDEX IF EXISTS Sessions_OidcSid_idx;
