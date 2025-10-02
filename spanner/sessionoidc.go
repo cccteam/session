@@ -91,7 +91,7 @@ func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 		return nil
 	})
 	if err != nil {
-		if !(spanner.ErrCode(err) == codes.NotFound) {
+		if spanner.ErrCode(err) != codes.NotFound {
 			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 		}
 	}
