@@ -1,4 +1,4 @@
-// spanner provides the session storage driver for Spanner
+// Package spanner provides the session storage driver for Spanner.
 package spanner
 
 import (
@@ -7,6 +7,7 @@ import (
 
 const name = "github.com/AscendiumApps/ga-lite-app/spanner"
 
+// SessionStorageDriver represents the session storage implementation for Spanner.
 type SessionStorageDriver struct {
 	spanner *spanner.Client
 }

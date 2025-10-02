@@ -18,12 +18,14 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// OIDCAzureOption defines the interface for functional options used when creating a new OIDCAzureSession.
 type OIDCAzureOption interface {
 	isOIDCAzureOption()
 }
 
 var _ OIDCAzureHandlers = &OIDCAzureSession{}
 
+// OIDCAzureSession implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure.
 type OIDCAzureSession struct {
 	userManager UserManager
 	oidc        oidc.Authenticator
@@ -31,6 +33,7 @@ type OIDCAzureSession struct {
 	session
 }
 
+// NewOIDCAzure creates a new OIDCAzureSession.
 func NewOIDCAzure(
 	oidcAuthenticator oidc.Authenticator, oidcSession OIDCAzureSessionStorage, userManager UserManager,
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
@@ -57,6 +60,7 @@ func NewOIDCAzure(
 	}
 }
 
+// Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzureSession) Login() http.HandlerFunc {
 	return o.handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := otel.Tracer(name).Start(r.Context(), "OIDCAzureSession.Login()")

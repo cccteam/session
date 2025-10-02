@@ -144,6 +144,9 @@ linters:
           - gomoddirectives
         path: go\.mod
         text: replacement are not allowed
+      - linters:
+          - revive
+        text: avoid meaningless package names
     paths:
       - third_party$
       - builtin$

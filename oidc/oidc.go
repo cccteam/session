@@ -17,6 +17,7 @@ import (
 
 var _ Authenticator = &OIDC{}
 
+// OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
 	s *securecookie.SecureCookie
 	loader.Loader

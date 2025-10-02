@@ -11,17 +11,20 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// PreAuthOption defines the functional option type for configuring PreauthSession.
 type PreAuthOption interface {
 	isPreAuthOption()
 }
 
 var _ PreAuthHandlers = &PreauthSession{}
 
+// PreauthSession handles session management for pre-authentication scenarios.
 type PreauthSession struct {
 	storage PreauthSessionStorage
 	session
 }
 
+// NewPreauth creates a new PreauthSession instance.
 func NewPreauth(
 	preauthSession PreauthSessionStorage, userPermissionManager UserPermissionManager,
 	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
@@ -46,6 +49,7 @@ func NewPreauth(
 	}
 }
 
+// NewSession creates a new session for a pre-authenticated user.
 func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
 	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSession()")
 	defer span.End()

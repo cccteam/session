@@ -10,6 +10,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 )
 
+// UserManager defines an interface for managing user-related information.
 type UserManager interface {
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)
 	UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error)
@@ -19,6 +20,7 @@ type UserManager interface {
 	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
+// UserPermissionManager defines an interface for retrieving user permissions.
 type UserPermissionManager interface {
 	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
@@ -29,6 +31,7 @@ type storageManager interface {
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
 }
 
+// OIDCAzureSessionStorage defines an interface for managing OIDC sessions.
 type OIDCAzureSessionStorage interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
@@ -37,6 +40,7 @@ type OIDCAzureSessionStorage interface {
 	storageManager
 }
 
+// PreauthSessionStorage defines an interface for managing pre-authenticated sessions.
 type PreauthSessionStorage interface {
 	NewSession(ctx context.Context, username string) (ccc.UUID, error)
 
@@ -54,6 +58,7 @@ type sessionHandlers interface {
 	ValidateXSRFToken(next http.Handler) http.Handler
 }
 
+// DB defines an interface for database operations related to session management.
 type DB interface {
 	// SessionOIDC returns the session information from the database for given sessionID.
 	SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error)

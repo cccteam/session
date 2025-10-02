@@ -1,4 +1,4 @@
-// provider contains interfaces for safely accessing an OIDC Provider
+// Package loader contains interfaces for safely accessing an OIDC Provider.
 package loader
 
 import (
@@ -24,6 +24,7 @@ type loader struct {
 	provider *provider
 }
 
+// New creates a new OIDC loader.
 func New(issuerURL, clientID, clientSecret, redirectURL string) Loader {
 	return &loader{
 		issuerURL:    issuerURL,

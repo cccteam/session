@@ -12,10 +12,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// PostgresOIDCSessionStorage is the session storage implementation for PostgreSQL with OIDC support.
 type PostgresOIDCSessionStorage struct {
 	db DB
 }
 
+// NewPostgresOIDCSessionStorage creates a new PostgresOIDCSessionStorage instance.
 func NewPostgresOIDCSessionStorage(db postgres.Queryer) *PostgresOIDCSessionStorage {
 	return &PostgresOIDCSessionStorage{
 		db: postgres.NewSessionStorageDriver(db),
