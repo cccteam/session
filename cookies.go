@@ -185,11 +185,12 @@ func (c *cookieClient) writeXSRFCookie(w http.ResponseWriter, cookieExpiration t
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:    stCookieName,
-		Expires: time.Now().Add(cookieExpiration),
-		Value:   encoded,
-		Path:    "/",
-		Secure:  secureCookie(),
+		Name:     stCookieName,
+		Expires:  time.Now().Add(cookieExpiration),
+		Value:    encoded,
+		Path:     "/",
+		Secure:   secureCookie(),
+		SameSite: http.SameSiteStrictMode,
 	})
 
 	return nil
