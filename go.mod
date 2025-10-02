@@ -7,7 +7,7 @@ retract (
 	v0.5.6 // Deprecated due to breaking changes to public interface
 )
 
-replace github.com/golang-migrate/migrate/v4 v4.18.3 => github.com/jtwatson/migrate/v4 v4.18.4-beta.0
+replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migrate/v4 v4.19.1-beta.0
 
 require (
 	cloud.google.com/go/spanner v1.86.0
@@ -50,6 +50,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cloudspannerecosystem/memefish v0.2.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
