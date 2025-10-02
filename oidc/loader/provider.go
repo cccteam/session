@@ -16,10 +16,12 @@ type provider struct {
 	config   oauth2.Config
 }
 
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process.
 func (o *provider) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {
 	return o.config.AuthCodeURL(state, opts...)
 }
 
+// Exchange exchanges the authorization code for an OAuth2 token.
 func (o *provider) Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error) {
 	expire, cancel := context.WithTimeoutCause(ctx, 5*time.Second, errors.New("oauth2.Config.Exchange() timeout"))
 	defer cancel()
@@ -32,6 +34,7 @@ func (o *provider) Exchange(ctx context.Context, code string, opts ...oauth2.Aut
 	return t, nil
 }
 
+// Verify verifies the OIDC ID Token.
 func (o *provider) Verify(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
 	expire, cancel := context.WithTimeoutCause(ctx, 5*time.Second, errors.New("oidc.IDTokenVerifier.Verify() timeout"))
 	defer cancel()
