@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.9](https://github.com/cccteam/session/compare/v0.5.8...v0.5.9) (2025-10-03)
+
+
+### Bug Fixes
+
+* Add SameSite Strict to XSRF cookie ([#117](https://github.com/cccteam/session/issues/117)) ([09a139f](https://github.com/cccteam/session/commit/09a139f6b5c784d629fd581163c9c68f3964b7d1))
+* Fix release please ([#118](https://github.com/cccteam/session/issues/118)) ([8b59b86](https://github.com/cccteam/session/commit/8b59b8652dfe2a29d7b363c3e338d8bec3af8d00))
+
+
+### Code Upgrade
+
+* Upgrade go dependencies, ci workflows, and linter ([#120](https://github.com/cccteam/session/issues/120)) ([774f7ed](https://github.com/cccteam/session/commit/774f7ed2904a4711715f8d8eca012441608ad745))
+
 ## [0.5.8](https://github.com/cccteam/session/compare/v0.5.7...v0.5.8) (2025-08-01)
 
 
