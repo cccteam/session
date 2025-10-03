@@ -1,4 +1,4 @@
-// provider contains interfaces for safely accessing an OIDC Provider
+// Package loader contains interfaces for safely accessing an OIDC Provider.
 package loader
 
 import (
@@ -24,6 +24,7 @@ type loader struct {
 	provider *provider
 }
 
+// New creates a new OIDC loader.
 func New(issuerURL, clientID, clientSecret, redirectURL string) Loader {
 	return &loader{
 		issuerURL:    issuerURL,
@@ -33,6 +34,7 @@ func New(issuerURL, clientID, clientSecret, redirectURL string) Loader {
 	}
 }
 
+// Provider returns the OIDC provider.
 func (l *loader) Provider(ctx context.Context) (Provider, error) {
 	l.mu.RLock()
 	if l.provider != nil {
@@ -56,10 +58,12 @@ func (l *loader) Provider(ctx context.Context) (Provider, error) {
 	return l.provider, nil
 }
 
+// SetLoginURL sets the URL to redirect to when an error occurs during the OIDC authentication process
 func (l *loader) SetLoginURL(url string) {
 	l.loginURL = url
 }
 
+// LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
 func (l *loader) LoginURL() string {
 	if l.loginURL == "" {
 		return defaultLoginURL

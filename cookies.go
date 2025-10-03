@@ -34,17 +34,20 @@ type cookieManager interface {
 	hasValidXSRFToken(r *http.Request) bool
 }
 
+// CookieOption defines a function signature for setting cookie client options.
 type CookieOption func(*cookieClient)
 
 func (CookieOption) isPreAuthOption()   {}
 func (CookieOption) isOIDCAzureOption() {}
 
+// WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
 	return CookieOption(func(c *cookieClient) {
 		c.cookieName = name
 	})
 }
 
+// WithCookieDomain sets the domain for the session cookie.
 func WithCookieDomain(domain string) CookieOption {
 	return CookieOption(func(c *cookieClient) {
 		c.domain = domain

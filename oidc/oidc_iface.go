@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+// Authenticator defines the interface for authenticating users via OpenID Connect.
 type Authenticator interface {
 	// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error)

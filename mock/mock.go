@@ -1,4 +1,4 @@
-// mock package is used to generate mock files for testing
+// Package mock is used to generate mock files for testing.
 package mock
 
 //go:generate mockgen -source ../oidc/oidc_iface.go -destination mock_oidc/mock_oidc_iface.go

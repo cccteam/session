@@ -118,7 +118,7 @@ func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	}
 
 	if _, err := d.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
-		if !(spanner.ErrCode(err) == codes.NotFound) {
+		if spanner.ErrCode(err) != codes.NotFound {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
 	}

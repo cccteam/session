@@ -7,12 +7,14 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// Loader is the interface for loading OIDC provider configurations.
 type Loader interface {
 	Provider(ctx context.Context) (Provider, error)
 	LoginURL() string
 	SetLoginURL(string)
 }
 
+// Provider represents an OIDC provider.
 type Provider interface {
 	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 	Exchange(ctx context.Context, code string, opts ...oauth2.AuthCodeOption) (*oauth2.Token, error)

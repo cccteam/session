@@ -1,4 +1,4 @@
-// package session implements the session management for the application.
+// Package session implements the session management for the application.
 package session
 
 import (
@@ -17,6 +17,7 @@ import (
 
 const name = "github.com/cccteam/session"
 
+// LogHandler defines the functional option type for handling logs.
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
 type session struct {

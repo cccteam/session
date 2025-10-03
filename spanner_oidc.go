@@ -13,10 +13,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// SpannerOIDCSessionStorage is the session storage implementation for Spanner with OIDC support.
 type SpannerOIDCSessionStorage struct {
 	db DB
 }
 
+// NewSpannerOIDCSessionStorage creates a new SpannerOIDCSessionStorage instance.
 func NewSpannerOIDCSessionStorage(db *cloudspanner.Client) *SpannerOIDCSessionStorage {
 	return &SpannerOIDCSessionStorage{
 		db: spanner.NewSessionStorageDriver(db),

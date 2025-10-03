@@ -18,12 +18,14 @@ var _ Authenticator = &OIDC{}
 
 const defaultLoginURL = "/login"
 
+// OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
 	redirectURL string
 	s           *securecookie.SecureCookie
 	loginURL    string
 }
 
+// New returns a new OIDC Authenticator
 func New(s *securecookie.SecureCookie, _, _, _, redirectURL string) *OIDC {
 	return &OIDC{
 		redirectURL: redirectURL,
@@ -31,10 +33,12 @@ func New(s *securecookie.SecureCookie, _, _, _, redirectURL string) *OIDC {
 	}
 }
 
+// SetLoginURL sets the URL to redirect to when an error occurs during the OIDC authentication process
 func (o *OIDC) SetLoginURL(url string) {
 	o.loginURL = url
 }
 
+// LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
 func (o *OIDC) LoginURL() string {
 	if o.loginURL == "" {
 		return defaultLoginURL
@@ -43,6 +47,7 @@ func (o *OIDC) LoginURL() string {
 	return o.loginURL
 }
 
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := map[stKey]string{
 		stReturnURL: returnURL, // URL to redirect to following successful authentication
@@ -54,6 +59,10 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 	return o.redirectURL, nil
 }
 
+// Verify performs the necessary verification and processing of the OIDC callback request.
+// It populates 'claims' with the ID Token's claims and returns:
+//   - the URL to redirect to following successful authentication
+//   - the 'sid' value from the session_state query parameter
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	type claimsSimulated struct {
 		PreferredUsername string   `json:"preferred_username"`

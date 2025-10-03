@@ -1,4 +1,4 @@
-// util is used for general utility function such as generic sorting/filtering and more
+// Package util is used for general utility function such as generic sorting/filtering and more.
 package util
 
 import (

@@ -16,6 +16,7 @@ type ConnectionSettings struct {
 	DatabaseName string
 }
 
+// DBName returns the fully qualified database name.
 func (c *ConnectionSettings) DBName() string {
 	return fmt.Sprintf("projects/%s/instances/%s/databases/%s", c.ProjectID, c.InstanceID, c.DatabaseName)
 }

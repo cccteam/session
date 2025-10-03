@@ -1,4 +1,4 @@
-// sessioninfo package handles session information.
+// Package sessioninfo handles session information.
 package sessioninfo
 
 import (

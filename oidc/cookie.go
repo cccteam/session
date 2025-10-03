@@ -1,4 +1,4 @@
-// oidc contains the app-specific methods related to auth via Open ID Connect (OIDC)
+// Package oidc contains the app-specific methods related to auth via Open ID Connect (OIDC).
 package oidc
 
 import (
