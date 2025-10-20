@@ -3,7 +3,6 @@ package session
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cccteam/ccc/accesstypes"
@@ -71,24 +70,19 @@ func (p *PasswordSession) Login() http.HandlerFunc {
 
 		payload := &request{}
 		if err := json.NewDecoder(r.Body).Decode(payload); err != nil {
-			return httpio.NewEncoder(w).BadRequestMessage(ctx, "invalid request body")
+			return httpio.NewEncoder(w).BadRequestMessageWithError(ctx, err, "invalid request body")
 		}
 
-		payload.Username = strings.TrimSpace(payload.Username)
 		if payload.Username == "" || payload.Password == "" {
 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "username and password are required")
 		}
 		hashedPassword, err := p.credentials.HashedPassword(ctx, payload.Username)
 		if err != nil {
-			if httpio.HasNotFound(err) || httpio.HasUnauthorized(err) {
-				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewUnauthorizedMessage("invalid username or password"))
-			}
-
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "invalid username or password")
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(payload.Password)); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid username or password"))
+			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "invalid username or password")
 		}
 
 		sessionID, err := p.storage.NewSession(ctx, payload.Username)
