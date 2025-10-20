@@ -39,6 +39,7 @@ type CookieOption func(*cookieClient)
 
 func (CookieOption) isPreAuthOption()   {}
 func (CookieOption) isOIDCAzureOption() {}
+func (CookieOption) isPasswordOption()  {}
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {

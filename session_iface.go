@@ -31,6 +31,11 @@ type storageManager interface {
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
 }
 
+// PasswordCredentialReader defines an interface for retrieving stored password hashes.
+type PasswordCredentialReader interface {
+	HashedPassword(ctx context.Context, username string) (string, error)
+}
+
 // OIDCAzureSessionStorage defines an interface for managing OIDC sessions.
 type OIDCAzureSessionStorage interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
@@ -48,6 +53,14 @@ type PreauthSessionStorage interface {
 	storageManager
 }
 
+// PasswordSessionStorage defines an interface for managing username/password sessions.
+type PasswordSessionStorage interface {
+	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+
+	// common storage functions
+	storageManager
+}
+
 type sessionHandlers interface {
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -56,6 +69,12 @@ type sessionHandlers interface {
 	ValidateSession(next http.Handler) http.Handler
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+}
+
+// PasswordHandlers defines the interface for username/password session handlers.
+type PasswordHandlers interface {
+	Login() http.HandlerFunc
+	sessionHandlers
 }
 
 // DB defines an interface for database operations related to session management.
