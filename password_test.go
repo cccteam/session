@@ -139,7 +139,7 @@ func TestPasswordSession_Login_NewSessionError(t *testing.T) {
 	}
 
 	storage := &stubPasswordStorage{
-		newSessionFn: func(_ context.Context, username string) (ccc.UUID, error) {
+		newSessionFn: func(_ context.Context, _ string) (ccc.UUID, error) {
 			return ccc.NilUUID, assertError("failed to create session")
 		},
 	}
@@ -176,7 +176,7 @@ func TestPasswordSession_Login_Success(t *testing.T) {
 
 	expectedID := ccc.Must(ccc.UUIDFromString("8b6f4212-18c0-4e60-9d82-61e8d4d3e4f1"))
 	storage := &stubPasswordStorage{
-		newSessionFn: func(_ context.Context, username string) (ccc.UUID, error) {
+		newSessionFn: func(_ context.Context, _ string) (ccc.UUID, error) {
 			return expectedID, nil
 		},
 	}
