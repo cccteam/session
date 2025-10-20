@@ -88,7 +88,7 @@ func (p *PasswordSession) Login() http.HandlerFunc {
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(payload.Password)); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewUnauthorizedMessage("invalid username or password"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid username or password"))
 		}
 
 		sessionID, err := p.storage.NewSession(ctx, payload.Username)
