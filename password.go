@@ -20,16 +20,6 @@ type PasswordOption interface {
 
 var _ PasswordHandlers = &PasswordSession{}
 
-var dummyPasswordHash = func() []byte {
-	hash, err := bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.DefaultCost)
-	if err != nil {
-		// fallback to a well-known bcrypt hash for the word "password"
-		return []byte("$2a$10$CwTycUXWue0Thq9StjUM0uJ8iU91vK8G6D/Ejko116IhVQbK5EOi")
-	}
-
-	return hash
-}()
-
 // PasswordSession handles session management for username/password authentication.
 type PasswordSession struct {
 	credentials PasswordCredentialReader
@@ -66,8 +56,8 @@ func NewPassword(
 // Login authenticates a user using username and password credentials.
 func (p *PasswordSession) Login() http.HandlerFunc {
 	type request struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username string `json:"username" validate:"required"`
+		Password string `json:"password" validate:"required"`
 	}
 	type response struct {
 		Authenticated bool                                 `json:"authenticated"`
@@ -88,12 +78,9 @@ func (p *PasswordSession) Login() http.HandlerFunc {
 		if payload.Username == "" || payload.Password == "" {
 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "username and password are required")
 		}
-
 		hashedPassword, err := p.credentials.HashedPassword(ctx, payload.Username)
 		if err != nil {
 			if httpio.HasNotFound(err) || httpio.HasUnauthorized(err) {
-				_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(payload.Password))
-
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewUnauthorizedMessage("invalid username or password"))
 			}
 
