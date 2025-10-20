@@ -74,4 +74,8 @@ type DB interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// User returns the user information from the database for a given username.
+	User(ctx context.Context, username string) (*dbtype.User, error)
+	// CreateUser creates a new user in the database.
+	CreateUser(ctx context.Context, username, password string) error
 }
