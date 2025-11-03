@@ -10,14 +10,14 @@ retract (
 replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migrate/v4 v4.19.1-beta.0
 
 require (
-	cloud.google.com/go/spanner v1.86.0
-	github.com/cccteam/ccc v0.2.13
+	cloud.google.com/go/spanner v1.86.1
+	github.com/cccteam/ccc v0.2.14
 	github.com/cccteam/ccc/accesstypes v0.5.2
 	github.com/cccteam/db-initiator v0.2.12
 	github.com/cccteam/httpio v0.7.8
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.7
-	github.com/coreos/go-oidc/v3 v3.15.0
+	github.com/coreos/go-oidc/v3 v3.16.0
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-playground/errors/v5 v5.4.0
@@ -27,8 +27,8 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	go.opentelemetry.io/otel v1.38.0
 	go.uber.org/mock v0.6.0
-	golang.org/x/oauth2 v0.31.0
-	google.golang.org/grpc v1.75.1
+	golang.org/x/oauth2 v0.32.0
+	google.golang.org/grpc v1.76.0
 )
 
 require (
@@ -66,7 +66,7 @@ require (
 	github.com/envoyproxy/go-control-plane/envoy v1.35.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.2 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
