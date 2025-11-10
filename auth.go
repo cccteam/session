@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/sessioninfo"
@@ -24,9 +23,8 @@ const (
 // Authenticated is the handler reports if the session is authenticated
 func (s *session) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool                                 `json:"authenticated"`
-		Username      string                               `json:"username"`
-		Permissions   accesstypes.UserPermissionCollection `json:"permissions"`
+		Authenticated bool   `json:"authenticated"`
+		Username      string `json:"username"`
 	}
 
 	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -44,16 +42,10 @@ func (s *session) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromRequest(r)
 
-		permissions, err := s.perms.UserPermissions(ctx, accesstypes.User(sessInfo.Username))
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
 		// set response values
 		res := response{
 			Authenticated: true,
 			Username:      sessInfo.Username,
-			Permissions:   permissions,
 		}
 
 		return httpio.NewEncoder(w).Ok(res)

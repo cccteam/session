@@ -50,7 +50,6 @@ func NewOIDCAzure(
 		userManager: userManager,
 		oidc:        oidcAuthenticator,
 		session: session{
-			perms:          userManager,
 			handle:         logHandler,
 			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
 			sessionTimeout: sessionTimeout,

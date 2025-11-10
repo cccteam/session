@@ -59,7 +59,6 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
 			a := &OIDCAzureSession{
 				session: session{
-					perms:         mock_session.NewMockUserManager(ctrl),
 					cookieManager: &cookieClient{secureCookie: sc},
 					handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +302,6 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				storage:     sessionStorage,
 				session: session{
 					storage:       sessionStorage,
-					perms:         user,
 					cookieManager: c,
 					handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
@@ -371,10 +369,7 @@ func TestApp_FrontChannelLogout(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-
-			user := mock_session.NewMockUserManager(ctrl)
 			authenticator := mock_oidc.NewMockAuthenticator(ctrl)
-
 			sessionStorage := mock_session.NewMockOIDCAzureSessionStorage(ctrl)
 
 			c := NewMockcookieManager(ctrl)
@@ -382,7 +377,6 @@ func TestApp_FrontChannelLogout(t *testing.T) {
 				storage: sessionStorage,
 				session: session{
 					storage:       sessionStorage,
-					perms:         user,
 					cookieManager: c,
 					handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
