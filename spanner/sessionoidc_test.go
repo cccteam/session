@@ -84,7 +84,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 		{
 			name: "fails to create session (invalid schema)",
 			insertSession: &dbtype.InsertSessionOIDC{
-				OidcSID: "oidc session 2",
+				OidcSID: "00000000-0000-0000-0000-000000000001",
 				InsertSession: dbtype.InsertSession{
 					Username:  "test user 2",
 					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
@@ -98,7 +98,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 		{
 			name: "success creating session",
 			insertSession: &dbtype.InsertSessionOIDC{
-				OidcSID: "oidc session 2",
+				OidcSID: "00000000-0000-0000-0000-000000000001",
 				InsertSession: dbtype.InsertSession{
 					Username:  "test user 2",
 					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
@@ -117,7 +117,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				SELECT COUNT(*) = 1 FROM Sessions 
 				WHERE Id = '%s'
 					AND Username = 'test user 2'
-					AND OidcSid = 'oidc session 2'
+					AND OidcSid = '00000000-0000-0000-0000-000000000001'
 					AND CreatedAt = TIMESTAMP '2018-05-03 01:02:03 UTC'
 					AND UpdatedAt = TIMESTAMP '2017-06-04 03:02:01 UTC'
 					AND Expired = true`,
