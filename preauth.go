@@ -26,9 +26,8 @@ type PreauthSession struct {
 
 // NewPreauth creates a new PreauthSession instance.
 func NewPreauth(
-	preauthSession PreauthSessionStorage, userPermissionManager UserPermissionManager,
-	logHandler LogHandler, secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration,
-	options ...PreAuthOption,
+	preauthSession PreauthSessionStorage, logHandler LogHandler,
+	secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, options ...PreAuthOption,
 ) *PreauthSession {
 	cookieOpts := make([]CookieOption, 0, len(options))
 	for _, opt := range options {
@@ -39,7 +38,6 @@ func NewPreauth(
 
 	return &PreauthSession{
 		session: session{
-			perms:          userPermissionManager,
 			handle:         logHandler,
 			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
 			sessionTimeout: sessionTimeout,

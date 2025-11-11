@@ -17,12 +17,6 @@ type UserManager interface {
 	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool
 	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
 	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
-	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
-}
-
-// UserPermissionManager defines an interface for retrieving user permissions.
-type UserPermissionManager interface {
-	UserPermissions(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error)
 }
 
 type storageManager interface {
