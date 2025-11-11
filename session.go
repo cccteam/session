@@ -27,15 +27,6 @@ type session struct {
 	cookieManager
 }
 
-// SetSessionTimeout is a Handler to set the session timeout
-func (s *session) SetSessionTimeout(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(context.WithValue(r.Context(), ctxSessionExpirationDuration, s.sessionTimeout))
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 func (s *session) ValidateSession(next http.Handler) http.Handler {
@@ -107,7 +98,7 @@ func (s *session) checkSession(r *http.Request) (req *http.Request, err error) {
 	}
 
 	// Check for expiration
-	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > sessionExpirationFromRequest(r) {
+	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.sessionTimeout {
 		return r, httpio.NewUnauthorizedMessage("session expired")
 	}
 

@@ -2,7 +2,6 @@ package session
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
@@ -16,8 +15,7 @@ type ctxKey string
 
 const (
 	// Keys used within the request Context
-	ctxSessionID                 ctxKey = "sessionID"
-	ctxSessionExpirationDuration ctxKey = "sessionExpirationDuration"
+	ctxSessionID ctxKey = "sessionID"
 )
 
 // Authenticated is the handler reports if the session is authenticated
@@ -74,13 +72,4 @@ func sessionIDFromRequest(r *http.Request) ccc.UUID {
 	}
 
 	return id
-}
-
-func sessionExpirationFromRequest(r *http.Request) time.Duration {
-	d, ok := r.Context().Value(ctxSessionExpirationDuration).(time.Duration)
-	if !ok {
-		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionExpirationDuration)
-	}
-
-	return d
 }

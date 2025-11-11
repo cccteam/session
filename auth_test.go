@@ -88,7 +88,6 @@ func TestApp_Authenticated(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			r := chi.NewRouter()
 			req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
-			req = req.WithContext(context.WithValue(context.Background(), ctxSessionExpirationDuration, time.Minute))
 
 			r.Route("/", func(r chi.Router) {
 				r.Get("/testPath", session.Authenticated())
@@ -156,7 +155,6 @@ func TestApp_Logout(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			r := chi.NewRouter()
 			req := httptest.NewRequest(http.MethodDelete, "/testPath", http.NoBody)
-			req = req.WithContext(context.WithValue(context.Background(), ctxSessionExpirationDuration, time.Minute))
 			req = req.WithContext(context.WithValue(req.Context(), ctxSessionID, tt.wantSessionID))
 
 			r.Route("/", func(r chi.Router) {
@@ -168,37 +166,6 @@ func TestApp_Logout(t *testing.T) {
 			}
 			if tt.expectedStatus != http.StatusOK {
 				return
-			}
-		})
-	}
-}
-
-func Test_sessionExpirationFromRequest(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		r    *http.Request
-		want time.Duration
-	}{
-		{
-			name: "does not find session expiration in request",
-			r:    httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody),
-		},
-		{
-			name: "gets session expiration from request",
-			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
-				req = req.WithContext(context.WithValue(context.Background(), ctxSessionExpirationDuration, time.Minute))
-				return req
-			}(),
-			want: time.Minute,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := sessionExpirationFromRequest(tt.r); got != tt.want {
-				t.Errorf("sessionExpirationFromRequest() = %v, want %v", got, tt.want)
 			}
 		})
 	}

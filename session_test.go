@@ -21,7 +21,7 @@ import (
 )
 
 // mockRequestWithSession Mocks Request with Session Cookie
-func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc *securecookie.SecureCookie, sessionID string, sessionTimeout time.Duration) *http.Request {
+func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc *securecookie.SecureCookie, sessionID string) *http.Request {
 	// Create request using cookie set in Response Recorder
 	r := &http.Request{
 		Method: method,
@@ -65,51 +65,7 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc
 		r = r.WithContext(context.WithValue(r.Context(), ctxSessionID, id))
 	}
 
-	r = r.WithContext(context.WithValue(r.Context(), ctxSessionExpirationDuration, sessionTimeout))
-
 	return r
-}
-
-func TestAppSetSessionTimeout(t *testing.T) {
-	t.Parallel()
-
-	type fields struct {
-		sessionTimeout time.Duration
-	}
-	type args struct {
-		r *http.Request
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		{
-			name: "set timeout",
-			fields: fields{
-				sessionTimeout: time.Hour,
-			},
-			args: args{
-				r: &http.Request{},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			a := &session{
-				sessionTimeout: tt.fields.sessionTimeout,
-			}
-			w := httptest.NewRecorder()
-			a.SetSessionTimeout(http.HandlerFunc(
-				func(_ http.ResponseWriter, r *http.Request) {
-					if got := sessionExpirationFromRequest(r); got != tt.fields.sessionTimeout {
-						t.Errorf("sessionTimeout = %v, want %v", got, tt.fields.sessionTimeout)
-					}
-				},
-			)).ServeHTTP(w, tt.args.r)
-		})
-	}
 }
 
 func TestAppStartSession(t *testing.T) {
@@ -125,7 +81,7 @@ func TestAppStartSession(t *testing.T) {
 	tests := []test{
 		{
 			name: "success starting new session (invalid session in pre-existing cookie)",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "", time.Second*5),
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), ""),
 			prepare: func(c *MockcookieManager, tt *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(map[scKey]string{
 					scSessionID:      "92922509-82d2-4ba-853a-d73b8926a55f",
@@ -144,7 +100,7 @@ func TestAppStartSession(t *testing.T) {
 		},
 		{
 			name: "success starting new session (no pre-existing cookie)",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "", time.Second*5),
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), ""),
 			prepare: func(c *MockcookieManager, tt *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(nil, false)
 				c.EXPECT().newAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -160,7 +116,7 @@ func TestAppStartSession(t *testing.T) {
 		},
 		{
 			name: "success with existing cookie upgraded",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f", time.Second*5),
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *MockcookieManager, _ *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(map[scKey]string{
 					scSessionID: "92922509-82d2-4bc7-853a-d73b8926a55f",
@@ -174,7 +130,7 @@ func TestAppStartSession(t *testing.T) {
 		},
 		{
 			name: "success without upgrading existing cookie",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f", time.Second*5),
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *MockcookieManager, _ *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(map[scKey]string{
 					scSessionID:      "92922509-82d2-4bc7-853a-d73b8926a55f",
@@ -186,7 +142,7 @@ func TestAppStartSession(t *testing.T) {
 		},
 		{
 			name: "fails to upgrade existing cookie",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f", time.Second*5),
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *MockcookieManager, _ *test) {
 				c.EXPECT().readAuthCookie(gomock.Any()).Return(map[scKey]string{
 					scSessionID:      "92922509-82d2-4bc7-853a-d73b8926a55f",
@@ -214,7 +170,8 @@ func TestAppStartSession(t *testing.T) {
 			t.Parallel()
 			c := NewMockcookieManager(gomock.NewController(t))
 			a := &session{
-				cookieManager: c,
+				sessionTimeout: time.Second * 5,
+				cookieManager:  c,
 				handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -274,7 +231,7 @@ func TestAppValidateSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_session.MockstorageManager) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
@@ -288,7 +245,7 @@ func TestAppValidateSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodPost, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodPost, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_session.MockstorageManager) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
@@ -302,7 +259,7 @@ func TestAppValidateSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_session.MockstorageManager) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil, errors.New("big fat error"))
@@ -315,7 +272,7 @@ func TestAppValidateSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_session.MockstorageManager) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
@@ -380,7 +337,7 @@ func TestApp_checkSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now()},
 			prepare: func(storageManager *mock_session.MockstorageManager, tt test) {
@@ -394,7 +351,7 @@ func TestApp_checkSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now()},
 			prepare: func(storageManager *mock_session.MockstorageManager, tt test) {
@@ -409,7 +366,7 @@ func TestApp_checkSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now(), Expired: true},
 			prepare: func(storageManager *mock_session.MockstorageManager, tt test) {
@@ -425,7 +382,7 @@ func TestApp_checkSession(t *testing.T) {
 				sessionTimeout: time.Minute,
 			},
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now().Add(-time.Hour)},
 			prepare: func(storageManager *mock_session.MockstorageManager, tt test) {
@@ -438,7 +395,7 @@ func TestApp_checkSession(t *testing.T) {
 		{
 			name: "failed on session",
 			args: args{
-				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5", time.Minute),
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_session.MockstorageManager, _ test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil, errors.New("big fat error"))

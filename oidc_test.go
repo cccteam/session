@@ -376,8 +376,9 @@ func TestApp_FrontChannelLogout(t *testing.T) {
 			a := &OIDCAzureSession{
 				storage: sessionStorage,
 				session: session{
-					storage:       sessionStorage,
-					cookieManager: c,
+					sessionTimeout: time.Minute,
+					storage:        sessionStorage,
+					cookieManager:  c,
 					handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {
@@ -395,7 +396,6 @@ func TestApp_FrontChannelLogout(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tt.reqURL, http.NoBody)
-			req = req.WithContext(context.WithValue(context.Background(), ctxSessionExpirationDuration, time.Minute))
 
 			a.FrontChannelLogout().ServeHTTP(recorder, req)
 			if recorder.Code != tt.expectedStatus {
