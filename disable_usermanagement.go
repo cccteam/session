@@ -38,8 +38,3 @@ func (d DisabledUserManager) AddUserRoles(_ context.Context, _ accesstypes.Domai
 func (d DisabledUserManager) DeleteUserRoles(_ context.Context, _ accesstypes.Domain, _ accesstypes.User, _ ...accesstypes.Role) error {
 	return nil
 }
-
-// UserPermissions returns an empty UserPermissionCollection.
-func (d DisabledUserManager) UserPermissions(_ context.Context, _ accesstypes.User, _ ...accesstypes.Domain) (accesstypes.UserPermissionCollection, error) {
-	return make(accesstypes.UserPermissionCollection), nil
-}
