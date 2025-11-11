@@ -17,6 +17,14 @@ import (
 
 const name = "github.com/cccteam/session"
 
+// stxKey is a type for storing values in the request context
+type ctxKey string
+
+const (
+	// Keys used within the request Context
+	ctxSessionID ctxKey = "sessionID"
+)
+
 // LogHandler defines the functional option type for handling logs.
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
 
@@ -116,6 +124,62 @@ func (s *session) checkSession(r *http.Request) (req *http.Request, err error) {
 	r = r.WithContext(logger.NewCtx(r.Context(), l))
 
 	return r, nil
+}
+
+// Authenticated is the handler reports if the session is authenticated
+func (s *session) Authenticated() http.HandlerFunc {
+	type response struct {
+		Authenticated bool   `json:"authenticated"`
+		Username      string `json:"username"`
+	}
+
+	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Authenticated()")
+		defer span.End()
+
+		r, err := s.checkSession(r.WithContext(ctx))
+		if err != nil {
+			if httpio.HasUnauthorized(err) {
+				return httpio.NewEncoder(w).Ok(response{})
+			}
+
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		sessInfo := sessioninfo.FromRequest(r)
+
+		// set response values
+		res := response{
+			Authenticated: true,
+			Username:      sessInfo.Username,
+		}
+
+		return httpio.NewEncoder(w).Ok(res)
+	})
+}
+
+// Logout is a handler which destroys the current session
+func (s *session) Logout() http.HandlerFunc {
+	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := otel.Tracer(name).Start(r.Context(), "App.Logout()")
+		defer span.End()
+
+		// Destroy session in database
+		if err := s.storage.DestroySession(ctx, sessionIDFromRequest(r)); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+func sessionIDFromRequest(r *http.Request) ccc.UUID {
+	id, ok := r.Context().Value(ctxSessionID).(ccc.UUID)
+	if !ok {
+		logger.Req(r).Errorf("failed to find %s in request context", ctxSessionID)
+	}
+
+	return id
 }
 
 // validSessionID checks that the sessionID is a valid uuid
