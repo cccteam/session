@@ -1,5 +1,7 @@
 //go:build skipAuth
 
+// Package azureoidc implements a client for Azure OIDC Authorization where
+// authentication is skipped for development by using the skipAuth build tag
 package azureoidc
 
 import (
