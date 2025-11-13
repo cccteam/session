@@ -68,7 +68,6 @@ linters:
             - github.com/google/go-cmp
             - github.com/gorilla/securecookie
             - github.com/jackc/pgx/v5
-            - go.opentelemetry.io/otel
             - go.uber.org/mock
             - golang.org/x/oauth2
             - google.golang.org/grpc/codes
@@ -138,7 +137,7 @@ linters:
         path: _test\.go
       - linters:
           - tagliatelle
-        path: oidc\.go|oidc_skipAuth\.go
+        path: oidc_azure\.go
         text: preferred_username
       - linters:
           - gomoddirectives

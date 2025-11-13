@@ -11,7 +11,7 @@ replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.86.0
-	github.com/cccteam/ccc v0.2.13
+	github.com/cccteam/ccc v0.2.15
 	github.com/cccteam/ccc/accesstypes v0.5.2
 	github.com/cccteam/db-initiator v0.2.12
 	github.com/cccteam/httpio v0.7.8
@@ -25,7 +25,6 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/gorilla/securecookie v1.1.2
 	github.com/jackc/pgx/v5 v5.7.6
-	go.opentelemetry.io/otel v1.38.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.31.0
 	google.golang.org/grpc v1.75.1
@@ -115,6 +114,7 @@ require (
 	go.opentelemetry.io/contrib/detectors/gcp v1.38.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.38.0 // indirect

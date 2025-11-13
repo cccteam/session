@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/mock/mock_session"
+	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/mock/mock_cookie"
+	"github.com/cccteam/session/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -18,14 +21,14 @@ func TestPreauthSession_NewSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_session.MockPreauthSessionStorage, *MockcookieManager)
+		prepare    func(*mock_sessionstorage.MockPreauth, *mock_cookie.MockCookieManager)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieManager) {
 				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -34,19 +37,19 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 				// Simulate cookie setting
 				mockCookies.EXPECT().
-					newAuthCookie(gomock.Any(), false, gomock.Any()).
-					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (map[scKey]string, error) {
+					NewAuthCookie(gomock.Any(), true, gomock.Any()).
+					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
 						http.SetCookie(w, &http.Cookie{
 							Name:  "auth",
 							Value: sessionID.String(),
 							Path:  "/",
 						})
-						return map[scKey]string{scSessionID: sessionID.String()}, nil
+						return map[types.SCKey]string{types.SCSessionID: sessionID.String()}, nil
 					}).
 					Times(1)
 
 				mockCookies.EXPECT().
-					setXSRFTokenCookie(gomock.Any(), gomock.Any(), gomock.Any(), xsrfCookieLife).
+					SetXSRFTokenCookie(gomock.Any(), gomock.Any(), gomock.Any(), types.XSRFCookieLife).
 					Return(true).
 					Times(1)
 			},
@@ -55,7 +58,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, _ *MockcookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, _ *mock_cookie.MockCookieManager) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -67,7 +70,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed to set auth cookie",
 			username: "test_user",
-			prepare: func(mockStorage *mock_session.MockPreauthSessionStorage, mockCookies *MockcookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieManager) {
 				// Mock successful session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -76,7 +79,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 				// Simulate failure in setting the auth cookie
 				mockCookies.EXPECT().
-					newAuthCookie(gomock.Any(), false, gomock.Any()).
+					NewAuthCookie(gomock.Any(), true, gomock.Any()).
 					Return(nil, errors.New("failed to set auth cookie")).
 					Times(1)
 			},
@@ -90,8 +93,8 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
-			mockStorage := mock_session.NewMockPreauthSessionStorage(ctrl)
-			mockCookies := NewMockcookieManager(ctrl)
+			mockStorage := mock_sessionstorage.NewMockPreauth(ctrl)
+			mockCookies := mock_cookie.NewMockCookieManager(ctrl)
 
 			// Prepare the mock expectations
 			if tt.prepare != nil {
@@ -105,9 +108,9 @@ func TestPreauthSession_NewSession(t *testing.T) {
 			// Create the PreauthSession instance with mocked dependencies
 			preauth := &PreauthSession{
 				storage: mockStorage,
-				session: session{
-					cookieManager: mockCookies,
-					storage:       mockStorage,
+				BaseSession: &basesession.BaseSession{
+					CookieManager: mockCookies,
+					Storage:       mockStorage,
 				},
 			}
 
