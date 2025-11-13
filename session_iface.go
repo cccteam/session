@@ -1,7 +1,7 @@
 // Package session provides session handlers for various authentication implementations.
 // Curretnly supported are:
 // 1) Azure OIDC Authorization Code Flow with PKCE
-// 2) PreAuth: Allows you to implement your own authentication, but still use session handlers
+// 2) Preauth: Allows you to implement your own authentication, but still use session handlers
 // 3) Username/Password: Implements user storage and password management
 package session
 

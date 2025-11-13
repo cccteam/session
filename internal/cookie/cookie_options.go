@@ -3,7 +3,7 @@ package cookie
 // Option defines a function signature for setting cookie client options.
 type Option func(*CookieClient)
 
-func (Option) isPreAuthOption()   {}
+func (Option) isPreauthOption()   {}
 func (Option) isOIDCAzureOption() {}
 
 // WithCookieName sets the cookie name for the session cookie.

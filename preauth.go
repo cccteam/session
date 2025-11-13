@@ -14,12 +14,12 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-// PreAuthOption defines the functional option type for configuring PreauthSession.
-type PreAuthOption interface {
-	isPreAuthOption()
+// PreauthOption defines the functional option type for configuring PreauthSession.
+type PreauthOption interface {
+	isPreauthOption()
 }
 
-var _ PreAuthHandlers = &Preauth{}
+var _ PreauthHandlers = &Preauth{}
 
 // Preauth handles session management for pre-authentication scenarios.
 type Preauth struct {
@@ -28,7 +28,7 @@ type Preauth struct {
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(storage sessionstorage.Preauth, secureCookie *securecookie.SecureCookie, options ...PreAuthOption) *Preauth {
+func NewPreauth(storage sessionstorage.Preauth, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
 	cookieOpts := make([]cookie.Option, 0, len(options))
 	for _, opt := range options {
 		if o, ok := any(opt).(cookie.Option); ok {

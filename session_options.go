@@ -9,7 +9,7 @@ import (
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)
 
-func (BaseSessionOption) isPreAuthOption()   {}
+func (BaseSessionOption) isPreauthOption()   {}
 func (BaseSessionOption) isOIDCAzureOption() {}
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
