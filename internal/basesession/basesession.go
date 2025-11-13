@@ -1,4 +1,4 @@
-// Package session implements the session management for the application.
+// Package basesession implements the session management for the application.
 package basesession
 
 import (
@@ -25,7 +25,7 @@ type BaseSession struct {
 	SessionTimeout time.Duration
 	Handle         LogHandler
 	Storage        sessionstorage.Base
-	cookie.CookieManager
+	cookie.CookieHandler
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if

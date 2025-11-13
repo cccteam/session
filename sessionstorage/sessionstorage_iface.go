@@ -1,3 +1,6 @@
+// Package sessionstorage implements database storage for session data.
+// There are implementations for both Spanner and Postgres for each
+// session type (i.e. OIDC, Username/Password, etc)
 package sessionstorage
 
 import (

@@ -1,3 +1,4 @@
+// Package types defines common types and constants used across the session package.
 package types
 
 import (
@@ -10,24 +11,34 @@ import (
 )
 
 const (
-	// Keys used within the Secure Cookie
+	// SCAuthCookieName is the cookie name of the Secure Cookie
 	SCAuthCookieName SCKey = "auth"
-	SCSessionID      SCKey = "sessionID"
+
+	// SCSessionID is the key for storing SessionID in Secure Cookie
+	SCSessionID SCKey = "sessionID"
+
+	// SCSameSiteStrict is a key representing sameSiteStrict cookie setting
 	SCSameSiteStrict SCKey = "sameSiteStrict"
 
+	// STCookieName is the cookie name of the Secure Token Cookie
 	STCookieName = "XSRF-TOKEN"
+
+	// STHeaderName is the header name of the Secure Token Cookie
 	STHeaderName = "X-XSRF-TOKEN"
 
-	// Keys used in Secure Token Cookie
-	STSessionID       STKey = "sessionid"
+	// STSessionID is the key used in store sessionID in Secure Token Cookie
+	STSessionID STKey = "sessionid"
+
+	// STTokenExpiration is the key used to store the cookie expiration in the Secure Token Cookie
 	STTokenExpiration STKey = "expiration"
 
+	// XSRFCookieLife is constant controlling XSRF Cookie expiration
 	XSRFCookieLife = time.Hour
 
-	// rewrite xsrf cookie token if it expires within duration
+	// XSRFReWriteWindow controls rewriting xsrf cookie token if it expires within duration
 	XSRFReWriteWindow = 30 * time.Minute
 
-	// Keys used within the request Context
+	// CTXSessionID is the key for storing SessionID in context
 	CTXSessionID CTXKey = "sessionID"
 )
 
@@ -35,9 +46,10 @@ type (
 	// SCKey is a type for storing values in the session cookie
 	SCKey string
 
+	// STKey is a type for storing values in the secure token cookie
 	STKey string
 
-	// ctxKey is a type for storing values in the request context
+	// CTXKey is a type for storing values in the request context
 	CTXKey string
 )
 
@@ -56,10 +68,12 @@ func (vals methods) Contain(s string) bool {
 	return false
 }
 
+// SessionIDFromRequest returns the sessionID from the request
 func SessionIDFromRequest(r *http.Request) ccc.UUID {
 	return SessionIDFromCtx(r.Context())
 }
 
+// SessionIDFromCtx returns the sessionID from the request context
 func SessionIDFromCtx(ctx context.Context) ccc.UUID {
 	id, ok := ctx.Value(CTXSessionID).(ccc.UUID)
 	if !ok {

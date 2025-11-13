@@ -2,6 +2,7 @@ package basesession
 
 import http "net/http"
 
+// Handlers defines the interface for session handlers used by all session implementations
 type Handlers interface {
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc

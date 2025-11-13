@@ -8,8 +8,8 @@ import (
 	"github.com/cccteam/session/internal/types"
 )
 
-// CookieManager Interface included for testability
-type CookieManager interface {
+// CookieHandler Interface included for testability
+type CookieHandler interface {
 	NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error)
 	ReadAuthCookie(r *http.Request) (map[types.SCKey]string, bool)
 	WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error

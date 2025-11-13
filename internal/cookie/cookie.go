@@ -1,3 +1,4 @@
+// Package cookie implements all cookie handling for the session package
 package cookie
 
 import (
@@ -12,15 +13,17 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-var _ CookieManager = &CookieClient{}
+var _ CookieHandler = &CookieClient{}
 
+// CookieClient implements all cookie management for session package
 type CookieClient struct {
 	secureCookie *securecookie.SecureCookie
 	cookieName   string
 	domain       string
 }
 
-func NewCookieClient(secureCookie *securecookie.SecureCookie, options ...CookieOption) *CookieClient {
+// NewCookieClient returns a new CookieClient
+func NewCookieClient(secureCookie *securecookie.SecureCookie, options ...Option) *CookieClient {
 	cookie := &CookieClient{
 		secureCookie: secureCookie,
 		cookieName:   string(types.SCAuthCookieName),
@@ -32,6 +35,7 @@ func NewCookieClient(secureCookie *securecookie.SecureCookie, options ...CookieO
 	return cookie
 }
 
+// NewAuthCookie writes a new Auth Cookie for given sessionID
 func (c *CookieClient) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
 	// Update cookie
 	cval := map[types.SCKey]string{
@@ -45,6 +49,7 @@ func (c *CookieClient) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool,
 	return cval, nil
 }
 
+// ReadAuthCookie reads the Auth cookie from the request
 func (c *CookieClient) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, bool) {
 	cval := make(map[types.SCKey]string)
 
@@ -62,6 +67,7 @@ func (c *CookieClient) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, 
 	return cval, true
 }
 
+// WriteAuthCookie writes the Auth cookie to the response
 func (c *CookieClient) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error {
 	cval[types.SCSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
 	encoded, err := c.secureCookie.Encode(c.cookieName, cval)
@@ -114,6 +120,7 @@ func (c *CookieClient) SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request
 	return true
 }
 
+// HasValidXSRFToken checks if the XSRF token is valid
 func (c *CookieClient) HasValidXSRFToken(r *http.Request) bool {
 	cval, found := c.ReadXSRFCookie(r)
 	if !found {
@@ -139,6 +146,7 @@ func (c *CookieClient) HasValidXSRFToken(r *http.Request) bool {
 	return hval[types.STSessionID] == cval[types.STSessionID]
 }
 
+// WriteXSRFCookie writes the XSRF cookie to the response
 func (c *CookieClient) WriteXSRFCookie(w http.ResponseWriter, cookieExpiration time.Duration, cval map[types.STKey]string) error {
 	encoded, err := c.secureCookie.Encode(types.STCookieName, cval)
 	if err != nil {
@@ -157,6 +165,7 @@ func (c *CookieClient) WriteXSRFCookie(w http.ResponseWriter, cookieExpiration t
 	return nil
 }
 
+// ReadXSRFCookie reads the XSRF cookie from the request
 func (c *CookieClient) ReadXSRFCookie(r *http.Request) (map[types.STKey]string, bool) {
 	cookie, err := r.Cookie(types.STCookieName)
 	if err != nil {
@@ -174,6 +183,7 @@ func (c *CookieClient) ReadXSRFCookie(r *http.Request) (map[types.STKey]string, 
 	return cval, true
 }
 
+// ReadXSRFHeader reads the XSRF header from the request
 func (c *CookieClient) ReadXSRFHeader(r *http.Request) (map[types.STKey]string, bool) {
 	h := r.Header.Get(types.STHeaderName)
 	cval := make(map[types.STKey]string)

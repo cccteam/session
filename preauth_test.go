@@ -109,7 +109,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 			preauth := &PreauthSession{
 				storage: mockStorage,
 				BaseSession: &basesession.BaseSession{
-					CookieManager: mockCookies,
+					CookieHandler: mockCookies,
 					Storage:       mockStorage,
 				},
 			}

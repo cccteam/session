@@ -32,16 +32,16 @@ func NewPreauth(
 	preauthSession sessionstorage.Preauth,
 	secureCookie *securecookie.SecureCookie, options ...PreAuthOption,
 ) *PreauthSession {
-	cookieOpts := make([]cookie.CookieOption, 0, len(options))
+	cookieOpts := make([]cookie.Option, 0, len(options))
 	for _, opt := range options {
-		if o, ok := any(opt).(cookie.CookieOption); ok {
+		if o, ok := any(opt).(cookie.Option); ok {
 			cookieOpts = append(cookieOpts, o)
 		}
 	}
 
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
-		CookieManager:  cookie.NewCookieClient(secureCookie, cookieOpts...),
+		CookieHandler:  cookie.NewCookieClient(secureCookie, cookieOpts...),
 		SessionTimeout: defaultSessionTimeout,
 		Storage:        preauthSession,
 	}

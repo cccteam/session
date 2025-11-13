@@ -19,7 +19,7 @@ func WithLogHandler(l LogHandler) BaseSessionOption {
 	})
 }
 
-var defaultSessionTimeout time.Duration = time.Minute * 10
+var defaultSessionTimeout = time.Minute * 10
 
 // WithSessionTimeout sets the session timeout. (default: 10m)
 func WithSessionTimeout(d time.Duration) BaseSessionOption {

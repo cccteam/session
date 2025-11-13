@@ -64,7 +64,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
 			a := &OIDCAzureSession{
 				BaseSession: &basesession.BaseSession{
-					CookieManager: cookie.NewCookieClient(sc),
+					CookieHandler: cookie.NewCookieClient(sc),
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {
@@ -307,7 +307,7 @@ func TestApp_CallbackOIDC(t *testing.T) {
 				storage:         sessionStorage,
 				BaseSession: &basesession.BaseSession{
 					Storage:       sessionStorage,
-					CookieManager: c,
+					CookieHandler: c,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {
@@ -383,7 +383,7 @@ func TestApp_FrontChannelLogout(t *testing.T) {
 				BaseSession: &basesession.BaseSession{
 					SessionTimeout: time.Minute,
 					Storage:        sessionStorage,
-					CookieManager:  c,
+					CookieHandler:  c,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {

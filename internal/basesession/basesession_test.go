@@ -53,7 +53,7 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc
 			}
 		}
 
-		a := &BaseSession{CookieManager: cookie.NewCookieClient(sc)}
+		a := &BaseSession{CookieHandler: cookie.NewCookieClient(sc)}
 		if _, err := a.NewAuthCookie(w, false, id); err != nil {
 			t.Fatalf("newAuthCookie() = %v", err)
 		}
@@ -176,7 +176,7 @@ func TestAppStartSession(t *testing.T) {
 			c := mock_cookie.NewMockCookieManager(gomock.NewController(t))
 			a := &BaseSession{
 				SessionTimeout: time.Second * 5,
-				CookieManager:  c,
+				CookieHandler:  c,
 				Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -716,7 +716,7 @@ func TestAppSetXSRFToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &BaseSession{
-				CookieManager: cookie.NewCookieClient(tt.fields.secureCookie),
+				CookieHandler: cookie.NewCookieClient(tt.fields.secureCookie),
 				Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
@@ -796,7 +796,7 @@ func TestAppValidateXSRFToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a := &BaseSession{
-				CookieManager: cookie.NewCookieClient(tt.fields.secureCookie),
+				CookieHandler: cookie.NewCookieClient(tt.fields.secureCookie),
 				Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 					return func(w http.ResponseWriter, r *http.Request) {
 						if err := handler(w, r); err != nil {
