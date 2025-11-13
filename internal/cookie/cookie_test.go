@@ -89,7 +89,7 @@ func Test_newAuthCookie(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := &CookieClient{secureCookie: tt.sc, cookieName: string(types.SCAuthCookieName)}
+			a := &CookieClient{secureCookie: tt.sc, CookieName: string(types.SCAuthCookieName)}
 
 			w := httptest.NewRecorder()
 			got, err := a.NewAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{})
@@ -119,7 +119,7 @@ func Test_readAuthCookie(t *testing.T) {
 	t.Parallel()
 
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
-	a := &CookieClient{secureCookie: sc, cookieName: string(types.SCAuthCookieName)}
+	a := &CookieClient{secureCookie: sc, CookieName: string(types.SCAuthCookieName)}
 	w := httptest.NewRecorder()
 	cval := map[types.SCKey]string{
 		"key1":                 "value1",
@@ -164,7 +164,7 @@ func Test_readAuthCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app := &CookieClient{secureCookie: tt.sc, cookieName: string(types.SCAuthCookieName)}
+			app := &CookieClient{secureCookie: tt.sc, CookieName: string(types.SCAuthCookieName)}
 			got, got1 := app.ReadAuthCookie(tt.req)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ReadAuthCookie() got = %v, want %v", got, tt.want)
@@ -217,7 +217,7 @@ func Test_writeAuthCookie(t *testing.T) {
 				"key1": "value1",
 				"key2": "value2",
 			}
-			a := &CookieClient{secureCookie: tt.fields.sc, cookieName: string(types.SCAuthCookieName)}
+			a := &CookieClient{secureCookie: tt.fields.sc, CookieName: string(types.SCAuthCookieName)}
 			w := httptest.NewRecorder()
 
 			if err := a.WriteAuthCookie(w, tt.sameSiteStrict, cval); (err != nil) != tt.wantWriteErr {

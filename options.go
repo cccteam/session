@@ -4,7 +4,28 @@ import (
 	"time"
 
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/cookie"
 )
+
+// CookieOption defines a function signature for setting cookie client options.
+type CookieOption func(*cookie.CookieClient)
+
+func (CookieOption) isPreauthOption()   {}
+func (CookieOption) isOIDCAzureOption() {}
+
+// WithCookieName sets the cookie name for the session cookie.
+func WithCookieName(name string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.CookieName = name
+	})
+}
+
+// WithCookieDomain sets the domain for the session cookie.
+func WithCookieDomain(domain string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.Domain = domain
+	})
+}
 
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)

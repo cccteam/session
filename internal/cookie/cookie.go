@@ -18,18 +18,15 @@ var _ CookieHandler = &CookieClient{}
 // CookieClient implements all cookie management for session package
 type CookieClient struct {
 	secureCookie *securecookie.SecureCookie
-	cookieName   string
-	domain       string
+	CookieName   string
+	Domain       string
 }
 
 // NewCookieClient returns a new CookieClient
-func NewCookieClient(secureCookie *securecookie.SecureCookie, options ...Option) *CookieClient {
+func NewCookieClient(secureCookie *securecookie.SecureCookie) *CookieClient {
 	cookie := &CookieClient{
 		secureCookie: secureCookie,
-		cookieName:   string(types.SCAuthCookieName),
-	}
-	for _, opt := range options {
-		opt(cookie)
+		CookieName:   string(types.SCAuthCookieName),
 	}
 
 	return cookie
@@ -53,11 +50,11 @@ func (c *CookieClient) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool,
 func (c *CookieClient) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, bool) {
 	cval := make(map[types.SCKey]string)
 
-	cookie, err := r.Cookie(c.cookieName)
+	cookie, err := r.Cookie(c.CookieName)
 	if err != nil {
 		return cval, false
 	}
-	err = c.secureCookie.Decode(c.cookieName, cookie.Value, &cval)
+	err = c.secureCookie.Decode(c.CookieName, cookie.Value, &cval)
 	if err != nil {
 		logger.Req(r).Error(errors.Wrap(err, "secureCookie.Decode()"))
 
@@ -70,7 +67,7 @@ func (c *CookieClient) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, 
 // WriteAuthCookie writes the Auth cookie to the response
 func (c *CookieClient) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error {
 	cval[types.SCSameSiteStrict] = strconv.FormatBool(sameSiteStrict)
-	encoded, err := c.secureCookie.Encode(c.cookieName, cval)
+	encoded, err := c.secureCookie.Encode(c.CookieName, cval)
 	if err != nil {
 		return errors.Wrap(err, "securecookie.Encode()")
 	}
@@ -81,10 +78,10 @@ func (c *CookieClient) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     c.cookieName,
+		Name:     c.CookieName,
 		Value:    encoded,
 		Path:     "/",
-		Domain:   c.domain,
+		Domain:   c.Domain,
 		Secure:   secureCookie(),
 		HttpOnly: true,
 		SameSite: sameSite,
