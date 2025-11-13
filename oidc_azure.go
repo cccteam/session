@@ -25,23 +25,23 @@ type OIDCAzureOption interface {
 	isOIDCAzureOption()
 }
 
-var _ OIDCAzureHandlers = &OIDCAzureSession{}
+var _ OIDCAzureHandlers = &OIDCAzure{}
 
-// OIDCAzureSession implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure.
-type OIDCAzureSession struct {
+// OIDCAzure implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure.
+type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
 	storage         sessionstorage.OIDCAzure
 	*basesession.BaseSession
 }
 
-// NewOIDCAzureSession creates a new OIDCAzureSession.
-func NewOIDCAzureSession(
+// NewOIDCAzure creates a new OIDCAzure.
+func NewOIDCAzure(
 	storage sessionstorage.OIDCAzure, userRoleManager UserRoleManager,
 	secureCookie *securecookie.SecureCookie,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
-) *OIDCAzureSession {
+) *OIDCAzure {
 	cookieOpts := make([]cookie.Option, 0, len(options))
 	for _, opt := range options {
 		if o, ok := any(opt).(cookie.Option); ok {
@@ -61,7 +61,7 @@ func NewOIDCAzureSession(
 		}
 	}
 
-	return &OIDCAzureSession{
+	return &OIDCAzure{
 		userRoleManager: userRoleManager,
 		oidc:            azureoidc.New(secureCookie, issuerURL, clientID, clientSecret, redirectURL),
 		BaseSession:     baseSession,
@@ -70,7 +70,7 @@ func NewOIDCAzureSession(
 }
 
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
-func (o *OIDCAzureSession) Login() http.HandlerFunc {
+func (o *OIDCAzure) Login() http.HandlerFunc {
 	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
@@ -88,7 +88,7 @@ func (o *OIDCAzureSession) Login() http.HandlerFunc {
 }
 
 // CallbackOIDC is the handler for the callback from the OIDC auth provider
-func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
+func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 	type claims struct {
 		Username string   `json:"preferred_username"`
 		Roles    []string `json:"roles"`
@@ -137,7 +137,7 @@ func (o *OIDCAzureSession) CallbackOIDC() http.HandlerFunc {
 }
 
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
-func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
+func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
@@ -157,7 +157,7 @@ func (o *OIDCAzureSession) FrontChannelLogout() http.HandlerFunc {
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
-func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
+func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -202,7 +202,7 @@ func (o *OIDCAzureSession) assignUserRoles(ctx context.Context, username accesst
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzureSession) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
+func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {

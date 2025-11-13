@@ -19,10 +19,10 @@ type PreAuthOption interface {
 	isPreAuthOption()
 }
 
-var _ PreAuthHandlers = &PreauthSession{}
+var _ PreAuthHandlers = &Preauth{}
 
-// PreauthSession handles session management for pre-authentication scenarios.
-type PreauthSession struct {
+// Preauth handles session management for pre-authentication scenarios.
+type Preauth struct {
 	storage sessionstorage.Preauth
 	*basesession.BaseSession
 }
@@ -31,7 +31,7 @@ type PreauthSession struct {
 func NewPreauth(
 	preauthSession sessionstorage.Preauth,
 	secureCookie *securecookie.SecureCookie, options ...PreAuthOption,
-) *PreauthSession {
+) *Preauth {
 	cookieOpts := make([]cookie.Option, 0, len(options))
 	for _, opt := range options {
 		if o, ok := any(opt).(cookie.Option); ok {
@@ -51,14 +51,14 @@ func NewPreauth(
 		}
 	}
 
-	return &PreauthSession{
+	return &Preauth{
 		BaseSession: baseSession,
 		storage:     preauthSession,
 	}
 }
 
 // NewSession creates a new session for a pre-authenticated user.
-func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
+func (p *Preauth) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 

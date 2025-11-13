@@ -106,7 +106,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 
 			// Create the PreauthSession instance with mocked dependencies
-			preauth := &PreauthSession{
+			preauth := &Preauth{
 				storage: mockStorage,
 				BaseSession: &basesession.BaseSession{
 					CookieHandler: mockCookies,
