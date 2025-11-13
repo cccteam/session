@@ -28,10 +28,7 @@ type Preauth struct {
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(
-	preauthSession sessionstorage.Preauth,
-	secureCookie *securecookie.SecureCookie, options ...PreAuthOption,
-) *Preauth {
+func NewPreauth(storage sessionstorage.Preauth, secureCookie *securecookie.SecureCookie, options ...PreAuthOption) *Preauth {
 	cookieOpts := make([]cookie.Option, 0, len(options))
 	for _, opt := range options {
 		if o, ok := any(opt).(cookie.Option); ok {
@@ -43,7 +40,7 @@ func NewPreauth(
 		Handle:         httpio.Log,
 		CookieHandler:  cookie.NewCookieClient(secureCookie, cookieOpts...),
 		SessionTimeout: defaultSessionTimeout,
-		Storage:        preauthSession,
+		Storage:        storage,
 	}
 	for _, opt := range options {
 		if o, ok := any(opt).(BaseSessionOption); ok {
@@ -53,7 +50,7 @@ func NewPreauth(
 
 	return &Preauth{
 		BaseSession: baseSession,
-		storage:     preauthSession,
+		storage:     storage,
 	}
 }
 
