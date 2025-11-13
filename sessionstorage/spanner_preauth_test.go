@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/internal/dbtype"
-	"github.com/cccteam/session/mock/mock_sessionstorage"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"

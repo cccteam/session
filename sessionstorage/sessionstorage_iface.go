@@ -7,8 +7,8 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 )
 
 // Base defines an interface for managing session storage.

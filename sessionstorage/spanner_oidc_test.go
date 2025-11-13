@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/mock/mock_sessionstorage"
+	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )

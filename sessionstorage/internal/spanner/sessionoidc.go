@@ -6,7 +6,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
 	"google.golang.org/grpc/codes"

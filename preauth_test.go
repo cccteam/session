@@ -11,7 +11,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/mock/mock_cookie"
-	"github.com/cccteam/session/mock/mock_sessionstorage"
+	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
 )
 
