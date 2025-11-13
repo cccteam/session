@@ -79,7 +79,7 @@ func TestAppStartSession(t *testing.T) {
 	type test struct {
 		name           string
 		req            *http.Request
-		prepare        func(*mock_cookie.MockCookieManager, *test)
+		prepare        func(*mock_cookie.MockCookieHandler, *test)
 		wantSessionID  ccc.UUID
 		expectedStatus int
 	}
@@ -87,7 +87,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "success starting new session (invalid session in pre-existing cookie)",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), ""),
-			prepare: func(c *mock_cookie.MockCookieManager, tt *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, tt *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(map[types.SCKey]string{
 					types.SCSessionID:      "92922509-bad-session-id",
 					types.SCSameSiteStrict: "true",
@@ -106,7 +106,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "success starting new session (no pre-existing cookie)",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), ""),
-			prepare: func(c *mock_cookie.MockCookieManager, tt *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, tt *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(nil, false)
 				c.EXPECT().NewAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).
 					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID) {
@@ -122,7 +122,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "success with existing cookie upgraded",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
-			prepare: func(c *mock_cookie.MockCookieManager, _ *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(map[types.SCKey]string{
 					types.SCSessionID: "92922509-82d2-4bc7-853a-d73b8926a55f",
 				}, true)
@@ -136,7 +136,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "success without upgrading existing cookie",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
-			prepare: func(c *mock_cookie.MockCookieManager, _ *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(map[types.SCKey]string{
 					types.SCSessionID:      "92922509-82d2-4bc7-853a-d73b8926a55f",
 					types.SCSameSiteStrict: "true",
@@ -148,7 +148,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "fails to upgrade existing cookie",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, securecookie.New(securecookie.GenerateRandomKey(32), nil), "92922509-82d2-4bc7-853a-d73b8926a55f"),
-			prepare: func(c *mock_cookie.MockCookieManager, _ *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(map[types.SCKey]string{
 					types.SCSessionID:      "92922509-82d2-4bc7-853a-d73b8926a55f",
 					types.SCSameSiteStrict: "false",
@@ -163,7 +163,7 @@ func TestAppStartSession(t *testing.T) {
 		{
 			name: "fail at newAuthCookie()",
 			req:  &http.Request{URL: &url.URL{}},
-			prepare: func(c *mock_cookie.MockCookieManager, _ *test) {
+			prepare: func(c *mock_cookie.MockCookieHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(nil, false)
 				c.EXPECT().NewAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("error creating cookie"))
 			},
@@ -173,7 +173,7 @@ func TestAppStartSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := mock_cookie.NewMockCookieManager(gomock.NewController(t))
+			c := mock_cookie.NewMockCookieHandler(gomock.NewController(t))
 			a := &BaseSession{
 				SessionTimeout: time.Second * 5,
 				CookieHandler:  c,

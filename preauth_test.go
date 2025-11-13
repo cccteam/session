@@ -21,14 +21,14 @@ func TestPreauthSession_NewSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_sessionstorage.MockPreauth, *mock_cookie.MockCookieManager)
+		prepare    func(*mock_sessionstorage.MockPreauth, *mock_cookie.MockCookieHandler)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieHandler) {
 				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -58,7 +58,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, _ *mock_cookie.MockCookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, _ *mock_cookie.MockCookieHandler) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -70,7 +70,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed to set auth cookie",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieManager) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieHandler) {
 				// Mock successful session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -94,7 +94,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
 			mockStorage := mock_sessionstorage.NewMockPreauth(ctrl)
-			mockCookies := mock_cookie.NewMockCookieManager(ctrl)
+			mockCookies := mock_cookie.NewMockCookieHandler(ctrl)
 
 			// Prepare the mock expectations
 			if tt.prepare != nil {
