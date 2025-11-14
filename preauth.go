@@ -3,53 +3,58 @@ package session
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
-	"go.opentelemetry.io/otel"
 )
 
-// PreAuthOption defines the functional option type for configuring PreauthSession.
-type PreAuthOption interface {
-	isPreAuthOption()
+// PreauthOption defines the functional option type for configuring PreauthSession.
+type PreauthOption interface {
+	isPreauthOption()
 }
 
-var _ PreAuthHandlers = &PreauthSession{}
+var _ PreauthHandlers = &Preauth{}
 
-// PreauthSession handles session management for pre-authentication scenarios.
-type PreauthSession struct {
-	storage PreauthSessionStorage
-	session
+// Preauth handles session management for pre-authentication scenarios.
+type Preauth struct {
+	storage sessionstorage.Preauth
+	*basesession.BaseSession
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(
-	preauthSession PreauthSessionStorage, logHandler LogHandler,
-	secureCookie *securecookie.SecureCookie, sessionTimeout time.Duration, options ...PreAuthOption,
-) *PreauthSession {
-	cookieOpts := make([]CookieOption, 0, len(options))
+func NewPreauth(storage sessionstorage.Preauth, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
+	cookieClient := cookie.NewCookieClient(secureCookie)
+	baseSession := &basesession.BaseSession{
+		Handle:         httpio.Log,
+		CookieHandler:  cookieClient,
+		SessionTimeout: defaultSessionTimeout,
+		Storage:        storage,
+	}
+
 	for _, opt := range options {
-		if o, ok := any(opt).(CookieOption); ok {
-			cookieOpts = append(cookieOpts, o)
+		switch o := any(opt).(type) {
+		case CookieOption:
+			o(cookieClient)
+		case BaseSessionOption:
+			o(baseSession)
 		}
 	}
 
-	return &PreauthSession{
-		session: session{
-			handle:         logHandler,
-			cookieManager:  newCookieClient(secureCookie, cookieOpts...),
-			sessionTimeout: sessionTimeout,
-			storage:        preauthSession,
-		},
-		storage: preauthSession,
+	return &Preauth{
+		BaseSession: baseSession,
+		storage:     storage,
 	}
 }
 
 // NewSession creates a new session for a pre-authenticated user.
-func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
-	ctx, span := otel.Tracer(name).Start(ctx, "PreauthSession.NewSession()")
+func (p *Preauth) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	// Create new Session in database
@@ -59,12 +64,12 @@ func (p *PreauthSession) NewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.newAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, err
+	if _, err := p.NewAuthCookie(w, true, id); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "PreauthSession.NewAuthCookie()")
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	p.setXSRFTokenCookie(w, r, id, xsrfCookieLife)
+	p.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
 
 	return id, nil
 }

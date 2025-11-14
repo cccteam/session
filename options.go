@@ -1,0 +1,63 @@
+package session
+
+import (
+	"time"
+
+	"github.com/cccteam/session/internal/azureoidc"
+	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/cookie"
+)
+
+// CookieOption defines a function signature for setting cookie client options.
+type CookieOption func(*cookie.CookieClient)
+
+func (CookieOption) isPreauthOption()   {}
+func (CookieOption) isOIDCAzureOption() {}
+
+// WithCookieName sets the cookie name for the session cookie.
+func WithCookieName(name string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.CookieName = name
+	})
+}
+
+// WithCookieDomain sets the domain for the session cookie.
+func WithCookieDomain(domain string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.Domain = domain
+	})
+}
+
+// BaseSessionOption defines a function signature for setting session options.
+type BaseSessionOption func(*basesession.BaseSession)
+
+func (BaseSessionOption) isPreauthOption()   {}
+func (BaseSessionOption) isOIDCAzureOption() {}
+
+// WithLogHandler sets the LogHandler. (default: httpio.Log)
+func WithLogHandler(l LogHandler) BaseSessionOption {
+	return BaseSessionOption(func(b *basesession.BaseSession) {
+		b.Handle = l
+	})
+}
+
+var defaultSessionTimeout = time.Minute * 10
+
+// WithSessionTimeout sets the session timeout. (default: 10m)
+func WithSessionTimeout(d time.Duration) BaseSessionOption {
+	return BaseSessionOption(func(b *basesession.BaseSession) {
+		b.SessionTimeout = d
+	})
+}
+
+// OIDCOption defines a function signature for setting OIDC options.
+type OIDCOption func(*azureoidc.OIDC)
+
+func (OIDCOption) isOIDCAzureOption() {}
+
+// WithLoginURL sets the LoginURL for the SPA. (default: /login)
+func WithLoginURL(l string) OIDCOption {
+	return OIDCOption(func(b *azureoidc.OIDC) {
+		b.SetLoginURL(l)
+	})
+}

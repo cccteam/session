@@ -68,7 +68,6 @@ linters:
             - github.com/google/go-cmp
             - github.com/gorilla/securecookie
             - github.com/jackc/pgx/v5
-            - go.opentelemetry.io/otel
             - go.uber.org/mock
             - golang.org/x/oauth2
             - google.golang.org/grpc/codes
@@ -138,7 +137,7 @@ linters:
         path: _test\.go
       - linters:
           - tagliatelle
-        path: oidc\.go|oidc_skipAuth\.go
+        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth.go
         text: preferred_username
       - linters:
           - gomoddirectives
@@ -147,6 +146,14 @@ linters:
       - linters:
           - revive
         text: avoid meaningless package names
+      - linters:
+          - revive
+        path: internal/cookie/cookie_iface\.go
+        text: CookieHandler by other packages, and that stutters
+      - linters:
+          - revive
+        path: internal/cookie/cookie\.go
+        text: CookieClient by other packages, and that stutters
     paths:
       - third_party$
       - builtin$

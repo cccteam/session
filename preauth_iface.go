@@ -5,12 +5,13 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ PreAuthHandlers = &PreauthSession{}
+var _ PreauthHandlers = &Preauth{}
 
-// PreAuthHandlers defines the interface for pre-authentication session handlers.
-type PreAuthHandlers interface {
-	sessionHandlers
+// PreauthHandlers defines the interface for pre-authentication session handlers.
+type PreauthHandlers interface {
+	basesession.Handlers
 	NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error)
 }
