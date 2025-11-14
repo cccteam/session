@@ -20,7 +20,7 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-// OIDCAzureOption defines the interface for functional options used when creating a new OIDCAzureSession.
+// OIDCAzureOption defines the interface for functional options used when creating a new OIDCAzure.
 type OIDCAzureOption interface {
 	isOIDCAzureOption()
 }
