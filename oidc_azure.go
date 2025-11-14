@@ -42,6 +42,7 @@ func NewOIDCAzure(
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) *OIDCAzure {
+	oidc := azureoidc.New(secureCookie, issuerURL, clientID, clientSecret, redirectURL)
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
@@ -56,12 +57,14 @@ func NewOIDCAzure(
 			o(cookieClient)
 		case BaseSessionOption:
 			o(baseSession)
+		case OIDCOption:
+			o(oidc)
 		}
 	}
 
 	return &OIDCAzure{
 		userRoleManager: userRoleManager,
-		oidc:            azureoidc.New(secureCookie, issuerURL, clientID, clientSecret, redirectURL),
+		oidc:            oidc,
 		BaseSession:     baseSession,
 		storage:         storage,
 	}

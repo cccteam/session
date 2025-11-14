@@ -3,6 +3,7 @@ package session
 import (
 	"time"
 
+	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
 )
@@ -46,5 +47,17 @@ var defaultSessionTimeout = time.Minute * 10
 func WithSessionTimeout(d time.Duration) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
 		b.SessionTimeout = d
+	})
+}
+
+// OIDCOption defines a function signature for setting OIDC options.
+type OIDCOption func(*azureoidc.OIDC)
+
+func (OIDCOption) isOIDCAzureOption() {}
+
+// WithLoginURL sets the LoginURL for the SPA. (default: /login)
+func WithLoginURL(l string) OIDCOption {
+	return OIDCOption(func(b *azureoidc.OIDC) {
+		b.SetLoginURL(l)
 	})
 }
