@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.0](https://github.com/cccteam/session/compare/v0.5.9...v0.6.0) (2025-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* Breaking change to session.NewOIDCAzure() as parameters have changed ([#131](https://github.com/cccteam/session/issues/131))
+* Breaking change to session.NewPreauth() as parameters have changed ([#131](https://github.com/cccteam/session/issues/131))
+* Removed SetSessionTimeout() handler since it is no longer needed ([#131](https://github.com/cccteam/session/issues/131))
+* Remove permissions from session ([#130](https://github.com/cccteam/session/issues/130))
+
+### Features
+
+* Remove permissions from session ([#130](https://github.com/cccteam/session/issues/130)) ([597ef98](https://github.com/cccteam/session/commit/597ef98538d489ebd481e2b1413ba72dbdf41e61))
+
+
+### Bug Fixes
+
+* Correct CK_SessionsOidcSid constraint ([#115](https://github.com/cccteam/session/issues/115)) ([31618e0](https://github.com/cccteam/session/commit/31618e01bbee0bc3604e91a74d26988d5714b48a))
+* Fixed bug in session.PreAuth.NewSession() where it set sameSiteStrict=false ([#131](https://github.com/cccteam/session/issues/131)) ([effd7ce](https://github.com/cccteam/session/commit/effd7ce9d5357b2f4aec2dfd922653a5bbda1752))
+
+
+### Code Refactoring
+
+* Breaking change to session.NewOIDCAzure() as parameters have changed ([#131](https://github.com/cccteam/session/issues/131)) ([effd7ce](https://github.com/cccteam/session/commit/effd7ce9d5357b2f4aec2dfd922653a5bbda1752))
+* Breaking change to session.NewPreauth() as parameters have changed ([#131](https://github.com/cccteam/session/issues/131)) ([effd7ce](https://github.com/cccteam/session/commit/effd7ce9d5357b2f4aec2dfd922653a5bbda1752))
+* Massive refactor to make package easier to maintain and use ([#131](https://github.com/cccteam/session/issues/131)) ([effd7ce](https://github.com/cccteam/session/commit/effd7ce9d5357b2f4aec2dfd922653a5bbda1752))
+* Removed SetSessionTimeout() handler since it is no longer needed ([#131](https://github.com/cccteam/session/issues/131)) ([effd7ce](https://github.com/cccteam/session/commit/effd7ce9d5357b2f4aec2dfd922653a5bbda1752))
+
+
+### Code Upgrade
+
+* Bump cccteam/github-workflows/.github/workflows/golang-security-scan.yml from 5.6.0 to 5.14.0 in the github-actions group across 1 directory ([#127](https://github.com/cccteam/session/issues/127)) ([e1e37c2](https://github.com/cccteam/session/commit/e1e37c207988873e318be5aa77647553fdd1a4a7))
+* Bump the go-dependencies group across 1 directory with 5 updates ([#132](https://github.com/cccteam/session/issues/132)) ([d497acd](https://github.com/cccteam/session/commit/d497acd587af7afb76341370b6e3e58d74a3b913))
+
 ## [0.5.9](https://github.com/cccteam/session/compare/v0.5.8...v0.5.9) (2025-10-03)
 
 
