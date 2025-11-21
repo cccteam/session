@@ -1,8 +1,8 @@
 -- Table: Sessions
 
--- DROP TABLE IF EXISTS Sessions;
+-- DROP TABLE Sessions;
 
-CREATE TABLE IF NOT EXISTS Sessions
+CREATE TABLE Sessions
 (
     Id STRING(36) NOT NULL,
     OidcSid STRING(36) NOT NULL,
@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS Sessions
     CONSTRAINT CK_SessionsOidcSid CHECK (REGEXP_CONTAINS(OidcSid, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
 
--- DROP INDEX IF EXISTS Sessions_OidcSid_idx;
+-- DROP INDEX Sessions_OidcSid_idx;
 
-CREATE INDEX IF NOT EXISTS Sessions_OidcSid_idx
+CREATE INDEX Sessions_OidcSid_idx
     ON Sessions
     (OidcSid DESC);
 
--- DROP INDEX IF EXISTS Sessions_Expired_idx;
+-- DROP INDEX Sessions_Expired_idx;
 
-CREATE INDEX IF NOT EXISTS Sessions_Expired_idx
+CREATE INDEX Sessions_Expired_idx
     ON Sessions
     (Expired DESC);
