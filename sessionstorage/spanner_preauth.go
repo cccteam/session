@@ -12,6 +12,8 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
+var _ Preauth = (*SpannerPreauth)(nil)
+
 // SpannerPreauth is what you use to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
 type SpannerPreauth struct {
 	db db
@@ -20,7 +22,7 @@ type SpannerPreauth struct {
 // NewSpannerPreauth is the function that you use to create the session manager that handles the session creation and updates
 func NewSpannerPreauth(db *cloudspanner.Client) *SpannerPreauth {
 	return &SpannerPreauth{
-		spanner.NewSessionStorageDriver(db),
+		db: spanner.NewSessionStorageDriver(db),
 	}
 }
 

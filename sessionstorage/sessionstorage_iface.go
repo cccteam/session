@@ -9,6 +9,8 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/sessionstorage/internal/postgres"
+	"github.com/cccteam/session/sessionstorage/internal/spanner"
 )
 
 // Base defines an interface for managing session storage.
@@ -27,6 +29,11 @@ type OIDCAzure interface {
 	Base
 }
 
+var (
+	_ Preauth = (*SpannerPreauth)(nil)
+	_ Preauth = (*PostgresPreauth)(nil)
+)
+
 // Preauth defines an interface for managing pre-authenticated sessions.
 type Preauth interface {
 	NewSession(ctx context.Context, username string) (ccc.UUID, error)
@@ -35,12 +42,13 @@ type Preauth interface {
 	Base
 }
 
+var (
+	_ db = (*spanner.SessionStorageDriver)(nil)
+	_ db = (*postgres.SessionStorageDriver)(nil)
+)
+
 // db defines an interface for database operations related to session management.
 type db interface {
-	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
-	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error)
-	// DestroySessionOIDC marks the session as expired by oidcSID.
-	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	// Session returns the session information from the database for given sessionID.
 	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
 	// InsertSession creates a new session in the database and returns its session ID.
@@ -49,4 +57,13 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+
+	//
+	// OIDC specific methods
+	//
+
+	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
+	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error)
+	// DestroySessionOIDC marks the OIDC session as expired by oidcSID.
+	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 }
