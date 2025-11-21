@@ -230,7 +230,7 @@ func Test_client_DestroySession(t *testing.T) {
 			sourceURL: []string{"file://../../../schema/spanner/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,
-				`SELECT COUNT(*) = 0 FROM Sessions WHERE Id = 'session1'`,
+				`SELECT COUNT(*) = 0 FROM Sessions WHERE Id = '52dd570b-1280-421b-888e-a63f0ca35be9'`,
 			},
 			postAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM Sessions WHERE Expired = false`,

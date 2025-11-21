@@ -9,7 +9,8 @@ CREATE TABLE Sessions
     Username string(MAX) NOT NULL,
     CreatedAt timestamp NOT NULL,
     UpdatedAt bool NOT NULL, -- This line is invalid, it should be timestamp
-    Expired timestamp NOT NULL  -- This line is invalid, it should be bool
+    Expired timestamp NOT NULL,  -- This line is invalid, it should be bool
+    CONSTRAINT CK_SessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
 
 -- DROP INDEX Sessions_OidcSid_idx;

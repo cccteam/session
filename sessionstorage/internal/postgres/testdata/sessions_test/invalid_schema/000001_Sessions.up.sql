@@ -4,7 +4,7 @@
 
 CREATE TABLE "Sessions"
 (
-    "Id" character varying NOT NULL,
+    "Id" UUID NOT NULL,
     "OidcSid" character varying NOT NULL,
     "Username" character varying NOT NULL,
     "CreatedAt" timestamp NOT NULL,
