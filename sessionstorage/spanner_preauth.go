@@ -37,7 +37,7 @@ func (p *SpannerPreauth) NewSession(ctx context.Context, username string) (ccc.U
 
 	id, err := p.db.InsertSession(ctx, session)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauthSessionStorage.db.InsertSession()")
+		return ccc.NilUUID, errors.Wrap(err, "SpannerPreauth.db.InsertSession()")
 	}
 
 	return id, nil
@@ -50,7 +50,7 @@ func (p *SpannerPreauth) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 
 	si, err := p.db.Session(ctx, sessionID)
 	if err != nil {
-		return nil, errors.Wrap(err, "SpannerPreauthSessionStorage.db.Session()")
+		return nil, errors.Wrap(err, "SpannerPreauth.db.Session()")
 	}
 
 	return &sessioninfo.SessionInfo{
@@ -68,7 +68,7 @@ func (p *SpannerPreauth) UpdateSessionActivity(ctx context.Context, sessionID cc
 	defer span.End()
 
 	if err := p.db.UpdateSessionActivity(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "SpannerPreauthSessionStorage.db.UpdateSessionActivity()")
+		return errors.Wrap(err, "SpannerPreauth.db.UpdateSessionActivity()")
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func (p *SpannerPreauth) DestroySession(ctx context.Context, sessionID ccc.UUID)
 	defer span.End()
 
 	if err := p.db.DestroySession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "SpannerPreauthSessionStorage.db.DestroySession()")
+		return errors.Wrap(err, "SpannerPreauth.db.DestroySession()")
 	}
 
 	return nil

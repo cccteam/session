@@ -14,7 +14,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestSpannerPreauthSessionStorage_NewSession(t *testing.T) {
+func TestSpannerPreauth_NewSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -73,7 +73,7 @@ func TestSpannerPreauthSessionStorage_NewSession(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauthSessionStorage_Session(t *testing.T) {
+func TestSpannerPreauth_Session(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -145,7 +145,7 @@ func TestSpannerPreauthSessionStorage_Session(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauthSessionStorage_UpdateSessionActivity(t *testing.T) {
+func TestSpannerPreauth_UpdateSessionActivity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -199,7 +199,7 @@ func TestSpannerPreauthSessionStorage_UpdateSessionActivity(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauthSessionStorage_DestroySession(t *testing.T) {
+func TestSpannerPreauth_DestroySession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
