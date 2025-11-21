@@ -63,7 +63,7 @@ func (p *SpannerOIDC) Session(ctx context.Context, sessionID ccc.UUID) (*session
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	si, err := p.db.SessionOIDC(ctx, sessionID)
+	si, err := p.db.Session(ctx, sessionID)
 	if err != nil {
 		return nil, errors.Wrap(err, "SpannerOIDCSessionStorage.db.SessionOIDC()")
 	}

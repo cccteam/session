@@ -4,36 +4,9 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
-	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
-	"github.com/jackc/pgx/v5"
 )
-
-// SessionOIDC returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error) {
-	ctx, span := ccc.StartTrace(ctx)
-	defer span.End()
-
-	query := `
-		SELECT
-			"Id", "OidcSid", "Username", "CreatedAt", "UpdatedAt", "Expired"
-		FROM "Sessions"
-		WHERE "Id" = $1
-	`
-
-	i := &dbtype.SessionOIDC{}
-	if err := pgxscan.Get(ctx, d.conn, i, query, sessionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
-		}
-
-		return nil, errors.Wrapf(err, "failed to scan row for session %s", sessionID)
-	}
-
-	return i, nil
-}
 
 // InsertSessionOIDC inserts Session into database
 func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error) {

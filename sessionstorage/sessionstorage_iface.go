@@ -37,9 +37,7 @@ type Preauth interface {
 
 // db defines an interface for database operations related to session management.
 type db interface {
-	// SessionOIDC returns the session information from the database for given sessionID.
-	SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error)
-	// InsertSessionOIDC creates a new session in the database and returns its session ID.
+	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
 	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error)
 	// DestroySessionOIDC marks the session as expired by oidcSID.
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error

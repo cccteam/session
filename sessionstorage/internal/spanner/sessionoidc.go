@@ -5,9 +5,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
-	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
 	"google.golang.org/grpc/codes"
 )
@@ -39,31 +37,6 @@ func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	}
 
 	return id, nil
-}
-
-// SessionOIDC returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) SessionOIDC(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionOIDC, error) {
-	_, span := ccc.StartTrace(ctx)
-	defer span.End()
-
-	stmt := spanner.NewStatement(`
-		SELECT
-			Id, OidcSid, Username, CreatedAt, UpdatedAt, Expired
-		FROM Sessions
-		WHERE Id = @id
-	`)
-	stmt.Params["id"] = sessionID
-
-	s := &dbtype.SessionOIDC{}
-	if err := spxscan.Get(ctx, d.spanner.Single(), s, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
-			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
-		}
-
-		return nil, errors.Wrapf(err, "failed to scan row for session %q", sessionID)
-	}
-
-	return s, nil
 }
 
 // DestroySessionOIDC marks the session as expired using the oidcSID
