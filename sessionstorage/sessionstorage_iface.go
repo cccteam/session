@@ -13,32 +13,32 @@ import (
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 )
 
-// Base defines an interface for managing session storage.
-type Base interface {
+// BaseStore defines an interface for managing session storage.
+type BaseStore interface {
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
 }
 
-var _ PreauthImplementation = (*Preauth)(nil)
+var _ PreauthStore = (*Preauth)(nil)
 
-// PreauthImplementation defines an interface for managing pre-authenticated sessions.
-type PreauthImplementation interface {
+// PreauthStore defines an interface for managing pre-authenticated session storage.
+type PreauthStore interface {
 	NewSession(ctx context.Context, username string) (ccc.UUID, error)
 
 	// shared storage methods
-	Base
+	BaseStore
 }
 
-var _ OIDCImplementation = (*OIDC)(nil)
+var _ OIDCStore = (*OIDC)(nil)
 
-// OIDCImplementation defines an interface for managing OIDC sessions.
-type OIDCImplementation interface {
+// OIDCStore defines an interface for managing OIDC session storage.
+type OIDCStore interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
 
 	// shared storage methods
-	Base
+	BaseStore
 }
 
 var (

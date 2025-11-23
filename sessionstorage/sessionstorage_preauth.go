@@ -6,7 +6,7 @@ import (
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 )
 
-var _ PreauthImplementation = (*Preauth)(nil)
+var _ PreauthStore = (*Preauth)(nil)
 
 // Preauth is the session storage implementation for Preauth.
 type Preauth struct {

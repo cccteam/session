@@ -24,7 +24,7 @@ type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error)
 type BaseSession struct {
 	SessionTimeout time.Duration
 	Handle         LogHandler
-	Storage        sessionstorage.Base
+	Storage        sessionstorage.BaseStore
 	cookie.CookieHandler
 }
 

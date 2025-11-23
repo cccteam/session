@@ -31,13 +31,13 @@ var _ OIDCAzureHandlers = &OIDCAzure{}
 type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
-	storage         sessionstorage.OIDCImplementation
+	storage         sessionstorage.OIDCStore
 	*basesession.BaseSession
 }
 
 // NewOIDCAzure creates a new OIDCAzure.
 func NewOIDCAzure(
-	storage sessionstorage.OIDCImplementation, userRoleManager UserRoleManager,
+	storage sessionstorage.OIDCStore, userRoleManager UserRoleManager,
 	secureCookie *securecookie.SecureCookie,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,

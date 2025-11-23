@@ -12,7 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-var _ OIDCImplementation = (*OIDC)(nil)
+var _ OIDCStore = (*OIDC)(nil)
 
 // OIDC is the session storage implementation for with OIDC support.
 type OIDC struct {
