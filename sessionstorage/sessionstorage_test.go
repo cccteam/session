@@ -14,7 +14,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestSessionStorage_NewSession(t *testing.T) {
+func Test_sessionStorage_NewSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -73,7 +73,7 @@ func TestSessionStorage_NewSession(t *testing.T) {
 	}
 }
 
-func TestSessionStorage_Session(t *testing.T) {
+func Test_sessionStorage_Session(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -145,7 +145,7 @@ func TestSessionStorage_Session(t *testing.T) {
 	}
 }
 
-func TestSessionStorage_UpdateSessionActivity(t *testing.T) {
+func Test_sessionStorage_UpdateSessionActivity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -199,7 +199,7 @@ func TestSessionStorage_UpdateSessionActivity(t *testing.T) {
 	}
 }
 
-func TestSessionStorage_DestroySession(t *testing.T) {
+func Test_sessionStorage_DestroySession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

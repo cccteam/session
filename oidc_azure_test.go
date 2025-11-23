@@ -104,7 +104,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 	}
 }
 
-func TestApp_CallbackOIDC(t *testing.T) {
+func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -339,7 +339,7 @@ func TestApp_CallbackOIDC(t *testing.T) {
 	}
 }
 
-func TestApp_FrontChannelLogout(t *testing.T) {
+func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string

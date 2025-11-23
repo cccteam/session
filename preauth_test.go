@@ -15,7 +15,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPreauthSession_NewSession(t *testing.T) {
+func TestPreauth_NewSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
