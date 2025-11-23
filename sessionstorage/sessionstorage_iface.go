@@ -30,6 +30,16 @@ type PreauthStore interface {
 	BaseStore
 }
 
+var _ PasswordStore = (*Password)(nil)
+
+// PasswordStore defines an interface for managing password sessions.
+type PasswordStore interface {
+	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+
+	// shared storage methods
+	PreauthStore
+}
+
 var _ OIDCStore = (*OIDC)(nil)
 
 // OIDCStore defines an interface for managing OIDC session storage.
@@ -56,6 +66,13 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+
+	//
+	// Password specific methods
+	//
+
+	// UserByUsername returns a session user for give username
+	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 
 	//
 	// OIDC specific methods

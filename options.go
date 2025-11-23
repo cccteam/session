@@ -61,3 +61,15 @@ func WithLoginURL(l string) OIDCOption {
 		b.SetLoginURL(l)
 	})
 }
+
+// passwordOption defines a function signature for setting Password options.
+type passwordOption func(*Password)
+
+func (passwordOption) isPasswordOption() {}
+
+// AutoUpgradeHashes controls if password hashes will be auto upgraded (default: true)
+func AutoUpgradeHashes(a bool) PasswordOption {
+	return passwordOption(func(p *Password) {
+		p.autoUpgrade = a
+	})
+}

@@ -13,6 +13,8 @@ require (
 	cloud.google.com/go/spanner v1.86.1
 	github.com/cccteam/ccc v0.2.15
 	github.com/cccteam/ccc/accesstypes v0.5.2
+	github.com/cccteam/ccc/resource v0.8.1
+	github.com/cccteam/ccc/securehash v0.0.2
 	github.com/cccteam/db-initiator v0.2.13
 	github.com/cccteam/httpio v0.7.8
 	github.com/cccteam/logger v0.1.12
@@ -47,7 +49,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudspannerecosystem/memefish v0.6.2 // indirect
 	github.com/cncf/xds/go v0.0.0-20251110193048-8bfbf64dc13e // indirect

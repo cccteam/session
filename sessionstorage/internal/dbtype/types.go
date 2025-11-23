@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
 )
 
 // Session defines the structure for storing session data in the database.
@@ -34,4 +35,12 @@ type InsertSession struct {
 type InsertSessionOIDC struct {
 	OidcSID string `spanner:"OidcSid" db:"OidcSid"`
 	InsertSession
+}
+
+// User is a person authorized to access the application
+type SessionUser struct {
+	ID           ccc.UUID         `spanner:"Id"`
+	Username     string           `spanner:"Username"`
+	PasswordHash *securehash.Hash `spanner:"PasswordHash"`
+	Disabled     bool             `spanner:"Disabled"`
 }

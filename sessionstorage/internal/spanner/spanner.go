@@ -137,3 +137,31 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 
 	return nil
 }
+
+// UserByUserName returns the user record associated with the username
+func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(`
+		SELECT 
+			Id,
+			Username,
+			PasswordHash,
+			Disabled
+		FROM SessionUsers
+		WHERE Username = @username
+	`)
+	stmt.Params["username"] = username
+
+	user := &dbtype.SessionUser{}
+	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
+		if errors.Is(err, spxscan.ErrNotFound) {
+			return nil, httpio.NewNotFoundMessagef("username %s does not exist", username)
+		}
+
+		return nil, errors.Wrap(err, "spxscan.Get()")
+	}
+
+	return user, nil
+}

@@ -109,3 +109,27 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 
 	return nil
 }
+
+// UserByUserName returns the user record associated with the username
+func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := `
+		SELECT
+			"Id", "Username", "PasswordHash", "Disabled"
+		FROM "SessionUsers"
+		WHERE "Username" = $1
+	`
+
+	user := &dbtype.SessionUser{}
+	if err := pgxscan.Get(ctx, s.conn, user, query, username); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, httpio.NewNotFoundMessagef("user %s not found in database", username)
+		}
+
+		return nil, errors.Wrapf(err, "failed to scan row for user %s", username)
+	}
+
+	return user, nil
+}
