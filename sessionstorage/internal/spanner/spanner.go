@@ -26,14 +26,9 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	}
 }
 
-// Close closes the spanner client
-func (d *SessionStorageDriver) Close() {
-	d.spanner.Close()
-}
-
 // Session returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
-	_, span := ccc.StartTrace(ctx)
+func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	stmt := spanner.NewStatement(`
@@ -44,8 +39,8 @@ func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	`)
 	stmt.Params["id"] = sessionID
 
-	s := &dbtype.Session{}
-	if err := spxscan.Get(ctx, d.spanner.Single(), s, stmt); err != nil {
+	session := &dbtype.Session{}
+	if err := spxscan.Get(ctx, s.spanner.Single(), session, stmt); err != nil {
 		if errors.Is(err, spxscan.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
@@ -53,12 +48,12 @@ func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		return nil, errors.Wrapf(err, "failed to scan row for session %q", sessionID)
 	}
 
-	return s, nil
+	return session, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
-func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	_, span := ccc.StartTrace(ctx)
+func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	sessionUpdate := struct {
@@ -74,7 +69,7 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
 
-	if _, err := d.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
 			return httpio.NewNotFoundMessagef("session %q not found", sessionUpdate.ID)
 		}
@@ -86,7 +81,7 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 }
 
 // InsertSession inserts a Session into database
-func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -107,7 +102,7 @@ func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	if _, err := d.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -115,8 +110,8 @@ func (d *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 }
 
 // DestroySession marks the session as expired
-func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	_, span := ccc.StartTrace(ctx)
+func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	sessionUpdate := struct {
@@ -134,7 +129,7 @@ func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
 
-	if _, err := d.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) != codes.NotFound {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}

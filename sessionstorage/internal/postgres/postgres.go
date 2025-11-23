@@ -25,24 +25,32 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 	}
 }
 
-// DestroySession marks the session as expired
-func (d *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+// Session returns the session information from the database for given sessionID
+func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	query := `
-		UPDATE "Sessions" SET "Expired" = TRUE
-		WHERE "Id" = $1`
+		SELECT
+			"Id", "Username", "CreatedAt", "UpdatedAt", "Expired"
+		FROM "Sessions"
+		WHERE "Id" = $1
+	`
 
-	if _, err := d.conn.Exec(ctx, query, sessionID); err != nil {
-		return errors.Wrapf(err, "failed to update Sessions table for %s", sessionID)
+	session := &dbtype.Session{}
+	if err := pgxscan.Get(ctx, s.conn, session, query, sessionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
+		}
+
+		return nil, errors.Wrapf(err, "failed to scan row for session %s", sessionID)
 	}
 
-	return nil
+	return session, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
-func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -50,7 +58,7 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 		UPDATE "Sessions" SET "UpdatedAt" = $1
 		WHERE "Id" = $2`
 
-	res, err := d.conn.Exec(ctx, query, time.Now(), sessionID)
+	res, err := s.conn.Exec(ctx, query, time.Now(), sessionID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to update Sessions table for ID: %s", sessionID)
 	}
@@ -62,38 +70,14 @@ func (d *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	return nil
 }
 
-// Session returns the session information from the database for given sessionID
-func (d *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
-	ctx, span := ccc.StartTrace(ctx)
-	defer span.End()
-
-	query := `
-		SELECT
-			"Id", "Username", "CreatedAt", "UpdatedAt", "Expired"
-		FROM "Sessions"
-		WHERE "Id" = $1
-	`
-
-	i := &dbtype.Session{}
-	if err := pgxscan.Get(ctx, d.conn, i, query, sessionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
-		}
-
-		return nil, errors.Wrapf(err, "failed to scan row for session %s", sessionID)
-	}
-
-	return i, nil
-}
-
-// InsertSession inserts Session into database
-func (d *SessionStorageDriver) InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error) {
+// InsertSession inserts a Session into database
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	id, err := ccc.NewUUID()
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "failed to generate UUID for session")
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
 	query := `
@@ -103,9 +87,25 @@ func (d *SessionStorageDriver) InsertSession(ctx context.Context, session *dbtyp
 			($1, $2, $3, $4, $5)
 		`
 
-	if _, err := d.conn.Exec(ctx, query, id, session.Username, session.CreatedAt, session.UpdatedAt, session.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "failed to insert into table Sessions")
+	if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
 	}
 
 	return id, nil
+}
+
+// DestroySession marks the session as expired
+func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := `
+		UPDATE "Sessions" SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE "Id" = $1`
+
+	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now()); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	return nil
 }

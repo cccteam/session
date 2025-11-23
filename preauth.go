@@ -23,12 +23,12 @@ var _ PreauthHandlers = &Preauth{}
 
 // Preauth handles session management for pre-authentication scenarios.
 type Preauth struct {
-	storage sessionstorage.Preauth
+	storage sessionstorage.PreauthImplementation
 	*basesession.BaseSession
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(storage sessionstorage.Preauth, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
+func NewPreauth(storage sessionstorage.PreauthImplementation, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,

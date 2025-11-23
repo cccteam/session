@@ -14,7 +14,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestSpannerPreauth_NewSession(t *testing.T) {
+func TestSessionStorage_NewSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -54,7 +54,7 @@ func TestSpannerPreauth_NewSession(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerPreauth{
+			storage := &sessionStorage{
 				db: mockDB,
 			}
 
@@ -73,7 +73,7 @@ func TestSpannerPreauth_NewSession(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauth_Session(t *testing.T) {
+func TestSessionStorage_Session(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -125,7 +125,7 @@ func TestSpannerPreauth_Session(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerPreauth{
+			storage := &sessionStorage{
 				db: mockDB,
 			}
 
@@ -145,7 +145,7 @@ func TestSpannerPreauth_Session(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauth_UpdateSessionActivity(t *testing.T) {
+func TestSessionStorage_UpdateSessionActivity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -183,7 +183,7 @@ func TestSpannerPreauth_UpdateSessionActivity(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerPreauth{
+			storage := &sessionStorage{
 				db: mockDB,
 			}
 
@@ -199,7 +199,7 @@ func TestSpannerPreauth_UpdateSessionActivity(t *testing.T) {
 	}
 }
 
-func TestSpannerPreauth_DestroySession(t *testing.T) {
+func TestSessionStorage_DestroySession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -237,7 +237,7 @@ func TestSpannerPreauth_DestroySession(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerPreauth{
+			storage := &sessionStorage{
 				db: mockDB,
 			}
 

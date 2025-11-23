@@ -7,11 +7,10 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 	"github.com/go-playground/errors/v5"
-	"google.golang.org/grpc/codes"
 )
 
 // InsertSessionOIDC inserts a Session into database
-func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -32,7 +31,7 @@ func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	if _, err := d.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -40,11 +39,11 @@ func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 }
 
 // DestroySessionOIDC marks the session as expired using the oidcSID
-func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	_, span := ccc.StartTrace(ctx)
+func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	_, err := d.spanner.ReadWriteTransaction(ctx, func(_ context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(_ context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(`
 			UPDATE Sessions 
 			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
@@ -63,9 +62,7 @@ func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 		return nil
 	})
 	if err != nil {
-		if spanner.ErrCode(err) != codes.NotFound {
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
-		}
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil

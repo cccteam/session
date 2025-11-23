@@ -20,23 +20,22 @@ type Base interface {
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
 }
 
-// OIDCAzure defines an interface for managing OIDC sessions.
-type OIDCAzure interface {
-	DestroySessionOIDC(ctx context.Context, oidcSID string) error
-	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
+var _ PreauthImplementation = (*Preauth)(nil)
+
+// PreauthImplementation defines an interface for managing pre-authenticated sessions.
+type PreauthImplementation interface {
+	NewSession(ctx context.Context, username string) (ccc.UUID, error)
 
 	// shared storage methods
 	Base
 }
 
-var (
-	_ Preauth = (*SpannerPreauth)(nil)
-	_ Preauth = (*PostgresPreauth)(nil)
-)
+var _ OIDCImplementation = (*OIDC)(nil)
 
-// Preauth defines an interface for managing pre-authenticated sessions.
-type Preauth interface {
-	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+// OIDCImplementation defines an interface for managing OIDC sessions.
+type OIDCImplementation interface {
+	DestroySessionOIDC(ctx context.Context, oidcSID string) error
+	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
 
 	// shared storage methods
 	Base

@@ -31,13 +31,13 @@ var _ OIDCAzureHandlers = &OIDCAzure{}
 type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
-	storage         sessionstorage.OIDCAzure
+	storage         sessionstorage.OIDCImplementation
 	*basesession.BaseSession
 }
 
 // NewOIDCAzure creates a new OIDCAzure.
 func NewOIDCAzure(
-	storage sessionstorage.OIDCAzure, userRoleManager UserRoleManager,
+	storage sessionstorage.OIDCImplementation, userRoleManager UserRoleManager,
 	secureCookie *securecookie.SecureCookie,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
@@ -108,15 +108,15 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// user is successfully authenticated, start a new session
-		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
+		sessionID, err := o.startNewSession(ctx, w, r, claims.Username, oidcSID)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
 			return errors.Wrap(err, "OIDCAzureSession.startNewSession()")
 		}
 
-		// write new XSRF Token Cookie to match the new SessionID
-		o.SetXSRFTokenCookie(w, r, sessionID, types.XSRFCookieLife)
+		// Log the association between the sessionID and Username
+		logger.Ctx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
@@ -149,7 +149,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 		}
 
 		if err := o.storage.DestroySessionOIDC(ctx, sid); err != nil {
-			logger.Req(r).Error("failed to destroy session in db via OIDC sid")
+			logger.Req(r).Error(errors.Wrap(err, "failed to destroy session in db via OIDC sid"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -203,7 +203,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
+func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username, oidcSID string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
@@ -213,6 +213,9 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 	if _, err := o.NewAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.NewAuthCookie()")
 	}
+
+	// write new XSRF Token Cookie to match the new SessionID
+	o.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
 
 	return id, nil
 }

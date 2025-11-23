@@ -8,14 +8,14 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// InsertSessionOIDC inserts Session into database
-func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
+// InsertSessionOIDC inserts a Session into database
+func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertSessionOIDC) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	id, err := ccc.NewUUID()
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "failed to generate UUID for session")
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
 	query := `
@@ -25,15 +25,15 @@ func (d *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, session *d
 			($1, $2, $3, $4, $5, $6)
 		`
 
-	if _, err := d.conn.Exec(ctx, query, id, session.OidcSID, session.Username, session.CreatedAt, session.UpdatedAt, session.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "failed to insert into table Sessions")
+	if _, err := s.conn.Exec(ctx, query, id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
 	}
 
 	return id, nil
 }
 
-// DestroySessionOIDC marks the session as expired
-func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+// DestroySessionOIDC marks the session as expired using the oidcSID
+func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -45,8 +45,7 @@ func (d *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 			WHERE "OidcSid" = $1
 		)`
 
-	_, err := d.conn.Exec(ctx, query, oidcSID)
-	if err != nil {
+	if _, err := s.conn.Exec(ctx, query, oidcSID); err != nil {
 		return errors.Wrapf(err, "failed to destroy sessions for user with OIDC session: %s", oidcSID)
 	}
 
