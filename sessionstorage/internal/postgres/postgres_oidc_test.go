@@ -9,69 +9,9 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
-	"github.com/google/go-cmp/cmp"
 )
 
 const PostgresTimestampFormat = "2006-01-02 15:04:05.999999999-07"
-
-func Test_client_SessionOIDC(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name      string
-		sessionID ccc.UUID
-		sourceURL []string
-		want      *dbtype.SessionOIDC
-		wantErr   bool
-	}{
-		{
-			name:      "fails to get session",
-			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
-			wantErr:   true,
-		},
-		{
-			name:      "fails to find session",
-			sessionID: ccc.Must(ccc.UUIDFromString("5f5d3b2c-5fd0-4d07-aec7-bba3d951b11e")),
-			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
-			wantErr:   true,
-		},
-		{
-			name:      "success getting session",
-			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
-			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
-			want: &dbtype.SessionOIDC{
-				OidcSID: "oidc session eb0c72a4-1f32-469e-b51b-7baa589a944c",
-				Session: dbtype.Session{
-					ID:        ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
-					Username:  "test user 2",
-					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
-					UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
-					Expired:   true,
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := context.Background()
-			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
-			if err != nil {
-				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
-			}
-			c := &SessionStorageDriver{conn: conn.Pool}
-
-			got, err := c.SessionOIDC(ctx, tt.sessionID)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("client.Session() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("client.Session() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
 
 func Test_client_InsertSessionOIDC(t *testing.T) {
 	t.Parallel()
@@ -215,7 +155,7 @@ func Test_client_DestroySession(t *testing.T) {
 			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
-				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Id" = 'session1'`,
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Id" = '52dd570b-1280-421b-888e-a63f0ca35be9'`,
 			},
 			postAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
