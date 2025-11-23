@@ -19,32 +19,32 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// MockBase is a mock of Base interface.
-type MockBase struct {
+// MockBaseStore is a mock of BaseStore interface.
+type MockBaseStore struct {
 	ctrl     *gomock.Controller
-	recorder *MockBaseMockRecorder
+	recorder *MockBaseStoreMockRecorder
 	isgomock struct{}
 }
 
-// MockBaseMockRecorder is the mock recorder for MockBase.
-type MockBaseMockRecorder struct {
-	mock *MockBase
+// MockBaseStoreMockRecorder is the mock recorder for MockBaseStore.
+type MockBaseStoreMockRecorder struct {
+	mock *MockBaseStore
 }
 
-// NewMockBase creates a new mock instance.
-func NewMockBase(ctrl *gomock.Controller) *MockBase {
-	mock := &MockBase{ctrl: ctrl}
-	mock.recorder = &MockBaseMockRecorder{mock}
+// NewMockBaseStore creates a new mock instance.
+func NewMockBaseStore(ctrl *gomock.Controller) *MockBaseStore {
+	mock := &MockBaseStore{ctrl: ctrl}
+	mock.recorder = &MockBaseStoreMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockBase) EXPECT() *MockBaseMockRecorder {
+func (m *MockBaseStore) EXPECT() *MockBaseStoreMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockBase) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockBaseStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -52,13 +52,13 @@ func (m *MockBase) DestroySession(ctx context.Context, sessionID ccc.UUID) error
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockBaseMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockBaseStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockBase)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockBaseStore)(nil).DestroySession), ctx, sessionID)
 }
 
 // Session mocks base method.
-func (m *MockBase) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockBaseStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -67,13 +67,13 @@ func (m *MockBase) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninf
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockBaseMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockBaseStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockBase)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockBaseStore)(nil).Session), ctx, sessionID)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockBase) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockBaseStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -81,37 +81,37 @@ func (m *MockBase) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockBaseMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockBaseStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockBase)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockBaseStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
-// MockPreauthImplementation is a mock of PreauthImplementation interface.
-type MockPreauthImplementation struct {
+// MockPreauthStore is a mock of PreauthStore interface.
+type MockPreauthStore struct {
 	ctrl     *gomock.Controller
-	recorder *MockPreauthImplementationMockRecorder
+	recorder *MockPreauthStoreMockRecorder
 	isgomock struct{}
 }
 
-// MockPreauthImplementationMockRecorder is the mock recorder for MockPreauthImplementation.
-type MockPreauthImplementationMockRecorder struct {
-	mock *MockPreauthImplementation
+// MockPreauthStoreMockRecorder is the mock recorder for MockPreauthStore.
+type MockPreauthStoreMockRecorder struct {
+	mock *MockPreauthStore
 }
 
-// NewMockPreauthImplementation creates a new mock instance.
-func NewMockPreauthImplementation(ctrl *gomock.Controller) *MockPreauthImplementation {
-	mock := &MockPreauthImplementation{ctrl: ctrl}
-	mock.recorder = &MockPreauthImplementationMockRecorder{mock}
+// NewMockPreauthStore creates a new mock instance.
+func NewMockPreauthStore(ctrl *gomock.Controller) *MockPreauthStore {
+	mock := &MockPreauthStore{ctrl: ctrl}
+	mock.recorder = &MockPreauthStoreMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPreauthImplementation) EXPECT() *MockPreauthImplementationMockRecorder {
+func (m *MockPreauthStore) EXPECT() *MockPreauthStoreMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockPreauthImplementation) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockPreauthStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -119,13 +119,13 @@ func (m *MockPreauthImplementation) DestroySession(ctx context.Context, sessionI
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockPreauthImplementationMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockPreauthStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPreauthImplementation)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPreauthStore)(nil).DestroySession), ctx, sessionID)
 }
 
 // NewSession mocks base method.
-func (m *MockPreauthImplementation) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+func (m *MockPreauthStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewSession", ctx, username)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -134,13 +134,13 @@ func (m *MockPreauthImplementation) NewSession(ctx context.Context, username str
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockPreauthImplementationMockRecorder) NewSession(ctx, username any) *gomock.Call {
+func (mr *MockPreauthStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPreauthImplementation)(nil).NewSession), ctx, username)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPreauthStore)(nil).NewSession), ctx, username)
 }
 
 // Session mocks base method.
-func (m *MockPreauthImplementation) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -149,13 +149,13 @@ func (m *MockPreauthImplementation) Session(ctx context.Context, sessionID ccc.U
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockPreauthImplementationMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockPreauthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPreauthImplementation)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPreauthStore)(nil).Session), ctx, sessionID)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockPreauthImplementation) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockPreauthStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -163,37 +163,37 @@ func (m *MockPreauthImplementation) UpdateSessionActivity(ctx context.Context, s
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockPreauthImplementationMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockPreauthStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPreauthImplementation)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPreauthStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
-// MockOIDCImplementation is a mock of OIDCImplementation interface.
-type MockOIDCImplementation struct {
+// MockOIDCStore is a mock of OIDCStore interface.
+type MockOIDCStore struct {
 	ctrl     *gomock.Controller
-	recorder *MockOIDCImplementationMockRecorder
+	recorder *MockOIDCStoreMockRecorder
 	isgomock struct{}
 }
 
-// MockOIDCImplementationMockRecorder is the mock recorder for MockOIDCImplementation.
-type MockOIDCImplementationMockRecorder struct {
-	mock *MockOIDCImplementation
+// MockOIDCStoreMockRecorder is the mock recorder for MockOIDCStore.
+type MockOIDCStoreMockRecorder struct {
+	mock *MockOIDCStore
 }
 
-// NewMockOIDCImplementation creates a new mock instance.
-func NewMockOIDCImplementation(ctrl *gomock.Controller) *MockOIDCImplementation {
-	mock := &MockOIDCImplementation{ctrl: ctrl}
-	mock.recorder = &MockOIDCImplementationMockRecorder{mock}
+// NewMockOIDCStore creates a new mock instance.
+func NewMockOIDCStore(ctrl *gomock.Controller) *MockOIDCStore {
+	mock := &MockOIDCStore{ctrl: ctrl}
+	mock.recorder = &MockOIDCStoreMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockOIDCImplementation) EXPECT() *MockOIDCImplementationMockRecorder {
+func (m *MockOIDCStore) EXPECT() *MockOIDCStoreMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockOIDCImplementation) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockOIDCStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -201,13 +201,13 @@ func (m *MockOIDCImplementation) DestroySession(ctx context.Context, sessionID c
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockOIDCImplementationMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockOIDCStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockOIDCImplementation)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockOIDCStore)(nil).DestroySession), ctx, sessionID)
 }
 
 // DestroySessionOIDC mocks base method.
-func (m *MockOIDCImplementation) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
+func (m *MockOIDCStore) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySessionOIDC", ctx, oidcSID)
 	ret0, _ := ret[0].(error)
@@ -215,13 +215,13 @@ func (m *MockOIDCImplementation) DestroySessionOIDC(ctx context.Context, oidcSID
 }
 
 // DestroySessionOIDC indicates an expected call of DestroySessionOIDC.
-func (mr *MockOIDCImplementationMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call {
+func (mr *MockOIDCStoreMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*MockOIDCImplementation)(nil).DestroySessionOIDC), ctx, oidcSID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*MockOIDCStore)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
 // NewSession mocks base method.
-func (m *MockOIDCImplementation) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
+func (m *MockOIDCStore) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewSession", ctx, username, oidcSID)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -230,13 +230,13 @@ func (m *MockOIDCImplementation) NewSession(ctx context.Context, username, oidcS
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockOIDCImplementationMockRecorder) NewSession(ctx, username, oidcSID any) *gomock.Call {
+func (mr *MockOIDCStoreMockRecorder) NewSession(ctx, username, oidcSID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockOIDCImplementation)(nil).NewSession), ctx, username, oidcSID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockOIDCStore)(nil).NewSession), ctx, username, oidcSID)
 }
 
 // Session mocks base method.
-func (m *MockOIDCImplementation) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -245,13 +245,13 @@ func (m *MockOIDCImplementation) Session(ctx context.Context, sessionID ccc.UUID
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockOIDCImplementationMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockOIDCImplementation)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockOIDCStore)(nil).Session), ctx, sessionID)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockOIDCImplementation) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockOIDCStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -259,9 +259,9 @@ func (m *MockOIDCImplementation) UpdateSessionActivity(ctx context.Context, sess
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockOIDCImplementationMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockOIDCStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockOIDCImplementation)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockOIDCStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
 // Mockdb is a mock of db interface.
