@@ -1,3 +1,4 @@
-DROP INDEX Sessions_Expired_idx;
-DROP INDEX Sessions_OidcSid_idx;
+DROP INDEX SessionsByExpired;
+DROP INDEX SessionsByUsername;
+DROP INDEX SessionsByOidcSid;
 DROP TABLE Sessions;
