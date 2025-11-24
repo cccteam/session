@@ -15,20 +15,20 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPreauthSession_NewSession(t *testing.T) {
+func TestPreauth_NewSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_sessionstorage.MockPreauth, *mock_cookie.MockCookieHandler)
+		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockCookieHandler)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockCookieHandler) {
 				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -58,7 +58,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockCookieHandler) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -70,7 +70,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 		{
 			name:     "failed to set auth cookie",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauth, mockCookies *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockCookieHandler) {
 				// Mock successful session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -93,7 +93,7 @@ func TestPreauthSession_NewSession(t *testing.T) {
 
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
-			mockStorage := mock_sessionstorage.NewMockPreauth(ctrl)
+			mockStorage := mock_sessionstorage.NewMockPreauthStore(ctrl)
 			mockCookies := mock_cookie.NewMockCookieHandler(ctrl)
 
 			// Prepare the mock expectations

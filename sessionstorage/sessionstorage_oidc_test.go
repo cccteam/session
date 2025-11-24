@@ -53,8 +53,10 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerOIDC{
-				db: mockDB,
+			storage := &OIDC{
+				sessionStorage: sessionStorage{
+					db: mockDB,
+				},
 			}
 
 			if tt.prepare != nil {
@@ -110,8 +112,10 @@ func TestSpannerOIDCSessionStorage_DestroySessionOIDC(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &SpannerOIDC{
-				db: mockDB,
+			storage := &OIDC{
+				sessionStorage: sessionStorage{
+					db: mockDB,
+				},
 			}
 
 			if tt.prepare != nil {
