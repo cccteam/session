@@ -11,13 +11,13 @@ replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.86.1
-	github.com/cccteam/ccc v0.2.15
+	github.com/cccteam/ccc v0.2.16
 	github.com/cccteam/ccc/accesstypes v0.5.2
-	github.com/cccteam/db-initiator v0.2.13
+	github.com/cccteam/db-initiator v0.2.14
 	github.com/cccteam/httpio v0.7.8
 	github.com/cccteam/logger v0.1.12
 	github.com/cccteam/spxscan v0.0.7
-	github.com/coreos/go-oidc/v3 v3.16.0
+	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-playground/errors/v5 v5.4.0
@@ -27,7 +27,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.33.0
-	google.golang.org/grpc v1.76.0
+	google.golang.org/grpc v1.77.0
 )
 
 require (
