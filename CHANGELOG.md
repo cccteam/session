@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/cccteam/session/compare/v0.6.0...v0.6.1) (2025-11-24)
+
+
+### Code Refactoring
+
+* Aligned spanner and postgres implementations ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+* Consolidated duplicate storage implementations into one ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+
+
+### Code Cleanup
+
+* Logging cleanup ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+* Misc cleanup ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+
 ## [0.6.0](https://github.com/cccteam/session/compare/v0.5.9...v0.6.0) (2025-11-14)
 
 
