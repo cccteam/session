@@ -652,8 +652,8 @@ github.com/cccteam/ccc/accesstypes v0.5.2 h1:y5+o7P3JNeGjMg5Q0EzEVdmxmK48AF9RoeW
 github.com/cccteam/ccc/accesstypes v0.5.2/go.mod h1:iQZ6g/wZQSpBOapQeS57Csfe+AAm16wIVrsuZH5NLOs=
 github.com/cccteam/ccc/resource v0.8.1 h1:+EFGyE1i1iCxhSLRnHAA7UrilrYxasT/k2qk+239FUk=
 github.com/cccteam/ccc/resource v0.8.1/go.mod h1:/LIxJc0Nk+7+GeE3j1lGY6BjUH7e2+M1R7Kwlt/dWmg=
-github.com/cccteam/ccc/securehash v0.0.2 h1:t40vhEUd8kgHATG05ZNmZ4FFrCuIbLSox+0Q31y3s3I=
-github.com/cccteam/ccc/securehash v0.0.2/go.mod h1:3eZgausrLcS1+q9XnDAH9Ulk0/UuAFRwoc1UAyG/oRM=
+github.com/cccteam/ccc/securehash v0.0.3 h1:Rlfpdub7bn+v3IulEWpbT7sdTx9BqqmriUKGaDFyAN8=
+github.com/cccteam/ccc/securehash v0.0.3/go.mod h1:4ynhgV4kRhBV4jxbOP/iH3JGorsS8F1Eq0zkPmolNZc=
 github.com/cccteam/db-initiator v0.2.13 h1:PhfuAxU4P8Kqp0CwB54YLym7nCaSam0va0L3tkGoccg=
 github.com/cccteam/db-initiator v0.2.13/go.mod h1:RLbWGgiYENCwUMMzwulgwHyasATSxGpjvRr6WJ3LMxE=
 github.com/cccteam/httpio v0.7.8 h1:1lgfZtqD2ESF3wq62oyJ75WLDOR3IQk8DGx6g4PCuPg=
@@ -1123,8 +1123,8 @@ golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9/go.mod h1:LzIPMQfyMNhhGPh
 golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b/go.mod h1:T9bdIzuCu7OtxOm1hfPfRQxPLYneinmdGuTeoZ9dtd4=
 golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
 golang.org/x/crypto v0.0.0-20211108221036-ceb1ce70b4fa/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
-golang.org/x/crypto v0.44.0 h1:A97SsFvM3AIwEEmTBiaxPPTYpDC47w720rdiiUvgoAU=
-golang.org/x/crypto v0.44.0/go.mod h1:013i+Nw79BMiQiMsOPcVCB5ZIJbYkerPrGnOa00tvmc=
+golang.org/x/crypto v0.45.0 h1:jMBrvKuj23MTlT0bQEOBcAE0mjg8mK9RXFhRH6nyF3Q=
+golang.org/x/crypto v0.45.0/go.mod h1:XTGrrkGJve7CYK7J8PEww4aY7gM3qMCElcJQ8n8JdX4=
 golang.org/x/exp v0.0.0-20180321215751-8460e604b9de/go.mod h1:CJ0aWSM057203Lf6IL+f9T1iT9GByDxfZKAQTCR3kQA=
 golang.org/x/exp v0.0.0-20180807140117-3d87b88a115f/go.mod h1:CJ0aWSM057203Lf6IL+f9T1iT9GByDxfZKAQTCR3kQA=
 golang.org/x/exp v0.0.0-20190121172915-509febef88a4/go.mod h1:CJ0aWSM057203Lf6IL+f9T1iT9GByDxfZKAQTCR3kQA=
