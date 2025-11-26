@@ -138,7 +138,6 @@ func (p *Password) ValidateSession(next http.Handler) http.Handler {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		// Validate credentials
 		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
 		if err != nil {
 			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
@@ -183,7 +182,6 @@ func (p *Password) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		// Validate credentials
 		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
 		if err != nil {
 			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
