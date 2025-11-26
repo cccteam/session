@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/internal/dbtype"
 )
 
 const PostgresTimestampFormat = "2006-01-02 15:04:05.999999999-07"

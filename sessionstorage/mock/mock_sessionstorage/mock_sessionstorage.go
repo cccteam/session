@@ -15,8 +15,8 @@ import (
 
 	ccc "github.com/cccteam/ccc"
 	securehash "github.com/cccteam/ccc/securehash"
+	dbtype "github.com/cccteam/session/internal/dbtype"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
-	dbtype "github.com/cccteam/session/sessionstorage/internal/dbtype"
 	gomock "go.uber.org/mock/gomock"
 )
 

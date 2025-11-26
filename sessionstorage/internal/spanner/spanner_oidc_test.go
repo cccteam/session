@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/internal/dbtype"
 )
 
 func Test_client_InsertSessionOIDC(t *testing.T) {

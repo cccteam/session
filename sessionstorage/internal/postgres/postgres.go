@@ -9,7 +9,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
