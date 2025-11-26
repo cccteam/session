@@ -107,9 +107,11 @@ func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error)
 		return ctx, httpio.NewUnauthorizedMessage("session expired")
 	}
 
-	// Update Activity
-	if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-		return ctx, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
+	// Update last activity (rate limit updates)
+	if time.Since(sessInfo.UpdatedAt) > time.Second*5 {
+		if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
+			return ctx, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
+		}
 	}
 
 	// Store session info in context
