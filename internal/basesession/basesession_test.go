@@ -423,7 +423,7 @@ func TestApp_checkSession(t *testing.T) {
 				Storage:        storageManager,
 			}
 
-			gotReq, err := a.checkSession(tt.args.r)
+			gotReq, err := a.CheckSession(tt.args.r.Context())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("App.checkSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -440,7 +440,7 @@ func TestApp_checkSession(t *testing.T) {
 
 				return
 			}
-			if got := sessioninfo.FromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
+			if got := sessioninfo.FromCtx(gotReq); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sessInfo = %v, wantSessInfo %v", got, tt.want)
 			}
 		})

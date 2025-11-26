@@ -3,9 +3,11 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -15,14 +17,28 @@ import (
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
-	conn Queryer
+	conn             Queryer
+	sessionTableName string
+	userTableName    string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		conn: conn,
+		conn:             conn,
+		sessionTableName: "Sessions",
+		userTableName:    "SessionUsers",
 	}
+}
+
+// SetSessionTableName sets the name of the session table.
+func (s *SessionStorageDriver) SetSessionTableName(name string) {
+	s.sessionTableName = name
+}
+
+// SetUserTableName sets the name of the user table.
+func (s *SessionStorageDriver) SetUserTableName(name string) {
+	s.userTableName = name
 }
 
 // Session returns the session information from the database for given sessionID
@@ -30,20 +46,24 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
-			"Id", "Username", "CreatedAt", "UpdatedAt", "Expired"
-		FROM "Sessions"
+			"Id", 
+			"Username", 
+			"CreatedAt", 
+			"UpdatedAt", 
+			"Expired"
+		FROM "%s"
 		WHERE "Id" = $1
-	`
+	`, s.sessionTableName)
 
 	session := &dbtype.Session{}
 	if err := pgxscan.Get(ctx, s.conn, session, query, sessionID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("session %s not found in database", sessionID)
+			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
-		return nil, errors.Wrapf(err, "failed to scan row for session %s", sessionID)
+		return nil, errors.Wrapf(err, "failed to scan row for session %q", sessionID)
 	}
 
 	return session, nil
@@ -54,9 +74,9 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	query := `
-		UPDATE "Sessions" SET "UpdatedAt" = $1
-		WHERE "Id" = $2`
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "UpdatedAt" = $1
+		WHERE "Id" = $2`, s.sessionTableName)
 
 	res, err := s.conn.Exec(ctx, query, time.Now(), sessionID)
 	if err != nil {
@@ -64,7 +84,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	}
 
 	if cnt := res.RowsAffected(); cnt != 1 {
-		return errors.Newf("failed to find Session %s", sessionID)
+		return httpio.NewNotFoundMessagef("session %q not found", sessionID)
 	}
 
 	return nil
@@ -80,12 +100,12 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	query := `
-		INSERT INTO "Sessions"
+	query := fmt.Sprintf(`
+		INSERT INTO "%s"
 			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
 		VALUES
 			($1, $2, $3, $4, $5)
-		`
+		`, s.sessionTableName)
 
 	if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
@@ -99,9 +119,9 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	query := `
-		UPDATE "Sessions" SET "Expired" = TRUE, "UpdatedAt" = $2
-		WHERE "Id" = $1`
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE "Id" = $1`, s.sessionTableName)
 
 	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now()); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
@@ -110,26 +130,74 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	return nil
 }
 
+// User returns the user record associated with the user id
+func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		SELECT
+			"Id", 
+			"Username", 
+			"PasswordHash", 
+			"Disabled"
+		FROM "%s"
+		WHERE "Id" = $1
+	`, s.userTableName)
+
+	user := &dbtype.SessionUser{}
+	if err := pgxscan.Get(ctx, s.conn, user, query, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		}
+
+		return nil, errors.Wrap(err, "pgxscan.Get()")
+	}
+
+	return user, nil
+}
+
 // UserByUserName returns the user record associated with the username
 func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
-			"Id", "Username", "PasswordHash", "Disabled"
-		FROM "SessionUsers"
+			"Id", 
+			"Username", 
+			"PasswordHash", 
+			"Disabled"
+		FROM "%s"
 		WHERE "Username" = $1
-	`
+	`, s.userTableName)
 
 	user := &dbtype.SessionUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, username); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("user %s not found in database", username)
+			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
 		}
 
-		return nil, errors.Wrapf(err, "failed to scan row for user %s", username)
+		return nil, errors.Wrapf(err, "pgxscan.Get()")
 	}
 
 	return user, nil
+}
+
+// UpdateUserPasswordHash updates the user password hash
+func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Hash" = $2, "UpdatedAt" = $3
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id, hash, time.Now()); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q not found", id)
+	}
+
+	return nil
 }

@@ -18,7 +18,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		insertSession  *dbtype.InsertSessionOIDC
+		insertSession  *dbtype.InsertOIDCSession
 		sourceURL      []string
 		wantErr        bool
 		preAssertions  []string
@@ -26,7 +26,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 	}{
 		{
 			name: "success creating session",
-			insertSession: &dbtype.InsertSessionOIDC{
+			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "oidc session",
 				InsertSession: dbtype.InsertSession{
 					Username:  "test user 2",
@@ -59,7 +59,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &SessionStorageDriver{conn: conn.Pool}
+			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
 
@@ -116,7 +116,7 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &SessionStorageDriver{conn: conn.Pool}
+			c := NewSessionStorageDriver(conn.Pool)
 
 			preExecTime := time.Now()
 			if !tt.wantErr {
@@ -182,7 +182,7 @@ func Test_client_DestroySession(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &SessionStorageDriver{conn: conn.Pool}
+			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
 			if err := c.DestroySession(ctx, tt.sessionID); (err != nil) != tt.wantErr {
@@ -246,7 +246,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
-			c := &SessionStorageDriver{conn: conn.Pool}
+			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
 			if err := c.DestroySessionOIDC(ctx, tt.oidcSID); (err != nil) != tt.wantErr {

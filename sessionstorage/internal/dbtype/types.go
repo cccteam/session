@@ -17,30 +17,24 @@ type Session struct {
 	Expired   bool      `spanner:"Expired"   db:"Expired"`
 }
 
-// SessionOIDC defines the structure for storing OIDC session data in the database.
-type SessionOIDC struct {
-	OidcSID string `spanner:"OidcSid" db:"OidcSid"`
-	Session
-}
-
 // InsertSession defines the structure for inserting new session data into the database.
 type InsertSession struct {
-	Username  string    `spanner:"Username"  db:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"   db:"Expired"`
+	Username  string    `spanner:"Username"`
+	CreatedAt time.Time `spanner:"CreatedAt"`
+	UpdatedAt time.Time `spanner:"UpdatedAt"`
+	Expired   bool      `spanner:"Expired"`
 }
 
-// InsertSessionOIDC defines the structure for inserting new OIDC session data into the database.
-type InsertSessionOIDC struct {
-	OidcSID string `spanner:"OidcSid" db:"OidcSid"`
+// InsertOIDCSession defines the structure for inserting new OIDC session data into the database.
+type InsertOIDCSession struct {
+	OidcSID string `spanner:"OidcSid"`
 	InsertSession
 }
 
-// User is a person authorized to access the application
+// SessionUser is a person authorized to access the application
 type SessionUser struct {
-	ID           ccc.UUID         `spanner:"Id"`
-	Username     string           `spanner:"Username"`
-	PasswordHash *securehash.Hash `spanner:"PasswordHash"`
-	Disabled     bool             `spanner:"Disabled"`
+	ID           ccc.UUID         `spanner:"Id"           db:"Id"`
+	Username     string           `spanner:"Username"     db:"Username"`
+	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
+	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
 }

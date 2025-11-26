@@ -15,6 +15,16 @@ type sessionStorage struct {
 	db db
 }
 
+// SetSessionTableName sets the name of the session table.
+func (s *sessionStorage) SetSessionTableName(name string) {
+	s.db.SetSessionTableName(name)
+}
+
+// SetUserTableName sets the name of the user table.
+func (s *sessionStorage) SetUserTableName(name string) {
+	s.db.SetUserTableName(name)
+}
+
 // NewSession inserts SessionInfo into the spanner database
 func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	ctx, span := ccc.StartTrace(ctx)
@@ -44,13 +54,7 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 		return nil, errors.Wrap(err, "db.Session()")
 	}
 
-	return &sessioninfo.SessionInfo{
-		ID:        si.ID,
-		Username:  si.Username,
-		CreatedAt: si.CreatedAt,
-		UpdatedAt: si.UpdatedAt,
-		Expired:   si.Expired,
-	}, nil
+	return (*sessioninfo.SessionInfo)(si), nil
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity

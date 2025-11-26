@@ -13,14 +13,15 @@ import (
 func Test_sessionInfoFromRequest(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		r    *http.Request
-		want *SessionInfo
+		name      string
+		r         *http.Request
+		want      *SessionInfo
+		wantPanic bool
 	}{
 		{
-			name: "does not find session info in request",
-			r:    httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody),
-			want: nil,
+			name:      "does not find session info in request",
+			r:         httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody),
+			wantPanic: true,
 		},
 		{
 			name: "gets session info from request",
@@ -36,6 +37,13 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			defer func() {
+				if r := recover(); (r != nil) != tt.wantPanic {
+					t.Errorf("FromRequest() panic = %v, wantPanic %v", r, tt.wantPanic)
+				}
+			}()
+
 			if got := FromRequest(tt.r); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("FromRequest() = %v, want %v", got, tt.want)
 			}

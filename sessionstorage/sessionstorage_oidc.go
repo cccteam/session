@@ -42,7 +42,7 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string) (ccc.UU
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	session := &dbtype.InsertSessionOIDC{
+	session := &dbtype.InsertOIDCSession{
 		OidcSID: oidcSID,
 		InsertSession: dbtype.InsertSession{
 			Username:  username,

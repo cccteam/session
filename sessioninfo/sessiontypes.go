@@ -15,3 +15,10 @@ type SessionInfo struct {
 	UpdatedAt time.Time
 	Expired   bool
 }
+
+// UserInfo struct contains information about a user
+type UserInfo struct {
+	ID       ccc.UUID `spanner:"Id"           db:"Id"`
+	Username string   `spanner:"Username"     db:"Username"`
+	Disabled bool     `spanner:"Disabled"     db:"Disabled"`
+}

@@ -81,46 +81,47 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		r, err := s.checkSession(r)
+		ctx, err := s.CheckSession(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 
 		return nil
 	})
 }
 
-func (s *BaseSession) checkSession(r *http.Request) (req *http.Request, err error) {
-	ctx, span := ccc.StartTrace(r.Context())
+// CheckSession checks the session cookie and if it is valid, stores the session data into the context
+func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error) {
+	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
 	// Validate that the sessionID is in database
 	sessInfo, err := s.Storage.Session(ctx, types.SessionIDFromCtx(ctx))
 	if err != nil {
-		return r.WithContext(ctx), httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+		return ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 	}
 
 	// Check for expiration
 	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.SessionTimeout {
-		return r.WithContext(ctx), httpio.NewUnauthorizedMessage("session expired")
+		return ctx, httpio.NewUnauthorizedMessage("session expired")
 	}
 
 	// Update Activity
 	if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-		return r.WithContext(ctx), errors.Wrap(err, "storageManager.UpdateSessionActivity()")
+		return ctx, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
 	}
 
 	// Store session info in context
 	ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessInfo)
 
 	// Add user to logging context
-	logger.Req(r).AddRequestAttribute("username", sessInfo.Username)
-	l := logger.Req(r).WithAttributes().AddAttribute("username", sessInfo.Username).Logger()
-	ctx = logger.NewCtx(ctx, l)
+	l := logger.FromCtx(ctx).
+		AddRequestAttribute("username", sessInfo.Username).
+		WithAttributes().AddAttribute("username", sessInfo.Username).Logger()
 
-	return r.WithContext(ctx), nil
+	return logger.NewCtx(ctx, l), nil
 }
 
 // Authenticated is the handler reports if the session is authenticated
@@ -134,7 +135,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		r, err := s.checkSession(r.WithContext(ctx))
+		ctx, err := s.CheckSession(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
@@ -143,7 +144,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		sessInfo := sessioninfo.FromRequest(r)
+		sessInfo := sessioninfo.FromCtx(ctx)
 
 		// set response values
 		res := response{
