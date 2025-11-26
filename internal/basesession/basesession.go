@@ -63,11 +63,10 @@ func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
 
 		// Add session ID to logging context
-		logger.Req(r).AddRequestAttribute("session ID", cval[types.SCSessionID])
-		l := logger.Req(r).WithAttributes().AddAttribute("session ID", cval[types.SCSessionID]).Logger()
-		ctx = logger.NewCtx(ctx, l)
+		l := logger.FromCtx(ctx).AddRequestAttribute("session ID", cval[types.SCSessionID]).
+			WithAttributes().AddAttribute("session ID", cval[types.SCSessionID]).Logger()
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(logger.NewCtx(ctx, l)))
 
 		return nil
 	})

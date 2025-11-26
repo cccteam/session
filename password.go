@@ -100,9 +100,9 @@ func (p *Password) Login() http.HandlerFunc {
 		}
 		if upgrade && p.autoUpgrade {
 			if err := p.storePasswordHash(ctx, user.ID, req.Password); err != nil {
-				logger.Ctx(ctx).Error(err)
+				logger.FromCtx(ctx).Error(err)
 			} else {
-				logger.Ctx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
+				logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
 			}
 		}
 
@@ -117,7 +117,7 @@ func (p *Password) Login() http.HandlerFunc {
 		}
 
 		// Log the association between the sessionID and Username
-		logger.Ctx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
+		logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
