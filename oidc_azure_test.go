@@ -94,7 +94,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 					t.Errorf("json.Unmarshal() error=%v", err)
 				}
-				t.Errorf("App.Login() error = %v, wantErr = %v", got, tt.wantErr)
+				t.Errorf("OIDCAzure.Login() error = %v, wantErr = %v", got, tt.wantErr)
 			} else {
 				if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 					t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
