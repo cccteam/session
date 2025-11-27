@@ -6,7 +6,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -42,7 +42,7 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string) (ccc.UU
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	session := &dbtype.InsertSessionOIDC{
+	session := &dbtype.InsertOIDCSession{
 		OidcSID: oidcSID,
 		InsertSession: dbtype.InsertSession{
 			Username:  username,

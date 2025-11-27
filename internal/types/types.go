@@ -77,7 +77,7 @@ func SessionIDFromRequest(r *http.Request) ccc.UUID {
 func SessionIDFromCtx(ctx context.Context) ccc.UUID {
 	id, ok := ctx.Value(CTXSessionID).(ccc.UUID)
 	if !ok {
-		logger.Ctx(ctx).Errorf("failed to find %s in request context", CTXSessionID)
+		logger.FromCtx(ctx).Errorf("failed to find %s in request context", CTXSessionID)
 	}
 
 	return id
