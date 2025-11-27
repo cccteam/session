@@ -185,7 +185,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 }
 
 // UpdateUserPasswordHash updates the user password hash
-func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -193,10 +193,10 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, id cc
 		UPDATE "%s" SET "Hash" = $2, "UpdatedAt" = $3
 		WHERE "Id" = $1`, s.userTableName)
 
-	if cmdTag, err := s.conn.Exec(ctx, query, id, hash, time.Now()); err != nil {
+	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash, time.Now()); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q not found", id)
+		return httpio.NewNotFoundMessagef("user id %q not found", userID)
 	}
 
 	return nil

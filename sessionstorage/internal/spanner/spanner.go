@@ -215,7 +215,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 }
 
 // UpdateUserPasswordHash updates the user password hash
-func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -224,7 +224,7 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, id cc
 		PasswordHash *securehash.Hash `spanner:"PasswordHash"`
 		UpdatedAt    time.Time        `spanner:"UpdatedAt"`
 	}{
-		ID:           id,
+		ID:           userID,
 		PasswordHash: hash,
 		UpdatedAt:    time.Now(),
 	}
