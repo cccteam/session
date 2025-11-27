@@ -190,10 +190,10 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userI
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE "%s" SET "Hash" = $2, "UpdatedAt" = $3
+		UPDATE "%s" SET "Hash" = $2
 		WHERE "Id" = $1`, s.userTableName)
 
-	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash, time.Now()); err != nil {
+	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q not found", userID)

@@ -222,11 +222,9 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userI
 	passwordUpdate := struct {
 		ID           ccc.UUID         `spanner:"Id"`
 		PasswordHash *securehash.Hash `spanner:"PasswordHash"`
-		UpdatedAt    time.Time        `spanner:"UpdatedAt"`
 	}{
 		ID:           userID,
 		PasswordHash: hash,
-		UpdatedAt:    time.Now(),
 	}
 
 	mutation, err := spanner.UpdateStruct(s.userTableName, passwordUpdate)
