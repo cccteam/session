@@ -97,7 +97,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 		{
 			name:      "success without destroying sessions",
 			oidcSID:   "oidc session4",
-			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "OidcSid" = 'oidc session4'`,
 				`SELECT COUNT(*) = 3 FROM "Sessions" WHERE "Expired" = false`,
@@ -109,7 +109,7 @@ func Test_client_DestroySessionOIDC(t *testing.T) {
 		{
 			name:      "success destroying sessions",
 			oidcSID:   "oidc session aa817d69-f550-474b-8eae-7b29da32e3a8",
-			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/valid_sessions"},
+			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
 			preAssertions: []string{
 				`SELECT "Username" = 'test user 1' FROM "Sessions" WHERE "OidcSid" = 'oidc session aa817d69-f550-474b-8eae-7b29da32e3a8'`,
 				`SELECT COUNT(*) = 1               FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = true`,

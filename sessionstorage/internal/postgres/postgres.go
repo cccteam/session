@@ -190,7 +190,7 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userI
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE "%s" SET "Hash" = $2
+		UPDATE "%s" SET "PasswordHash" = $2
 		WHERE "Id" = $1`, s.userTableName)
 
 	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash); err != nil {
