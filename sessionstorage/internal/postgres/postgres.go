@@ -204,3 +204,56 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 
 	return nil
 }
+
+// DeactivateUser deactivates a user
+func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Disabled" = TRUE
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
+// ActivateUser activates a user
+func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Disabled" = FALSE
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" 
+		SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE "Username" = $1`, s.sessionTableName)
+
+	if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	return nil
+}
