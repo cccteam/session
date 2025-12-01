@@ -318,7 +318,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				},
 				oidc: authenticator,
 			}
-			req, err := createHTTPRequest(http.MethodPost, http.NoBody, nil, nil)
+			req, err := createHTTPRequest(http.MethodPost, http.NoBody, nil, nil, nil)
 			if err != nil {
 				t.Error(err)
 			}
@@ -413,10 +413,13 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 	}
 }
 
-func createHTTPRequest(method string, body io.Reader, sessionInfo *sessioninfo.SessionInfo, urlParams map[httpio.ParamType]string) (*http.Request, error) {
+func createHTTPRequest(method string, body io.Reader, sessionInfo *sessioninfo.SessionInfo, userInfo *sessioninfo.UserInfo, urlParams map[httpio.ParamType]string) (*http.Request, error) {
 	ctx := context.Background()
 	if sessionInfo != nil {
 		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessionInfo)
+	}
+	if userInfo != nil {
+		ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, userInfo)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, "", body)
 	if err != nil {

@@ -49,6 +49,12 @@ type PasswordAuthStore interface {
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	// SetUserPasswordHash updates the user password hash
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+	// DeactivateUser deactivates a user
+	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	// ActivateUser activates a user
+	ActivateUser(ctx context.Context, id ccc.UUID) error
+	// DestroyAllUserSessions destroys all sessions for a given user
+	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	// shared storage methods
 	PreauthStore
@@ -95,6 +101,12 @@ type db interface {
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	// SetUserPasswordHash updates the user password hash
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+	// DeactivateUser deactivates a user
+	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	// ActivateUser activates a user
+	ActivateUser(ctx context.Context, id ccc.UUID) error
+	// DestroyAllUserSessions destroys all sessions for a given user
+	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	//
 	// OIDC specific methods

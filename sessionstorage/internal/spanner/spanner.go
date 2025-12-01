@@ -245,3 +245,88 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 
 	return nil
 }
+
+// DeactivateUser deactivates a user
+func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	userUpdate := struct {
+		ID       ccc.UUID `spanner:"Id"`
+		Disabled bool     `spanner:"Disabled"`
+	}{
+		ID:       id,
+		Disabled: true,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, userUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+// ActivateUser activates a user
+func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	userUpdate := struct {
+		ID       ccc.UUID `spanner:"Id"`
+		Disabled bool     `spanner:"Disabled"`
+	}{
+		ID:       id,
+		Disabled: false,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, userUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s 
+			SET Expired = TRUE, UpdatedAt = @updatedAt 
+			WHERE Username = @username
+	`, s.sessionTableName))
+	stmt.Params["username"] = username
+	stmt.Params["updatedAt"] = time.Now()
+
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.Update(ctx, stmt); err != nil {
+			return errors.Wrap(err, "txn.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction()")
+	}
+
+	return nil
+}

@@ -506,3 +506,163 @@ func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionStorageDriver_DeactivateUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		id             ccc.UUID
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			id:        ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`SELECT "Disabled" = false FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
+			postAssertions: []string{
+				`SELECT "Disabled" = true FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
+		},
+		{
+			name:      "user not found",
+			id:        ccc.Must(ccc.NewUUID()),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.DeactivateUser(ctx, tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_ActivateUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		id             ccc.UUID
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			id:        ccc.Must(ccc.UUIDFromString("54918893-2342-4621-8673-79520a84b84f")),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`SELECT "Disabled" = true FROM "SessionUsers" WHERE "Id" = '54918893-2342-4621-8673-79520a84b84f'`,
+			},
+			postAssertions: []string{
+				`SELECT "Disabled" = false FROM "SessionUsers" WHERE "Id" = '54918893-2342-4621-8673-79520a84b84f'`,
+			},
+		},
+		{
+			name:      "user not found",
+			id:        ccc.Must(ccc.NewUUID()),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.ActivateUser(ctx, tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_DestroyAllSessionsForUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		username       string
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			username:  "test user 1",
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/sessions_test/valid_sessions"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = false`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'test user 1' AND "Expired" = false`,
+			},
+		},
+		{
+			name:      "user has no sessions",
+			username:  "no_sessions_user",
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/sessions_test/valid_sessions"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'no_sessions_user'`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'no_sessions_user'`,
+			},
+		},
+		{
+			name:      "invalid schema",
+			username:  "test user",
+			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.DestroyAllUserSessions(ctx, tt.username)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.DestroyAllSessionsForUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}

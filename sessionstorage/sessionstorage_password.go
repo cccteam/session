@@ -74,3 +74,39 @@ func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, has
 
 	return nil
 }
+
+// DeactivateUser deactivates a user
+func (p *Password) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DeactivateUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.DeactivateUser()")
+	}
+
+	return nil
+}
+
+// ActivateUser activates a user
+func (p *Password) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.ActivateUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.ActivateUser()")
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (p *Password) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "db.DestroyAllUserSessions()")
+	}
+
+	return nil
+}

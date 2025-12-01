@@ -18,6 +18,11 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
+const (
+	// RouterSessionUserID is a constant used in match the SessionUserID in the router path
+	RouterSessionUserID = "sessionUserID"
+)
+
 // PasswordOption defines the interface for functional options used when creating a new Password.
 type PasswordOption interface {
 	isPasswordOption()
@@ -231,6 +236,49 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 		}
 
 		if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// DeactivateUser handles deactivating a user account.
+func (p *Password) DeactivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		user, err := p.storage.User(ctx, sessionUserID)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot deactivate yourself")
+		}
+
+		if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// ActivateUser handles activating a user account.
+func (p *Password) ActivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
