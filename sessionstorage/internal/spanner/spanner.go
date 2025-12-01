@@ -65,7 +65,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
-		return nil, errors.Wrapf(err, "failed to scan row for session %q", sessionID)
+		return nil, errors.Wrap(err, "spxscan.Get()")
 	}
 
 	return session, nil
@@ -150,6 +150,9 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	}
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		// Attempting to destroy a session that does not exist is something that
+		// can happen when a browser returns with old state. Erroring in this
+		// case is extra noise, so we will ignore instead.
 		if spanner.ErrCode(err) != codes.NotFound {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
@@ -234,7 +237,7 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userI
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q not found", passwordUpdate.ID)
+			return httpio.NewNotFoundMessagef("user id %q does not exist", passwordUpdate.ID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")

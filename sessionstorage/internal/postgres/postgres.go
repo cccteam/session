@@ -63,7 +63,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
-		return nil, errors.Wrapf(err, "failed to scan row for session %q", sessionID)
+		return nil, errors.Wrap(err, "pgxscan.Get()")
 	}
 
 	return session, nil
@@ -124,6 +124,9 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 		WHERE "Id" = $1`, s.sessionTableName)
 
 	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now()); err != nil {
+		// Attempting to destroy a session that does not exist is something that
+		// can happen when a browser returns with old state. Erroring in this
+		// case is extra noise, so we will ignore instead.
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 
@@ -196,7 +199,7 @@ func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userI
 	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q not found", userID)
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 
 	return nil

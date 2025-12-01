@@ -73,8 +73,8 @@ func NewPassword(storage sessionstorage.PasswordStore, secureCookie *securecooki
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (p *Password) Login() http.HandlerFunc {
 	type request struct {
-		Username string `json:"username" validate:"required"`
-		Password string `json:"password" validate:"required"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 
 	decoder := newDecoder[request]()

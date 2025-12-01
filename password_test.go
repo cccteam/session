@@ -232,6 +232,107 @@ func TestPassword_Login(t *testing.T) {
 	}
 }
 
+func TestPassword_ValidateSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		wantMessage    bool
+		wantStatusCode int
+	}{
+		{
+			name: "fails on check session",
+			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
+			},
+			wantStatusCode: http.StatusUnauthorized,
+			wantMessage:    true,
+		},
+		{
+			name: "fails on user not found",
+			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.NewUUID()),
+					Username:  "user",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}, nil)
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(nil, errors.New("not found"))
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name: "fails on disabled user",
+			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.NewUUID()),
+					Username:  "user",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}, nil)
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Disabled: true}, nil)
+			},
+			wantStatusCode: http.StatusUnauthorized,
+			wantMessage:    true,
+		},
+		{
+			name: "success",
+			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.NewUUID()),
+					Username:  "user",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}, nil)
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Username: "user"}, nil)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
+
+			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			p.storage = storage
+			p.SessionTimeout = time.Minute
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			handler := p.ValidateSession(nextHandler)
+			req, err := createHTTPRequestWithUser(http.MethodGet, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := httptest.NewRecorder()
+
+			handler.ServeHTTP(rr, req)
+
+			if got := rr.Code; got != tt.wantStatusCode {
+				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
+			}
+			if tt.wantMessage {
+				var got httpio.MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+					t.Errorf("json.Unmarshal() error=%v", err)
+				}
+				if got.Message == "" {
+					t.Errorf("Password.Login() message = %v, wantMessage = %v", got, tt.wantMessage)
+				}
+			}
+		})
+	}
+}
+
 func TestPassword_Authenticated(t *testing.T) {
 	t.Parallel()
 
@@ -479,107 +580,6 @@ func TestPassword_ChangeUserPassword(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			p.ChangeUserPassword().ServeHTTP(rr, req)
-
-			if got := rr.Code; got != tt.wantStatusCode {
-				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
-			}
-			if tt.wantMessage {
-				var got httpio.MessageResponse
-				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-					t.Errorf("json.Unmarshal() error=%v", err)
-				}
-				if got.Message == "" {
-					t.Errorf("Password.Login() message = %v, wantMessage = %v", got, tt.wantMessage)
-				}
-			}
-		})
-	}
-}
-
-func TestPassword_ValidateSession(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
-		wantMessage    bool
-		wantStatusCode int
-	}{
-		{
-			name: "fails on check session",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
-			},
-			wantStatusCode: http.StatusUnauthorized,
-			wantMessage:    true,
-		},
-		{
-			name: "fails on user not found",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
-					ID:        ccc.Must(ccc.NewUUID()),
-					Username:  "user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}, nil)
-				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(nil, errors.New("not found"))
-			},
-			wantStatusCode: http.StatusInternalServerError,
-		},
-		{
-			name: "fails on disabled user",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
-					ID:        ccc.Must(ccc.NewUUID()),
-					Username:  "user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}, nil)
-				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Disabled: true}, nil)
-			},
-			wantStatusCode: http.StatusUnauthorized,
-			wantMessage:    true,
-		},
-		{
-			name: "success",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
-					ID:        ccc.Must(ccc.NewUUID()),
-					Username:  "user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}, nil)
-				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Username: "user"}, nil)
-			},
-			wantStatusCode: http.StatusOK,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ctrl := gomock.NewController(t)
-
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
-
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
-			p.storage = storage
-			p.SessionTimeout = time.Minute
-
-			if tt.prepare != nil {
-				tt.prepare(storage)
-			}
-
-			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			})
-			handler := p.ValidateSession(nextHandler)
-			req, err := createHTTPRequestWithUser(http.MethodGet, nil, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			rr := httptest.NewRecorder()
-
-			handler.ServeHTTP(rr, req)
 
 			if got := rr.Code; got != tt.wantStatusCode {
 				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
