@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -37,8 +36,8 @@ func TestClient_FullMigration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
-			db, err := prepareDatabase(ctx, t, tt.args.sourceURL)
+
+			db, err := prepareDatabase(t.Context(), t, tt.args.sourceURL)
 			if (err != nil) != false {
 				t.Fatalf("prepareDatabase() error = %v", err)
 			}
@@ -104,7 +103,7 @@ func TestSessionStorageDriver_Session(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -162,7 +161,7 @@ func Test_client_UpdateSessionActivity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -225,7 +224,7 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -295,7 +294,7 @@ func Test_client_DestroySession(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -348,7 +347,7 @@ func TestSessionStorageDriver_User(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -414,7 +413,7 @@ func TestSessionStorageDriver_UserByUserName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
@@ -491,7 +490,7 @@ func TestSessionStorageDriver_UpdateUserPasswordHash(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
 			if err != nil {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
