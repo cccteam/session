@@ -7,6 +7,7 @@ BEGIN;
 CREATE TABLE "SessionUsers" (
   "Id"            UUID NOT NULL,
   "Username"      character varying NOT NULL,
+  "Domain"        character varying,
   "PasswordHash"  character varying,
   "Disabled"      BOOL NOT NULL DEFAULT (FALSE),
   CONSTRAINT "SessionUsers_pkey" PRIMARY KEY ("Id")
