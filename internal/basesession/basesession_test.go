@@ -73,7 +73,7 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method string, sc
 	return r
 }
 
-func TestAppStartSession(t *testing.T) {
+func TestBaseSessionStartSession(t *testing.T) {
 	t.Parallel()
 
 	type test struct {
@@ -214,7 +214,7 @@ func TestAppStartSession(t *testing.T) {
 	}
 }
 
-func TestAppValidateSession(t *testing.T) {
+func TestBaseSessionValidateSession(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -239,7 +239,12 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
+					Return(&sessioninfo.SessionInfo{
+						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
+						Username:  "specialUser",
+						UpdatedAt: time.Now().Add(-10 * time.Second),
+					}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -253,7 +258,12 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodPost, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
+					Return(&sessioninfo.SessionInfo{
+						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
+						Username:  "specialUser",
+						UpdatedAt: time.Now().Add(-10 * time.Second),
+					}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -280,7 +290,12 @@ func TestAppValidateSession(t *testing.T) {
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"),
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now()}, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
+					Return(&sessioninfo.SessionInfo{
+						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
+						Username:  "specialUser",
+						UpdatedAt: time.Now().Add(-10 * time.Second),
+					}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(errors.New("big fat error"))
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -316,7 +331,7 @@ func TestAppValidateSession(t *testing.T) {
 	}
 }
 
-func TestApp_checkSession(t *testing.T) {
+func TestBaseSessionCheckSession(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -337,17 +352,38 @@ func TestApp_checkSession(t *testing.T) {
 	}
 	tests := []test{
 		{
-			name: "success",
+			name: "success, with update session activity",
 			fields: fields{
 				sessionTimeout: time.Minute,
 			},
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
-			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now()},
+			want: &sessioninfo.SessionInfo{
+				ID:        ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
+				Username:  "specialUser",
+				UpdatedAt: time.Now().Add(-10 * time.Second),
+			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(nil)
+			},
+		},
+		{
+			name: "success, skip update session activity",
+			fields: fields{
+				sessionTimeout: time.Minute,
+			},
+			args: args{
+				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
+			},
+			want: &sessioninfo.SessionInfo{
+				ID:        ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
+				Username:  "specialUser",
+				UpdatedAt: time.Now(),
+			},
+			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
 			},
 		},
 		{
@@ -358,7 +394,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
-			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now()},
+			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second)},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(errors.New("big fat error"))
@@ -373,7 +409,7 @@ func TestApp_checkSession(t *testing.T) {
 			args: args{
 				r: mockRequestWithSession(context.Background(), t, http.MethodGet, nil, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			},
-			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now(), Expired: true},
+			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second), Expired: true},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
 			},
@@ -423,7 +459,7 @@ func TestApp_checkSession(t *testing.T) {
 				Storage:        storageManager,
 			}
 
-			gotReq, err := a.checkSession(tt.args.r)
+			gotReq, err := a.CheckSession(tt.args.r.Context())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("App.checkSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -440,14 +476,14 @@ func TestApp_checkSession(t *testing.T) {
 
 				return
 			}
-			if got := sessioninfo.FromRequest(gotReq); !reflect.DeepEqual(got, tt.want) {
+			if got := sessioninfo.FromCtx(gotReq); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sessInfo = %v, wantSessInfo %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_validSessionID(t *testing.T) {
+func TestBaseSession_validSessionID(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -488,7 +524,7 @@ func Test_validSessionID(t *testing.T) {
 	}
 }
 
-func TestApp_Authenticated(t *testing.T) {
+func TestBaseSession_Authenticated(t *testing.T) {
 	t.Parallel()
 	type response struct {
 		Authenticated bool                                 `json:"authenticated"`
@@ -513,7 +549,7 @@ func TestApp_Authenticated(t *testing.T) {
 		{
 			name: "fails to check the user's session",
 			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now()}, nil).Times(1)
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now().Add(-10 * time.Second)}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
 			expectedStatus: http.StatusInternalServerError,
@@ -523,7 +559,7 @@ func TestApp_Authenticated(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					Username:  "test Username",
-					UpdatedAt: time.Now(),
+					UpdatedAt: time.Now().Add(-10 * time.Second),
 				}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			},
@@ -579,7 +615,7 @@ func TestApp_Authenticated(t *testing.T) {
 	}
 }
 
-func TestApp_Logout(t *testing.T) {
+func TestBaseSession_Logout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
@@ -674,7 +710,7 @@ func mockRequestWithXSRFToken(t *testing.T, method string, sc *securecookie.Secu
 	return r
 }
 
-func TestAppSetXSRFToken(t *testing.T) {
+func TestBaseSessionSetXSRFToken(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -734,7 +770,7 @@ func TestAppSetXSRFToken(t *testing.T) {
 	}
 }
 
-func TestAppValidateXSRFToken(t *testing.T) {
+func TestBaseSessionValidateXSRFToken(t *testing.T) {
 	t.Parallel()
 
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)

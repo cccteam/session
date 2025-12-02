@@ -116,7 +116,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// Log the association between the sessionID and Username
-		logger.Ctx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
+		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
@@ -149,7 +149,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 		}
 
 		if err := o.storage.DestroySessionOIDC(ctx, sid); err != nil {
-			logger.Req(r).Error(errors.Wrap(err, "failed to destroy session in db via OIDC sid"))
+			logger.FromReq(r).Error(errors.Wrap(err, "failed to destroy session in db via OIDC sid"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -185,7 +185,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 			if err := o.userRoleManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
 			}
-			logger.Ctx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
+			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
 		}
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
@@ -193,7 +193,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 			if err := o.userRoleManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
 			}
-			logger.Ctx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
+			logger.FromCtx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
 		}
 
 		hasRole = hasRole || len(rolesToAssign) > 0

@@ -3,6 +3,7 @@ package session
 import (
 	"time"
 
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
@@ -11,8 +12,9 @@ import (
 // CookieOption defines a function signature for setting cookie client options.
 type CookieOption func(*cookie.CookieClient)
 
-func (CookieOption) isPreauthOption()   {}
 func (CookieOption) isOIDCAzureOption() {}
+func (CookieOption) isPasswordOption()  {}
+func (CookieOption) isPreauthOption()   {}
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
@@ -31,13 +33,28 @@ func WithCookieDomain(domain string) CookieOption {
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)
 
-func (BaseSessionOption) isPreauthOption()   {}
 func (BaseSessionOption) isOIDCAzureOption() {}
+func (BaseSessionOption) isPasswordOption()  {}
+func (BaseSessionOption) isPreauthOption()   {}
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
 func WithLogHandler(l LogHandler) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
 		b.Handle = l
+	})
+}
+
+// WithSessionTableName sets the name of the session table. (default: Sessions)
+func WithSessionTableName(name string) BaseSessionOption {
+	return BaseSessionOption(func(b *basesession.BaseSession) {
+		b.Storage.SetSessionTableName(name)
+	})
+}
+
+// WithUserTableName sets the name of the user table. (default: SessionUsers)
+func WithUserTableName(name string) BaseSessionOption {
+	return BaseSessionOption(func(b *basesession.BaseSession) {
+		b.Storage.SetUserTableName(name)
 	})
 }
 
@@ -59,5 +76,24 @@ func (OIDCOption) isOIDCAzureOption() {}
 func WithLoginURL(l string) OIDCOption {
 	return OIDCOption(func(b *azureoidc.OIDC) {
 		b.SetLoginURL(l)
+	})
+}
+
+// passwordOption defines a function signature for setting Password options.
+type passwordOption func(*PasswordAuth)
+
+func (passwordOption) isPasswordOption() {}
+
+// AutoUpgradeHashes controls if password hashes will be auto upgraded (default: true)
+func AutoUpgradeHashes(a bool) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.autoUpgrade = a
+	})
+}
+
+// HashAlgorithm controls hashing algrorithm (default: securehash.Argon2())
+func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.hasher = securehash.New(hasher)
 	})
 }

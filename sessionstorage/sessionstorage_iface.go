@@ -7,27 +7,51 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 )
 
 // BaseStore defines an interface for managing session storage.
 type BaseStore interface {
-	DestroySession(ctx context.Context, sessionID ccc.UUID) error
-	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
+	// Session returns the session information from the database for given sessionID
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
+	// UpdateSessionActivity updates the database with the current time for the session activity
+	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
+	// DestroySession marks the session as expired
+	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// SetSessionTableName sets the name of the session table.
+	SetSessionTableName(name string)
+	// SetUserTableName sets the name of the user table.
+	SetUserTableName(name string)
 }
 
 var _ PreauthStore = (*Preauth)(nil)
 
 // PreauthStore defines an interface for managing pre-authenticated session storage.
 type PreauthStore interface {
+	// NewSession creates a new session in the database, returning its id
 	NewSession(ctx context.Context, username string) (ccc.UUID, error)
 
 	// shared storage methods
 	BaseStore
+}
+
+var _ PasswordAuthStore = (*PasswordAuth)(nil)
+
+// PasswordAuthStore defines an interface for managing password sessions.
+type PasswordAuthStore interface {
+	// User returns a session user for give user id
+	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
+	// UserByUsername returns a session user for give username
+	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	// SetUserPasswordHash updates the user password hash
+	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+
+	// shared storage methods
+	PreauthStore
 }
 
 var _ OIDCStore = (*OIDC)(nil)
@@ -56,13 +80,28 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// SetSessionTableName sets the name of the session table.
+	SetSessionTableName(name string)
+	// SetUserTableName sets the name of the user table.
+	SetUserTableName(name string)
+
+	//
+	// Password specific methods
+	//
+
+	// User returns a session user for give user id
+	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
+	// UserByUsername returns a session user for give username
+	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	// SetUserPasswordHash updates the user password hash
+	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 
 	//
 	// OIDC specific methods
 	//
 
 	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
-	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertSessionOIDC) (ccc.UUID, error)
+	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession) (ccc.UUID, error)
 	// DestroySessionOIDC marks the OIDC session as expired by oidcSID.
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 }

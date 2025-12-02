@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.25.4
+go 1.25.5
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface
@@ -11,13 +11,15 @@ replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.86.1
-	github.com/cccteam/ccc v0.2.15
-	github.com/cccteam/ccc/accesstypes v0.5.2
-	github.com/cccteam/db-initiator v0.2.13
+	github.com/cccteam/ccc v0.2.18
+	github.com/cccteam/ccc/accesstypes v0.5.3
+	github.com/cccteam/ccc/resource v0.8.3
+	github.com/cccteam/ccc/securehash v0.0.5
+	github.com/cccteam/db-initiator v0.2.15
 	github.com/cccteam/httpio v0.7.8
-	github.com/cccteam/logger v0.1.12
+	github.com/cccteam/logger v0.1.13
 	github.com/cccteam/spxscan v0.0.7
-	github.com/coreos/go-oidc/v3 v3.16.0
+	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-playground/errors/v5 v5.4.0
@@ -27,7 +29,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.33.0
-	google.golang.org/grpc v1.76.0
+	google.golang.org/grpc v1.77.0
 )
 
 require (
@@ -82,7 +84,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/compress v1.18.1 // indirect
+	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lufia/plan9stats v0.0.0-20251013123823-9fd1530e3ec3 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
@@ -100,7 +102,7 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
-	github.com/shirou/gopsutil/v4 v4.25.10 // indirect
+	github.com/shirou/gopsutil/v4 v4.25.11 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
@@ -121,16 +123,16 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/api v0.256.0 // indirect
-	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251111163417-95abcf5c77ba // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251111163417-95abcf5c77ba // indirect
+	google.golang.org/genproto v0.0.0-20251124214823-79d6a2a48846 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20251124214823-79d6a2a48846 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251124214823-79d6a2a48846 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

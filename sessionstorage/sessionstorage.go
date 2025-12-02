@@ -5,14 +5,24 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage/internal/dbtype"
 	"github.com/go-playground/errors/v5"
 )
 
 // sessionStorage is what you use to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
 type sessionStorage struct {
 	db db
+}
+
+// SetSessionTableName sets the name of the session table.
+func (s *sessionStorage) SetSessionTableName(name string) {
+	s.db.SetSessionTableName(name)
+}
+
+// SetUserTableName sets the name of the user table.
+func (s *sessionStorage) SetUserTableName(name string) {
+	s.db.SetUserTableName(name)
 }
 
 // NewSession inserts SessionInfo into the spanner database
@@ -44,13 +54,7 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 		return nil, errors.Wrap(err, "db.Session()")
 	}
 
-	return &sessioninfo.SessionInfo{
-		ID:        si.ID,
-		Username:  si.Username,
-		CreatedAt: si.CreatedAt,
-		UpdatedAt: si.UpdatedAt,
-		Expired:   si.Expired,
-	}, nil
+	return (*sessioninfo.SessionInfo)(si), nil
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity
