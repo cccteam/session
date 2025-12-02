@@ -493,8 +493,15 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			}
 			c := NewSessionStorageDriver(conn.Pool)
 
+			user := &dbtype.InsertSessionUser{
+				Username:     tt.username,
+				Domain:       tt.domain,
+				PasswordHash: tt.hash,
+				Disabled:     false,
+			}
+
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			_, err = c.CreateUser(ctx, tt.username, tt.domain, tt.hash)
+			_, err = c.CreateUser(ctx, user)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}

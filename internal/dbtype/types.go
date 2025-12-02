@@ -40,3 +40,11 @@ type SessionUser struct {
 	PasswordHash *securehash.Hash   `spanner:"PasswordHash" db:"PasswordHash"`
 	Disabled     bool               `spanner:"Disabled"     db:"Disabled"`
 }
+
+// InsertSessionUser defines the structure for inserting new SessionUser into the database
+type InsertSessionUser struct {
+	Username     string             `spanner:"Username"     db:"Username"`
+	Domain       accesstypes.Domain `spanner:"Domain"       db:"Domain"`
+	PasswordHash *securehash.Hash   `spanner:"PasswordHash" db:"PasswordHash"`
+	Disabled     bool               `spanner:"Disabled"     db:"Disabled"`
+}

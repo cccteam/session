@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
@@ -53,7 +52,7 @@ type PasswordAuthStore interface {
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
 	// CreateUser creates a new user
-	CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error)
+	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error)
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
@@ -109,7 +108,7 @@ type db interface {
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
 	// CreateUser creates a new user
-	CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error)
+	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, error)
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user

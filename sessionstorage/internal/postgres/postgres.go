@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
@@ -189,7 +188,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 }
 
 // CreateUser creates a new user
-func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -205,7 +204,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, 
 			($1, $2, $3, $4, $5)
 		`, s.userTableName)
 
-	if _, err := s.conn.Exec(ctx, query, id, username, domain, hash, false); err != nil {
+	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.Domain, user.PasswordHash, user.Disabled); err != nil {
 		return nil, errors.Wrap(err, "Queryer.Exec()")
 	}
 
