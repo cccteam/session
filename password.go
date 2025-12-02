@@ -247,7 +247,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	}
 
 	if _, err := p.NewAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewAuthCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
@@ -259,11 +259,11 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 func (p *PasswordAuth) storePasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	newHash, err := p.hasher.Hash(password)
 	if err != nil {
-		return errors.Wrap(err, "hasher.Hash()")
+		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
 
 	if err := p.storage.UpdateUserPasswordHash(ctx, userID, newHash); err != nil {
-		return errors.Wrap(err, "storage.UpdateUserPasswordHash()")
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UpdateUserPasswordHash()")
 	}
 
 	return nil

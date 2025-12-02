@@ -57,7 +57,7 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 
 	u, err := p.db.UserByUserName(ctx, username)
 	if err != nil {
-		return nil, errors.Wrap(err, "db.Session()")
+		return nil, errors.Wrap(err, "db.UserByUserName()")
 	}
 
 	return u, nil
