@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
@@ -630,11 +631,6 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 	hasher := securehash.New(securehash.Argon2())
 	userID := ccc.Must(ccc.NewUUID())
 
-	type request struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-
 	tests := []struct {
 		name           string
 		reqBody        string
@@ -651,35 +647,50 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		},
 		{
 			name:    "fails on create user",
-			reqBody: `{"username": "user", "password": "password"}`,
+			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(nil, errors.New("db error"))
+				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), gomock.Any()).Return(nil, errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
 			name:    "success",
-			reqBody: `{"username": "user", "password": "password"}`,
+			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), gomock.Any()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
+					Domain:   "test.com",
 				}, nil)
 			},
 			wantStatusCode: http.StatusOK,
-			wantBody:       `{"id":"` + userID.String() + `","username":"user","disabled":false}` + "\n",
+			wantBody:       `{"id":"` + userID.String() + `","username":"user","domain":"test.com","disabled":false}` + "\n",
+		},
+		{
+			name:    "success with default domain",
+			reqBody: `{"username": "user", "password": "password"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("global"), gomock.Any()).Return(&dbtype.SessionUser{
+					ID:       userID,
+					Username: "user",
+					Domain:   "global",
+				}, nil)
+			},
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"id":"` + userID.String() + `","username":"user","domain":"global","disabled":false}` + "\n",
 		},
 		{
 			name:    "success with empty password",
-			reqBody: `{"username": "user"}`,
+			reqBody: `{"username": "user", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), nil).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
+					Domain:   "test.com",
 				}, nil)
 			},
 			wantStatusCode: http.StatusOK,
-			wantBody:       `{"id":"` + userID.String() + `","username":"user","disabled":false}` + "\n",
+			wantBody:       `{"id":"` + userID.String() + `","username":"user","domain":"test.com","disabled":false}` + "\n",
 		},
 	}
 	for _, tt := range tests {

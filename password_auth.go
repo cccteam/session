@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
@@ -246,15 +247,17 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 // CreateUser handles creating a user account.
 func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 	type request struct {
-		Username string  `json:"username"`
-		Password *string `json:"password"`
+		Username string             `json:"username"`
+		Password *string            `json:"password"`
+		Domain   accesstypes.Domain `json:"domain"`
 	}
 
 	type response struct {
-		ID           ccc.UUID         `json:"id"`
-		Username     string           `json:"username"`
-		PasswordHash *securehash.Hash `json:"-"`
-		Disabled     bool             `json:"disabled"`
+		ID           ccc.UUID           `json:"id"`
+		Username     string             `json:"username"`
+		Domain       accesstypes.Domain `json:"domain"`
+		PasswordHash *securehash.Hash   `json:"-"`
+		Disabled     bool               `json:"disabled"`
 	}
 
 	decoder := newDecoder[request]()
@@ -268,6 +271,10 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
+		if req.Domain == "" {
+			req.Domain = accesstypes.GlobalDomain
+		}
+
 		var hash *securehash.Hash
 		if req.Password != nil {
 			hash, err = p.hasher.Hash(*req.Password)
@@ -276,7 +283,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 			}
 		}
 
-		user, err := p.storage.CreateUser(ctx, req.Username, hash)
+		user, err := p.storage.CreateUser(ctx, req.Username, req.Domain, hash)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

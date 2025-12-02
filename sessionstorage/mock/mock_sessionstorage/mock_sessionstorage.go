@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	ccc "github.com/cccteam/ccc"
+	accesstypes "github.com/cccteam/ccc/accesstypes"
 	securehash "github.com/cccteam/ccc/securehash"
 	dbtype "github.com/cccteam/session/internal/dbtype"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
@@ -256,18 +257,18 @@ func (mr *MockPasswordAuthStoreMockRecorder) ActivateUser(ctx, id any) *gomock.C
 }
 
 // CreateUser mocks base method.
-func (m *MockPasswordAuthStore) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+func (m *MockPasswordAuthStore) CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateUser", ctx, username, hash)
+	ret := m.ctrl.Call(m, "CreateUser", ctx, username, domain, hash)
 	ret0, _ := ret[0].(*dbtype.SessionUser)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateUser indicates an expected call of CreateUser.
-func (mr *MockPasswordAuthStoreMockRecorder) CreateUser(ctx, username, hash any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) CreateUser(ctx, username, domain, hash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateUser), ctx, username, hash)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateUser), ctx, username, domain, hash)
 }
 
 // DeactivateUser mocks base method.
@@ -597,18 +598,18 @@ func (mr *MockdbMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 }
 
 // CreateUser mocks base method.
-func (m *Mockdb) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+func (m *Mockdb) CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateUser", ctx, username, hash)
+	ret := m.ctrl.Call(m, "CreateUser", ctx, username, domain, hash)
 	ret0, _ := ret[0].(*dbtype.SessionUser)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateUser indicates an expected call of CreateUser.
-func (mr *MockdbMockRecorder) CreateUser(ctx, username, hash any) *gomock.Call {
+func (mr *MockdbMockRecorder) CreateUser(ctx, username, domain, hash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, username, hash)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, username, domain, hash)
 }
 
 // DeactivateUser mocks base method.

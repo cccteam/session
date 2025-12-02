@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
@@ -218,7 +219,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 }
 
 // CreateUser creates a new user
-func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -230,6 +231,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, 
 	user := &dbtype.SessionUser{
 		ID:           id,
 		Username:     username,
+		Domain:       domain,
 		PasswordHash: hash,
 		Disabled:     false,
 	}

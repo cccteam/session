@@ -5,6 +5,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
@@ -64,11 +65,11 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 }
 
 // CreateUser creates a new user
-func (p *PasswordAuth) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+func (p *PasswordAuth) CreateUser(ctx context.Context, username string, domain accesstypes.Domain, hash *securehash.Hash) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	u, err := p.db.CreateUser(ctx, username, hash)
+	u, err := p.db.CreateUser(ctx, username, domain, hash)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.CreateUser()")
 	}
