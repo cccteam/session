@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	c, err := initiator.NewSpannerContainer(ctx, "1.5.43")
+	c, err := initiator.NewSpannerContainer(ctx, "1.5.45")
 	if err != nil {
 		log.Fatal(err)
 	}
