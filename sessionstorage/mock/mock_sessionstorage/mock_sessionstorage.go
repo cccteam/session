@@ -269,6 +269,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) DeactivateUser(ctx, id any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).DeactivateUser), ctx, id)
 }
 
+// DeleteUser mocks base method.
+func (m *MockPasswordAuthStore) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockPasswordAuthStoreMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).DeleteUser), ctx, id)
+}
+
 // DestroyAllUserSessions mocks base method.
 func (m *MockPasswordAuthStore) DestroyAllUserSessions(ctx context.Context, username string) error {
 	m.ctrl.T.Helper()
@@ -579,6 +593,20 @@ func (m *Mockdb) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 func (mr *MockdbMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*Mockdb)(nil).DeactivateUser), ctx, id)
+}
+
+// DeleteUser mocks base method.
+func (m *Mockdb) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockdbMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*Mockdb)(nil).DeleteUser), ctx, id)
 }
 
 // DestroyAllUserSessions mocks base method.

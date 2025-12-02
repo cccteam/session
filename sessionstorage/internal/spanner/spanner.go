@@ -275,6 +275,32 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
+// DeleteUser deletes a user
+func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+			DELETE FROM %s 
+			WHERE Id = @id`, s.userTableName))
+	stmt.Params["id"] = id
+
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
+			return errors.Wrap(err, "txn.Update()")
+		} else if deleteCount == 0 {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
 // ActivateUser activates a user
 func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)

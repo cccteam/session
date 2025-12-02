@@ -53,6 +53,8 @@ type PasswordAuthStore interface {
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
+	// DeleteUser deletes a user
+	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
@@ -103,6 +105,8 @@ type db interface {
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	// DeleteUser deletes a user
+	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user

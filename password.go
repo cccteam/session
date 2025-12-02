@@ -271,6 +271,34 @@ func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 	})
 }
 
+// DeleteUser handles deleting a user account.
+func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		user, err := p.storage.User(ctx, sessionUserID)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot delete yourself")
+		}
+
+		if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
 // ActivateUser handles activating a user account.
 func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
