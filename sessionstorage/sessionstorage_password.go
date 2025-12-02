@@ -87,6 +87,18 @@ func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 	return nil
 }
 
+// DeleteUser deletes a user
+func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DeleteUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.DeleteUser()")
+	}
+
+	return nil
+}
+
 // ActivateUser activates a user
 func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)

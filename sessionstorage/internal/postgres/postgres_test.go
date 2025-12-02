@@ -557,6 +557,67 @@ func TestSessionStorageDriver_DeactivateUser(t *testing.T) {
 	}
 }
 
+func TestSessionStorageDriver_DeleteUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		id             ccc.UUID
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			id:        ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 1 FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
+		},
+		{
+			name:      "user not found",
+			id:        ccc.Must(ccc.NewUUID()),
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "SessionUsers"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "SessionUsers"`,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "error on invalid scheam",
+			id:      ccc.Must(ccc.NewUUID()),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.DeleteUser(ctx, tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
 func TestSessionStorageDriver_ActivateUser(t *testing.T) {
 	t.Parallel()
 

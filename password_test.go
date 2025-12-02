@@ -708,6 +708,97 @@ func TestPassword_DeactivateUser(t *testing.T) {
 	}
 }
 
+func TestPassword_DeleteUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		userID         ccc.UUID
+		sameUserID     bool
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantMessage    bool
+		wantStatusCode int
+	}{
+		{
+			name:       "fails on self delete",
+			userID:     ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			sameUserID: true,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
+					ID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+				}, nil)
+			},
+			wantStatusCode: http.StatusBadRequest,
+			wantMessage:    true,
+		},
+		{
+			name:   "fails on storage error",
+			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
+					ID:       ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+					Username: "user",
+				}, nil)
+				storage.EXPECT().DeleteUser(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(errors.New("db error"))
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name:   "success",
+			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
+					ID:       ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+					Username: "user",
+				}, nil)
+				storage.EXPECT().DeleteUser(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(nil)
+				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), "user").Return(nil)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
+			p.storage = storage
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			userID := ccc.Must(ccc.UUIDFromString("456e4567-e89b-12d3-a456-426614174001"))
+			if tt.sameUserID {
+				userID = tt.userID
+			}
+			req, err := createHTTPRequest(http.MethodPost, http.NoBody, nil, &sessioninfo.UserInfo{ID: userID}, map[httpio.ParamType]string{RouterSessionUserID: tt.userID.String()})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+
+			p.DeleteUser().ServeHTTP(rr, req)
+
+			if got := rr.Code; got != tt.wantStatusCode {
+				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
+			}
+			if tt.wantMessage {
+				var got httpio.MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+					t.Errorf("json.Unmarshal() error=%v", err)
+				}
+				if got.Message == "" {
+					t.Errorf("Password.DeleteUser() message = %v, wantMessage = %v", got, tt.wantMessage)
+				}
+			}
+		})
+	}
+}
+
 func TestPassword_ActivateUser(t *testing.T) {
 	t.Parallel()
 

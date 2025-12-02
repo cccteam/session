@@ -223,6 +223,24 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
+// DeleteUser deletes a user
+func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		DELETE FROM "%s"
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
 // ActivateUser activates a user
 func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)
