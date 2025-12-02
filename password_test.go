@@ -39,7 +39,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 	tests := []struct {
 		name           string
 		reqBody        any
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore, cookieHandler *mock_cookie.MockCookieHandler)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockCookieHandler)
 		wantMessage    bool
 		wantStatusCode int
 	}{
@@ -55,7 +55,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusUnauthorized,
@@ -67,7 +67,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "wrongpassword",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					PasswordHash: validHash,
 				}, nil)
@@ -81,7 +81,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					PasswordHash: validHash,
 					Disabled:     true,
@@ -96,7 +96,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					Username:     "user",
 					PasswordHash: validHash,
@@ -111,7 +111,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, cookieHandler *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					Username:     "user",
 					PasswordHash: validHash,
@@ -128,7 +128,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, cookieHandler *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockCookieHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					Username:     "user",
 					PasswordHash: validHash,
@@ -146,7 +146,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, cookieHandler *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockCookieHandler) {
 				userID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					ID:           userID,
@@ -167,7 +167,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore, cookieHandler *mock_cookie.MockCookieHandler) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockCookieHandler) {
 				userID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					ID:           userID,
@@ -188,7 +188,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 			cookieHandler := mock_cookie.NewMockCookieHandler(ctrl)
 
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{})
@@ -237,13 +237,13 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantMessage    bool
 		wantStatusCode int
 	}{
 		{
 			name: "fails on check session",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusUnauthorized,
@@ -251,7 +251,7 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		},
 		{
 			name: "fails on user not found",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -264,7 +264,7 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		},
 		{
 			name: "fails on disabled user",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -278,7 +278,7 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		},
 		{
 			name: "success",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -295,7 +295,7 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
@@ -338,7 +338,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		sessionInfo    *sessioninfo.SessionInfo
 		wantMessage    bool
 		wantStatusCode int
@@ -346,7 +346,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 	}{
 		{
 			name: "fails on check session",
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusOK,
@@ -357,7 +357,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			sessionInfo: &sessioninfo.SessionInfo{
 				Username: "user",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -374,7 +374,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			sessionInfo: &sessioninfo.SessionInfo{
 				Username: "user",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -391,7 +391,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			sessionInfo: &sessioninfo.SessionInfo{
 				Username: "user",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
@@ -408,7 +408,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			sessionInfo: &sessioninfo.SessionInfo{
 				Username: "user",
 			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
 					ID:        sessionID,
@@ -429,7 +429,7 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
@@ -480,7 +480,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 		name           string
 		reqBody        any
 		userInfo       *sessioninfo.UserInfo
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantMessage    bool
 		wantStatusCode int
 	}{
@@ -498,7 +498,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 				"newPassword": "newpassword",
 			},
 			userInfo: &sessioninfo.UserInfo{ID: userID},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -510,7 +510,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 				"newPassword": "newpassword",
 			},
 			userInfo: &sessioninfo.UserInfo{ID: userID},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{PasswordHash: validHash}, nil)
 			},
 			wantStatusCode: http.StatusUnauthorized,
@@ -523,7 +523,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 				"newPassword": "newpassword",
 			},
 			userInfo: &sessioninfo.UserInfo{ID: userID},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{
 					ID:           userID,
 					PasswordHash: validHash,
@@ -539,7 +539,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 				"newPassword": "newpassword",
 			},
 			userInfo: &sessioninfo.UserInfo{ID: userID},
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{
 					ID:           userID,
 					PasswordHash: validHash,
@@ -554,7 +554,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 			p.hasher = hasher

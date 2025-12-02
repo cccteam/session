@@ -217,32 +217,32 @@ func (mr *MockPreauthStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPreauthStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
-// MockPasswordStore is a mock of PasswordStore interface.
-type MockPasswordStore struct {
+// MockPasswordAuthStore is a mock of PasswordAuthStore interface.
+type MockPasswordAuthStore struct {
 	ctrl     *gomock.Controller
-	recorder *MockPasswordStoreMockRecorder
+	recorder *MockPasswordAuthStoreMockRecorder
 	isgomock struct{}
 }
 
-// MockPasswordStoreMockRecorder is the mock recorder for MockPasswordStore.
-type MockPasswordStoreMockRecorder struct {
-	mock *MockPasswordStore
+// MockPasswordAuthStoreMockRecorder is the mock recorder for MockPasswordAuthStore.
+type MockPasswordAuthStoreMockRecorder struct {
+	mock *MockPasswordAuthStore
 }
 
-// NewMockPasswordStore creates a new mock instance.
-func NewMockPasswordStore(ctrl *gomock.Controller) *MockPasswordStore {
-	mock := &MockPasswordStore{ctrl: ctrl}
-	mock.recorder = &MockPasswordStoreMockRecorder{mock}
+// NewMockPasswordAuthStore creates a new mock instance.
+func NewMockPasswordAuthStore(ctrl *gomock.Controller) *MockPasswordAuthStore {
+	mock := &MockPasswordAuthStore{ctrl: ctrl}
+	mock.recorder = &MockPasswordAuthStoreMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPasswordStore) EXPECT() *MockPasswordStoreMockRecorder {
+func (m *MockPasswordAuthStore) EXPECT() *MockPasswordAuthStoreMockRecorder {
 	return m.recorder
 }
 
 // DestroySession mocks base method.
-func (m *MockPasswordStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockPasswordAuthStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -250,13 +250,13 @@ func (m *MockPasswordStore) DestroySession(ctx context.Context, sessionID ccc.UU
 }
 
 // DestroySession indicates an expected call of DestroySession.
-func (mr *MockPasswordStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPasswordStore)(nil).DestroySession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroySession), ctx, sessionID)
 }
 
 // NewSession mocks base method.
-func (m *MockPasswordStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewSession", ctx, username)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -265,13 +265,13 @@ func (m *MockPasswordStore) NewSession(ctx context.Context, username string) (cc
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockPasswordStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordStore)(nil).NewSession), ctx, username)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), ctx, username)
 }
 
 // Session mocks base method.
-func (m *MockPasswordStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
 	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
@@ -280,37 +280,37 @@ func (m *MockPasswordStore) Session(ctx context.Context, sessionID ccc.UUID) (*s
 }
 
 // Session indicates an expected call of Session.
-func (mr *MockPasswordStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPasswordStore)(nil).Session), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPasswordAuthStore)(nil).Session), ctx, sessionID)
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockPasswordStore) SetSessionTableName(name string) {
+func (m *MockPasswordAuthStore) SetSessionTableName(name string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetSessionTableName", name)
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
-func (mr *MockPasswordStoreMockRecorder) SetSessionTableName(name any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) SetSessionTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockPasswordStore)(nil).SetSessionTableName), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetSessionTableName), name)
 }
 
 // SetUserTableName mocks base method.
-func (m *MockPasswordStore) SetUserTableName(name string) {
+func (m *MockPasswordAuthStore) SetUserTableName(name string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetUserTableName", name)
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
-func (mr *MockPasswordStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockPasswordStore)(nil).SetUserTableName), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserTableName), name)
 }
 
 // UpdateSessionActivity mocks base method.
-func (m *MockPasswordStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
+func (m *MockPasswordAuthStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
 	ret0, _ := ret[0].(error)
@@ -318,13 +318,13 @@ func (m *MockPasswordStore) UpdateSessionActivity(ctx context.Context, sessionID
 }
 
 // UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockPasswordStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPasswordStore)(nil).UpdateSessionActivity), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
 // UpdateUserPasswordHash mocks base method.
-func (m *MockPasswordStore) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+func (m *MockPasswordAuthStore) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateUserPasswordHash", ctx, id, hash)
 	ret0, _ := ret[0].(error)
@@ -332,13 +332,13 @@ func (m *MockPasswordStore) UpdateUserPasswordHash(ctx context.Context, id ccc.U
 }
 
 // UpdateUserPasswordHash indicates an expected call of UpdateUserPasswordHash.
-func (mr *MockPasswordStoreMockRecorder) UpdateUserPasswordHash(ctx, id, hash any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) UpdateUserPasswordHash(ctx, id, hash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserPasswordHash", reflect.TypeOf((*MockPasswordStore)(nil).UpdateUserPasswordHash), ctx, id, hash)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserPasswordHash", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateUserPasswordHash), ctx, id, hash)
 }
 
 // User mocks base method.
-func (m *MockPasswordStore) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
+func (m *MockPasswordAuthStore) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "User", ctx, id)
 	ret0, _ := ret[0].(*dbtype.SessionUser)
@@ -347,13 +347,13 @@ func (m *MockPasswordStore) User(ctx context.Context, id ccc.UUID) (*dbtype.Sess
 }
 
 // User indicates an expected call of User.
-func (mr *MockPasswordStoreMockRecorder) User(ctx, id any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) User(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockPasswordStore)(nil).User), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockPasswordAuthStore)(nil).User), ctx, id)
 }
 
 // UserByUserName mocks base method.
-func (m *MockPasswordStore) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+func (m *MockPasswordAuthStore) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UserByUserName", ctx, username)
 	ret0, _ := ret[0].(*dbtype.SessionUser)
@@ -362,9 +362,9 @@ func (m *MockPasswordStore) UserByUserName(ctx context.Context, username string)
 }
 
 // UserByUserName indicates an expected call of UserByUserName.
-func (mr *MockPasswordStoreMockRecorder) UserByUserName(ctx, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) UserByUserName(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockPasswordStore)(nil).UserByUserName), ctx, username)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockPasswordAuthStore)(nil).UserByUserName), ctx, username)
 }
 
 // MockOIDCStore is a mock of OIDCStore interface.
