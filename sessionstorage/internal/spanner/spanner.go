@@ -217,6 +217,35 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
+// CreateUser creates a new user
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	user := &dbtype.SessionUser{
+		ID:           id,
+		Username:     username,
+		PasswordHash: hash,
+		Disabled:     false,
+	}
+
+	mutation, err := spanner.InsertStruct(s.userTableName, user)
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.InsertStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		return nil, errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return user, nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)

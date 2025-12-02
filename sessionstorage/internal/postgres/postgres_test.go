@@ -442,6 +442,63 @@ func TestSessionStorageDriver_UserByUserName(t *testing.T) {
 	}
 }
 
+func TestSessionStorageDriver_CreateUser(t *testing.T) {
+	t.Parallel()
+
+	hash, err := securehash.New(securehash.Argon2()).Hash("password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name           string
+		username       string
+		hash           *securehash.Hash
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			username:  "newuser",
+			hash:      hash,
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM "SessionUsers" WHERE "Username" = 'newuser'`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 1 FROM "SessionUsers" WHERE "Username" = 'newuser'`,
+			},
+		},
+		{
+			name:      "user already exists",
+			username:  "testuser",
+			hash:      hash,
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			_, err = c.CreateUser(ctx, tt.username, tt.hash)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
 func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
 	t.Parallel()
 
