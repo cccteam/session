@@ -23,18 +23,18 @@ type PasswordOption interface {
 	isPasswordOption()
 }
 
-var _ PasswordHandlers = &Password{}
+var _ PasswordAuthHandlers = &PasswordAuth{}
 
-// Password implements the PasswordHandlers interface for handling password authentication.
-type Password struct {
-	storage     sessionstorage.PasswordStore
+// PasswordAuth implements the PasswordHandlers interface for handling password authentication.
+type PasswordAuth struct {
+	storage     sessionstorage.PasswordAuthStore
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
 	*basesession.BaseSession
 }
 
-// NewPassword creates a new Password.
-func NewPassword(storage sessionstorage.PasswordStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *Password {
+// NewPasswordAuth creates a new Password.
+func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *PasswordAuth {
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
@@ -52,7 +52,7 @@ func NewPassword(storage sessionstorage.PasswordStore, secureCookie *securecooki
 		}
 	}
 
-	p := &Password{
+	p := &PasswordAuth{
 		storage:     storage,
 		hasher:      securehash.New(securehash.Argon2()),
 		autoUpgrade: true,
@@ -71,7 +71,7 @@ func NewPassword(storage sessionstorage.PasswordStore, secureCookie *securecooki
 }
 
 // Login validates the username and password.
-func (p *Password) Login() http.HandlerFunc {
+func (p *PasswordAuth) Login() http.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -126,7 +126,7 @@ func (p *Password) Login() http.HandlerFunc {
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
-func (p *Password) ValidateSession(next http.Handler) http.Handler {
+func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
@@ -161,7 +161,7 @@ func (p *Password) ValidateSession(next http.Handler) http.Handler {
 }
 
 // Authenticated is the handler reports if the session is authenticated
-func (p *Password) Authenticated() http.HandlerFunc {
+func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool   `json:"authenticated"`
 		Username      string `json:"username"`
@@ -202,7 +202,7 @@ func (p *Password) Authenticated() http.HandlerFunc {
 }
 
 // ChangeUserPassword handles modifications to a user password
-func (p *Password) ChangeUserPassword() http.HandlerFunc {
+func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	type request struct {
 		OldPassword string `json:"oldPassword"`
 		NewPassword string `json:"newPassword"`
@@ -239,7 +239,7 @@ func (p *Password) ChangeUserPassword() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *Password) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := p.storage.NewSession(ctx, username)
 	if err != nil {
@@ -256,7 +256,7 @@ func (p *Password) startNewSession(ctx context.Context, w http.ResponseWriter, r
 	return id, nil
 }
 
-func (p *Password) storePasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
+func (p *PasswordAuth) storePasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	newHash, err := p.hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "hasher.Hash()")

@@ -39,10 +39,10 @@ type PreauthStore interface {
 	BaseStore
 }
 
-var _ PasswordStore = (*Password)(nil)
+var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
-// PasswordStore defines an interface for managing password sessions.
-type PasswordStore interface {
+// PasswordAuthStore defines an interface for managing password sessions.
+type PasswordAuthStore interface {
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username

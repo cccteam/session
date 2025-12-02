@@ -12,16 +12,16 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-var _ PasswordStore = (*Password)(nil)
+var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
-// Password is the session storage implementation with Password support.
-type Password struct {
+// PasswordAuth is the session storage implementation with PasswordAuth support.
+type PasswordAuth struct {
 	sessionStorage
 }
 
-// NewSpannerPassword creates a new Password storage instance.
-func NewSpannerPassword(client *cloudspanner.Client) *Password {
-	return &Password{
+// NewSpannerPasswordAuth creates a new Password storage instance.
+func NewSpannerPasswordAuth(client *cloudspanner.Client) *PasswordAuth {
+	return &PasswordAuth{
 		sessionStorage: sessionStorage{
 			db: spanner.NewSessionStorageDriver(client),
 		},
@@ -29,8 +29,8 @@ func NewSpannerPassword(client *cloudspanner.Client) *Password {
 }
 
 // NewPostgresPassword creates a new PostgresPassword instance.
-func NewPostgresPassword(pg postgres.Queryer) *Password {
-	return &Password{
+func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
+	return &PasswordAuth{
 		sessionStorage: sessionStorage{
 			db: postgres.NewSessionStorageDriver(pg),
 		},
@@ -38,7 +38,7 @@ func NewPostgresPassword(pg postgres.Queryer) *Password {
 }
 
 // User returns the user record associated with the username
-func (p *Password) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
+func (p *PasswordAuth) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -51,7 +51,7 @@ func (p *Password) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, 
 }
 
 // UserByUserName returns the user record associated with the username
-func (p *Password) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -64,7 +64,7 @@ func (p *Password) UserByUserName(ctx context.Context, username string) (*dbtype
 }
 
 // UpdateUserPasswordHash updates the user password hash
-func (p *Password) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+func (p *PasswordAuth) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 

@@ -6,10 +6,10 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ PasswordHandlers = &Password{}
+var _ PasswordAuthHandlers = &PasswordAuth{}
 
-// PasswordHandlers defines the interface for password authentication handlers.
-type PasswordHandlers interface {
+// PasswordAuthHandlers defines the interface for password authentication handlers.
+type PasswordAuthHandlers interface {
 	Authenticated() http.HandlerFunc
 	ChangeUserPassword() http.HandlerFunc
 	Login() http.HandlerFunc

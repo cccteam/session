@@ -13,7 +13,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPassword_User(t *testing.T) {
+func TestPasswordAuth_User(t *testing.T) {
 	t.Parallel()
 	userID := ccc.Must(ccc.NewUUID())
 	tests := []struct {
@@ -45,7 +45,7 @@ func TestPassword_User(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &Password{
+			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
@@ -65,7 +65,7 @@ func TestPassword_User(t *testing.T) {
 	}
 }
 
-func TestPassword_UserByUserName(t *testing.T) {
+func TestPasswordAuth_UserByUserName(t *testing.T) {
 	t.Parallel()
 	userID := ccc.Must(ccc.NewUUID())
 	tests := []struct {
@@ -97,7 +97,7 @@ func TestPassword_UserByUserName(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &Password{
+			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
@@ -117,7 +117,7 @@ func TestPassword_UserByUserName(t *testing.T) {
 	}
 }
 
-func TestPassword_UpdateUserPasswordHash(t *testing.T) {
+func TestPasswordAuth_UpdateUserPasswordHash(t *testing.T) {
 	t.Parallel()
 	userID := ccc.Must(ccc.NewUUID())
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -154,7 +154,7 @@ func TestPassword_UpdateUserPasswordHash(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := mock_sessionstorage.NewMockdb(ctrl)
-			storage := &Password{
+			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
@@ -171,7 +171,7 @@ func TestPassword_UpdateUserPasswordHash(t *testing.T) {
 
 func TestNewSpannerPassword(t *testing.T) {
 	t.Parallel()
-	p := NewSpannerPassword(nil)
+	p := NewSpannerPasswordAuth(nil)
 	if p == nil {
 		t.Error("NewSpannerPassword() returned nil")
 	}

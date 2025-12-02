@@ -23,7 +23,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPassword_Login(t *testing.T) {
+func TestPasswordAuth_Login(t *testing.T) {
 	t.Parallel()
 
 	validHash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -191,7 +191,7 @@ func TestPassword_Login(t *testing.T) {
 			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
 			cookieHandler := mock_cookie.NewMockCookieHandler(ctrl)
 
-			p := NewPassword(storage, &securecookie.SecureCookie{})
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{})
 			p.hasher = securehash.New(securehash.Argon2())
 			p.CookieHandler = cookieHandler
 
@@ -232,7 +232,7 @@ func TestPassword_Login(t *testing.T) {
 	}
 }
 
-func TestPassword_ValidateSession(t *testing.T) {
+func TestPasswordAuth_ValidateSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -297,7 +297,7 @@ func TestPassword_ValidateSession(t *testing.T) {
 
 			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
 
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 			p.SessionTimeout = time.Minute
 
@@ -333,7 +333,7 @@ func TestPassword_ValidateSession(t *testing.T) {
 	}
 }
 
-func TestPassword_Authenticated(t *testing.T) {
+func TestPasswordAuth_Authenticated(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -431,7 +431,7 @@ func TestPassword_Authenticated(t *testing.T) {
 
 			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
 
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 
 			if tt.prepare != nil {
@@ -466,7 +466,7 @@ func TestPassword_Authenticated(t *testing.T) {
 	}
 }
 
-func TestPassword_ChangeUserPassword(t *testing.T) {
+func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 	t.Parallel()
 
 	hasher := securehash.New(securehash.Argon2())
@@ -555,7 +555,7 @@ func TestPassword_ChangeUserPassword(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 			p.hasher = hasher
 
