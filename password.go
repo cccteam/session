@@ -99,7 +99,7 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
 		}
 		if upgrade && p.autoUpgrade {
-			if err := p.storePasswordHash(ctx, user.ID, req.Password); err != nil {
+			if err := p.setPasswordHash(ctx, user.ID, req.Password); err != nil {
 				logger.FromCtx(ctx).Error(err)
 			} else {
 				logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
@@ -107,7 +107,7 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 		}
 
 		if user.Disabled {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Account")
+			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Account disabled")
 		}
 
 		// user is successfully authenticated, start a new session
@@ -230,7 +230,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
 		}
 
-		if err := p.storePasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -256,14 +256,14 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	return id, nil
 }
 
-func (p *PasswordAuth) storePasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
+func (p *PasswordAuth) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	newHash, err := p.hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
 
-	if err := p.storage.UpdateUserPasswordHash(ctx, userID, newHash); err != nil {
-		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UpdateUserPasswordHash()")
+	if err := p.storage.SetUserPasswordHash(ctx, userID, newHash); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserPasswordHash()")
 	}
 
 	return nil

@@ -297,6 +297,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetSessionTableName(name any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetSessionTableName), name)
 }
 
+// SetUserPasswordHash mocks base method.
+func (m *MockPasswordAuthStore) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserPasswordHash", ctx, id, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserPasswordHash indicates an expected call of SetUserPasswordHash.
+func (mr *MockPasswordAuthStoreMockRecorder) SetUserPasswordHash(ctx, id, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPasswordHash", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserPasswordHash), ctx, id, hash)
+}
+
 // SetUserTableName mocks base method.
 func (m *MockPasswordAuthStore) SetUserTableName(name string) {
 	m.ctrl.T.Helper()
@@ -321,20 +335,6 @@ func (m *MockPasswordAuthStore) UpdateSessionActivity(ctx context.Context, sessi
 func (mr *MockPasswordAuthStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateSessionActivity), ctx, sessionID)
-}
-
-// UpdateUserPasswordHash mocks base method.
-func (m *MockPasswordAuthStore) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateUserPasswordHash", ctx, id, hash)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateUserPasswordHash indicates an expected call of UpdateUserPasswordHash.
-func (mr *MockPasswordAuthStoreMockRecorder) UpdateUserPasswordHash(ctx, id, hash any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserPasswordHash", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateUserPasswordHash), ctx, id, hash)
 }
 
 // User mocks base method.
@@ -596,6 +596,20 @@ func (mr *MockdbMockRecorder) SetSessionTableName(name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*Mockdb)(nil).SetSessionTableName), name)
 }
 
+// SetUserPasswordHash mocks base method.
+func (m *Mockdb) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserPasswordHash", ctx, id, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserPasswordHash indicates an expected call of SetUserPasswordHash.
+func (mr *MockdbMockRecorder) SetUserPasswordHash(ctx, id, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPasswordHash", reflect.TypeOf((*Mockdb)(nil).SetUserPasswordHash), ctx, id, hash)
+}
+
 // SetUserTableName mocks base method.
 func (m *Mockdb) SetUserTableName(name string) {
 	m.ctrl.T.Helper()
@@ -620,20 +634,6 @@ func (m *Mockdb) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) 
 func (mr *MockdbMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*Mockdb)(nil).UpdateSessionActivity), ctx, sessionID)
-}
-
-// UpdateUserPasswordHash mocks base method.
-func (m *Mockdb) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateUserPasswordHash", ctx, id, hash)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateUserPasswordHash indicates an expected call of UpdateUserPasswordHash.
-func (mr *MockdbMockRecorder) UpdateUserPasswordHash(ctx, id, hash any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserPasswordHash", reflect.TypeOf((*Mockdb)(nil).UpdateUserPasswordHash), ctx, id, hash)
 }
 
 // User mocks base method.

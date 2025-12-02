@@ -117,7 +117,7 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_UpdateUserPasswordHash(t *testing.T) {
+func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 	t.Parallel()
 	userID := ccc.Must(ccc.NewUUID())
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -136,7 +136,7 @@ func TestPasswordAuth_UpdateUserPasswordHash(t *testing.T) {
 			id:   userID,
 			hash: hash,
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, hash).Return(nil)
+				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(nil)
 			},
 		},
 		{
@@ -144,7 +144,7 @@ func TestPasswordAuth_UpdateUserPasswordHash(t *testing.T) {
 			id:   userID,
 			hash: hash,
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, hash).Return(errors.New("db error"))
+				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -162,8 +162,8 @@ func TestPasswordAuth_UpdateUserPasswordHash(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			if err := storage.UpdateUserPasswordHash(context.Background(), tt.id, tt.hash); (err != nil) != tt.wantErr {
-				t.Errorf("Password.UpdateUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+			if err := storage.SetUserPasswordHash(context.Background(), tt.id, tt.hash); (err != nil) != tt.wantErr {
+				t.Errorf("Password.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

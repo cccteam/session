@@ -63,13 +63,13 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 	return u, nil
 }
 
-// UpdateUserPasswordHash updates the user password hash
-func (p *PasswordAuth) UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+// SetUserPasswordHash updates the user password hash
+func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
-	if err := p.db.UpdateUserPasswordHash(ctx, id, hash); err != nil {
-		return errors.Wrap(err, "db.UpdateUserPasswordHash()")
+	if err := p.db.SetUserPasswordHash(ctx, id, hash); err != nil {
+		return errors.Wrap(err, "db.SetUserPasswordHash()")
 	}
 
 	return nil

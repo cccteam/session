@@ -47,8 +47,8 @@ type PasswordAuthStore interface {
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
-	// UpdateUserPasswordHash updates the user password hash
-	UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+	// SetUserPasswordHash updates the user password hash
+	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 
 	// shared storage methods
 	PreauthStore
@@ -93,8 +93,8 @@ type db interface {
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
-	// UpdateUserPasswordHash updates the user password hash
-	UpdateUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+	// SetUserPasswordHash updates the user password hash
+	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 
 	//
 	// OIDC specific methods

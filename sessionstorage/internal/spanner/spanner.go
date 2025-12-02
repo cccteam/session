@@ -217,8 +217,8 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
-// UpdateUserPasswordHash updates the user password hash
-func (s *SessionStorageDriver) UpdateUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
+// SetUserPasswordHash updates the user password hash
+func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 

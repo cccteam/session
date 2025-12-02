@@ -442,7 +442,7 @@ func TestSessionStorageDriver_UserByUserName(t *testing.T) {
 	}
 }
 
-func TestSessionStorageDriver_UpdateUserPasswordHash(t *testing.T) {
+func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
 	t.Parallel()
 
 	newHash := &securehash.Hash{}
@@ -498,9 +498,9 @@ func TestSessionStorageDriver_UpdateUserPasswordHash(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.UpdateUserPasswordHash(ctx, tt.id, tt.hash)
+			err = c.SetUserPasswordHash(ctx, tt.id, tt.hash)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("SessionStorageDriver.UpdateUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("SessionStorageDriver.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
 		})

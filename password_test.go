@@ -153,7 +153,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 					Username:     "user",
 					PasswordHash: oldHash,
 				}, nil)
-				storage.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
@@ -174,7 +174,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 					Username:     "user",
 					PasswordHash: oldHash,
 				}, nil)
-				storage.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
@@ -528,7 +528,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 					ID:           userID,
 					PasswordHash: validHash,
 				}, nil)
-				storage.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -544,7 +544,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 					ID:           userID,
 					PasswordHash: validHash,
 				}, nil)
-				storage.EXPECT().UpdateUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 			},
 			wantStatusCode: http.StatusOK,
 		},
