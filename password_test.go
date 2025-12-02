@@ -627,14 +627,14 @@ func TestPassword_DeactivateUser(t *testing.T) {
 		name           string
 		userID         ccc.UUID
 		sameUserID     bool
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantMessage    bool
 		wantStatusCode int
 	}{
 		{
 			name:   "fails on storage error",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(nil, errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -642,7 +642,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 		{
 			name:   "fails on destroy all sessions",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
 					ID:       ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 					Username: "user",
@@ -655,7 +655,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 		{
 			name:   "success",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
 					ID:       ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 					Username: "user",
@@ -671,8 +671,8 @@ func TestPassword_DeactivateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 
 			if tt.prepare != nil {
@@ -714,14 +714,14 @@ func TestPassword_ActivateUser(t *testing.T) {
 	tests := []struct {
 		name           string
 		userID         ccc.UUID
-		prepare        func(storage *mock_sessionstorage.MockPasswordStore)
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantMessage    bool
 		wantStatusCode int
 	}{
 		{
 			name:   "fails on storage error",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().ActivateUser(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -729,7 +729,7 @@ func TestPassword_ActivateUser(t *testing.T) {
 		{
 			name:   "success",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(storage *mock_sessionstorage.MockPasswordStore) {
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().ActivateUser(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(nil)
 			},
 			wantStatusCode: http.StatusOK,
@@ -740,8 +740,8 @@ func TestPassword_ActivateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordStore(ctrl)
-			p := NewPassword(storage, &securecookie.SecureCookie{}, nil)
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
 
 			if tt.prepare != nil {

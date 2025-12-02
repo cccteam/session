@@ -76,7 +76,7 @@ func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, has
 }
 
 // DeactivateUser deactivates a user
-func (p *Password) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -88,7 +88,7 @@ func (p *Password) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 }
 
 // ActivateUser activates a user
-func (p *Password) ActivateUser(ctx context.Context, id ccc.UUID) error {
+func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -100,7 +100,7 @@ func (p *Password) ActivateUser(ctx context.Context, id ccc.UUID) error {
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user
-func (p *Password) DestroyAllUserSessions(ctx context.Context, username string) error {
+func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username string) error {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
