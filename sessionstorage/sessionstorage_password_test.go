@@ -225,7 +225,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 			mockdb := mock_sessionstorage.NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &Password{
+			p := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
@@ -278,7 +278,7 @@ func TestPassword_ActivateUser(t *testing.T) {
 			mockdb := mock_sessionstorage.NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &Password{
+			p := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
@@ -325,7 +325,7 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 			mockdb := mock_sessionstorage.NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &Password{
+			p := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},

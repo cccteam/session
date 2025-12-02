@@ -244,7 +244,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 }
 
 // DeactivateUser handles deactivating a user account.
-func (p *Password) DeactivateUser() http.HandlerFunc {
+func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
@@ -272,7 +272,7 @@ func (p *Password) DeactivateUser() http.HandlerFunc {
 }
 
 // ActivateUser handles activating a user account.
-func (p *Password) ActivateUser() http.HandlerFunc {
+func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()

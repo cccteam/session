@@ -242,7 +242,7 @@ func (m *MockPasswordAuthStore) EXPECT() *MockPasswordAuthStoreMockRecorder {
 }
 
 // ActivateUser mocks base method.
-func (m *MockPasswordStore) ActivateUser(ctx context.Context, id ccc.UUID) error {
+func (m *MockPasswordAuthStore) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ActivateUser", ctx, id)
 	ret0, _ := ret[0].(error)
@@ -250,13 +250,13 @@ func (m *MockPasswordStore) ActivateUser(ctx context.Context, id ccc.UUID) error
 }
 
 // ActivateUser indicates an expected call of ActivateUser.
-func (mr *MockPasswordStoreMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockPasswordStore)(nil).ActivateUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).ActivateUser), ctx, id)
 }
 
 // DeactivateUser mocks base method.
-func (m *MockPasswordStore) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+func (m *MockPasswordAuthStore) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id)
 	ret0, _ := ret[0].(error)
@@ -264,13 +264,13 @@ func (m *MockPasswordStore) DeactivateUser(ctx context.Context, id ccc.UUID) err
 }
 
 // DeactivateUser indicates an expected call of DeactivateUser.
-func (mr *MockPasswordStoreMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockPasswordStore)(nil).DeactivateUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).DeactivateUser), ctx, id)
 }
 
 // DestroyAllUserSessions mocks base method.
-func (m *MockPasswordStore) DestroyAllUserSessions(ctx context.Context, username string) error {
+func (m *MockPasswordAuthStore) DestroyAllUserSessions(ctx context.Context, username string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DestroyAllUserSessions", ctx, username)
 	ret0, _ := ret[0].(error)
@@ -278,9 +278,9 @@ func (m *MockPasswordStore) DestroyAllUserSessions(ctx context.Context, username
 }
 
 // DestroyAllUserSessions indicates an expected call of DestroyAllUserSessions.
-func (mr *MockPasswordStoreMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPasswordStore)(nil).DestroyAllUserSessions), ctx, username)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroyAllUserSessions), ctx, username)
 }
 
 // DestroySession mocks base method.
