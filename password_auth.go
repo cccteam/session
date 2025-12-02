@@ -243,6 +243,48 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	})
 }
 
+// CreateUser handles creating a user account.
+func (p *PasswordAuth) CreateUser() http.HandlerFunc {
+	type request struct {
+		Username string  `json:"username"`
+		Password *string `json:"password"`
+	}
+
+	type response struct {
+		ID           ccc.UUID         `json:"id"`
+		Username     string           `json:"username"`
+		PasswordHash *securehash.Hash `json:"-"`
+		Disabled     bool             `json:"disabled"`
+	}
+
+	decoder := newDecoder[request]()
+
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		var hash *securehash.Hash
+		if req.Password != nil {
+			hash, err = p.hasher.Hash(*req.Password)
+			if err != nil {
+				return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
+			}
+		}
+
+		user, err := p.storage.CreateUser(ctx, req.Username, hash)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok((*response)(user))
+	})
+}
+
 // DeactivateUser handles deactivating a user account.
 func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -6,7 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+<<<<<<< HEAD
 	"reflect"
+=======
+	"strings"
+>>>>>>> 8822468 (feature: Implement CreateUser())
 	"testing"
 	"time"
 
@@ -614,6 +618,112 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 				}
 				if got.Message == "" {
 					t.Errorf("Password.Login() message = %v, wantMessage = %v", got, tt.wantMessage)
+				}
+			}
+		})
+	}
+}
+
+func TestPasswordAuth_CreateUser(t *testing.T) {
+	t.Parallel()
+
+	hasher := securehash.New(securehash.Argon2())
+	userID := ccc.Must(ccc.NewUUID())
+
+	type request struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	tests := []struct {
+		name           string
+		reqBody        string
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantStatusCode int
+		wantBody       string
+		wantMessage    bool
+	}{
+		{
+			name:           "fails on decode",
+			reqBody:        "invalid json",
+			wantStatusCode: http.StatusBadRequest,
+			wantMessage:    true,
+		},
+		{
+			name:    "fails on create user",
+			reqBody: `{"username": "user", "password": "password"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(nil, errors.New("db error"))
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name:    "success",
+			reqBody: `{"username": "user", "password": "password"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(&dbtype.SessionUser{
+					ID:       userID,
+					Username: "user",
+				}, nil)
+			},
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"id":"` + userID.String() + `","username":"user","disabled":false}` + "\n",
+		},
+		{
+			name:    "success with empty password",
+			reqBody: `{"username": "user"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CreateUser(gomock.Any(), "user", gomock.Any()).Return(&dbtype.SessionUser{
+					ID:       userID,
+					Username: "user",
+				}, nil)
+			},
+			wantStatusCode: http.StatusOK,
+			wantBody:       `{"id":"` + userID.String() + `","username":"user","disabled":false}` + "\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
+			p.storage = storage
+			p.hasher = hasher
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			var body io.Reader = http.NoBody
+			if tt.reqBody != "" {
+				body = strings.NewReader(tt.reqBody)
+			}
+
+			req, err := createHTTPRequest(http.MethodPost, body, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+
+			p.CreateUser().ServeHTTP(rr, req)
+
+			if got := rr.Code; got != tt.wantStatusCode {
+				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
+			}
+			if tt.wantMessage {
+				var got httpio.MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+					t.Errorf("json.Unmarshal() error=%v", err)
+				}
+				if got.Message == "" {
+					t.Errorf("Password.CreateUser() message = %v, wantMessage = %v", got, tt.wantMessage)
+				}
+			} else if tt.wantBody != "" {
+				if got := rr.Body.String(); got != tt.wantBody {
+					t.Errorf("response.Body = %q, want %q", got, tt.wantBody)
 				}
 			}
 		})

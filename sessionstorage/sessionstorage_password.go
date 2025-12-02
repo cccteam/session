@@ -63,6 +63,19 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 	return u, nil
 }
 
+// CreateUser creates a new user
+func (p *PasswordAuth) CreateUser(ctx context.Context, username string, hash *securehash.Hash) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	u, err := p.db.CreateUser(ctx, username, hash)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.CreateUser()")
+	}
+
+	return u, nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)

@@ -16,6 +16,8 @@ type PasswordAuthHandlers interface {
 	Authenticated() http.HandlerFunc
 	// ChangeUserPassword handles modifications to a user password.
 	ChangeUserPassword() http.HandlerFunc
+	// CreateUser handles creating a user account.
+	CreateUser() http.HandlerFunc
 	// DeactivateUser handles deactivating a user account.
 	DeactivateUser() http.HandlerFunc
 	// DeleteUser handles deleting a user account.
