@@ -25,7 +25,7 @@ type PasswordOption interface {
 
 var _ PasswordHandlers = &Password{}
 
-// Password implements the PasswordHandlers interface for handling OIDC authentication with Azure.
+// Password implements the PasswordHandlers interface for handling password authentication.
 type Password struct {
 	storage     sessionstorage.PasswordStore
 	hasher      *securehash.SecureHasher
@@ -70,7 +70,7 @@ func NewPassword(storage sessionstorage.PasswordStore, secureCookie *securecooki
 	return p
 }
 
-// Login initiates the OIDC login flow by redirecting the user to the authorization URL.
+// Login validates the username and password.
 func (p *Password) Login() http.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
@@ -243,11 +243,11 @@ func (p *Password) startNewSession(ctx context.Context, w http.ResponseWriter, r
 	// Create new Session in database
 	id, err := p.storage.NewSession(ctx, username)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
 	if _, err := p.NewAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.NewAuthCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
