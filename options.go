@@ -91,8 +91,8 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 	})
 }
 
-// HashAlgrorithm controls hashing algrorithm (default: securehash.Argon2())
-func HashAlgrorithm(hasher securehash.HashAlgorithm) PasswordOption {
+// HashAlgorithm controls hashing algrorithm (default: securehash.Argon2())
+func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return passwordOption(func(p *Password) {
 		p.hasher = securehash.New(hasher)
 	})
