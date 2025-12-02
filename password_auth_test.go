@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
@@ -649,7 +648,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "fails on create user",
 			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), gomock.Any()).Return(nil, errors.New("db error"))
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -657,7 +656,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "success",
 			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 					Domain:   "test.com",
@@ -670,7 +669,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "success with default domain",
 			reqBody: `{"username": "user", "password": "password"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("global"), gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 					Domain:   "global",
@@ -683,7 +682,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "success with empty password",
 			reqBody: `{"username": "user", "domain": "test.com"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), "user", accesstypes.Domain("test.com"), nil).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user", Domain: "test.com"}).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 					Domain:   "test.com",

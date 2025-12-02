@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
@@ -250,6 +251,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 		Username string             `json:"username"`
 		Password *string            `json:"password"`
 		Domain   accesstypes.Domain `json:"domain"`
+		Disabled bool               `json:"disabled"`
 	}
 
 	type response struct {
@@ -283,7 +285,14 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 			}
 		}
 
-		user, err := p.storage.CreateUser(ctx, req.Username, req.Domain, hash)
+		insertUser := &dbtype.InsertSessionUser{
+			Username:     req.Username,
+			Domain:       req.Domain,
+			PasswordHash: hash,
+			Disabled:     req.Disabled,
+		}
+
+		user, err := p.storage.CreateUser(ctx, insertUser)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
