@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	// RouterSessionUserID is a constant used to match the SessionUserID in the router path
+	// RouterSessionUserID is a constant used for matching the SessionUserID in the router path
 	RouterSessionUserID = "sessionUserID"
 )
 
