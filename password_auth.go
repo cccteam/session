@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	// RouterSessionUserID is a constant used in match the SessionUserID in the router path
+	// RouterSessionUserID is a constant used to match the SessionUserID in the router path
 	RouterSessionUserID = "sessionUserID"
 )
 
@@ -40,7 +40,7 @@ type PasswordAuth struct {
 	*basesession.BaseSession
 }
 
-// NewPasswordAuth creates a new Password.
+// NewPasswordAuth creates a new PasswordAuth.
 func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *PasswordAuth {
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
@@ -167,7 +167,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// Authenticated is the handler reports if the session is authenticated
+// Authenticated is the handler that reports if the session is authenticated
 func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool   `json:"authenticated"`
