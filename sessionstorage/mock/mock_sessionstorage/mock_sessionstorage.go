@@ -241,6 +241,77 @@ func (m *MockPasswordAuthStore) EXPECT() *MockPasswordAuthStoreMockRecorder {
 	return m.recorder
 }
 
+// ActivateUser mocks base method.
+func (m *MockPasswordAuthStore) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ActivateUser indicates an expected call of ActivateUser.
+func (mr *MockPasswordAuthStoreMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).ActivateUser), ctx, id)
+}
+
+// CreateUser mocks base method.
+func (m *MockPasswordAuthStore) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUser", ctx, user)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUser indicates an expected call of CreateUser.
+func (mr *MockPasswordAuthStoreMockRecorder) CreateUser(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateUser), ctx, user)
+}
+
+// DeactivateUser mocks base method.
+func (m *MockPasswordAuthStore) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeactivateUser indicates an expected call of DeactivateUser.
+func (mr *MockPasswordAuthStoreMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).DeactivateUser), ctx, id)
+}
+
+// DeleteUser mocks base method.
+func (m *MockPasswordAuthStore) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockPasswordAuthStoreMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).DeleteUser), ctx, id)
+}
+
+// DestroyAllUserSessions mocks base method.
+func (m *MockPasswordAuthStore) DestroyAllUserSessions(ctx context.Context, username string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyAllUserSessions", ctx, username)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyAllUserSessions indicates an expected call of DestroyAllUserSessions.
+func (mr *MockPasswordAuthStoreMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroyAllUserSessions), ctx, username)
+}
+
 // DestroySession mocks base method.
 func (m *MockPasswordAuthStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -509,6 +580,77 @@ func NewMockdb(ctrl *gomock.Controller) *Mockdb {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *Mockdb) EXPECT() *MockdbMockRecorder {
 	return m.recorder
+}
+
+// ActivateUser mocks base method.
+func (m *Mockdb) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ActivateUser indicates an expected call of ActivateUser.
+func (mr *MockdbMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*Mockdb)(nil).ActivateUser), ctx, id)
+}
+
+// CreateUser mocks base method.
+func (m *Mockdb) CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUser", ctx, insertSessionUser)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUser indicates an expected call of CreateUser.
+func (mr *MockdbMockRecorder) CreateUser(ctx, insertSessionUser any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, insertSessionUser)
+}
+
+// DeactivateUser mocks base method.
+func (m *Mockdb) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeactivateUser indicates an expected call of DeactivateUser.
+func (mr *MockdbMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*Mockdb)(nil).DeactivateUser), ctx, id)
+}
+
+// DeleteUser mocks base method.
+func (m *Mockdb) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockdbMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*Mockdb)(nil).DeleteUser), ctx, id)
+}
+
+// DestroyAllUserSessions mocks base method.
+func (m *Mockdb) DestroyAllUserSessions(ctx context.Context, username string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyAllUserSessions", ctx, username)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyAllUserSessions indicates an expected call of DestroyAllUserSessions.
+func (mr *MockdbMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*Mockdb)(nil).DestroyAllUserSessions), ctx, username)
 }
 
 // DestroySession mocks base method.

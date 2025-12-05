@@ -5,17 +5,24 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
+)
+
+const (
+	// RouterSessionUserID is a constant used for matching the SessionUserID in the router path
+	RouterSessionUserID = "sessionUserID"
 )
 
 // PasswordOption defines the interface for functional options used when creating a new Password.
@@ -33,7 +40,7 @@ type PasswordAuth struct {
 	*basesession.BaseSession
 }
 
-// NewPasswordAuth creates a new Password.
+// NewPasswordAuth creates a new PasswordAuth.
 func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *PasswordAuth {
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
@@ -160,7 +167,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// Authenticated is the handler reports if the session is authenticated
+// Authenticated is the handler that reports if the session is authenticated
 func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool   `json:"authenticated"`
@@ -231,6 +238,133 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 		}
 
 		if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// CreateUser handles creating a user account.
+func (p *PasswordAuth) CreateUser() http.HandlerFunc {
+	type request struct {
+		Username string             `json:"username"`
+		Password *string            `json:"password"`
+		Domain   accesstypes.Domain `json:"domain"`
+		Disabled bool               `json:"disabled"`
+	}
+
+	type response struct {
+		ID           ccc.UUID           `json:"id"`
+		Username     string             `json:"username"`
+		Domain       accesstypes.Domain `json:"domain"`
+		PasswordHash *securehash.Hash   `json:"-"`
+		Disabled     bool               `json:"disabled"`
+	}
+
+	decoder := newDecoder[request]()
+
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if req.Domain == "" {
+			req.Domain = accesstypes.GlobalDomain
+		}
+
+		var hash *securehash.Hash
+		if req.Password != nil {
+			hash, err = p.hasher.Hash(*req.Password)
+			if err != nil {
+				return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
+			}
+		}
+
+		insertUser := &dbtype.InsertSessionUser{
+			Username:     req.Username,
+			Domain:       req.Domain,
+			PasswordHash: hash,
+			Disabled:     req.Disabled,
+		}
+
+		user, err := p.storage.CreateUser(ctx, insertUser)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok((*response)(user))
+	})
+}
+
+// DeactivateUser handles deactivating a user account.
+func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		user, err := p.storage.User(ctx, sessionUserID)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot deactivate yourself")
+		}
+
+		if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// DeleteUser handles deleting a user account.
+func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		user, err := p.storage.User(ctx, sessionUserID)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot delete yourself")
+		}
+
+		if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// ActivateUser handles activating a user account.
+func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 

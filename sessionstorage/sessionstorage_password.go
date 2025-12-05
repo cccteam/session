@@ -63,6 +63,19 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 	return u, nil
 }
 
+// CreateUser creates a new user
+func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	u, err := p.db.CreateUser(ctx, user)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.CreateUser()")
+	}
+
+	return u, nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
@@ -70,6 +83,54 @@ func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, has
 
 	if err := p.db.SetUserPasswordHash(ctx, id, hash); err != nil {
 		return errors.Wrap(err, "db.SetUserPasswordHash()")
+	}
+
+	return nil
+}
+
+// DeactivateUser deactivates a user
+func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DeactivateUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.DeactivateUser()")
+	}
+
+	return nil
+}
+
+// DeleteUser deletes a user
+func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DeleteUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.DeleteUser()")
+	}
+
+	return nil
+}
+
+// ActivateUser activates a user
+func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.ActivateUser(ctx, id); err != nil {
+		return errors.Wrap(err, "db.ActivateUser()")
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	if err := p.db.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "db.DestroyAllUserSessions()")
 	}
 
 	return nil
