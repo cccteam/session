@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -235,11 +236,15 @@ func TestPasswordAuth_Login(t *testing.T) {
 func TestPasswordAuth_ValidateSession(t *testing.T) {
 	t.Parallel()
 
+	tnow := time.Now()
+
 	tests := []struct {
-		name           string
-		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
-		wantMessage    bool
-		wantStatusCode int
+		name            string
+		prepare         func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantMessage     bool
+		wantStatusCode  int
+		wantSessionInfo *sessioninfo.SessionInfo
+		wantUserInfo    *sessioninfo.UserInfo
 	}{
 		{
 			name: "fails on check session",
@@ -280,14 +285,27 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 			name: "success",
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
-					ID:        ccc.Must(ccc.NewUUID()),
+					ID:        ccc.Must(ccc.UUIDFromString("66f0def8-f353-4bcf-97a2-12d719fb2dcf")),
 					Username:  "user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
+					CreatedAt: tnow,
+					UpdatedAt: tnow.Add(5 * time.Minute),
 				}, nil)
-				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Username: "user"}, nil)
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					ID:       ccc.Must(ccc.UUIDFromString("c3c2e09e-90f8-40f8-9857-88d420625a89")),
+					Username: "user",
+				}, nil)
 			},
 			wantStatusCode: http.StatusOK,
+			wantSessionInfo: &sessioninfo.SessionInfo{
+				ID:        ccc.Must(ccc.UUIDFromString("66f0def8-f353-4bcf-97a2-12d719fb2dcf")),
+				Username:  "user",
+				CreatedAt: tnow,
+				UpdatedAt: tnow.Add(5 * time.Minute),
+			},
+			wantUserInfo: &sessioninfo.UserInfo{
+				ID:       ccc.Must(ccc.UUIDFromString("c3c2e09e-90f8-40f8-9857-88d420625a89")),
+				Username: "user",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -305,8 +323,14 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
+				if got := sessioninfo.FromCtx(r.Context()); !reflect.DeepEqual(got, tt.wantSessionInfo) {
+					t.Errorf("sessioninfo.SessionInfo = %v, want %v", *got, *tt.wantSessionInfo)
+				}
+				if got := sessioninfo.UserFromCtx(r.Context()); !reflect.DeepEqual(got, tt.wantUserInfo) {
+					t.Errorf("sessioninfo.UserInfo = %v, want %v", *got, *tt.wantUserInfo)
+				}
 			})
 			handler := p.ValidateSession(nextHandler)
 			req, err := createHTTPRequestWithUser(http.MethodGet, nil, nil, nil)
