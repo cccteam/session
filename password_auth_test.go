@@ -6,11 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-<<<<<<< HEAD
 	"reflect"
-=======
 	"strings"
->>>>>>> 8822468 (feature: Implement CreateUser())
 	"testing"
 	"time"
 
