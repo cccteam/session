@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.1](https://github.com/cccteam/session/compare/v0.6.0...v0.6.1) (2025-12-05)
+
+
+### Features
+
+* Implement handlers for password authentication ([#134](https://github.com/cccteam/session/issues/134)) ([e5822ef](https://github.com/cccteam/session/commit/e5822ef28cfa7abb84db7ad4c367659d8484e764))
+
+
+### Bug Fixes
+
+* Fix UserInfo storage in context. ([#142](https://github.com/cccteam/session/issues/142)) ([ff3b1b4](https://github.com/cccteam/session/commit/ff3b1b4865f727656d45443be12dc22344ed71c4))
+
+
+### Code Refactoring
+
+* Aligned spanner and postgres implementations ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+* Consolidated duplicate storage implementations into one ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+
+
+### Code Cleanup
+
+* Logging cleanup ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+* Misc cleanup ([#133](https://github.com/cccteam/session/issues/133)) ([a90d4a8](https://github.com/cccteam/session/commit/a90d4a8b559904ad1748a3d05b309ac30db9aa72))
+
 ## [0.6.0](https://github.com/cccteam/session/compare/v0.5.9...v0.6.0) (2025-11-14)
 
 
