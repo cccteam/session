@@ -147,8 +147,8 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 			return httpio.NewEncoder(w).UnauthorizedMessage(ctx, "Session Expired")
 		}
 
-		// Store session info in context
-		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.UserInfo{
+		// Store user info in context
+		ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{
 			ID:       user.ID,
 			Username: user.Username,
 			Disabled: user.Disabled,
