@@ -11,11 +11,11 @@ replace github.com/golang-migrate/migrate/v4 v4.19.0 => github.com/jtwatson/migr
 
 require (
 	cloud.google.com/go/spanner v1.86.1
-	github.com/cccteam/ccc v0.2.18
+	github.com/cccteam/ccc v0.2.19
 	github.com/cccteam/ccc/accesstypes v0.5.3
 	github.com/cccteam/ccc/resource v0.8.3
 	github.com/cccteam/ccc/securehash v0.0.5
-	github.com/cccteam/db-initiator v0.2.15
+	github.com/cccteam/db-initiator v0.2.17
 	github.com/cccteam/httpio v0.7.8
 	github.com/cccteam/logger v0.1.13
 	github.com/cccteam/spxscan v0.0.7
