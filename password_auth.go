@@ -363,7 +363,7 @@ func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
 	}
 	if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
-		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
 	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
