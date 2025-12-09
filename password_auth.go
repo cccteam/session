@@ -228,16 +228,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		// Validate credentials
-		user, err := p.storage.User(ctx, userInfo.ID)
-		if err != nil {
-			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
-		}
-		if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
-		}
-
-		if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		if err := p.ChangeSessionUserPassword(ctx, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -255,11 +246,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 	}
 
 	type response struct {
-		ID           ccc.UUID           `json:"id"`
-		Username     string             `json:"username"`
-		Domain       accesstypes.Domain `json:"domain"`
-		PasswordHash *securehash.Hash   `json:"-"`
-		Disabled     bool               `json:"disabled"`
+		ID ccc.UUID `json:"id"`
 	}
 
 	decoder := newDecoder[request]()
@@ -273,31 +260,12 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		if req.Domain == "" {
-			req.Domain = accesstypes.GlobalDomain
-		}
-
-		var hash *securehash.Hash
-		if req.Password != nil {
-			hash, err = p.hasher.Hash(*req.Password)
-			if err != nil {
-				return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
-			}
-		}
-
-		insertUser := &dbtype.InsertSessionUser{
-			Username:     req.Username,
-			Domain:       req.Domain,
-			PasswordHash: hash,
-			Disabled:     req.Disabled,
-		}
-
-		user, err := p.storage.CreateUser(ctx, insertUser)
+		id, err := p.CreateSessionUser(ctx, (*CreateUserRequest)(req))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok((*response)(user))
+		return httpio.NewEncoder(w).Ok(response{ID: id})
 	})
 }
 
@@ -308,20 +276,7 @@ func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		user, err := p.storage.User(ctx, sessionUserID)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot deactivate yourself")
-		}
-
-		if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		if err := p.DeactivateSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -336,20 +291,7 @@ func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		user, err := p.storage.User(ctx, sessionUserID)
-		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot delete yourself")
-		}
-
-		if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
-		}
-
-		if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		if err := p.DeleteSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -364,7 +306,7 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 		defer span.End()
 
 		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
+		if err := p.ActivateSessionUser(ctx, sessionUserUUID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -411,4 +353,119 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	}
 
 	return decoder
+}
+
+// ChangeSessionUserPassword handles modifications to a user password
+func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+	// Validate credentials
+	user, err := p.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+	if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+
+	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		return errors.Wrap(err, "setPasswordHash()")
+	}
+
+	return nil
+}
+
+// CreateSessionUser handles creating a user account.
+func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
+	if req.Domain == "" {
+		req.Domain = accesstypes.GlobalDomain
+	}
+
+	var hash *securehash.Hash
+	if req.Password != nil {
+		var err error
+		hash, err = p.hasher.Hash(*req.Password)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		}
+	}
+
+	insertUser := &dbtype.InsertSessionUser{
+		Username:     req.Username,
+		Domain:       req.Domain,
+		PasswordHash: hash,
+		Disabled:     req.Disabled,
+	}
+
+	user, err := p.storage.CreateUser(ctx, insertUser)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateUser()")
+	}
+
+	return user.ID, nil
+}
+
+// DeleteSessionUser handles deleting a user account.
+func (p *PasswordAuth) DeleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	user, err := p.storage.User(ctx, sessionUserID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+
+	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+		return httpio.NewBadRequestMessage("cannot delete yourself")
+	}
+
+	if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DeleteUser()")
+	}
+
+	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
+// DeactivateSessionUser handles deactivating a user account.
+func (p *PasswordAuth) DeactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	user, err := p.storage.User(ctx, sessionUserID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+
+	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+		return httpio.NewBadRequestMessage("cannot deactivate yourself")
+	}
+
+	if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DeactivateUser()")
+	}
+
+	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
+// ActivateSessionUser handles activating a user account.
+func (p *PasswordAuth) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
+	if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.ActivateUser()")
+	}
+
+	return nil
+}
+
+// ChangeSessionUserPasswordRequest takes in the user information for changing a SessionUser password
+type ChangeSessionUserPasswordRequest struct {
+	OldPassword string
+	NewPassword string
+}
+
+// CreateUserRequest takes in the user information for creating a new SessionUser
+type CreateUserRequest struct {
+	Username string             `json:"username"`
+	Password *string            `json:"password"`
+	Domain   accesstypes.Domain `json:"domain"`
+	Disabled bool               `json:"disabled"`
 }
