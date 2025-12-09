@@ -1078,6 +1078,62 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 	}
 }
 
+func TestPasswordAuth_ChangeSessionUserHash(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	hash, err := securehash.New(securehash.Argon2()).Hash("password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		userID  ccc.UUID
+		hash    *securehash.Hash
+		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr bool
+	}{
+		{
+			name:   "fails on storage error",
+			userID: userID,
+			hash:   hash,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:   "success",
+			userID: userID,
+			hash:   hash,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(nil)
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
+			p.storage = storage
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err := p.ChangeSessionUserHash(context.Background(), tt.userID, tt.hash)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.ChangeSessionUserHash() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 	t.Parallel()
 

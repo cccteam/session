@@ -373,6 +373,16 @@ func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc
 	return nil
 }
 
+// ChangeSessionUserHash handles modifications to a user hash. This can be used when
+// users are being migrated, and passwords are not know, but the hash is compatible
+func (p *PasswordAuth) ChangeSessionUserHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
+	if err := p.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserPasswordHash()")
+	}
+
+	return nil
+}
+
 // CreateSessionUser handles creating a user account.
 func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
 	if req.Domain == "" {
