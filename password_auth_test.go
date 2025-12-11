@@ -538,7 +538,7 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{PasswordHash: validHash}, nil)
 			},
-			wantStatusCode: http.StatusUnauthorized,
+			wantStatusCode: http.StatusBadRequest,
 			wantMessage:    true,
 		},
 		{
