@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.2](https://github.com/cccteam/session/compare/v0.6.1...v0.6.2) (2025-12-11)
+
+
+### Features
+
+* Implementation for user management ([#141](https://github.com/cccteam/session/issues/141)) ([67d8368](https://github.com/cccteam/session/commit/67d8368b4fd7b957068f8dedf2ccccca217fd2ca))
+
+
+### Code Upgrade
+
+* Bump the go-dependencies group with 2 updates ([#150](https://github.com/cccteam/session/issues/150)) ([ff055ef](https://github.com/cccteam/session/commit/ff055ef0827723e622982a5efd10cd75dfd27859))
+
 ## [0.6.1](https://github.com/cccteam/session/compare/v0.6.0...v0.6.1) (2025-12-08)
 
 
