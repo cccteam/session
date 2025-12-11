@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 )
 
@@ -34,17 +33,15 @@ type InsertOIDCSession struct {
 
 // SessionUser is a person authorized to access the application
 type SessionUser struct {
-	ID           ccc.UUID           `spanner:"Id"           db:"Id"`
-	Username     string             `spanner:"Username"     db:"Username"`
-	Domain       accesstypes.Domain `spanner:"Domain"       db:"Domain"`
-	PasswordHash *securehash.Hash   `spanner:"PasswordHash" db:"PasswordHash"`
-	Disabled     bool               `spanner:"Disabled"     db:"Disabled"`
+	ID           ccc.UUID         `spanner:"Id"           db:"Id"`
+	Username     string           `spanner:"Username"     db:"Username"`
+	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
+	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
 }
 
 // InsertSessionUser defines the structure for inserting new SessionUser into the database
 type InsertSessionUser struct {
-	Username     string             `spanner:"Username"     db:"Username"`
-	Domain       accesstypes.Domain `spanner:"Domain"       db:"Domain"`
-	PasswordHash *securehash.Hash   `spanner:"PasswordHash" db:"PasswordHash"`
-	Disabled     bool               `spanner:"Disabled"     db:"Disabled"`
+	Username     string           `spanner:"Username"     db:"Username"`
+	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
+	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
 }

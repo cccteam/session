@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
@@ -239,10 +238,9 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 // CreateUser handles creating a user account.
 func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 	type request struct {
-		Username string             `json:"username"`
-		Password *string            `json:"password"`
-		Domain   accesstypes.Domain `json:"domain"`
-		Disabled bool               `json:"disabled"`
+		Username string  `json:"username"`
+		Password *string `json:"password"`
+		Disabled bool    `json:"disabled"`
 	}
 
 	type response struct {
@@ -385,10 +383,6 @@ func (p *PasswordAuth) ChangeSessionUserHash(ctx context.Context, userID ccc.UUI
 
 // CreateSessionUser handles creating a user account.
 func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
-	if req.Domain == "" {
-		req.Domain = accesstypes.GlobalDomain
-	}
-
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
@@ -400,7 +394,6 @@ func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserReq
 
 	insertUser := &dbtype.InsertSessionUser{
 		Username:     req.Username,
-		Domain:       req.Domain,
 		PasswordHash: hash,
 		Disabled:     req.Disabled,
 	}
@@ -474,8 +467,7 @@ type ChangeSessionUserPasswordRequest struct {
 
 // CreateUserRequest takes in the user information for creating a new SessionUser
 type CreateUserRequest struct {
-	Username string             `json:"username"`
-	Password *string            `json:"password"`
-	Domain   accesstypes.Domain `json:"domain"`
-	Disabled bool               `json:"disabled"`
+	Username string  `json:"username"`
+	Password *string `json:"password"`
+	Disabled bool    `json:"disabled"`
 }

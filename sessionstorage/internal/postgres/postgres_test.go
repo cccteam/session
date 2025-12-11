@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 )
@@ -454,7 +453,6 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 	tests := []struct {
 		name           string
 		username       string
-		domain         accesstypes.Domain
 		hash           *securehash.Hash
 		sourceURL      []string
 		wantErr        bool
@@ -464,20 +462,18 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 		{
 			name:      "success",
 			username:  "newuser",
-			domain:    "test.com",
 			hash:      hash,
 			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 0 FROM "SessionUsers" WHERE "Username" = 'newuser'`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 1 FROM "SessionUsers" WHERE "Username" = 'newuser' AND "Domain" = 'test.com'`,
+				`SELECT COUNT(*) = 1 FROM "SessionUsers" WHERE "Username" = 'newuser'`,
 			},
 		},
 		{
 			name:      "user already exists",
 			username:  "testuser",
-			domain:    "test.com",
 			hash:      hash,
 			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			wantErr:   true,
@@ -495,7 +491,6 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 
 			user := &dbtype.InsertSessionUser{
 				Username:     tt.username,
-				Domain:       tt.domain,
 				PasswordHash: tt.hash,
 				Disabled:     false,
 			}

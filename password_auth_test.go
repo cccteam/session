@@ -644,7 +644,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		},
 		{
 			name:    "fails on create user",
-			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
+			reqBody: `{"username": "user", "password": "password"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db error"))
 			},
@@ -652,25 +652,11 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		},
 		{
 			name:    "success",
-			reqBody: `{"username": "user", "password": "password", "domain": "test.com"}`,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
-					ID:       userID,
-					Username: "user",
-					Domain:   "test.com",
-				}, nil)
-			},
-			wantStatusCode: http.StatusOK,
-			wantBody:       `{"id":"` + userID.String() + `"}` + "\n",
-		},
-		{
-			name:    "success with default domain",
 			reqBody: `{"username": "user", "password": "password"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
-					Domain:   "global",
 				}, nil)
 			},
 			wantStatusCode: http.StatusOK,
@@ -678,12 +664,11 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		},
 		{
 			name:    "success with empty password",
-			reqBody: `{"username": "user", "domain": "test.com"}`,
+			reqBody: `{"username": "user"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user", Domain: "test.com"}).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
-					Domain:   "test.com",
 				}, nil)
 			},
 			wantStatusCode: http.StatusOK,
@@ -1152,7 +1137,6 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 			req: &CreateUserRequest{
 				Username: "user",
 				Password: &password,
-				Domain:   "test.com",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db error"))
@@ -1164,28 +1148,11 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 			req: &CreateUserRequest{
 				Username: "user",
 				Password: &password,
-				Domain:   "test.com",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
-					Domain:   "test.com",
-				}, nil)
-			},
-			wantErr: false,
-		},
-		{
-			name: "success with default domain",
-			req: &CreateUserRequest{
-				Username: "user",
-				Password: &password,
-			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
-					ID:       userID,
-					Username: "user",
-					Domain:   "global",
 				}, nil)
 			},
 			wantErr: false,
@@ -1194,13 +1161,11 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 			name: "success with empty password",
 			req: &CreateUserRequest{
 				Username: "user",
-				Domain:   "test.com",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user", Domain: "test.com"}).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
-					Domain:   "test.com",
 				}, nil)
 			},
 			wantErr: false,

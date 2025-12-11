@@ -230,7 +230,6 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	user := &dbtype.SessionUser{
 		ID:           id,
 		Username:     insertUser.Username,
-		Domain:       insertUser.Domain,
 		PasswordHash: insertUser.PasswordHash,
 		Disabled:     insertUser.Disabled,
 	}

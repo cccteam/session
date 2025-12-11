@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
@@ -128,7 +127,6 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 	tests := []struct {
 		name     string
 		username string
-		domain   accesstypes.Domain
 		hash     *securehash.Hash
 		prepare  func(mockDB *mock_sessionstorage.Mockdb)
 		wantUser *dbtype.SessionUser
@@ -137,20 +135,18 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		{
 			name:     "success",
 			username: "test",
-			domain:   "test.com",
 			hash:     hash,
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", Domain: "test.com", PasswordHash: hash}).Return(&dbtype.SessionUser{ID: userID, Username: "test", Domain: "test.com"}, nil)
+				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
 			},
-			wantUser: &dbtype.SessionUser{ID: userID, Username: "test", Domain: "test.com"},
+			wantUser: &dbtype.SessionUser{ID: userID, Username: "test"},
 		},
 		{
 			name:     "failure",
 			username: "test",
-			domain:   "test.com",
 			hash:     hash,
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", Domain: "test.com", PasswordHash: hash}).Return(nil, errors.New("db error"))
+				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -168,7 +164,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			gotUser, err := storage.CreateUser(t.Context(), &dbtype.InsertSessionUser{Username: tt.username, Domain: tt.domain, PasswordHash: tt.hash})
+			gotUser, err := storage.CreateUser(t.Context(), &dbtype.InsertSessionUser{Username: tt.username, PasswordHash: tt.hash})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Password.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 				return

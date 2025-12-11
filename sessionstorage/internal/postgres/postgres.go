@@ -199,12 +199,12 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 
 	query := fmt.Sprintf(`
 		INSERT INTO "%s"
-			("Id", "Username", "Domain", "PasswordHash", "Disabled")
+			("Id", "Username", "PasswordHash", "Disabled")
 		VALUES
-			($1, $2, $3, $4, $5)
+			($1, $2, $3, $4)
 		`, s.userTableName)
 
-	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.Domain, user.PasswordHash, user.Disabled); err != nil {
+	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.PasswordHash, user.Disabled); err != nil {
 		return nil, errors.Wrap(err, "Queryer.Exec()")
 	}
 
