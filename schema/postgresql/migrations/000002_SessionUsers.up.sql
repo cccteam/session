@@ -14,7 +14,7 @@ CREATE TABLE "SessionUsers" (
 
 -- DROP INDEX "SessionUsers_Username_idx";
 
-CREATE INDEX "SessionUsers_Username_idx"
+CREATE UNIQUE INDEX "SessionUsers_Username_idx"
     ON "SessionUsers" USING btree
     ("Username");
 

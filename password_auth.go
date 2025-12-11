@@ -11,11 +11,17 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
+)
+
+const (
+	// RouterSessionUserID is a constant used for matching the SessionUserID in the router path
+	RouterSessionUserID = "sessionUserID"
 )
 
 // PasswordOption defines the interface for functional options used when creating a new Password.
@@ -33,7 +39,7 @@ type PasswordAuth struct {
 	*basesession.BaseSession
 }
 
-// NewPasswordAuth creates a new Password.
+// NewPasswordAuth creates a new PasswordAuth.
 func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *PasswordAuth {
 	cookieClient := cookie.NewCookieClient(secureCookie)
 	baseSession := &basesession.BaseSession{
@@ -160,7 +166,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// Authenticated is the handler reports if the session is authenticated
+// Authenticated is the handler that reports if the session is authenticated
 func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool   `json:"authenticated"`
@@ -221,16 +227,84 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		// Validate credentials
-		user, err := p.storage.User(ctx, userInfo.ID)
-		if err != nil {
-			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
-		}
-		if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
+		if err := p.ChangeSessionUserPassword(ctx, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// CreateUser handles creating a user account.
+func (p *PasswordAuth) CreateUser() http.HandlerFunc {
+	type request struct {
+		Username string  `json:"username"`
+		Password *string `json:"password"`
+		Disabled bool    `json:"disabled"`
+	}
+
+	type response struct {
+		ID ccc.UUID `json:"id"`
+	}
+
+	decoder := newDecoder[request]()
+
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		id, err := p.CreateSessionUser(ctx, (*CreateUserRequest)(req))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(response{ID: id})
+	})
+}
+
+// DeactivateUser handles deactivating a user account.
+func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		if err := p.DeactivateSessionUser(ctx, sessionUserID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// DeleteUser handles deleting a user account.
+func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		if err := p.DeleteSessionUser(ctx, sessionUserID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// ActivateUser handles activating a user account.
+func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
+	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+		if err := p.ActivateSessionUser(ctx, sessionUserUUID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -277,4 +351,123 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	}
 
 	return decoder
+}
+
+// ChangeSessionUserPassword handles modifications to a user password
+func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+	// Validate credentials
+	user, err := p.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+	if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
+		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
+	}
+
+	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		return errors.Wrap(err, "setPasswordHash()")
+	}
+
+	return nil
+}
+
+// ChangeSessionUserHash handles modifications to a user hash. This can be used when
+// users are being migrated, and passwords are not know, but the hash is compatible
+func (p *PasswordAuth) ChangeSessionUserHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
+	if err := p.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserPasswordHash()")
+	}
+
+	return nil
+}
+
+// CreateSessionUser handles creating a user account.
+func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
+	var hash *securehash.Hash
+	if req.Password != nil {
+		var err error
+		hash, err = p.hasher.Hash(*req.Password)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		}
+	}
+
+	insertUser := &dbtype.InsertSessionUser{
+		Username:     req.Username,
+		PasswordHash: hash,
+		Disabled:     req.Disabled,
+	}
+
+	user, err := p.storage.CreateUser(ctx, insertUser)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateUser()")
+	}
+
+	return user.ID, nil
+}
+
+// DeleteSessionUser handles deleting a user account.
+func (p *PasswordAuth) DeleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	user, err := p.storage.User(ctx, sessionUserID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+
+	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+		return httpio.NewBadRequestMessage("cannot delete yourself")
+	}
+
+	if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DeleteUser()")
+	}
+
+	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
+// DeactivateSessionUser handles deactivating a user account.
+func (p *PasswordAuth) DeactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	user, err := p.storage.User(ctx, sessionUserID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+
+	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
+		return httpio.NewBadRequestMessage("cannot deactivate yourself")
+	}
+
+	if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DeactivateUser()")
+	}
+
+	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
+// ActivateSessionUser handles activating a user account.
+func (p *PasswordAuth) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
+	if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.ActivateUser()")
+	}
+
+	return nil
+}
+
+// ChangeSessionUserPasswordRequest takes in the user information for changing a SessionUser password
+type ChangeSessionUserPasswordRequest struct {
+	OldPassword string
+	NewPassword string
+}
+
+// CreateUserRequest takes in the user information for creating a new SessionUser
+type CreateUserRequest struct {
+	Username string  `json:"username"`
+	Password *string `json:"password"`
+	Disabled bool    `json:"disabled"`
 }

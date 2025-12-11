@@ -29,7 +29,7 @@ type BaseSession struct {
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
-// that failes, initializing a new session. The session cookie is then updated and
+// that fails, initializing a new session. The session cookie is then updated and
 // the sessionID is inserted into the context.
 func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {

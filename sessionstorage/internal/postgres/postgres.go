@@ -187,6 +187,30 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
+// CreateUser creates a new user
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO "%s"
+			("Id", "Username", "PasswordHash", "Disabled")
+		VALUES
+			($1, $2, $3, $4)
+		`, s.userTableName)
+
+	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.PasswordHash, user.Disabled); err != nil {
+		return nil, errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	return s.User(ctx, id)
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := ccc.StartTrace(ctx)
@@ -200,6 +224,77 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
+}
+
+// DeactivateUser deactivates a user
+func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Disabled" = TRUE
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
+// DeleteUser deletes a user
+func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		DELETE FROM "%s"
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
+// ActivateUser activates a user
+func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Disabled" = FALSE
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" 
+		SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE "Username" = $1`, s.sessionTableName)
+
+	if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
 	}
 
 	return nil
