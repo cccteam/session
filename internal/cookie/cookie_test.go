@@ -417,6 +417,9 @@ func Test_writeXSRFCookie(t *testing.T) {
 			w := httptest.NewRecorder()
 			c := &CookieClient{
 				secureCookie: tt.secureCookie,
+				CookieName:   string(types.SCAuthCookieName),
+				STCookieName: types.STCookieName,
+				STHeaderName: types.STHeaderName,
 			}
 			if err := c.WriteXSRFCookie(w, tt.args.cookieExpiration, tt.args.cval); (err != nil) != tt.wantErr {
 				t.Errorf("WriteXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
@@ -553,7 +556,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
-			cookieClient := &CookieClient{secureCookie: tt.secureCookie}
+			cookieClient := &CookieClient{secureCookie: tt.secureCookie, CookieName: string(types.SCAuthCookieName), STCookieName: types.STCookieName, STHeaderName: types.STHeaderName}
 			if err := cookieClient.WriteXSRFCookie(w, tt.args.cookieExpiration, tt.args.cval); (err != nil) != tt.wantErr {
 				t.Errorf("WriteXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
