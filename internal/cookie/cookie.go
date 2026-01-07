@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
 )
@@ -136,7 +137,7 @@ func (c *CookieClient) HasValidXSRFToken(r *http.Request) bool {
 	if time.Now().After(exp) {
 		return false
 	}
-	if types.SessionIDFromRequest(r).String() != cval[types.STSessionID] {
+	if sessioninfo.IDFromRequest(r).String() != cval[types.STSessionID] {
 		return false
 	}
 	hval, found := c.ReadXSRFHeader(r)

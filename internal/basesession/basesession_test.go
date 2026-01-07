@@ -206,7 +206,7 @@ func TestBaseSessionStartSession(t *testing.T) {
 				t.Fatalf("Expected status code %d, got %d", tt.expectedStatus, w.Code)
 			}
 
-			got := types.SessionIDFromRequest(req)
+			got := sessioninfo.IDFromRequest(req)
 			if diff := cmp.Diff(tt.wantSessionID, got); diff != "" {
 				t.Errorf("sessionIDFromRequest mismatch (-want +got):\n%s", diff)
 			}

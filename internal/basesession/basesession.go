@@ -97,7 +97,7 @@ func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error)
 	defer span.End()
 
 	// Validate that the sessionID is in database
-	sessInfo, err := s.Storage.Session(ctx, types.SessionIDFromCtx(ctx))
+	sessInfo, err := s.Storage.Session(ctx, sessioninfo.IDFromCtx(ctx))
 	if err != nil {
 		return ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 	}
@@ -164,7 +164,7 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 		defer span.End()
 
 		// Destroy session in database
-		if err := s.Storage.DestroySession(ctx, types.SessionIDFromCtx(ctx)); err != nil {
+		if err := s.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -175,7 +175,7 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if s.SetXSRFTokenCookie(w, r, types.SessionIDFromRequest(r), types.XSRFCookieLife) && !types.SafeMethods.Contain(r.Method) {
+		if s.SetXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife) && !types.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
 			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)
