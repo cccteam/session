@@ -19,9 +19,7 @@ import (
 func mockRequestWithXSRFToken(t *testing.T, sc *securecookie.SecureCookie, setHeader bool, cookieSessionID, requestSessionID ccc.UUID, cookieExpiration time.Duration) *http.Request {
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
-	c := CookieClient{
-		secureCookie: sc,
-	}
+	c := NewCookieClient(sc)
 	if !c.SetXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration) {
 		t.Fatalf("SetXSRFTokenCookie() = false, should have set cookie in request recorder")
 	}
@@ -89,7 +87,7 @@ func Test_newAuthCookie(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := &CookieClient{secureCookie: tt.sc, CookieName: string(types.SCAuthCookieName)}
+			a := NewCookieClient(tt.sc)
 
 			w := httptest.NewRecorder()
 			got, err := a.NewAuthCookie(w, tt.args.sameSiteStrict, ccc.UUID{})
@@ -119,7 +117,7 @@ func Test_readAuthCookie(t *testing.T) {
 	t.Parallel()
 
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
-	a := &CookieClient{secureCookie: sc, CookieName: string(types.SCAuthCookieName)}
+	a := NewCookieClient(sc)
 	w := httptest.NewRecorder()
 	cval := map[types.SCKey]string{
 		"key1":                 "value1",
@@ -164,7 +162,7 @@ func Test_readAuthCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			app := &CookieClient{secureCookie: tt.sc, CookieName: string(types.SCAuthCookieName)}
+			app := NewCookieClient(tt.sc)
 			got, got1 := app.ReadAuthCookie(tt.req)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ReadAuthCookie() got = %v, want %v", got, tt.want)
@@ -217,7 +215,7 @@ func Test_writeAuthCookie(t *testing.T) {
 				"key1": "value1",
 				"key2": "value2",
 			}
-			a := &CookieClient{secureCookie: tt.fields.sc, CookieName: string(types.SCAuthCookieName)}
+			a := NewCookieClient(tt.fields.sc)
 			w := httptest.NewRecorder()
 
 			if err := a.WriteAuthCookie(w, tt.sameSiteStrict, cval); (err != nil) != tt.wantWriteErr {
@@ -306,9 +304,7 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
-			c := &CookieClient{
-				secureCookie: tt.secureCookie,
-			}
+			c := NewCookieClient(tt.secureCookie)
 			if gotSet := c.SetXSRFTokenCookie(w, tt.args.r, tt.args.sessionID, tt.args.cookieExpiration); gotSet != tt.wantSet {
 				t.Errorf("SetXSRFTokenCookie() = %v, want %v", gotSet, tt.wantSet)
 			}
@@ -364,7 +360,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := &CookieClient{secureCookie: sc}
+			c := NewCookieClient(sc)
 			if got := c.HasValidXSRFToken(tt.req); got != tt.want {
 				t.Errorf("HasValidXSRFToken() = %v, want %v", got, tt.want)
 			}
@@ -467,7 +463,7 @@ func Test_readXSRFCookie(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := &CookieClient{secureCookie: tt.secureCookie}
+			c := NewCookieClient(tt.secureCookie)
 			got, gotOK := c.ReadXSRFCookie(tt.req)
 
 			if gotOK != tt.wantOK {
@@ -511,7 +507,7 @@ func Test_readXSRFHeader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := &CookieClient{secureCookie: sc}
+			c := NewCookieClient(sc)
 
 			got, gotOK := c.ReadXSRFHeader(tt.req)
 			if gotOK != tt.wantOK {
