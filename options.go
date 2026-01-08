@@ -30,6 +30,20 @@ func WithCookieDomain(domain string) CookieOption {
 	})
 }
 
+// WithXSRFCookieName sets the cookie name for the XSRF cookie.
+func WithXSRFCookieName(name string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.STCookieName = name
+	})
+}
+
+// WithXSRFHeaderName sets the header name for the XSRF header.
+func WithXSRFHeaderName(name string) CookieOption {
+	return CookieOption(func(c *cookie.CookieClient) {
+		c.STHeaderName = name
+	})
+}
+
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)
 

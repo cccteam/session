@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
 )
@@ -19,6 +20,8 @@ var _ CookieHandler = &CookieClient{}
 type CookieClient struct {
 	secureCookie *securecookie.SecureCookie
 	CookieName   string
+	STCookieName string
+	STHeaderName string
 	Domain       string
 }
 
@@ -27,6 +30,8 @@ func NewCookieClient(secureCookie *securecookie.SecureCookie) *CookieClient {
 	cookie := &CookieClient{
 		secureCookie: secureCookie,
 		CookieName:   string(types.SCAuthCookieName),
+		STCookieName: types.STCookieName,
+		STHeaderName: types.STHeaderName,
 	}
 
 	return cookie
@@ -132,7 +137,7 @@ func (c *CookieClient) HasValidXSRFToken(r *http.Request) bool {
 	if time.Now().After(exp) {
 		return false
 	}
-	if types.SessionIDFromRequest(r).String() != cval[types.STSessionID] {
+	if sessioninfo.IDFromRequest(r).String() != cval[types.STSessionID] {
 		return false
 	}
 	hval, found := c.ReadXSRFHeader(r)
@@ -145,13 +150,13 @@ func (c *CookieClient) HasValidXSRFToken(r *http.Request) bool {
 
 // WriteXSRFCookie writes the XSRF cookie to the response
 func (c *CookieClient) WriteXSRFCookie(w http.ResponseWriter, cookieExpiration time.Duration, cval map[types.STKey]string) error {
-	encoded, err := c.secureCookie.Encode(types.STCookieName, cval)
+	encoded, err := c.secureCookie.Encode(c.STCookieName, cval)
 	if err != nil {
 		return errors.Wrap(err, "securecookie.Encode()")
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     types.STCookieName,
+		Name:     c.STCookieName,
 		Expires:  time.Now().Add(cookieExpiration),
 		Value:    encoded,
 		Path:     "/",
@@ -164,13 +169,13 @@ func (c *CookieClient) WriteXSRFCookie(w http.ResponseWriter, cookieExpiration t
 
 // ReadXSRFCookie reads the XSRF cookie from the request
 func (c *CookieClient) ReadXSRFCookie(r *http.Request) (map[types.STKey]string, bool) {
-	cookie, err := r.Cookie(types.STCookieName)
+	cookie, err := r.Cookie(c.STCookieName)
 	if err != nil {
 		return nil, false
 	}
 
 	cval := make(map[types.STKey]string)
-	if err := c.secureCookie.Decode(types.STCookieName, cookie.Value, &cval); err != nil {
+	if err := c.secureCookie.Decode(c.STCookieName, cookie.Value, &cval); err != nil {
 		logger.FromReq(r).Error(errors.Wrap(err, "securecookie.Decode()"))
 
 		return nil, false
@@ -181,9 +186,9 @@ func (c *CookieClient) ReadXSRFCookie(r *http.Request) (map[types.STKey]string, 
 
 // ReadXSRFHeader reads the XSRF header from the request
 func (c *CookieClient) ReadXSRFHeader(r *http.Request) (map[types.STKey]string, bool) {
-	h := r.Header.Get(types.STHeaderName)
+	h := r.Header.Get(c.STHeaderName)
 	cval := make(map[types.STKey]string)
-	err := c.secureCookie.Decode(types.STCookieName, h, &cval)
+	err := c.secureCookie.Decode(c.STCookieName, h, &cval)
 	if err != nil {
 		logger.FromReq(r).Error(errors.Wrap(err, "securecookie.Decode()"))
 

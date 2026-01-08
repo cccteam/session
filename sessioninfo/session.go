@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/cccteam/ccc"
+	"github.com/cccteam/logger"
+	"github.com/cccteam/session/internal/types"
 )
 
 // ctxKey is a type for storing values in the request context
@@ -29,6 +33,21 @@ func FromCtx(ctx context.Context) *SessionInfo {
 	}
 
 	return sessionInfo
+}
+
+// IDFromRequest returns the sessionID from the request
+func IDFromRequest(r *http.Request) ccc.UUID {
+	return IDFromCtx(r.Context())
+}
+
+// IDFromCtx returns the sessionID from the request context
+func IDFromCtx(ctx context.Context) ccc.UUID {
+	id, ok := ctx.Value(types.CTXSessionID).(ccc.UUID)
+	if !ok {
+		logger.FromCtx(ctx).Errorf("failed to find %s in request context", types.CTXSessionID)
+	}
+
+	return id
 }
 
 // UserFromRequest returns the user information from the request context

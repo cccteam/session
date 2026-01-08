@@ -2,12 +2,9 @@
 package types
 
 import (
-	"context"
-	"net/http"
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/logger"
 )
 
 const (
@@ -66,21 +63,6 @@ func (vals methods) Contain(s string) bool {
 	}
 
 	return false
-}
-
-// SessionIDFromRequest returns the sessionID from the request
-func SessionIDFromRequest(r *http.Request) ccc.UUID {
-	return SessionIDFromCtx(r.Context())
-}
-
-// SessionIDFromCtx returns the sessionID from the request context
-func SessionIDFromCtx(ctx context.Context) ccc.UUID {
-	id, ok := ctx.Value(CTXSessionID).(ccc.UUID)
-	if !ok {
-		logger.FromCtx(ctx).Errorf("failed to find %s in request context", CTXSessionID)
-	}
-
-	return id
 }
 
 // ValidSessionID checks that the sessionID is a valid uuid
