@@ -459,7 +459,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 				Storage:        storageManager,
 			}
 
-			gotReq, err := a.CheckSession(tt.args.r.Context())
+			gotReq, err := a.CheckSessionAPI(tt.args.r.Context())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("App.checkSession() error = %v, wantErr %v", err, tt.wantErr)
 			}

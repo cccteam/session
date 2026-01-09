@@ -145,3 +145,15 @@ func (p *PreauthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r 
 
 	return ctx, nil
 }
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired
+// and updates the last activity timestamp if it is still valid.
+// StartSession handler must be called before calling ValidateSession
+func (p *PreauthAPI) ValidateSession(ctx context.Context) (context.Context, error) {
+	ctx, err := p.preauth.baseSession.CheckSessionAPI(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "PreauthSession.CheckSessionAPI()")
+	}
+
+	return ctx, nil
+}

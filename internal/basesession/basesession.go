@@ -92,7 +92,7 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := s.CheckSession(ctx)
+		ctx, err := s.CheckSessionAPI(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -103,8 +103,8 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// CheckSession checks the session cookie and if it is valid, stores the session data into the context
-func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error) {
+// CheckSessionAPI checks the session cookie and if it is valid, stores the session data into the context
+func (s *BaseSession) CheckSessionAPI(ctx context.Context) (context.Context, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -148,7 +148,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := s.CheckSession(ctx)
+		ctx, err := s.CheckSessionAPI(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})

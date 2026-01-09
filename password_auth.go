@@ -158,7 +158,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.baseSession.CheckSession(ctx)
+		ctx, err := p.baseSession.CheckSessionAPI(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -198,7 +198,7 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.baseSession.CheckSession(ctx)
+		ctx, err := p.baseSession.CheckSessionAPI(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
