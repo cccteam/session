@@ -157,7 +157,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 	})
 }
 
-// Logout is a handler which destroys the current session
+// Logout destroys the current session
 func (s *BaseSession) Logout() http.HandlerFunc {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())

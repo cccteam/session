@@ -23,8 +23,8 @@ var _ PreauthHandlers = &Preauth{}
 
 // Preauth handles session management for pre-authentication scenarios.
 type Preauth struct {
-	storage sessionstorage.PreauthStore
-	*basesession.BaseSession
+	storage     sessionstorage.PreauthStore
+	baseSession *basesession.BaseSession
 }
 
 // NewPreauth creates a new PreauthSession instance.
@@ -47,7 +47,7 @@ func NewPreauth(storage sessionstorage.PreauthStore, secureCookie *securecookie.
 	}
 
 	return &Preauth{
-		BaseSession: baseSession,
+		baseSession: baseSession,
 		storage:     storage,
 	}
 }
@@ -64,12 +64,45 @@ func (p *Preauth) NewSession(ctx context.Context, w http.ResponseWriter, r *http
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.NewAuthCookie(w, true, id); err != nil {
+	if _, err := p.baseSession.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "PreauthSession.NewAuthCookie()")
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	p.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	p.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
 
 	return id, nil
+}
+
+// Authenticated is the handler reports if the session is authenticated
+func (p *Preauth) Authenticated() http.HandlerFunc {
+	return p.baseSession.Authenticated()
+}
+
+// Logout destroys the current session
+func (p *Preauth) Logout() http.HandlerFunc {
+	return p.baseSession.Logout()
+}
+
+// SetXSRFToken sets the XSRF Token
+func (p *Preauth) SetXSRFToken(next http.Handler) http.Handler {
+	return p.baseSession.SetXSRFToken(next)
+}
+
+// StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
+// a new session. The session cookie is then updated and the sessionID is inserted into the context.
+func (p *Preauth) StartSession(next http.Handler) http.Handler {
+	return p.baseSession.StartSession(next)
+}
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired and
+// updates the last activity timestamp if it is still valid. StartSession handler must be called
+// before calling ValidateSession
+func (p *Preauth) ValidateSession(next http.Handler) http.Handler {
+	return p.baseSession.ValidateSession(next)
+}
+
+// ValidateXSRFToken validates the XSRF Token
+func (p *Preauth) ValidateXSRFToken(next http.Handler) http.Handler {
+	return p.baseSession.ValidateXSRFToken(next)
 }

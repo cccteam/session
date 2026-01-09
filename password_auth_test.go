@@ -195,7 +195,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{})
 			p.hasher = securehash.New(securehash.Argon2())
-			p.CookieHandler = cookieHandler
+			p.baseSession.CookieHandler = cookieHandler
 
 			if tt.prepare != nil {
 				tt.prepare(storage, cookieHandler)
@@ -318,7 +318,7 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 
 			p := NewPasswordAuth(storage, &securecookie.SecureCookie{}, nil)
 			p.storage = storage
-			p.SessionTimeout = time.Minute
+			p.baseSession.SessionTimeout = time.Minute
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
@@ -1055,7 +1055,7 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err := p.ChangeSessionUserPassword(t.Context(), tt.userID, tt.req)
+			err := p.changeSessionUserPassword(t.Context(), tt.userID, tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.ChangeSessionUserPassword() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1111,7 +1111,7 @@ func TestPasswordAuth_ChangeSessionUserHash(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err := p.ChangeSessionUserHash(context.Background(), tt.userID, tt.hash)
+			err := p.changeSessionUserHash(context.Background(), tt.userID, tt.hash)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.ChangeSessionUserHash() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1185,7 +1185,7 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			_, err := p.CreateSessionUser(t.Context(), tt.req)
+			_, err := p.createSessionUser(t.Context(), tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.CreateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1234,7 +1234,7 @@ func TestPasswordAuth_ActivateSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err := p.ActivateSessionUser(t.Context(), tt.userID)
+			err := p.activateSessionUser(t.Context(), tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.ActivateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1319,7 +1319,7 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err := p.DeactivateSessionUser(tt.ctx, tt.userID)
+			err := p.deactivateSessionUser(tt.ctx, tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeactivateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1404,7 +1404,7 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err := p.DeleteSessionUser(tt.ctx, tt.userID)
+			err := p.deleteSessionUser(tt.ctx, tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeleteSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}

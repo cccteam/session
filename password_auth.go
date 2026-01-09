@@ -36,7 +36,7 @@ type PasswordAuth struct {
 	storage     sessionstorage.PasswordAuthStore
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
-	*basesession.BaseSession
+	baseSession *basesession.BaseSession
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -62,7 +62,7 @@ func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *sec
 		storage:     storage,
 		hasher:      securehash.New(securehash.Argon2()),
 		autoUpgrade: true,
-		BaseSession: baseSession,
+		baseSession: baseSession,
 	}
 
 	for _, opt := range options {
@@ -76,6 +76,27 @@ func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *sec
 	return p
 }
 
+// Logout destroys the current session
+func (p *PasswordAuth) Logout() http.HandlerFunc {
+	return p.baseSession.Logout()
+}
+
+// SetXSRFToken sets the XSRF Token
+func (p *PasswordAuth) SetXSRFToken(next http.Handler) http.Handler {
+	return p.baseSession.SetXSRFToken(next)
+}
+
+// ValidateXSRFToken validates the XSRF Token
+func (p *PasswordAuth) ValidateXSRFToken(next http.Handler) http.Handler {
+	return p.baseSession.ValidateXSRFToken(next)
+}
+
+// StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
+// a new session. The session cookie is then updated and the sessionID is inserted into the context.
+func (p *PasswordAuth) StartSession(next http.Handler) http.Handler {
+	return p.baseSession.StartSession(next)
+}
+
 // Login validates the username and password.
 func (p *PasswordAuth) Login() http.HandlerFunc {
 	type request struct {
@@ -85,7 +106,7 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 
 	decoder := newDecoder[request]()
 
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -133,11 +154,11 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
 func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.CheckSession(ctx)
+		ctx, err := p.baseSession.CheckSession(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -173,11 +194,11 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 		Username      string `json:"username"`
 	}
 
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.CheckSession(ctx)
+		ctx, err := p.baseSession.CheckSession(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
@@ -216,7 +237,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 
 	decoder := newDecoder[request]()
 
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -227,7 +248,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		if err := p.ChangeSessionUserPassword(ctx, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
+		if err := p.changeSessionUserPassword(ctx, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -249,7 +270,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 
 	decoder := newDecoder[request]()
 
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -258,7 +279,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		id, err := p.CreateSessionUser(ctx, (*CreateUserRequest)(req))
+		id, err := p.createSessionUser(ctx, (*CreateUserRequest)(req))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -269,12 +290,12 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 
 // DeactivateUser handles deactivating a user account.
 func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		if err := p.DeactivateSessionUser(ctx, sessionUserID); err != nil {
+		if err := p.deactivateSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -284,12 +305,12 @@ func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 
 // DeleteUser handles deleting a user account.
 func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		if err := p.DeleteSessionUser(ctx, sessionUserID); err != nil {
+		if err := p.deleteSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -299,12 +320,12 @@ func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
 
 // ActivateUser handles activating a user account.
 func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
-	return p.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
 		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
-		if err := p.ActivateSessionUser(ctx, sessionUserUUID); err != nil {
+		if err := p.activateSessionUser(ctx, sessionUserUUID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -320,12 +341,12 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
-	if _, err := p.NewAuthCookie(w, false, id); err != nil {
+	if _, err := p.baseSession.NewAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	p.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	p.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
 
 	return id, nil
 }
@@ -353,8 +374,8 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	return decoder
 }
 
-// ChangeSessionUserPassword handles modifications to a user password
-func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+// changeSessionUserPassword handles modifications to a user password
+func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
 	// Validate credentials
 	user, err := p.storage.User(ctx, userID)
 	if err != nil {
@@ -371,9 +392,9 @@ func (p *PasswordAuth) ChangeSessionUserPassword(ctx context.Context, userID ccc
 	return nil
 }
 
-// ChangeSessionUserHash handles modifications to a user hash. This can be used when
+// changeSessionUserHash handles modifications to a user hash. This can be used when
 // users are being migrated, and passwords are not know, but the hash is compatible
-func (p *PasswordAuth) ChangeSessionUserHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
+func (p *PasswordAuth) changeSessionUserHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	if err := p.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserPasswordHash()")
 	}
@@ -381,8 +402,8 @@ func (p *PasswordAuth) ChangeSessionUserHash(ctx context.Context, userID ccc.UUI
 	return nil
 }
 
-// CreateSessionUser handles creating a user account.
-func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
+// createSessionUser handles creating a user account.
+func (p *PasswordAuth) createSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
@@ -406,8 +427,8 @@ func (p *PasswordAuth) CreateSessionUser(ctx context.Context, req *CreateUserReq
 	return user.ID, nil
 }
 
-// DeleteSessionUser handles deleting a user account.
-func (p *PasswordAuth) DeleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+// deleteSessionUser handles deleting a user account.
+func (p *PasswordAuth) deleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
@@ -428,8 +449,8 @@ func (p *PasswordAuth) DeleteSessionUser(ctx context.Context, sessionUserID ccc.
 	return nil
 }
 
-// DeactivateSessionUser handles deactivating a user account.
-func (p *PasswordAuth) DeactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+// deactivateSessionUser handles deactivating a user account.
+func (p *PasswordAuth) deactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
@@ -450,8 +471,8 @@ func (p *PasswordAuth) DeactivateSessionUser(ctx context.Context, sessionUserID 
 	return nil
 }
 
-// ActivateSessionUser handles activating a user account.
-func (p *PasswordAuth) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
+// activateSessionUser handles activating a user account.
+func (p *PasswordAuth) activateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.ActivateUser()")
 	}

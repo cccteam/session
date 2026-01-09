@@ -63,7 +63,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
 			sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
 			a := &OIDCAzure{
-				BaseSession: &basesession.BaseSession{
+				baseSession: &basesession.BaseSession{
 					CookieHandler: cookie.NewCookieClient(sc),
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +305,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			a := &OIDCAzure{
 				userRoleManager: user,
 				storage:         sessionStorage,
-				BaseSession: &basesession.BaseSession{
+				baseSession: &basesession.BaseSession{
 					Storage:       sessionStorage,
 					CookieHandler: c,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
@@ -380,7 +380,7 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 			c := mock_cookie.NewMockCookieHandler(ctrl)
 			a := &OIDCAzure{
 				storage: sessionStorage,
-				BaseSession: &basesession.BaseSession{
+				baseSession: &basesession.BaseSession{
 					SessionTimeout: time.Minute,
 					Storage:        sessionStorage,
 					CookieHandler:  c,

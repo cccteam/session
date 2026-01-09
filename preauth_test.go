@@ -108,7 +108,7 @@ func TestPreauth_NewSession(t *testing.T) {
 			// Create the PreauthSession instance with mocked dependencies
 			preauth := &Preauth{
 				storage: mockStorage,
-				BaseSession: &basesession.BaseSession{
+				baseSession: &basesession.BaseSession{
 					CookieHandler: mockCookies,
 					Storage:       mockStorage,
 				},

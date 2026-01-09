@@ -32,7 +32,7 @@ type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
 	storage         sessionstorage.OIDCStore
-	*basesession.BaseSession
+	baseSession     *basesession.BaseSession
 }
 
 // NewOIDCAzure creates a new OIDCAzure.
@@ -65,14 +65,47 @@ func NewOIDCAzure(
 	return &OIDCAzure{
 		userRoleManager: userRoleManager,
 		oidc:            oidc,
-		BaseSession:     baseSession,
+		baseSession:     baseSession,
 		storage:         storage,
 	}
 }
 
+// Authenticated is the handler reports if the session is authenticated
+func (o *OIDCAzure) Authenticated() http.HandlerFunc {
+	return o.baseSession.Authenticated()
+}
+
+// Logout destroys the current session
+func (o *OIDCAzure) Logout() http.HandlerFunc {
+	return o.baseSession.Logout()
+}
+
+// SetXSRFToken sets the XSRF Token
+func (o *OIDCAzure) SetXSRFToken(next http.Handler) http.Handler {
+	return o.baseSession.SetXSRFToken(next)
+}
+
+// StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
+// a new session. The session cookie is then updated and the sessionID is inserted into the context.
+func (o *OIDCAzure) StartSession(next http.Handler) http.Handler {
+	return o.baseSession.StartSession(next)
+}
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired and updates
+// the last activity timestamp if it is still valid. StartSession handler must be called before
+// calling ValidateSession
+func (o *OIDCAzure) ValidateSession(next http.Handler) http.Handler {
+	return o.baseSession.ValidateSession(next)
+}
+
+// ValidateXSRFToken validates the XSRF Token
+func (o *OIDCAzure) ValidateXSRFToken(next http.Handler) http.Handler {
+	return o.baseSession.ValidateXSRFToken(next)
+}
+
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure) Login() http.HandlerFunc {
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -95,7 +128,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		Roles    []string `json:"roles"`
 	}
 
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -139,7 +172,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
 func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -210,12 +243,12 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
 	}
 
-	if _, err := o.NewAuthCookie(w, false, id); err != nil {
+	if _, err := o.baseSession.NewAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	o.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	o.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
 
 	return id, nil
 }
