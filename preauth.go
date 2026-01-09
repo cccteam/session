@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/gorilla/securecookie"
@@ -105,4 +106,30 @@ func (p *Preauth) ValidateSession(next http.Handler) http.Handler {
 // ValidateXSRFToken validates the XSRF Token
 func (p *Preauth) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
+}
+
+// API provides programatic access to Preauth handler internals
+func (p *Preauth) API() *PreauthAPI {
+	return newPreauthAPI(p)
+}
+
+// PreauthAPI provides programatic access to Preauth handler internals
+type PreauthAPI struct {
+	preauth *Preauth
+}
+
+func newPreauthAPI(preauth *Preauth) *PreauthAPI {
+	return &PreauthAPI{
+		preauth: preauth,
+	}
+}
+
+// Logout destroys the current session
+func (p *PreauthAPI) Logout(ctx context.Context) error {
+	// Destroy session in database
+	if err := p.preauth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
+		return errors.Wrap(err, "PreauthSession.DestroySession()")
+	}
+
+	return nil
 }
