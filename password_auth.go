@@ -480,6 +480,11 @@ func (p *PasswordAuth) activateSessionUser(ctx context.Context, sessionUserUUID 
 	return nil
 }
 
+// API provides programatic access to PasswordAuth handler internals
+func (p *PasswordAuth) API() *PasswordAuthAPI {
+	return newPasswordAuthAPI(p)
+}
+
 // ChangeSessionUserPasswordRequest takes in the user information for changing a SessionUser password
 type ChangeSessionUserPasswordRequest struct {
 	OldPassword string
@@ -491,4 +496,45 @@ type CreateUserRequest struct {
 	Username string  `json:"username"`
 	Password *string `json:"password"`
 	Disabled bool    `json:"disabled"`
+}
+
+// PasswordAuthAPI provides programatic access to PasswordAuth handler internals
+type PasswordAuthAPI struct {
+	passwordAuth *PasswordAuth
+}
+
+func newPasswordAuthAPI(passwordAuth *PasswordAuth) *PasswordAuthAPI {
+	return &PasswordAuthAPI{
+		passwordAuth: passwordAuth,
+	}
+}
+
+// ChangeSessionUserPassword handles modifications to a user password
+func (p *PasswordAuthAPI) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+	return p.passwordAuth.changeSessionUserPassword(ctx, userID, req)
+}
+
+// ChangeSessionUserHash handles modifications to a user hash.
+func (p *PasswordAuthAPI) ChangeSessionUserHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
+	return p.passwordAuth.changeSessionUserHash(ctx, userID, hash)
+}
+
+// CreateSessionUser handles creating a user account
+func (p *PasswordAuthAPI) CreateSessionUser(ctx context.Context, req *CreateUserRequest) (ccc.UUID, error) {
+	return p.passwordAuth.createSessionUser(ctx, req)
+}
+
+// DeleteSessionUser handles deleting a user account
+func (p *PasswordAuthAPI) DeleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	return p.passwordAuth.deleteSessionUser(ctx, sessionUserID)
+}
+
+// DeactivateSessionUser handles deactivating a user account
+func (p *PasswordAuthAPI) DeactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
+	return p.passwordAuth.deactivateSessionUser(ctx, sessionUserID)
+}
+
+// ActivateSessionUser handles activating a user
+func (p *PasswordAuthAPI) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
+	return p.passwordAuth.activateSessionUser(ctx, sessionUserUUID)
 }
