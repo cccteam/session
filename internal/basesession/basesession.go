@@ -36,40 +36,52 @@ func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		// Read Auth Cookie
-		cval, foundAuthCookie := s.ReadAuthCookie(r)
-		sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
-		if !foundAuthCookie || !validSessionID {
-			var err error
-			sessionID, err = ccc.NewUUID()
-			if err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
-			cval, err = s.NewAuthCookie(w, true, sessionID)
-			if err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
+		ctx, err := s.StartSessionAPI(ctx, w, r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		// Upgrade cookie to SameSite=Strict
-		// since CallbackOIDC() sets it to None to allow OAuth flow to work
-		if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
-			if err := s.WriteAuthCookie(w, true, cval); err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
-		}
-
-		// Store sessionID in context
-		ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
-
-		// Add session ID to logging context
-		l := logger.FromCtx(ctx).AddRequestAttribute("session ID", cval[types.SCSessionID]).
-			WithAttributes().AddAttribute("session ID", cval[types.SCSessionID]).Logger()
-
-		next.ServeHTTP(w, r.WithContext(logger.NewCtx(ctx, l)))
+		next.ServeHTTP(w, r.WithContext(ctx))
 
 		return nil
 	})
+}
+
+// StartSessionAPI exposes the internals of the StartSession Handler for use with the API interface
+func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+	// Read Auth Cookie
+	cval, foundAuthCookie := s.ReadAuthCookie(r)
+	sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
+	if !foundAuthCookie || !validSessionID {
+		var err error
+		sessionID, err = ccc.NewUUID()
+		if err != nil {
+			return ctx, errors.Wrap(err, "ccc.NewUUID()")
+		}
+		cval, err = s.NewAuthCookie(w, true, sessionID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
+		}
+	}
+
+	// Upgrade cookie to SameSite=Strict
+	// since CallbackOIDC() sets it to None to allow OAuth flow to work
+	if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
+		if err := s.WriteAuthCookie(w, true, cval); err != nil {
+			return ctx, errors.Wrap(err, "cookie.CookieHandler.WriteAuthCookie()")
+		}
+	}
+
+	// Store sessionID in context
+	ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
+
+	// Add session ID to logging context
+	l := logger.FromCtx(ctx).AddRequestAttribute("session ID", sessionID).
+		WithAttributes().AddAttribute("session ID", sessionID).Logger()
+
+	ctx = logger.NewCtx(ctx, l)
+
+	return ctx, nil
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired

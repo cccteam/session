@@ -133,3 +133,15 @@ func (p *PreauthAPI) Logout(ctx context.Context) error {
 
 	return nil
 }
+
+// StartSession initializes a session by restoring it from a cookie, or if
+// that fails, initializing a new session. The session cookie is then updated and
+// the sessionID is inserted into the context.
+func (p *PreauthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+	ctx, err := p.preauth.baseSession.StartSessionAPI(ctx, w, r)
+	if err != nil {
+		return ctx, errors.Wrap(err, "PreauthSession.StartSessionAPI()")
+	}
+
+	return ctx, nil
+}
