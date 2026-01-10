@@ -45,7 +45,7 @@ func (c *CookieClient) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool,
 	}
 
 	if err := c.WriteAuthCookie(w, sameSiteStrict, cval); err != nil {
-		return nil, errors.Wrap(err, "")
+		return nil, errors.Wrap(err, "CookieClient.WriteAuthCookie()")
 	}
 
 	return cval, nil
@@ -95,8 +95,8 @@ func (c *CookieClient) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict boo
 	return nil
 }
 
-// SetXSRFTokenCookie sets the cookie if it does not exist and updates the cookie when it is close to expiration.
-func (c *CookieClient) SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (set bool) {
+// RefreshXSRFTokenCookie updates the cookie when it is close to expiration, or sets it if it does not exist.
+func (c *CookieClient) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (set bool, err error) {
 	cval, found := c.ReadXSRFCookie(r)
 	sessionMatch := sessionID.String() == cval[types.STSessionID]
 	if found {
@@ -104,22 +104,29 @@ func (c *CookieClient) SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			logger.FromReq(r).Error(errors.Wrap(err, "failed to parse expiration"))
 		} else if time.Now().Before(exp.Add(-types.XSRFReWriteWindow)) && sessionMatch {
-			return false
+			return false, nil
 		}
 	}
 
-	cval = map[types.STKey]string{
+	if err := c.CreateXSRFTokenCookie(w, sessionID, cookieExpiration); err != nil {
+		return false, errors.Wrap(err, "SetXSRFTokenCookie()")
+	}
+
+	return true, nil
+}
+
+// CreateXSRFTokenCookie sets a new cookie
+func (c *CookieClient) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID, cookieExpiration time.Duration) error {
+	cval := map[types.STKey]string{
 		types.STSessionID:       sessionID.String(),
 		types.STTokenExpiration: time.Now().Add(cookieExpiration).Format(time.UnixDate),
 	}
 
 	if err := c.WriteXSRFCookie(w, cookieExpiration, cval); err != nil {
-		logger.FromReq(r).Error(errors.Wrap(err, "WriteXSRFCookie()"))
-
-		return false
+		return errors.Wrap(err, "CookieClient.WriteXSRFCookie()")
 	}
 
-	return true
+	return nil
 }
 
 // HasValidXSRFToken checks if the XSRF token is valid

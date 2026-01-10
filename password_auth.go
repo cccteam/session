@@ -97,7 +97,7 @@ func (p *PasswordAuth) StartSession(next http.Handler) http.Handler {
 	return p.baseSession.StartSession(next)
 }
 
-// Login validates the username and password.
+// Login validates the username and password and establishes the sessoin cookie.
 func (p *PasswordAuth) Login() http.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
@@ -116,38 +116,46 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		// Validate credentials
-		user, err := p.storage.UserByUserName(ctx, req.Username)
-		if err != nil {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
-		}
-		upgrade, err := p.hasher.Compare(user.PasswordHash, req.Password)
-		if err != nil {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Invalid Credentials")
-		}
-		if upgrade && p.autoUpgrade {
-			if err := p.setPasswordHash(ctx, user.ID, req.Password); err != nil {
-				logger.FromCtx(ctx).Error(err)
-			} else {
-				logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
-			}
-		}
-
-		if user.Disabled {
-			return httpio.NewEncoder(w).UnauthorizedMessageWithError(ctx, err, "Account disabled")
-		}
-
-		// user is successfully authenticated, start a new session
-		sessionID, err := p.startNewSession(ctx, w, r, user.Username)
-		if err != nil {
+		if err := p.loginAPI(ctx, w, req.Username, req.Password); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		// Log the association between the sessionID and Username
-		logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
-
 		return httpio.NewEncoder(w).Ok(nil)
 	})
+}
+
+func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, username, password string) error {
+	// Validate credentials
+	user, err := p.storage.UserByUserName(ctx, username)
+	if err != nil {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+	upgrade, err := p.hasher.Compare(user.PasswordHash, password)
+	if err != nil {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+	if upgrade && p.autoUpgrade {
+		if err := p.setPasswordHash(ctx, user.ID, password); err != nil {
+			logger.FromCtx(ctx).Error(err)
+		} else {
+			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
+		}
+	}
+
+	if user.Disabled {
+		return httpio.NewUnauthorizedMessageWithError(err, "Account disabled")
+	}
+
+	// user is successfully authenticated, start a new session
+	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	if err != nil {
+		return errors.Wrap(err, "PasswordAuth.startNewSession()")
+	}
+
+	// Log the association between the sessionID and Username
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
+
+	return nil
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
@@ -158,7 +166,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.baseSession.CheckSessionAPI(ctx)
+		ctx, err := p.baseSession.ValidateSessionAPI(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -198,7 +206,7 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := p.baseSession.CheckSessionAPI(ctx)
+		ctx, err := p.baseSession.ValidateSessionAPI(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
@@ -334,7 +342,7 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := p.storage.NewSession(ctx, username)
 	if err != nil {
@@ -346,7 +354,9 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	p.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	if err := p.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "session.BaseSession.SetXSRFTokenCookie()")
+	}
 
 	return id, nil
 }

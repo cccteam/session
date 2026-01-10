@@ -92,7 +92,7 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := s.CheckSessionAPI(ctx)
+		ctx, err := s.ValidateSessionAPI(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -103,8 +103,8 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// CheckSessionAPI checks the session cookie and if it is valid, stores the session data into the context
-func (s *BaseSession) CheckSessionAPI(ctx context.Context) (context.Context, error) {
+// ValidateSessionAPI checks the session cookie and if it is valid, stores the session data into the context
+func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -148,7 +148,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := s.CheckSessionAPI(ctx)
+		ctx, err := s.ValidateSessionAPI(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
@@ -187,7 +187,12 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if s.SetXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife) && !types.SafeMethods.Contain(r.Method) {
+		set, err := s.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+		}
+
+		if set && !types.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
 			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)

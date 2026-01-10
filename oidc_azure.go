@@ -141,7 +141,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// user is successfully authenticated, start a new session
-		sessionID, err := o.startNewSession(ctx, w, r, claims.Username, oidcSID)
+		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
@@ -236,7 +236,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username, oidcSID string) (ccc.UUID, error) {
+func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
@@ -248,7 +248,9 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	o.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	if err := o.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.SetXSRFTokenCookie()")
+	}
 
 	return id, nil
 }

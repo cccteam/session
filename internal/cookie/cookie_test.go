@@ -20,7 +20,7 @@ func mockRequestWithXSRFToken(t *testing.T, sc *securecookie.SecureCookie, setHe
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
 	c := NewCookieClient(sc)
-	if !c.SetXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration) {
+	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration); !set {
 		t.Fatalf("SetXSRFTokenCookie() = false, should have set cookie in request recorder")
 	}
 
@@ -238,7 +238,7 @@ func Test_writeAuthCookie(t *testing.T) {
 	}
 }
 
-func Test_setXSRFTokenCookie(t *testing.T) {
+func Test_RefreshXSRFTokenCookie(t *testing.T) {
 	t.Parallel()
 
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
@@ -253,6 +253,7 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 		secureCookie *securecookie.SecureCookie
 		args         args
 		wantSet      bool
+		wantErr      bool
 	}{
 		{
 			name:         "set missing cookie",
@@ -298,6 +299,7 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 				sessionID: ccc.NilUUID,
 			},
 			wantSet: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -305,8 +307,10 @@ func Test_setXSRFTokenCookie(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
 			c := NewCookieClient(tt.secureCookie)
-			if gotSet := c.SetXSRFTokenCookie(w, tt.args.r, tt.args.sessionID, tt.args.cookieExpiration); gotSet != tt.wantSet {
+			if gotSet, err := c.RefreshXSRFTokenCookie(w, tt.args.r, tt.args.sessionID, tt.args.cookieExpiration); gotSet != tt.wantSet {
 				t.Errorf("SetXSRFTokenCookie() = %v, want %v", gotSet, tt.wantSet)
+			} else if (err != nil) != tt.wantErr {
+				t.Errorf("SetXSRFTokenCookie() = %v, want nil", err)
 			}
 		})
 	}

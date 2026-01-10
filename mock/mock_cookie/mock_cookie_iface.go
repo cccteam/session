@@ -43,6 +43,20 @@ func (m *MockCookieHandler) EXPECT() *MockCookieHandlerMockRecorder {
 	return m.recorder
 }
 
+// CreateXSRFTokenCookie mocks base method.
+func (m *MockCookieHandler) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID, cookieExpiration time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateXSRFTokenCookie", w, sessionID, cookieExpiration)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateXSRFTokenCookie indicates an expected call of CreateXSRFTokenCookie.
+func (mr *MockCookieHandlerMockRecorder) CreateXSRFTokenCookie(w, sessionID, cookieExpiration any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateXSRFTokenCookie", reflect.TypeOf((*MockCookieHandler)(nil).CreateXSRFTokenCookie), w, sessionID, cookieExpiration)
+}
+
 // HasValidXSRFToken mocks base method.
 func (m *MockCookieHandler) HasValidXSRFToken(r *http.Request) bool {
 	m.ctrl.T.Helper()
@@ -87,18 +101,19 @@ func (mr *MockCookieHandlerMockRecorder) ReadAuthCookie(r any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadAuthCookie", reflect.TypeOf((*MockCookieHandler)(nil).ReadAuthCookie), r)
 }
 
-// SetXSRFTokenCookie mocks base method.
-func (m *MockCookieHandler) SetXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) bool {
+// RefreshXSRFTokenCookie mocks base method.
+func (m *MockCookieHandler) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetXSRFTokenCookie", w, r, sessionID, cookieExpiration)
+	ret := m.ctrl.Call(m, "RefreshXSRFTokenCookie", w, r, sessionID, cookieExpiration)
 	ret0, _ := ret[0].(bool)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// SetXSRFTokenCookie indicates an expected call of SetXSRFTokenCookie.
-func (mr *MockCookieHandlerMockRecorder) SetXSRFTokenCookie(w, r, sessionID, cookieExpiration any) *gomock.Call {
+// RefreshXSRFTokenCookie indicates an expected call of RefreshXSRFTokenCookie.
+func (mr *MockCookieHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID, cookieExpiration any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetXSRFTokenCookie", reflect.TypeOf((*MockCookieHandler)(nil).SetXSRFTokenCookie), w, r, sessionID, cookieExpiration)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshXSRFTokenCookie", reflect.TypeOf((*MockCookieHandler)(nil).RefreshXSRFTokenCookie), w, r, sessionID, cookieExpiration)
 }
 
 // WriteAuthCookie mocks base method.

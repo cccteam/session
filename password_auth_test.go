@@ -138,7 +138,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
-				cookieHandler.EXPECT().SetXSRFTokenCookie(gomock.Any(), gomock.Any(), sessionID, types.XSRFCookieLife)
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -159,7 +159,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
-				cookieHandler.EXPECT().SetXSRFTokenCookie(gomock.Any(), gomock.Any(), sessionID, types.XSRFCookieLife)
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -180,7 +180,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
-				cookieHandler.EXPECT().SetXSRFTokenCookie(gomock.Any(), gomock.Any(), sessionID, types.XSRFCookieLife)
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
 		},

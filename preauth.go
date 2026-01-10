@@ -54,25 +54,10 @@ func NewPreauth(storage sessionstorage.PreauthStore, secureCookie *securecookie.
 }
 
 // NewSession creates a new session for a pre-authenticated user.
-func (p *Preauth) NewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username string) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
-	defer span.End()
-
-	// Create new Session in database
-	id, err := p.storage.NewSession(ctx, username)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PreauthSessionStorage.NewSession()")
-	}
-
-	// Write new Auth Cookie
-	if _, err := p.baseSession.NewAuthCookie(w, true, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PreauthSession.NewAuthCookie()")
-	}
-
-	// Write new XSRF Token Cookie to match the new SessionID
-	p.baseSession.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
-
-	return id, nil
+//
+// Deprecated: Use p.API().Login() instead
+func (p *Preauth) NewSession(ctx context.Context, w http.ResponseWriter, _ *http.Request, username string) (ccc.UUID, error) {
+	return p.API().Login(ctx, w, username)
 }
 
 // Authenticated is the handler reports if the session is authenticated
@@ -124,6 +109,30 @@ func newPreauthAPI(preauth *Preauth) *PreauthAPI {
 	}
 }
 
+// Login creates a new session for a pre-authenticated user.
+func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	// Create new Session in database
+	id, err := p.preauth.storage.NewSession(ctx, username)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "PreauthSessionStorage.NewSession()")
+	}
+
+	// Write new Auth Cookie
+	if _, err := p.preauth.baseSession.NewAuthCookie(w, true, id); err != nil {
+		return id, errors.Wrap(err, "PreauthSession.NewAuthCookie()")
+	}
+
+	// Write new XSRF Token Cookie to match the new SessionID
+	if err := p.preauth.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+		return id, errors.Wrap(err, "PreauthSession.SetXSRFTokenCookie()")
+	}
+
+	return id, nil
+}
+
 // Logout destroys the current session
 func (p *PreauthAPI) Logout(ctx context.Context) error {
 	// Destroy session in database
@@ -150,7 +159,7 @@ func (p *PreauthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r 
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
 func (p *PreauthAPI) ValidateSession(ctx context.Context) (context.Context, error) {
-	ctx, err := p.preauth.baseSession.CheckSessionAPI(ctx)
+	ctx, err := p.preauth.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "PreauthSession.CheckSessionAPI()")
 	}
