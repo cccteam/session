@@ -519,6 +519,45 @@ func newPasswordAuthAPI(passwordAuth *PasswordAuth) *PasswordAuthAPI {
 	}
 }
 
+// Login validates the username and password.
+func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, username, password string) error {
+	return p.passwordAuth.loginAPI(ctx, w, username, password)
+}
+
+// Logout destroys the current session
+func (p *PasswordAuthAPI) Logout(ctx context.Context) error {
+	// Destroy session in database
+	if err := p.passwordAuth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
+		return errors.Wrap(err, "PreauthSession.DestroySession()")
+	}
+
+	return nil
+}
+
+// StartSession initializes a session by restoring it from a cookie, or if
+// that fails, initializing a new session. The session cookie is then updated and
+// the sessionID is inserted into the context.
+func (p *PasswordAuthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+	ctx, err := p.passwordAuth.baseSession.StartSessionAPI(ctx, w, r)
+	if err != nil {
+		return ctx, errors.Wrap(err, "PreauthSession.StartSessionAPI()")
+	}
+
+	return ctx, nil
+}
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired
+// and updates the last activity timestamp if it is still valid.
+// StartSession handler must be called before calling ValidateSession
+func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context, error) {
+	ctx, err := p.passwordAuth.baseSession.ValidateSessionAPI(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "PreauthSession.CheckSessionAPI()")
+	}
+
+	return ctx, nil
+}
+
 // ChangeSessionUserPassword handles modifications to a user password
 func (p *PasswordAuthAPI) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
 	return p.passwordAuth.changeSessionUserPassword(ctx, userID, req)
