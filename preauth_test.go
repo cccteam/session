@@ -50,7 +50,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 
 				mockCookies.EXPECT().
 					CreateXSRFTokenCookie(gomock.Any(), gomock.Any(), types.XSRFCookieLife).
-					Return(true).
+					Return(nil).
 					Times(1)
 			},
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
