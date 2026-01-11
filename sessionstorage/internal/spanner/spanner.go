@@ -316,7 +316,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "txn.Update()")
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		} else if deleteCount == 0 {
 			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
 		}
@@ -324,7 +324,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.ReadWriteTransaction()")
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil
@@ -374,13 +374,13 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if _, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "txn.Update()")
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "spanner.ReadWriteTransaction()")
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil

@@ -55,7 +55,7 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 		stReturnURL: returnURL, // URL to redirect to following successful authentication
 	}
 	if err := o.writeOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "writeOidcCookie()")
+		return "", errors.Wrap(err, "OIDC.writeOidcCookie()")
 	}
 
 	return o.redirectURL, nil

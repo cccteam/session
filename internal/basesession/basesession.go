@@ -122,7 +122,7 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 	// Update last activity (rate limit updates)
 	if time.Since(sessInfo.UpdatedAt) > time.Second*5 {
 		if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-			return ctx, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
+			return ctx, errors.Wrap(err, "sessionstorage.BaseStore.UpdateSessionActivity()")
 		}
 	}
 

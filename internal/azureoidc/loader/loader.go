@@ -52,7 +52,7 @@ func (l *loader) Provider(ctx context.Context) (Provider, error) {
 	}
 
 	if err := l.newProvider(ctx); err != nil {
-		return nil, errors.Wrap(err, "newProvider()")
+		return nil, errors.Wrap(err, "loader.newProvider()")
 	}
 
 	return l.provider, nil

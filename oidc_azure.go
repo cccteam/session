@@ -137,7 +137,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
-			return errors.Wrap(err, "oidc.Verify()")
+			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
 		// user is successfully authenticated, start a new session
@@ -145,7 +145,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzureSession.startNewSession()")
+			return errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}
 
 		// Log the association between the sessionID and Username
@@ -155,7 +155,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzureSession.assignUserRoles()")
+			return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
 		}
 		if !hasRole {
 			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
@@ -182,7 +182,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 		}
 
 		if err := o.storage.DestroySessionOIDC(ctx, sid); err != nil {
-			logger.FromReq(r).Error(errors.Wrap(err, "failed to destroy session in db via OIDC sid"))
+			logger.FromReq(r).Error(errors.Wrap(err, "sessionstorage.OIDCStore.DestroySessionOIDC()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -197,12 +197,12 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 
 	domains, err := o.userRoleManager.Domains(ctx)
 	if err != nil {
-		return false, errors.Wrap(err, "UserManager.Domains()")
+		return false, errors.Wrap(err, "UserRoleManager.Domains()")
 	}
 
 	existingRoles, err := o.userRoleManager.UserRoles(ctx, username, domains...)
 	if err != nil {
-		return false, errors.Wrap(err, "UserManager.UserRoles()")
+		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
 
 	for _, domain := range domains {
@@ -216,7 +216,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
 		if len(newRoles) > 0 {
 			if err := o.userRoleManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
+				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
 		}
@@ -224,7 +224,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
 		if len(removeRoles) > 0 {
 			if err := o.userRoleManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
+				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
 		}
@@ -240,16 +240,16 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}
 
 	if _, err := o.baseSession.NewAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.NewAuthCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
 	if err := o.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.SetXSRFTokenCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
 	return id, nil

@@ -355,7 +355,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 
 	// write new XSRF Token Cookie to match the new SessionID
 	if err := p.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "session.BaseSession.SetXSRFTokenCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
 	return id, nil
@@ -396,7 +396,7 @@ func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, userID ccc
 	}
 
 	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
-		return errors.Wrap(err, "setPasswordHash()")
+		return errors.Wrap(err, "PasswordAuth.setPasswordHash()")
 	}
 
 	return nil
@@ -528,7 +528,7 @@ func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, user
 func (p *PasswordAuthAPI) Logout(ctx context.Context) error {
 	// Destroy session in database
 	if err := p.passwordAuth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "PreauthSession.DestroySession()")
+		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
 	}
 
 	return nil
@@ -540,7 +540,7 @@ func (p *PasswordAuthAPI) Logout(ctx context.Context) error {
 func (p *PasswordAuthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
 	ctx, err := p.passwordAuth.baseSession.StartSessionAPI(ctx, w, r)
 	if err != nil {
-		return ctx, errors.Wrap(err, "PreauthSession.StartSessionAPI()")
+		return ctx, errors.Wrap(err, "basesession.BaseSession.StartSessionAPI()")
 	}
 
 	return ctx, nil
@@ -552,7 +552,7 @@ func (p *PasswordAuthAPI) StartSession(ctx context.Context, w http.ResponseWrite
 func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context, error) {
 	ctx, err := p.passwordAuth.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
-		return ctx, errors.Wrap(err, "PreauthSession.CheckSessionAPI()")
+		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
 	}
 
 	return ctx, nil

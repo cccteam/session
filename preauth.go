@@ -117,17 +117,17 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	// Create new Session in database
 	id, err := p.preauth.storage.NewSession(ctx, username)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PreauthSessionStorage.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
 	// Write new Auth Cookie
 	if _, err := p.preauth.baseSession.NewAuthCookie(w, true, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PreauthSession.NewAuthCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
 	if err := p.preauth.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "PreauthSession.SetXSRFTokenCookie()")
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
 	return id, nil
@@ -137,7 +137,7 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 func (p *PreauthAPI) Logout(ctx context.Context) error {
 	// Destroy session in database
 	if err := p.preauth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "PreauthSession.DestroySession()")
+		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
 	}
 
 	return nil
@@ -149,7 +149,7 @@ func (p *PreauthAPI) Logout(ctx context.Context) error {
 func (p *PreauthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
 	ctx, err := p.preauth.baseSession.StartSessionAPI(ctx, w, r)
 	if err != nil {
-		return ctx, errors.Wrap(err, "PreauthSession.StartSessionAPI()")
+		return ctx, errors.Wrap(err, "basesession.BaseSession.StartSessionAPI()")
 	}
 
 	return ctx, nil
@@ -161,7 +161,7 @@ func (p *PreauthAPI) StartSession(ctx context.Context, w http.ResponseWriter, r 
 func (p *PreauthAPI) ValidateSession(ctx context.Context) (context.Context, error) {
 	ctx, err := p.preauth.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
-		return ctx, errors.Wrap(err, "PreauthSession.CheckSessionAPI()")
+		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
 	}
 
 	return ctx, nil

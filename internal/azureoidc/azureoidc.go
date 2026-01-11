@@ -36,7 +36,7 @@ func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redire
 func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	provider, err := o.Provider(ctx)
 	if err != nil {
-		return "", errors.Wrap(err, "init()")
+		return "", errors.Wrap(err, "loader.Loader.Provider()")
 	}
 
 	// Using PKCE (Proof Key for Code Exchange) to protect against authorization code interception attacks
@@ -55,7 +55,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 	}
 
 	if err := o.writeOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "writeOidcCookie()")
+		return "", errors.Wrap(err, "OIDC.writeOidcCookie()")
 	}
 
 	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
@@ -68,7 +68,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	provider, err := o.Provider(ctx)
 	if err != nil {
-		return "", "", errors.Wrap(err, "init()")
+		return "", "", errors.Wrap(err, "loader.Loader.Provider()")
 	}
 
 	cval, ok := o.readOidcCookie(r)

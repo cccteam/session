@@ -26,7 +26,7 @@ const (
 func (o *OIDC) writeOidcCookie(w http.ResponseWriter, cval map[stKey]string) error {
 	encoded, err := o.s.Encode(stCookieName, cval)
 	if err != nil {
-		return errors.Wrap(err, "securecookie.Encode()")
+		return errors.Wrap(err, "securecookie.SecureCookie.Encode()")
 	}
 
 	http.SetCookie(w, &http.Cookie{
