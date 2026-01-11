@@ -15,7 +15,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPreauth_NewSession(t *testing.T) {
+func TestPreauthAPI_Login(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -49,8 +49,8 @@ func TestPreauth_NewSession(t *testing.T) {
 					Times(1)
 
 				mockCookies.EXPECT().
-					SetXSRFTokenCookie(gomock.Any(), gomock.Any(), gomock.Any(), types.XSRFCookieLife).
-					Return(true).
+					CreateXSRFTokenCookie(gomock.Any(), gomock.Any(), types.XSRFCookieLife).
+					Return(nil).
 					Times(1)
 			},
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
@@ -103,26 +103,25 @@ func TestPreauth_NewSession(t *testing.T) {
 
 			// Setup request and response recorder
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 
 			// Create the PreauthSession instance with mocked dependencies
 			preauth := &Preauth{
 				storage: mockStorage,
-				BaseSession: &basesession.BaseSession{
+				baseSession: &basesession.BaseSession{
 					CookieHandler: mockCookies,
 					Storage:       mockStorage,
 				},
 			}
 
-			// Call NewSession and capture the result
-			id, err := preauth.NewSession(context.Background(), w, r, tt.username)
+			// Call Login and capture the result
+			id, err := preauth.API().Login(context.Background(), w, tt.username)
 
 			// Validate the results
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewSession() error = %v, wantErr = %v", err, tt.wantErr)
+				t.Errorf("Login() error = %v, wantErr = %v", err, tt.wantErr)
 			}
 			if id != tt.expectedID && !tt.wantErr {
-				t.Errorf("NewSession() id = %v, expectedID = %v", id, tt.expectedID)
+				t.Errorf("Login() id = %v, expectedID = %v", id, tt.expectedID)
 			}
 
 			// Ensure cookies are only set on success

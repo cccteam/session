@@ -32,7 +32,7 @@ type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
 	storage         sessionstorage.OIDCStore
-	*basesession.BaseSession
+	baseSession     *basesession.BaseSession
 }
 
 // NewOIDCAzure creates a new OIDCAzure.
@@ -65,14 +65,47 @@ func NewOIDCAzure(
 	return &OIDCAzure{
 		userRoleManager: userRoleManager,
 		oidc:            oidc,
-		BaseSession:     baseSession,
+		baseSession:     baseSession,
 		storage:         storage,
 	}
 }
 
+// Authenticated is the handler reports if the session is authenticated
+func (o *OIDCAzure) Authenticated() http.HandlerFunc {
+	return o.baseSession.Authenticated()
+}
+
+// Logout destroys the current session
+func (o *OIDCAzure) Logout() http.HandlerFunc {
+	return o.baseSession.Logout()
+}
+
+// SetXSRFToken sets the XSRF Token
+func (o *OIDCAzure) SetXSRFToken(next http.Handler) http.Handler {
+	return o.baseSession.SetXSRFToken(next)
+}
+
+// StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
+// a new session. The session cookie is then updated and the sessionID is inserted into the context.
+func (o *OIDCAzure) StartSession(next http.Handler) http.Handler {
+	return o.baseSession.StartSession(next)
+}
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired and updates
+// the last activity timestamp if it is still valid. StartSession handler must be called before
+// calling ValidateSession
+func (o *OIDCAzure) ValidateSession(next http.Handler) http.Handler {
+	return o.baseSession.ValidateSession(next)
+}
+
+// ValidateXSRFToken validates the XSRF Token
+func (o *OIDCAzure) ValidateXSRFToken(next http.Handler) http.Handler {
+	return o.baseSession.ValidateXSRFToken(next)
+}
+
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure) Login() http.HandlerFunc {
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -95,7 +128,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		Roles    []string `json:"roles"`
 	}
 
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -104,15 +137,15 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
-			return errors.Wrap(err, "oidc.Verify()")
+			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
 		// user is successfully authenticated, start a new session
-		sessionID, err := o.startNewSession(ctx, w, r, claims.Username, oidcSID)
+		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzureSession.startNewSession()")
+			return errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}
 
 		// Log the association between the sessionID and Username
@@ -122,7 +155,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzureSession.assignUserRoles()")
+			return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
 		}
 		if !hasRole {
 			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
@@ -139,7 +172,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
 func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
-	return o.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
@@ -149,7 +182,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 		}
 
 		if err := o.storage.DestroySessionOIDC(ctx, sid); err != nil {
-			logger.FromReq(r).Error(errors.Wrap(err, "failed to destroy session in db via OIDC sid"))
+			logger.FromReq(r).Error(errors.Wrap(err, "sessionstorage.OIDCStore.DestroySessionOIDC()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -164,12 +197,12 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 
 	domains, err := o.userRoleManager.Domains(ctx)
 	if err != nil {
-		return false, errors.Wrap(err, "UserManager.Domains()")
+		return false, errors.Wrap(err, "UserRoleManager.Domains()")
 	}
 
 	existingRoles, err := o.userRoleManager.UserRoles(ctx, username, domains...)
 	if err != nil {
-		return false, errors.Wrap(err, "UserManager.UserRoles()")
+		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
 
 	for _, domain := range domains {
@@ -183,7 +216,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
 		if len(newRoles) > 0 {
 			if err := o.userRoleManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.AddUserRoles()")
+				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
 		}
@@ -191,7 +224,7 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
 		if len(removeRoles) > 0 {
 			if err := o.userRoleManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
-				return false, errors.Wrap(err, "UserManager.DeleteUserRole()")
+				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
 		}
@@ -203,19 +236,21 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, r *http.Request, username, oidcSID string) (ccc.UUID, error) {
+func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := o.storage.NewSession(ctx, username, oidcSID)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSessionStorage.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}
 
-	if _, err := o.NewAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "OIDCAzureSession.NewAuthCookie()")
+	if _, err := o.baseSession.NewAuthCookie(w, false, id); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	o.SetXSRFTokenCookie(w, r, id, types.XSRFCookieLife)
+	if err := o.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
+	}
 
 	return id, nil
 }

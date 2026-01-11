@@ -459,7 +459,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 				Storage:        storageManager,
 			}
 
-			gotReq, err := a.CheckSession(tt.args.r.Context())
+			gotReq, err := a.ValidateSessionAPI(tt.args.r.Context())
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("App.checkSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -681,7 +681,7 @@ func mockRequestWithXSRFToken(t *testing.T, method string, sc *securecookie.Secu
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
 	c := cookie.NewCookieClient(sc)
-	if !c.SetXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration) {
+	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration); !set {
 		t.Fatalf("setXSRFTokenCookie() = false, should have set cookie in request recorder")
 	}
 

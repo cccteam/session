@@ -36,51 +36,7 @@ func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		// Read Auth Cookie
-		cval, foundAuthCookie := s.ReadAuthCookie(r)
-		sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
-		if !foundAuthCookie || !validSessionID {
-			var err error
-			sessionID, err = ccc.NewUUID()
-			if err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
-			cval, err = s.NewAuthCookie(w, true, sessionID)
-			if err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
-		}
-
-		// Upgrade cookie to SameSite=Strict
-		// since CallbackOIDC() sets it to None to allow OAuth flow to work
-		if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
-			if err := s.WriteAuthCookie(w, true, cval); err != nil {
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
-			}
-		}
-
-		// Store sessionID in context
-		ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
-
-		// Add session ID to logging context
-		l := logger.FromCtx(ctx).AddRequestAttribute("session ID", cval[types.SCSessionID]).
-			WithAttributes().AddAttribute("session ID", cval[types.SCSessionID]).Logger()
-
-		next.ServeHTTP(w, r.WithContext(logger.NewCtx(ctx, l)))
-
-		return nil
-	})
-}
-
-// ValidateSession checks the sessionID in the database to validate that it has not expired
-// and updates the last activity timestamp if it is still valid.
-// StartSession handler must be called before calling ValidateSession
-func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
-	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
-		defer span.End()
-
-		ctx, err := s.CheckSession(ctx)
+		ctx, err := s.StartSessionAPI(ctx, w, r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -91,8 +47,64 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// CheckSession checks the session cookie and if it is valid, stores the session data into the context
-func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error) {
+// StartSessionAPI exposes the internals of the StartSession Handler for use with the API interface
+func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+	// Read Auth Cookie
+	cval, foundAuthCookie := s.ReadAuthCookie(r)
+	sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
+	if !foundAuthCookie || !validSessionID {
+		var err error
+		sessionID, err = ccc.NewUUID()
+		if err != nil {
+			return ctx, errors.Wrap(err, "ccc.NewUUID()")
+		}
+		cval, err = s.NewAuthCookie(w, true, sessionID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
+		}
+	}
+
+	// Upgrade cookie to SameSite=Strict
+	// since CallbackOIDC() sets it to None to allow OAuth flow to work
+	if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
+		if err := s.WriteAuthCookie(w, true, cval); err != nil {
+			return ctx, errors.Wrap(err, "cookie.CookieHandler.WriteAuthCookie()")
+		}
+	}
+
+	// Store sessionID in context
+	ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
+
+	// Add session ID to logging context
+	l := logger.FromCtx(ctx).AddRequestAttribute("session ID", sessionID).
+		WithAttributes().AddAttribute("session ID", sessionID).Logger()
+
+	ctx = logger.NewCtx(ctx, l)
+
+	return ctx, nil
+}
+
+// ValidateSession checks the sessionID in the database to validate that it has not expired
+// and updates the last activity timestamp if it is still valid.
+// StartSession handler must be called before calling ValidateSession
+func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := ccc.StartTrace(r.Context())
+		defer span.End()
+
+		ctx, err := s.ValidateSessionAPI(ctx)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+
+		return nil
+	})
+}
+
+// ValidateSessionAPI checks the session cookie and if it is valid, stores the session data into the context
+func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, error) {
 	ctx, span := ccc.StartTrace(ctx)
 	defer span.End()
 
@@ -110,7 +122,7 @@ func (s *BaseSession) CheckSession(ctx context.Context) (context.Context, error)
 	// Update last activity (rate limit updates)
 	if time.Since(sessInfo.UpdatedAt) > time.Second*5 {
 		if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
-			return ctx, errors.Wrap(err, "storageManager.UpdateSessionActivity()")
+			return ctx, errors.Wrap(err, "sessionstorage.BaseStore.UpdateSessionActivity()")
 		}
 	}
 
@@ -136,7 +148,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 		ctx, span := ccc.StartTrace(r.Context())
 		defer span.End()
 
-		ctx, err := s.CheckSession(ctx)
+		ctx, err := s.ValidateSessionAPI(ctx)
 		if err != nil {
 			if httpio.HasUnauthorized(err) {
 				return httpio.NewEncoder(w).Ok(response{})
@@ -157,7 +169,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 	})
 }
 
-// Logout is a handler which destroys the current session
+// Logout destroys the current session
 func (s *BaseSession) Logout() http.HandlerFunc {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := ccc.StartTrace(r.Context())
@@ -175,7 +187,12 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if s.SetXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife) && !types.SafeMethods.Contain(r.Method) {
+		set, err := s.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+		}
+
+		if set && !types.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
 			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)

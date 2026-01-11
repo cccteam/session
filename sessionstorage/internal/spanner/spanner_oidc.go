@@ -57,7 +57,7 @@ func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 		stmt.Params["oidcSID"] = oidcSID
 
 		if _, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction().Update()")
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 
 		return nil
