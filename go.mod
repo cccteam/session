@@ -10,13 +10,13 @@ retract (
 replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migrate/v4 v4.19.2-beta.0
 
 require (
-	cloud.google.com/go/spanner v1.86.1
+	cloud.google.com/go/spanner v1.87.0
 	github.com/cccteam/ccc v0.2.21
 	github.com/cccteam/ccc/accesstypes v0.5.4
-	github.com/cccteam/ccc/resource v0.8.3
+	github.com/cccteam/ccc/resource v0.9.3
 	github.com/cccteam/ccc/securehash v0.0.7
 	github.com/cccteam/db-initiator v0.2.17
-	github.com/cccteam/httpio v0.7.8
+	github.com/cccteam/httpio v0.7.9
 	github.com/cccteam/logger v0.1.14
 	github.com/cccteam/spxscan v0.0.7
 	github.com/coreos/go-oidc/v3 v3.17.0
@@ -26,10 +26,10 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
 	github.com/gorilla/securecookie v1.1.2
-	github.com/jackc/pgx/v5 v5.7.6
+	github.com/jackc/pgx/v5 v5.8.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.34.0
-	google.golang.org/grpc v1.77.0
+	google.golang.org/grpc v1.78.0
 )
 
 require (
@@ -128,9 +128,9 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/api v0.257.0 // indirect
-	google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	google.golang.org/genproto v0.0.0-20251213004720-97cd9d5aeac2 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20251213004720-97cd9d5aeac2 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251213004720-97cd9d5aeac2 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
