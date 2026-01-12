@@ -120,7 +120,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(nil, errors.New("new auth cookie failed"))
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(nil, errors.New("new auth cookie failed"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -137,7 +137,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(map[types.SCKey]string{}, nil)
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
@@ -158,7 +158,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(map[types.SCKey]string{}, nil)
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
@@ -179,7 +179,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), false, sessionID).Return(map[types.SCKey]string{}, nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(map[types.SCKey]string{}, nil)
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID, types.XSRFCookieLife)
 			},
 			wantStatusCode: http.StatusOK,
