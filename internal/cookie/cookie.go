@@ -153,7 +153,10 @@ func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
 	if sessioninfo.IDFromRequest(r).String() != cval[types.STSessionID] {
 		return false, nil
 	}
-	hval, found := c.ReadXSRFHeader(r)
+	hval, found, err := c.ReadXSRFHeader(r)
+	if err != nil {
+		return false, errors.Wrap(err, "CookieClient.ReadXSRFHeader()")
+	}
 	if !found {
 		return false, nil
 	}
@@ -201,15 +204,13 @@ func (c *Client) ReadXSRFCookie(r *http.Request) (params map[types.STKey]string,
 }
 
 // ReadXSRFHeader reads the XSRF header from the request
-func (c *Client) ReadXSRFHeader(r *http.Request) (map[types.STKey]string, bool) {
+func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.STKey]string, found bool, err error) {
 	h := r.Header.Get(c.STHeaderName)
 	cval := make(map[types.STKey]string)
-	err := c.secureCookie.Decode(c.STCookieName, h, &cval)
-	if err != nil {
-		logger.FromReq(r).Error(errors.Wrap(err, "securecookie.SecureCookie.Decode()"))
 
-		return nil, false
+	if err := c.secureCookie.Decode(c.STCookieName, h, &cval); err != nil {
+		return nil, false, errors.Wrap(err, "securecookie.SecureCookie.Decode()")
 	}
 
-	return cval, true
+	return cval, true, nil
 }
