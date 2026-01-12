@@ -10,7 +10,7 @@ import (
 )
 
 // CookieOption defines a function signature for setting cookie client options.
-type CookieOption func(*cookie.CookieClient)
+type CookieOption func(*cookie.Client)
 
 func (CookieOption) isOIDCAzureOption() {}
 func (CookieOption) isPasswordOption()  {}
@@ -18,28 +18,28 @@ func (CookieOption) isPreauthOption()   {}
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
-	return CookieOption(func(c *cookie.CookieClient) {
+	return CookieOption(func(c *cookie.Client) {
 		c.CookieName = name
 	})
 }
 
 // WithCookieDomain sets the domain for the session cookie.
 func WithCookieDomain(domain string) CookieOption {
-	return CookieOption(func(c *cookie.CookieClient) {
+	return CookieOption(func(c *cookie.Client) {
 		c.Domain = domain
 	})
 }
 
 // WithXSRFCookieName sets the cookie name for the XSRF cookie.
 func WithXSRFCookieName(name string) CookieOption {
-	return CookieOption(func(c *cookie.CookieClient) {
+	return CookieOption(func(c *cookie.Client) {
 		c.STCookieName = name
 	})
 }
 
 // WithXSRFHeaderName sets the header name for the XSRF header.
 func WithXSRFHeaderName(name string) CookieOption {
-	return CookieOption(func(c *cookie.CookieClient) {
+	return CookieOption(func(c *cookie.Client) {
 		c.STHeaderName = name
 	})
 }

@@ -121,12 +121,12 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.preauth.baseSession.NewAuthCookie(w, true, id); err != nil {
+	if _, err := p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	if err := p.preauth.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

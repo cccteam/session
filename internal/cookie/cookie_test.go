@@ -59,7 +59,7 @@ func Test_newAuthCookie(t *testing.T) {
 		name    string
 		args    args
 		sc      *securecookie.SecureCookie
-		prepare func(*CookieClient)
+		prepare func(*Client)
 		wantNil bool
 		wantErr bool
 	}{
@@ -124,7 +124,7 @@ func Test_readAuthCookie(t *testing.T) {
 		"key2":                 "value2",
 		types.SCSameSiteStrict: "false",
 	}
-	if err := a.WriteAuthCookie(w, false, cval); err != nil {
+	if err := a.WriteAuthCookie(w, true, cval); err != nil {
 		t.Fatalf("WriteAuthCookie() err = %v", err)
 	}
 	// Copy the Cookie over to a new Request
@@ -134,9 +134,10 @@ func Test_readAuthCookie(t *testing.T) {
 		name    string
 		req     *http.Request
 		sc      *securecookie.SecureCookie
-		prepare func(*CookieClient, *http.Request)
+		prepare func(*Client, *http.Request)
 		want    map[types.SCKey]string
 		want1   bool
+		wantErr bool
 	}{
 		{
 			name:  "success",
@@ -152,10 +153,11 @@ func Test_readAuthCookie(t *testing.T) {
 			want: make(map[types.SCKey]string),
 		},
 		{
-			name: "Fail on decode",
-			req:  &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
-			sc:   &securecookie.SecureCookie{},
-			want: make(map[types.SCKey]string),
+			name:    "Fail on decode",
+			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
+			sc:      &securecookie.SecureCookie{},
+			want:    make(map[types.SCKey]string),
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -163,7 +165,10 @@ func Test_readAuthCookie(t *testing.T) {
 			t.Parallel()
 
 			app := NewCookieClient(tt.sc)
-			got, got1 := app.ReadAuthCookie(tt.req)
+			got, got1, err := app.ReadAuthCookie(tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ReadAuthCookie() error = %v, wantErr %v", err, tt.wantErr)
+			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ReadAuthCookie() got = %v, want %v", got, tt.want)
 			}
@@ -322,9 +327,10 @@ func Test_hasValidXSRFToken(t *testing.T) {
 	sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
 
 	tests := []struct {
-		name string
-		req  *http.Request
-		want bool
+		name    string
+		req     *http.Request
+		want    bool
+		wantErr bool
 	}{
 		{
 			name: "success",
@@ -365,7 +371,9 @@ func Test_hasValidXSRFToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := NewCookieClient(sc)
-			if got := c.HasValidXSRFToken(tt.req); got != tt.want {
+			if got, err := c.HasValidXSRFToken(tt.req); (err != nil) != tt.wantErr {
+				t.Errorf("HasValidXSRFToken() error = %v, wantErr %v", err, tt.wantErr)
+			} else if got != tt.want {
 				t.Errorf("HasValidXSRFToken() = %v, want %v", got, tt.want)
 			}
 		})
@@ -441,6 +449,7 @@ func Test_readXSRFCookie(t *testing.T) {
 		secureCookie  *securecookie.SecureCookie
 		wantSessionID string
 		wantOK        bool
+		wantErr       bool
 	}{
 		{
 			name: "fails to find the cookie",
@@ -450,6 +459,7 @@ func Test_readXSRFCookie(t *testing.T) {
 			name:         "fails to decode the cookie",
 			req:          &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=someValue", types.STCookieName)}}},
 			secureCookie: sc,
+			wantErr:      true,
 		},
 		{
 			name:          "success reading the cookie",
@@ -463,7 +473,10 @@ func Test_readXSRFCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := NewCookieClient(tt.secureCookie)
-			got, gotOK := c.ReadXSRFCookie(tt.req)
+			got, gotOK, err := c.ReadXSRFCookie(tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("readXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
+			}
 
 			if gotOK != tt.wantOK {
 				t.Fatalf("readXSRFCookie() gotOK = %v, want %v", gotOK, tt.wantOK)
@@ -572,7 +585,10 @@ func Test_write_read_TokenCookie(t *testing.T) {
 			// Set XSRF Token header to XSRF cookie value
 			r.Header.Set(types.STHeaderName, c.Value)
 
-			got, got1 := cookieClient.ReadXSRFCookie(r)
+			got, got1, err := cookieClient.ReadXSRFCookie(r)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ReadXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
+			}
 			if !reflect.DeepEqual(got, tt.args.cval) {
 				t.Errorf("ReadXSRFCookie() got = %v, want %v", got, tt.args.cval)
 			}

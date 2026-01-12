@@ -243,12 +243,12 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}
 
-	if _, err := o.baseSession.NewAuthCookie(w, false, id); err != nil {
+	if _, err := o.baseSession.CookieHandler.NewAuthCookie(w, false, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := o.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

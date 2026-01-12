@@ -25,7 +25,7 @@ type BaseSession struct {
 	SessionTimeout time.Duration
 	Handle         LogHandler
 	Storage        sessionstorage.BaseStore
-	cookie.CookieHandler
+	CookieHandler  cookie.Handler
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
@@ -50,7 +50,11 @@ func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 // StartSessionAPI exposes the internals of the StartSession Handler for use with the API interface
 func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
 	// Read Auth Cookie
-	cval, foundAuthCookie := s.ReadAuthCookie(r)
+	cval, foundAuthCookie, err := s.CookieHandler.ReadAuthCookie(r)
+	if err != nil {
+		return ctx, errors.Wrap(err, "cookie.CookieHandler.ReadAuthCookie()")
+	}
+
 	sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
 	if !foundAuthCookie || !validSessionID {
 		var err error
@@ -58,7 +62,7 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 		if err != nil {
 			return ctx, errors.Wrap(err, "ccc.NewUUID()")
 		}
-		cval, err = s.NewAuthCookie(w, true, sessionID)
+		cval, err = s.CookieHandler.NewAuthCookie(w, true, sessionID)
 		if err != nil {
 			return ctx, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 		}
@@ -67,7 +71,7 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 	// Upgrade cookie to SameSite=Strict
 	// since CallbackOIDC() sets it to None to allow OAuth flow to work
 	if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
-		if err := s.WriteAuthCookie(w, true, cval); err != nil {
+		if err := s.CookieHandler.WriteAuthCookie(w, true, cval); err != nil {
 			return ctx, errors.Wrap(err, "cookie.CookieHandler.WriteAuthCookie()")
 		}
 	}
@@ -187,7 +191,7 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		set, err := s.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
+		set, err := s.CookieHandler.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 		}
@@ -210,9 +214,16 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 func (s *BaseSession) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		// Validate XSRFToken for non-safe
-		if !types.SafeMethods.Contain(r.Method) && !s.HasValidXSRFToken(r) {
-			// Token validation failed
-			return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessage("invalid XSRF token"))
+		if !types.SafeMethods.Contain(r.Method) {
+			hasValidXSRFToken, err := s.CookieHandler.HasValidXSRFToken(r)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+			}
+
+			if !hasValidXSRFToken {
+				// Token validation failed
+				return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewForbiddenMessage("invalid XSRF token"))
+			}
 		}
 
 		next.ServeHTTP(w, r)

@@ -349,12 +349,12 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
-	if _, err := p.baseSession.NewAuthCookie(w, true, id); err != nil {
+	if _, err := p.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := p.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
