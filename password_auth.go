@@ -349,7 +349,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
-	if _, err := p.baseSession.NewAuthCookie(w, false, id); err != nil {
+	if _, err := p.baseSession.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
