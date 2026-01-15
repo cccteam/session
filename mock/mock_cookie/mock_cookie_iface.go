@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	ccc "github.com/cccteam/ccc"
-	types "github.com/cccteam/session/internal/types"
+	cookie "github.com/cccteam/session/internal/cookie"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -72,10 +72,10 @@ func (mr *MockHandlerMockRecorder) HasValidXSRFToken(r any) *gomock.Call {
 }
 
 // NewAuthCookie mocks base method.
-func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
+func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (cookie.Values, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewAuthCookie", w, sameSiteStrict, sessionID)
-	ret0, _ := ret[0].(map[types.SCKey]string)
+	ret0, _ := ret[0].(cookie.Values)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -87,10 +87,10 @@ func (mr *MockHandlerMockRecorder) NewAuthCookie(w, sameSiteStrict, sessionID an
 }
 
 // ReadAuthCookie mocks base method.
-func (m *MockHandler) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, bool, error) {
+func (m *MockHandler) ReadAuthCookie(r *http.Request) (cookie.Values, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReadAuthCookie", r)
-	ret0, _ := ret[0].(map[types.SCKey]string)
+	ret0, _ := ret[0].(cookie.Values)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -118,7 +118,7 @@ func (mr *MockHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID any) *
 }
 
 // WriteAuthCookie mocks base method.
-func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error {
+func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval cookie.Values) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, cval)
 	ret0, _ := ret[0].(error)

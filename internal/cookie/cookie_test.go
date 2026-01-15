@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
@@ -37,17 +37,17 @@ func mockRequestWithXSRFToken(t *testing.T, setHeader bool, cookieSessionID, req
 
 	if setHeader {
 		// Get XSRF cookie
-		c, err := r.Cookie(types.STCookieName)
+		c, err := r.Cookie(XSRFCookieName)
 		if err != nil {
 			return r
 		}
 
 		// Set XSRF Token header to XSRF cookie value
-		r.Header.Set(types.STHeaderName, c.Value)
+		r.Header.Set(XSRFHeaderName, c.Value)
 	}
 
 	// Store sessionID in context
-	r = r.WithContext(context.WithValue(context.Background(), types.CTXSessionID, requestSessionID))
+	r = r.WithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, requestSessionID))
 
 	return r
 }
@@ -60,19 +60,19 @@ func Test_newAuthCookie(t *testing.T) {
 		cookieKey      string
 	}
 	tests := []struct {
-		name    string
-		args    args
-		prepare func(*Client)
-		wantNil bool
-		wantErr bool
+		name      string
+		args      args
+		prepare   func(*Client)
+		wantEmpty bool
+		wantErr   bool
 	}{
 		{
 			name: "error on cookie write",
 			args: args{
 				cookieKey: "Invalid Key",
 			},
-			wantNil: true,
-			wantErr: true,
+			wantEmpty: true,
+			wantErr:   true,
 		},
 		{
 			name: "Success, same site strict",
@@ -105,12 +105,12 @@ func Test_newAuthCookie(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newAuthCookie() error = %v", err)
 			}
-			if (got == nil) != tt.wantNil {
-				t.Errorf("newAuthCookie() = %v, wantNil %v", got, tt.wantNil)
+			if (len(got.v) == 0) != tt.wantEmpty {
+				t.Errorf("newAuthCookie() = %v, wantNil %v", got, tt.wantEmpty)
 			}
-			if got != nil {
-				if _, ok := got[types.SCSessionID]; !ok {
-					t.Errorf("got[types.SCSessionID] not set. expected it set")
+			if len(got.v) != 0 {
+				if _, ok := got.v[SessionID]; !ok {
+					t.Errorf("got[cookie.SCSessionID] not set. expected it set")
 				}
 			}
 
@@ -132,11 +132,10 @@ func Test_readAuthCookie(t *testing.T) {
 		t.Fatalf("NewCookieClient() error = %v", err)
 	}
 	w := httptest.NewRecorder()
-	cval := map[types.SCKey]string{
-		"key1":                 "value1",
-		"key2":                 "value2",
-		types.SCSameSiteStrict: "false",
-	}
+	cval := NewValues().
+		Set("key1", "value1").
+		Set("key2", "value2").
+		Set(SameSiteStrict, "false")
 	if err := a.WriteAuthCookie(w, true, cval); err != nil {
 		t.Fatalf("WriteAuthCookie() err = %v", err)
 	}
@@ -147,7 +146,7 @@ func Test_readAuthCookie(t *testing.T) {
 		name      string
 		req       *http.Request
 		prepare   func(*Client, *http.Request)
-		want      map[types.SCKey]string
+		want      Values
 		wantFound bool
 		wantErr   bool
 	}{
@@ -160,10 +159,12 @@ func Test_readAuthCookie(t *testing.T) {
 		{
 			name: "Fail on cookie",
 			req:  &http.Request{},
+			want: NewValues(),
 		},
 		{
 			name:      "Fail on decode",
-			req:       &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
+			req:       &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", AuthCookieName)}}},
+			want:      NewValues(),
 			wantFound: false,
 			wantErr:   false,
 		},
@@ -222,10 +223,9 @@ func Test_writeAuthCookie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cval := map[types.SCKey]string{
-				"key1": "value1",
-				"key2": "value2",
-			}
+			cval := NewValues().
+				Set("key1", "value1").
+				Set("key2", "value2")
 			a, err := NewCookieClient(tt.cookieKey)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("NewCookieClient() error = %v, wantErr %v", err, tt.wantErr)
@@ -359,7 +359,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 			name: "failure, invalid expiration",
 			req: func() *http.Request {
 				r := mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")))
-				r.Header.Set(types.STCookieName, "invalid")
+				r.Header.Set(XSRFCookieName, "invalid")
 				return r
 			}(),
 			want:    false,
@@ -386,7 +386,7 @@ func Test_writeXSRFCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		cval      map[types.SCKey]string
+		cval      Values
 		cookieKey string
 	}
 	tests := []struct {
@@ -397,21 +397,20 @@ func Test_writeXSRFCookie(t *testing.T) {
 		{
 			name: "success",
 			args: args{
-				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
-				cookieKey: cookieKey,
+				cval: NewValues().Set("key1", "value1"),
 			},
 		},
 		{
 			name: "success with secure cookie",
 			args: args{
-				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cval:      NewValues().Set("key1", "value1"),
 				cookieKey: cookieKey,
 			},
 		},
 		{
 			name: "failure",
 			args: args{
-				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cval:      NewValues().Set("key1", "value1"),
 				cookieKey: "invalid key",
 			},
 			wantErr: true,
@@ -455,7 +454,7 @@ func Test_readXSRFCookie(t *testing.T) {
 		},
 		{
 			name:    "fails to decode the cookie",
-			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=someValue", types.STCookieName)}}},
+			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=someValue", XSRFCookieName)}}},
 			wantErr: false,
 		},
 		{
@@ -483,7 +482,7 @@ func Test_readXSRFCookie(t *testing.T) {
 			if !tt.wantOK {
 				return
 			}
-			if got[types.STSessionID] != tt.wantSessionID {
+			if got.Get(SessionID) != tt.wantSessionID {
 				t.Errorf("ReadXSRFCookie() got[stSessionID] = %v, want %v", got, tt.wantSessionID)
 			}
 		})
@@ -527,7 +526,7 @@ func Test_readXSRFHeader(t *testing.T) {
 			if !tt.wantOK {
 				return
 			}
-			if got[types.STSessionID] != tt.wantSessionID {
+			if got.Get(SessionID) != tt.wantSessionID {
 				t.Errorf("ReadXSRFHeader() got[stSessionID] = %v, want %v", got, tt.wantSessionID)
 			}
 		})
@@ -538,7 +537,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		cval map[types.SCKey]string
+		cval Values
 	}
 	tests := []struct {
 		name    string
@@ -548,7 +547,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 		{
 			name: "success",
 			args: args{
-				cval: map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cval: NewValues().Set("key1", "value1"),
 			},
 		},
 	}
@@ -572,13 +571,13 @@ func Test_write_read_TokenCookie(t *testing.T) {
 			}
 
 			// Get XSRF cookie
-			c, err := r.Cookie(types.STCookieName)
+			c, err := r.Cookie(XSRFCookieName)
 			if err != nil {
 				t.Fatalf("Request.Cookie() = %v", err)
 			}
 
 			// Set XSRF Token header to XSRF cookie value
-			r.Header.Set(types.STHeaderName, c.Value)
+			r.Header.Set(XSRFHeaderName, c.Value)
 
 			got, got1, err := cookieClient.ReadXSRFCookie(r)
 			if (err != nil) != tt.wantErr {

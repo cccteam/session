@@ -9,7 +9,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/internal/basesession"
-	"github.com/cccteam/session/internal/types"
+	"github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
@@ -38,13 +38,13 @@ func TestPreauthAPI_Login(t *testing.T) {
 				// Simulate cookie setting
 				mockCookies.EXPECT().
 					NewAuthCookie(gomock.Any(), true, gomock.Any()).
-					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
+					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (cookie.Values, error) {
 						http.SetCookie(w, &http.Cookie{
 							Name:  "auth",
 							Value: sessionID.String(),
 							Path:  "/",
 						})
-						return map[types.SCKey]string{types.SCSessionID: sessionID.String()}, nil
+						return cookie.NewValues().Set(cookie.SessionID, sessionID.String()), nil
 					}).
 					Times(1)
 
@@ -80,7 +80,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 				// Simulate failure in setting the auth cookie
 				mockCookies.EXPECT().
 					NewAuthCookie(gomock.Any(), true, gomock.Any()).
-					Return(nil, errors.New("failed to set auth cookie")).
+					Return(cookie.NewValues(), errors.New("failed to set auth cookie")).
 					Times(1)
 			},
 			wantErr: true,

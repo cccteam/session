@@ -10,7 +10,6 @@ import (
 	"aidanwoods.dev/go-paseto"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
@@ -33,9 +32,9 @@ func NewCookieClient(masterKeyBase64 string, opts ...Option) (*Client, error) {
 	client := &Client{
 		pasetoKey: pasetoKey,
 		cookieOptions: &cookieOptions{
-			CookieName:   string(types.SCAuthCookieName),
-			STCookieName: types.STCookieName,
-			STHeaderName: types.STHeaderName,
+			CookieName:   AuthCookieName,
+			STCookieName: XSRFCookieName,
+			STHeaderName: XSRFHeaderName,
 		},
 	}
 
@@ -47,44 +46,42 @@ func NewCookieClient(masterKeyBase64 string, opts ...Option) (*Client, error) {
 }
 
 // NewAuthCookie writes a new Auth Cookie for given sessionID
-func (c *Client) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
-	cval := map[types.SCKey]string{
-		types.SCSessionID: sessionID.String(),
-	}
+func (c *Client) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (Values, error) {
+	cval := NewValues().Set(SessionID, sessionID.String())
 
 	if err := c.WriteAuthCookie(w, sameSiteStrict, cval); err != nil {
-		return nil, errors.Wrap(err, "CookieClient.WriteAuthCookie()")
+		return cval, errors.Wrap(err, "CookieClient.WriteAuthCookie()")
 	}
 
 	return cval, nil
 }
 
 // ReadAuthCookie reads the Auth cookie from the request
-func (c *Client) ReadAuthCookie(r *http.Request) (params map[types.SCKey]string, found bool, err error) {
+func (c *Client) ReadAuthCookie(r *http.Request) (params Values, found bool, err error) {
 	cookie, err := r.Cookie(c.CookieName)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
-			return nil, false, nil
+			return NewValues(), false, nil
 		}
 
-		return nil, false, errors.Wrap(err, "http.Request.Cookie()")
+		return NewValues(), false, errors.Wrap(err, "http.Request.Cookie()")
 	}
 
 	cval, err := c.decryptCookie(c.CookieName, cookie.Value)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
-			return nil, false, nil
+			return cval, false, nil
 		}
 		logger.FromReq(r).Error(err)
 
-		return nil, false, nil
+		return cval, false, nil
 	}
 
 	return cval, true, nil
 }
 
 // WriteAuthCookie writes the Auth cookie to the response
-func (c *Client) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error {
+func (c *Client) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval Values) error {
 	sameSite := http.SameSiteStrictMode
 	if !sameSiteStrict {
 		sameSite = http.SameSiteNoneMode
@@ -111,7 +108,7 @@ func (c *Client) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, 
 		return false, errors.Wrap(err, "CookieClient.ReadXSRFCookie()")
 	}
 
-	sessionMatch := sessionID.String() == cval[types.STSessionID]
+	sessionMatch := sessionID.String() == cval.Get(SessionID)
 	if found && sessionMatch {
 		return false, nil
 	}
@@ -125,9 +122,7 @@ func (c *Client) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, 
 
 // CreateXSRFTokenCookie sets a new cookie
 func (c *Client) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID) error {
-	cval := map[types.SCKey]string{
-		types.STSessionID: sessionID.String(),
-	}
+	cval := NewValues().Set(SessionID, sessionID.String())
 
 	if err := c.WriteXSRFCookie(w, cval); err != nil {
 		return errors.Wrap(err, "CookieClient.WriteXSRFCookie()")
@@ -145,7 +140,7 @@ func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
 	if !found {
 		return false, nil
 	}
-	if sessioninfo.IDFromRequest(r).String() != cval[types.STSessionID] {
+	if sessioninfo.IDFromRequest(r).String() != cval.Get(SessionID) {
 		return false, nil
 	}
 	hval, found := c.ReadXSRFHeader(r)
@@ -153,11 +148,11 @@ func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
 		return false, nil
 	}
 
-	return hval[types.STSessionID] == cval[types.STSessionID], nil
+	return hval.Get(SessionID) == cval.Get(SessionID), nil
 }
 
 // WriteXSRFCookie writes the XSRF cookie to the response
-func (c *Client) WriteXSRFCookie(w http.ResponseWriter, cval map[types.SCKey]string) error {
+func (c *Client) WriteXSRFCookie(w http.ResponseWriter, cval Values) error {
 	http.SetCookie(w, &http.Cookie{
 		Name:     c.STCookieName,
 		Expires:  time.Time{},
@@ -173,52 +168,52 @@ func (c *Client) WriteXSRFCookie(w http.ResponseWriter, cval map[types.SCKey]str
 }
 
 // ReadXSRFCookie reads the XSRF cookie from the request
-func (c *Client) ReadXSRFCookie(r *http.Request) (params map[types.SCKey]string, found bool, err error) {
+func (c *Client) ReadXSRFCookie(r *http.Request) (params Values, found bool, err error) {
 	cookie, err := r.Cookie(c.STCookieName)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
-			return nil, false, nil
+			return NewValues(), false, nil
 		}
 
-		return nil, false, errors.Wrap(err, "http.Request.Cookie()")
+		return NewValues(), false, errors.Wrap(err, "http.Request.Cookie()")
 	}
 
 	cval, err := c.decryptCookie(c.STCookieName, cookie.Value)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
-			return nil, false, nil
+			return cval, false, nil
 		}
 		logger.FromReq(r).Error(err)
 
-		return nil, false, nil
+		return cval, false, nil
 	}
 
 	return cval, true, nil
 }
 
 // ReadXSRFHeader reads the XSRF header from the request
-func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.SCKey]string, found bool) {
+func (c *Client) ReadXSRFHeader(r *http.Request) (params Values, found bool) {
 	h := r.Header.Get(c.STHeaderName)
 
 	cval, err := c.decryptCookie(c.STCookieName, h)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
-			return nil, false
+			return cval, false
 		}
 		logger.FromReq(r).Error(err)
 
-		return nil, false
+		return cval, false
 	}
 
 	return cval, true
 }
 
 // WriteOidcCookie writes the OIDC cookie to the response
-func (c *Client) WriteOidcCookie(w http.ResponseWriter, cval map[types.SCKey]string) error {
+func (c *Client) WriteOidcCookie(w http.ResponseWriter, cval Values) error {
 	http.SetCookie(w, &http.Cookie{
-		Name:     types.STOIDCCookieName,
-		Expires:  time.Now().Add(types.OIDCCookieExpiration),
-		Value:    c.encryptCookie(types.STOIDCCookieName, time.Now().Add(types.OIDCCookieExpiration), cval),
+		Name:     OIDCCookieName,
+		Expires:  time.Now().Add(OIDCCookieExpiration),
+		Value:    c.encryptCookie(OIDCCookieName, time.Now().Add(OIDCCookieExpiration), cval),
 		Path:     "/",
 		Domain:   "",
 		Secure:   secureCookie(),
@@ -230,20 +225,20 @@ func (c *Client) WriteOidcCookie(w http.ResponseWriter, cval map[types.SCKey]str
 }
 
 // ReadOidcCookie reads the OIDC cookie from the request
-func (c *Client) ReadOidcCookie(r *http.Request) (params map[types.SCKey]string, found bool, err error) {
-	cookie, err := r.Cookie(types.STOIDCCookieName)
+func (c *Client) ReadOidcCookie(r *http.Request) (params Values, found bool, err error) {
+	cookie, err := r.Cookie(OIDCCookieName)
 	if err != nil {
-		return nil, false, errors.Wrap(err, "http.Request.Cookie()")
+		return NewValues(), false, errors.Wrap(err, "http.Request.Cookie()")
 	}
 
-	cval, err := c.decryptCookie(types.STOIDCCookieName, cookie.Value)
+	cval, err := c.decryptCookie(OIDCCookieName, cookie.Value)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
-			return nil, false, nil
+			return cval, false, nil
 		}
 		logger.FromReq(r).Error(err)
 
-		return nil, false, nil
+		return cval, false, nil
 	}
 
 	return cval, true, nil
@@ -252,7 +247,7 @@ func (c *Client) ReadOidcCookie(r *http.Request) (params map[types.SCKey]string,
 // DeleteOidcCookie deletes the OIDC cookie from the response
 func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     types.STOIDCCookieName,
+		Name:     OIDCCookieName,
 		Expires:  time.Unix(0, 0),
 		Value:    "",
 		Path:     "/",
@@ -263,9 +258,9 @@ func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
 	})
 }
 
-func (c *Client) encryptCookie(cookieName string, expiration time.Time, cval map[types.SCKey]string) string {
+func (c *Client) encryptCookie(cookieName string, expiration time.Time, cval Values) string {
 	token := paseto.NewToken()
-	for k, v := range cval {
+	for k, v := range cval.v {
 		token.SetString("custom:"+string(k), v)
 	}
 
@@ -274,8 +269,8 @@ func (c *Client) encryptCookie(cookieName string, expiration time.Time, cval map
 	return token.V4Encrypt(c.pasetoKey, []byte(cookieName))
 }
 
-func (c *Client) decryptCookie(cookieName, cookieValue string) (map[types.SCKey]string, error) {
-	cval := make(map[types.SCKey]string)
+func (c *Client) decryptCookie(cookieName, cookieValue string) (Values, error) {
+	cval := NewValues()
 
 	token, err := paseto.NewParser().ParseV4Local(c.pasetoKey, cookieValue, []byte(cookieName))
 	if err != nil {
@@ -292,7 +287,7 @@ func (c *Client) decryptCookie(cookieName, cookieValue string) (map[types.SCKey]
 			if !strings.HasPrefix(k, "custom:") {
 				continue
 			}
-			cval[types.SCKey(strings.TrimPrefix(k, "custom:"))] = strVal
+			cval.Set(Key(strings.TrimPrefix(k, "custom:")), strVal)
 		}
 	}
 

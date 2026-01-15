@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/types"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 )
@@ -52,9 +51,8 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	cval := map[types.SCKey]string{
-		types.STReturnURL: returnURL, // URL to redirect to following successful authentication
-	}
+	cval := cookie.NewValues().Set(cookie.ReturnURL, returnURL)
+
 	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
 		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
 	}
@@ -93,7 +91,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval[types.STReturnURL]
+	returnURL = cval.Get(cookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
