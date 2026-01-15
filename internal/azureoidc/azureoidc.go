@@ -56,7 +56,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 	}
 
 	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "OIDC.writeOidcCookie()")
+		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
 	}
 
 	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
