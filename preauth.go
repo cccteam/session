@@ -46,7 +46,7 @@ func NewPreauth(storage sessionstorage.PreauthStore, cookieKey string, options .
 			o(baseSession)
 		}
 	}
-	cookieClient, err := cookie.NewCookieClient(cookieKey)
+	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
