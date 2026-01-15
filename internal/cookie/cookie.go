@@ -18,28 +18,38 @@ var _ Handler = &Client{}
 
 // Client implements all cookie management for session package
 type Client struct {
-	secureCookie *securecookie.SecureCookie
-	CookieName   string
-	STCookieName string
-	STHeaderName string
-	Domain       string
+	masterKeyBase64 string
+	secureCookie    *securecookie.SecureCookie
+	*cookieOptions
 }
 
 // NewCookieClient returns a new CookieClient
-func NewCookieClient(secureCookie *securecookie.SecureCookie) *Client {
-	cookie := &Client{
-		secureCookie: secureCookie,
-		CookieName:   string(types.SCAuthCookieName),
-		STCookieName: types.STCookieName,
-		STHeaderName: types.STHeaderName,
+func NewCookieClient(masterKeyBase64 string, opts ...Option) (*Client, error) {
+	client := &Client{
+		masterKeyBase64: masterKeyBase64,
+		cookieOptions: &cookieOptions{
+			CookieName:   string(types.SCAuthCookieName),
+			STCookieName: types.STCookieName,
+			STHeaderName: types.STHeaderName,
+		},
 	}
 
-	return cookie
+	for _, opt := range opts {
+		opt(client.cookieOptions)
+	}
+
+	secureCookie, err := createSecureCookie(client.masterKeyBase64)
+	if err != nil {
+		return nil, errors.Wrap(err, "createPasetoKey()")
+	}
+
+	client.secureCookie = secureCookie
+
+	return client, nil
 }
 
 // NewAuthCookie writes a new Auth Cookie for given sessionID
 func (c *Client) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
-	// Update cookie
 	cval := map[types.SCKey]string{
 		types.SCSessionID: sessionID.String(),
 	}
@@ -213,4 +223,47 @@ func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.STKey]string,
 	}
 
 	return cval, true, nil
+}
+
+// WriteOidcCookie writes the OIDC cookie to the response
+func (c *Client) WriteOidcCookie(w http.ResponseWriter, cval map[types.STKey]string) error {
+	encoded, err := c.secureCookie.Encode(types.STOIDCCookieName, cval)
+	if err != nil {
+		return errors.Wrap(err, "securecookie.SecureCookie.Encode()")
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:    types.STOIDCCookieName,
+		Expires: time.Now().Add(types.OIDCCookieExpiration),
+		Value:   encoded,
+		Path:    "/",
+		Secure:  secureCookie(),
+	})
+
+	return nil
+}
+
+// ReadOidcCookie reads the OIDC cookie from the request
+func (c *Client) ReadOidcCookie(r *http.Request) (params map[types.STKey]string, found bool, err error) {
+	cookie, err := r.Cookie(types.STOIDCCookieName)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "http.Request.Cookie()")
+	}
+
+	cval := make(map[types.STKey]string)
+	if err := c.secureCookie.Decode(types.STOIDCCookieName, cookie.Value, &cval); err != nil {
+		return nil, false, errors.Wrap(err, "securecookie.SecureCookie.Decode()")
+	}
+
+	return cval, true, nil
+}
+
+// DeleteOidcCookie deletes the OIDC cookie from the response
+func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:    types.STOIDCCookieName,
+		Expires: time.Unix(0, 0),
+		Path:    "/",
+		Secure:  secureCookie(),
+	})
 }

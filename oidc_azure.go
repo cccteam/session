@@ -17,7 +17,6 @@ import (
 	"github.com/cccteam/session/internal/util"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 )
 
 // OIDCAzureOption defines the interface for functional options used when creating a new OIDCAzure.
@@ -36,14 +35,27 @@ type OIDCAzure struct {
 }
 
 // NewOIDCAzure creates a new OIDCAzure.
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
 func NewOIDCAzure(
 	storage sessionstorage.OIDCStore, userRoleManager UserRoleManager,
-	secureCookie *securecookie.SecureCookie,
+	cookieKey string,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
-) *OIDCAzure {
-	oidc := azureoidc.New(secureCookie, issuerURL, clientID, clientSecret, redirectURL)
-	cookieClient := cookie.NewCookieClient(secureCookie)
+) (*OIDCAzure, error) {
+	var cookieOpts []cookie.Option
+	for _, opt := range options {
+		if o, ok := opt.(CookieOption); ok {
+			cookieOpts = append(cookieOpts, cookie.Option(o))
+		}
+	}
+
+	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+	}
+
+	oidc := azureoidc.New(cookieClient, issuerURL, clientID, clientSecret, redirectURL)
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
 		CookieHandler:  cookieClient,
@@ -53,8 +65,6 @@ func NewOIDCAzure(
 
 	for _, opt := range options {
 		switch o := any(opt).(type) {
-		case CookieOption:
-			o(cookieClient)
 		case BaseSessionOption:
 			o(baseSession)
 		case OIDCOption:
@@ -67,7 +77,7 @@ func NewOIDCAzure(
 		oidc:            oidc,
 		baseSession:     baseSession,
 		storage:         storage,
-	}
+	}, nil
 }
 
 // Authenticated is the handler reports if the session is authenticated

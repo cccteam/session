@@ -10,9 +10,10 @@ import (
 
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/azureoidc/loader"
+	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/types"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
-	"github.com/gorilla/securecookie"
 	"golang.org/x/oauth2"
 )
 
@@ -20,15 +21,15 @@ var _ Authenticator = &OIDC{}
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	s *securecookie.SecureCookie
+	cookieClient *cookie.Client
 	loader.Loader
 }
 
 // New returns a new OIDC Authenticator
-func New(s *securecookie.SecureCookie, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
+func New(cookieClient *cookie.Client, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
 	return &OIDC{
-		s:      s,
-		Loader: loader.New(issuerURL, clientID, clientSecret, redirectURL),
+		cookieClient: cookieClient,
+		Loader:       loader.New(issuerURL, clientID, clientSecret, redirectURL),
 	}
 }
 
@@ -48,13 +49,13 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		return "", errors.Wrap(err, "uuid.NewV4()")
 	}
 
-	cval := map[stKey]string{
-		stState:        state.String(),
-		stPkceVerifier: pkceVerifier,
-		stReturnURL:    returnURL, // URL to redirect to following successful authentication
+	cval := map[types.STKey]string{
+		types.STState:        state.String(),
+		types.STPkceVerifier: pkceVerifier,
+		types.STReturnURL:    returnURL, // URL to redirect to following successful authentication
 	}
 
-	if err := o.writeOidcCookie(w, cval); err != nil {
+	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
 		return "", errors.Wrap(err, "OIDC.writeOidcCookie()")
 	}
 
@@ -71,25 +72,28 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", errors.Wrap(err, "loader.Loader.Provider()")
 	}
 
-	cval, ok := o.readOidcCookie(r)
+	cval, ok, err := o.cookieClient.ReadOidcCookie(r)
+	if err != nil {
+		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
+	}
 	if !ok {
 		return "", "", httpio.NewForbiddenMessage("No OIDC cookie")
 	}
-	o.deleteOidcCookie(w)
+	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval[stReturnURL]
+	returnURL = cval[types.STReturnURL]
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
 
 	// Validate state parameter
-	if r.URL.Query().Get("state") != cval[stState] {
+	if r.URL.Query().Get("state") != cval[types.STState] {
 		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
 	}
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[stPkceVerifier]))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[types.STPkceVerifier]))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}

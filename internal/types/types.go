@@ -29,6 +29,21 @@ const (
 	// STTokenExpiration is the key used to store the cookie expiration in the Secure Token Cookie
 	STTokenExpiration STKey = "expiration"
 
+	// STState is that state key name
+	STState STKey = "state"
+
+	// STPkceVerifier is the PKCE verifier key name
+	STPkceVerifier STKey = "pkceVerifier"
+
+	// STReturnURL is the return URL key name
+	STReturnURL STKey = "returnURL"
+
+	// STOIDCCookieName is the cookie name of the OIDC Cookie
+	STOIDCCookieName = "OIDC"
+
+	// OIDCCookieExpiration is the default expiration for the OIDC Cookie
+	OIDCCookieExpiration = 10 * time.Minute
+
 	// XSRFCookieLife is constant controlling XSRF Cookie expiration
 	XSRFCookieLife = time.Hour
 

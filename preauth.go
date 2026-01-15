@@ -12,7 +12,6 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 )
 
 // PreauthOption defines the functional option type for configuring PreauthSession.
@@ -29,28 +28,34 @@ type Preauth struct {
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(storage sessionstorage.PreauthStore, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
-	cookieClient := cookie.NewCookieClient(secureCookie)
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
+func NewPreauth(storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*Preauth, error) {
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
-		CookieHandler:  cookieClient,
 		SessionTimeout: defaultSessionTimeout,
 		Storage:        storage,
 	}
 
+	var cookieOpts []cookie.Option
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case CookieOption:
-			o(cookieClient)
+			cookieOpts = append(cookieOpts, cookie.Option(o))
 		case BaseSessionOption:
 			o(baseSession)
 		}
 	}
+	cookieClient, err := cookie.NewCookieClient(cookieKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+	}
+	baseSession.CookieHandler = cookieClient
 
 	return &Preauth{
 		baseSession: baseSession,
 		storage:     storage,
-	}
+	}, nil
 }
 
 // NewSession creates a new session for a pre-authenticated user.

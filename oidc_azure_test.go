@@ -24,9 +24,10 @@ import (
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 	gomock "go.uber.org/mock/gomock"
 )
+
+const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
 
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
@@ -61,10 +62,13 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
-			sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
+			cookieClient, err := cookie.NewCookieClient(cookieKey)
+			if err != nil {
+				t.Errorf("cookie.NewCookieClient() error = %v", err)
+			}
 			a := &OIDCAzure{
 				baseSession: &basesession.BaseSession{
-					CookieHandler: cookie.NewCookieClient(sc),
+					CookieHandler: cookieClient,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {
