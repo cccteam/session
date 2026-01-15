@@ -148,10 +148,7 @@ func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
 	if sessioninfo.IDFromRequest(r).String() != cval[types.STSessionID] {
 		return false, nil
 	}
-	hval, found, err := c.ReadXSRFHeader(r)
-	if err != nil {
-		return false, errors.Wrap(err, "CookieClient.ReadXSRFHeader()")
-	}
+	hval, found := c.ReadXSRFHeader(r)
 	if !found {
 		return false, nil
 	}
@@ -200,20 +197,20 @@ func (c *Client) ReadXSRFCookie(r *http.Request) (params map[types.SCKey]string,
 }
 
 // ReadXSRFHeader reads the XSRF header from the request
-func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.SCKey]string, found bool, err error) {
+func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.SCKey]string, found bool) {
 	h := r.Header.Get(c.STHeaderName)
 
 	cval, err := c.decryptCookie(c.STCookieName, h)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
-			return nil, false, nil
+			return nil, false
 		}
 		logger.FromReq(r).Error(err)
 
-		return nil, false, nil
+		return nil, false
 	}
 
-	return cval, true, nil
+	return cval, true
 }
 
 // WriteOidcCookie writes the OIDC cookie to the response

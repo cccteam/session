@@ -144,27 +144,28 @@ func Test_readAuthCookie(t *testing.T) {
 	r := &http.Request{Header: http.Header{"Cookie": w.Header().Values("Set-Cookie")}}
 
 	tests := []struct {
-		name    string
-		req     *http.Request
-		prepare func(*Client, *http.Request)
-		want    map[types.SCKey]string
-		want1   bool
-		wantErr bool
+		name      string
+		req       *http.Request
+		prepare   func(*Client, *http.Request)
+		want      map[types.SCKey]string
+		wantFound bool
+		wantErr   bool
 	}{
 		{
-			name:  "success",
-			req:   r,
-			want:  cval,
-			want1: true,
+			name:      "success",
+			req:       r,
+			want:      cval,
+			wantFound: true,
 		},
 		{
 			name: "Fail on cookie",
 			req:  &http.Request{},
 		},
 		{
-			name:    "Fail on decode",
-			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
-			wantErr: true,
+			name:      "Fail on decode",
+			req:       &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
+			wantFound: false,
+			wantErr:   false,
 		},
 	}
 	for _, tt := range tests {
@@ -175,15 +176,15 @@ func Test_readAuthCookie(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewCookieClient() error = %v", err)
 			}
-			got, got1, err := app.ReadAuthCookie(tt.req)
+			got, found, err := app.ReadAuthCookie(tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ReadAuthCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ReadAuthCookie() got = %v, want %v", got, tt.want)
 			}
-			if got1 != tt.want1 {
-				t.Errorf("ReadAuthCookie() got1 = %v, want %v", got1, tt.want1)
+			if found != tt.wantFound {
+				t.Errorf("ReadAuthCookie() got1 = %v, want %v", found, tt.wantFound)
 			}
 		})
 	}
@@ -347,7 +348,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 			name:    "failure, missing header",
 			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			want:    false,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "failure, missmatch sessionid",
@@ -362,7 +363,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 				return r
 			}(),
 			want:    false,
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -455,7 +456,7 @@ func Test_readXSRFCookie(t *testing.T) {
 		{
 			name:    "fails to decode the cookie",
 			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=someValue", types.STCookieName)}}},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:          "success reading the cookie",
@@ -502,7 +503,7 @@ func Test_readXSRFHeader(t *testing.T) {
 		{
 			name:    "failure to read xsrf header",
 			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:          "success reading xsrf header",
@@ -519,10 +520,7 @@ func Test_readXSRFHeader(t *testing.T) {
 				t.Fatalf("NewCookieClient() error = %v", err)
 			}
 
-			got, gotOK, err := c.ReadXSRFHeader(tt.req)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ReadXSRFHeader() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			got, gotOK := c.ReadXSRFHeader(tt.req)
 			if gotOK != tt.wantOK {
 				t.Fatalf("ReadXSRFHeader() gotOK = %v, want %v", gotOK, tt.wantOK)
 			}
@@ -593,10 +591,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 				t.Errorf("ReadXSRFCookie() got1 = %v, want %v", got1, true)
 			}
 
-			got, got1, err = cookieClient.ReadXSRFHeader(r)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ReadXSRFHeader() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			got, got1 = cookieClient.ReadXSRFHeader(r)
 			if !reflect.DeepEqual(got, tt.args.cval) {
 				t.Errorf("ReadXSRFHeader() got = %v, want %v", got, tt.args.cval)
 			}
