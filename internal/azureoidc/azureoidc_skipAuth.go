@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cccteam/session/internal/types"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/securecookie"
@@ -51,11 +52,11 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	cval := map[stKey]string{
+	cval := map[types.STKey]string{
 		stReturnURL: returnURL, // URL to redirect to following successful authentication
 	}
-	if err := o.writeOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "OIDC.writeOidcCookie()")
+	if err := o.WriteOidcCookie(w, cval); err != nil {
+		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
 	}
 
 	return o.redirectURL, nil
@@ -83,11 +84,11 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		return "", "", errors.Wrap(err, "json.Unmarshal()")
 	}
 
-	cval, ok := o.readOidcCookie(r)
+	cval, ok := o.ReadOidcCookie(r)
 	if !ok {
 		return "", "", errors.New("No OIDC cookie")
 	}
-	o.deleteOidcCookie(w)
+	o.DeleteOidcCookie(w)
 
 	returnURL = cval[stReturnURL]
 	if strings.TrimSpace(returnURL) == "" {
