@@ -12,7 +12,6 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 )
 
 // PreauthOption defines the functional option type for configuring PreauthSession.
@@ -29,28 +28,34 @@ type Preauth struct {
 }
 
 // NewPreauth creates a new PreauthSession instance.
-func NewPreauth(storage sessionstorage.PreauthStore, secureCookie *securecookie.SecureCookie, options ...PreauthOption) *Preauth {
-	cookieClient := cookie.NewCookieClient(secureCookie)
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
+func NewPreauth(storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*Preauth, error) {
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
-		CookieHandler:  cookieClient,
 		SessionTimeout: defaultSessionTimeout,
 		Storage:        storage,
 	}
 
+	var cookieOpts []cookie.Option
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case CookieOption:
-			o(cookieClient)
+			cookieOpts = append(cookieOpts, cookie.Option(o))
 		case BaseSessionOption:
 			o(baseSession)
 		}
 	}
+	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+	}
+	baseSession.CookieHandler = cookieClient
 
 	return &Preauth{
 		baseSession: baseSession,
 		storage:     storage,
-	}
+	}, nil
 }
 
 // NewSession creates a new session for a pre-authenticated user.
@@ -121,12 +126,12 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.preauth.baseSession.NewAuthCookie(w, true, id); err != nil {
+	if _, err := p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	if err := p.preauth.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

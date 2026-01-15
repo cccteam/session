@@ -21,14 +21,14 @@ func TestPreauthAPI_Login(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockCookieHandler)
+		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation and cookie set",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
 				// Mock the session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -58,7 +58,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -70,7 +70,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 		{
 			name:     "failed to set auth cookie",
 			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockCookieHandler) {
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
 				// Mock successful session creation
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
@@ -94,7 +94,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
 			mockStorage := mock_sessionstorage.NewMockPreauthStore(ctrl)
-			mockCookies := mock_cookie.NewMockCookieHandler(ctrl)
+			mockCookies := mock_cookie.NewMockHandler(ctrl)
 
 			// Prepare the mock expectations
 			if tt.prepare != nil {

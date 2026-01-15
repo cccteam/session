@@ -24,9 +24,10 @@ import (
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 	gomock "go.uber.org/mock/gomock"
 )
+
+const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
 
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
@@ -61,10 +62,13 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
-			sc := securecookie.New(securecookie.GenerateRandomKey(32), nil)
+			cookieClient, err := cookie.NewCookieClient(cookieKey)
+			if err != nil {
+				t.Errorf("cookie.NewCookieClient() error = %v", err)
+			}
 			a := &OIDCAzure{
 				baseSession: &basesession.BaseSession{
-					CookieHandler: cookie.NewCookieClient(sc),
+					CookieHandler: cookieClient,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 						return func(w http.ResponseWriter, r *http.Request) {
 							if err := handler(w, r); err != nil {
@@ -109,13 +113,13 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		prepare         func(*mock_cookie.MockCookieHandler, http.ResponseWriter, *http.Request, *mock_azureoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
+		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_azureoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
 		wantErr         bool
 		wantRedirectURL string
 	}{
 		{
 			name: "fails to verify callback request",
-			prepare: func(_ *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", httpio.NewForbiddenMessage("failed to verify callback")).Times(1)
 			},
@@ -124,7 +128,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to create new session",
-			prepare: func(_ *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "", "a test SID value").Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
@@ -134,7 +138,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to create new auth cookie",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
@@ -145,7 +149,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to get domains",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
@@ -158,7 +162,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to get existing user roles",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -179,7 +183,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to add user roles",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -205,7 +209,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to delete user roles",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -232,7 +236,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "unauthorized due to no assigned roles",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -259,7 +263,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "success authenticating via OIDC callback",
-			prepare: func(c *mock_cookie.MockCookieHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
 						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
@@ -301,7 +305,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			user := mock_session.NewMockUserRoleManager(ctrl)
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
 			sessionStorage := mock_sessionstorage.NewMockOIDCStore(ctrl)
-			c := mock_cookie.NewMockCookieHandler(ctrl)
+			c := mock_cookie.NewMockHandler(ctrl)
 			a := &OIDCAzure{
 				userRoleManager: user,
 				storage:         sessionStorage,
@@ -377,7 +381,7 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
 			sessionStorage := mock_sessionstorage.NewMockOIDCStore(ctrl)
 
-			c := mock_cookie.NewMockCookieHandler(ctrl)
+			c := mock_cookie.NewMockHandler(ctrl)
 			a := &OIDCAzure{
 				storage: sessionStorage,
 				baseSession: &basesession.BaseSession{

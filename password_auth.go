@@ -16,7 +16,6 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
-	"github.com/gorilla/securecookie"
 )
 
 const (
@@ -40,23 +39,30 @@ type PasswordAuth struct {
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
-func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *securecookie.SecureCookie, options ...PasswordOption) *PasswordAuth {
-	cookieClient := cookie.NewCookieClient(secureCookie)
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
+func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, cookieKey string, options ...PasswordOption) (*PasswordAuth, error) {
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
-		CookieHandler:  cookieClient,
 		SessionTimeout: defaultSessionTimeout,
 		Storage:        storage,
 	}
 
+	var cookieOpts []cookie.Option
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case CookieOption:
-			o(cookieClient)
+			cookieOpts = append(cookieOpts, cookie.Option(o))
 		case BaseSessionOption:
 			o(baseSession)
 		}
 	}
+
+	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+	}
+	baseSession.CookieHandler = cookieClient
 
 	p := &PasswordAuth{
 		storage:     storage,
@@ -73,7 +79,7 @@ func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, secureCookie *sec
 		}
 	}
 
-	return p
+	return p, nil
 }
 
 // Logout destroys the current session
@@ -349,12 +355,12 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
-	if _, err := p.baseSession.NewAuthCookie(w, true, id); err != nil {
+	if _, err := p.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := p.baseSession.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
