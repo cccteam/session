@@ -691,14 +691,14 @@ func TestBaseSession_Logout(t *testing.T) {
 }
 
 // mockRequestWithXSRFToken Mocks Request with XSRF Token
-func mockRequestWithXSRFToken(t *testing.T, method string, setHeader bool, cookieSessionID, requestSessionID ccc.UUID, cookieExpiration time.Duration) *http.Request {
+func mockRequestWithXSRFToken(t *testing.T, method string, setHeader bool, cookieSessionID, requestSessionID ccc.UUID) *http.Request {
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
 	c, err := cookie.NewCookieClient(cookieKey)
 	if err != nil {
 		t.Fatalf("NewCookieClient() = %v", err)
 	}
-	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration); !set {
+	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID); !set {
 		t.Fatalf("setXSRFTokenCookie() = false, should have set cookie in request recorder")
 	}
 
@@ -805,7 +805,7 @@ func TestBaseSessionValidateXSRFToken(t *testing.T) {
 			name: "success safe method with cookie",
 			args: args{
 				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) }),
-				r:    mockRequestWithXSRFToken(t, http.MethodGet, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+				r:    mockRequestWithXSRFToken(t, http.MethodGet, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			},
 			want: http.StatusAccepted,
 		},
@@ -813,7 +813,7 @@ func TestBaseSessionValidateXSRFToken(t *testing.T) {
 			name: "success non-safe method",
 			args: args{
 				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) }),
-				r:    mockRequestWithXSRFToken(t, http.MethodPost, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+				r:    mockRequestWithXSRFToken(t, http.MethodPost, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			},
 			want: http.StatusAccepted,
 		},

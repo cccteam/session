@@ -52,7 +52,7 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	cval := map[types.STKey]string{
+	cval := map[types.SCKey]string{
 		types.STReturnURL: returnURL, // URL to redirect to following successful authentication
 	}
 	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {

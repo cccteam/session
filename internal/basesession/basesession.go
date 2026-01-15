@@ -191,7 +191,7 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		set, err := s.CookieHandler.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
+		set, err := s.CookieHandler.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 		}

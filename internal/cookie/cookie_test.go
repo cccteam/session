@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/internal/types"
@@ -17,14 +16,14 @@ import (
 const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
 
 // mockRequestWithXSRFToken Mocks Request with XSRF Token
-func mockRequestWithXSRFToken(t *testing.T, setHeader bool, cookieSessionID, requestSessionID ccc.UUID, cookieExpiration time.Duration) *http.Request {
+func mockRequestWithXSRFToken(t *testing.T, setHeader bool, cookieSessionID, requestSessionID ccc.UUID) *http.Request {
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
 	c, err := NewCookieClient(cookieKey)
 	if err != nil {
 		t.Fatalf("NewCookieClient() error = %v", err)
 	}
-	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID, cookieExpiration); !set {
+	if set, _ := c.RefreshXSRFTokenCookie(w, &http.Request{}, cookieSessionID); !set {
 		t.Fatalf("SetXSRFTokenCookie() = false, should have set cookie in request recorder")
 	}
 
@@ -161,12 +160,10 @@ func Test_readAuthCookie(t *testing.T) {
 		{
 			name: "Fail on cookie",
 			req:  &http.Request{},
-			want: make(map[types.SCKey]string),
 		},
 		{
 			name:    "Fail on decode",
 			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=some-value", types.SCAuthCookieName)}}},
-			want:    make(map[types.SCKey]string),
 			wantErr: true,
 		},
 	}
@@ -259,10 +256,9 @@ func Test_RefreshXSRFTokenCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		r                *http.Request
-		sessionID        ccc.UUID
-		cookieExpiration time.Duration
-		cookieKey        string
+		r         *http.Request
+		sessionID ccc.UUID
+		cookieKey string
 	}
 	tests := []struct {
 		name    string
@@ -282,25 +278,16 @@ func Test_RefreshXSRFTokenCookie(t *testing.T) {
 		{
 			name: "found valid cookie",
 			args: args{
-				r:         mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+				r:         mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 				sessionID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 				cookieKey: cookieKey,
 			},
 			wantSet: false,
 		},
 		{
-			name: "xsrf cookie expired, set new cookie",
-			args: args{
-				r:         mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), time.Minute),
-				sessionID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
-				cookieKey: cookieKey,
-			},
-			wantSet: true,
-		},
-		{
 			name: "session does not match, set new cookie",
 			args: args{
-				r:         mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), types.XSRFCookieLife),
+				r:         mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753"))),
 				sessionID: ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")),
 				cookieKey: cookieKey,
 			},
@@ -328,7 +315,7 @@ func Test_RefreshXSRFTokenCookie(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			if gotSet, err := c.RefreshXSRFTokenCookie(w, tt.args.r, tt.args.sessionID, tt.args.cookieExpiration); gotSet != tt.wantSet {
+			if gotSet, err := c.RefreshXSRFTokenCookie(w, tt.args.r, tt.args.sessionID); gotSet != tt.wantSet {
 				t.Errorf("SetXSRFTokenCookie() = %v, want %v", gotSet, tt.wantSet)
 			} else if err != nil {
 				t.Errorf("SetXSRFTokenCookie() = %v", err)
@@ -348,7 +335,7 @@ func Test_hasValidXSRFToken(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+			req:  mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			want: true,
 		},
 		{
@@ -358,24 +345,19 @@ func Test_hasValidXSRFToken(t *testing.T) {
 		},
 		{
 			name:    "failure, missing header",
-			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			want:    false,
 			wantErr: true,
 		},
 		{
 			name: "failure, missmatch sessionid",
-			req:  mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), types.XSRFCookieLife),
-			want: false,
-		},
-		{
-			name: "failure, expired token",
-			req:  mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), -time.Minute),
+			req:  mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753"))),
 			want: false,
 		},
 		{
 			name: "failure, invalid expiration",
 			req: func() *http.Request {
-				r := mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife)
+				r := mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")))
 				r.Header.Set(types.STCookieName, "invalid")
 				return r
 			}(),
@@ -403,9 +385,8 @@ func Test_writeXSRFCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		cookieExpiration time.Duration
-		cval             map[types.STKey]string
-		cookieKey        string
+		cval      map[types.SCKey]string
+		cookieKey string
 	}
 	tests := []struct {
 		name    string
@@ -415,25 +396,22 @@ func Test_writeXSRFCookie(t *testing.T) {
 		{
 			name: "success",
 			args: args{
-				cookieExpiration: time.Minute,
-				cval:             map[types.STKey]string{types.STKey("key1"): "value1"},
-				cookieKey:        cookieKey,
+				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cookieKey: cookieKey,
 			},
 		},
 		{
 			name: "success with secure cookie",
 			args: args{
-				cookieExpiration: time.Minute,
-				cval:             map[types.STKey]string{types.STKey("key1"): "value1"},
-				cookieKey:        cookieKey,
+				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cookieKey: cookieKey,
 			},
 		},
 		{
 			name: "failure",
 			args: args{
-				cookieExpiration: time.Minute,
-				cval:             map[types.STKey]string{types.STKey("key1"): "value1"},
-				cookieKey:        "invalid key",
+				cval:      map[types.SCKey]string{types.SCKey("key1"): "value1"},
+				cookieKey: "invalid key",
 			},
 			wantErr: true,
 		},
@@ -449,7 +427,7 @@ func Test_writeXSRFCookie(t *testing.T) {
 			if tt.wantErr {
 				return
 			}
-			if err := c.WriteXSRFCookie(w, tt.args.cookieExpiration, tt.args.cval); err != nil {
+			if err := c.WriteXSRFCookie(w, tt.args.cval); err != nil {
 				t.Fatalf("WriteXSRFCookie() error = %v", err)
 			}
 
@@ -481,7 +459,7 @@ func Test_readXSRFCookie(t *testing.T) {
 		},
 		{
 			name:          "success reading the cookie",
-			req:           mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753")), types.XSRFCookieLife),
+			req:           mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753"))),
 			wantSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5",
 			wantOK:        true,
 		},
@@ -507,9 +485,6 @@ func Test_readXSRFCookie(t *testing.T) {
 			if got[types.STSessionID] != tt.wantSessionID {
 				t.Errorf("ReadXSRFCookie() got[stSessionID] = %v, want %v", got, tt.wantSessionID)
 			}
-			if got[types.STTokenExpiration] == "" {
-				t.Errorf("ReadXSRFCookie() got[stTokenExpiration] = %v, want non-empty", got[types.STTokenExpiration])
-			}
 		})
 	}
 }
@@ -526,12 +501,12 @@ func Test_readXSRFHeader(t *testing.T) {
 	}{
 		{
 			name:    "failure to read xsrf header",
-			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+			req:     mockRequestWithXSRFToken(t, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			wantErr: true,
 		},
 		{
 			name:          "success reading xsrf header",
-			req:           mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), types.XSRFCookieLife),
+			req:           mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))),
 			wantSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5",
 			wantOK:        true,
 		},
@@ -557,9 +532,6 @@ func Test_readXSRFHeader(t *testing.T) {
 			if got[types.STSessionID] != tt.wantSessionID {
 				t.Errorf("ReadXSRFHeader() got[stSessionID] = %v, want %v", got, tt.wantSessionID)
 			}
-			if got[types.STTokenExpiration] == "" {
-				t.Errorf("ReadXSRFHeader() got[stTokenExpiration] = %v, want non-empty", got[types.STTokenExpiration])
-			}
 		})
 	}
 }
@@ -568,8 +540,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		cookieExpiration time.Duration
-		cval             map[types.STKey]string
+		cval map[types.SCKey]string
 	}
 	tests := []struct {
 		name    string
@@ -579,8 +550,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 		{
 			name: "success",
 			args: args{
-				cval:             map[types.STKey]string{types.STKey("key1"): "value1"},
-				cookieExpiration: time.Minute,
+				cval: map[types.SCKey]string{types.SCKey("key1"): "value1"},
 			},
 		},
 	}
@@ -592,7 +562,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewCookieClient() error = %v", err)
 			}
-			if err := cookieClient.WriteXSRFCookie(w, tt.args.cookieExpiration, tt.args.cval); (err != nil) != tt.wantErr {
+			if err := cookieClient.WriteXSRFCookie(w, tt.args.cval); (err != nil) != tt.wantErr {
 				t.Errorf("WriteXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			// Create request using cookie set in Response Recorder

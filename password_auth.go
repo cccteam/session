@@ -360,7 +360,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

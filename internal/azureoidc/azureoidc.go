@@ -49,7 +49,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		return "", errors.Wrap(err, "uuid.NewV4()")
 	}
 
-	cval := map[types.STKey]string{
+	cval := map[types.SCKey]string{
 		types.STState:        state.String(),
 		types.STPkceVerifier: pkceVerifier,
 		types.STReturnURL:    returnURL, // URL to redirect to following successful authentication

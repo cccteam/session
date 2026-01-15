@@ -24,31 +24,22 @@ const (
 	STHeaderName = "X-XSRF-TOKEN"
 
 	// STSessionID is the key used in store sessionID in Secure Token Cookie
-	STSessionID STKey = "sessionid"
-
-	// STTokenExpiration is the key used to store the cookie expiration in the Secure Token Cookie
-	STTokenExpiration STKey = "expiration"
+	STSessionID SCKey = "sessionid"
 
 	// STState is that state key name
-	STState STKey = "state"
+	STState SCKey = "state"
 
 	// STPkceVerifier is the PKCE verifier key name
-	STPkceVerifier STKey = "pkceVerifier"
+	STPkceVerifier SCKey = "pkceVerifier"
 
 	// STReturnURL is the return URL key name
-	STReturnURL STKey = "returnURL"
+	STReturnURL SCKey = "returnURL"
 
 	// STOIDCCookieName is the cookie name of the OIDC Cookie
 	STOIDCCookieName = "OIDC"
 
 	// OIDCCookieExpiration is the default expiration for the OIDC Cookie
 	OIDCCookieExpiration = 10 * time.Minute
-
-	// XSRFCookieLife is constant controlling XSRF Cookie expiration
-	XSRFCookieLife = time.Hour
-
-	// XSRFReWriteWindow controls rewriting xsrf cookie token if it expires within duration
-	XSRFReWriteWindow = 30 * time.Minute
 
 	// CTXSessionID is the key for storing SessionID in context
 	CTXSessionID CTXKey = "sessionID"
@@ -57,9 +48,6 @@ const (
 type (
 	// SCKey is a type for storing values in the session cookie
 	SCKey string
-
-	// STKey is a type for storing values in the secure token cookie
-	STKey string
 
 	// CTXKey is a type for storing values in the request context
 	CTXKey string

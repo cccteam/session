@@ -49,7 +49,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 					Times(1)
 
 				mockCookies.EXPECT().
-					CreateXSRFTokenCookie(gomock.Any(), gomock.Any(), types.XSRFCookieLife).
+					CreateXSRFTokenCookie(gomock.Any(), gomock.Any()).
 					Return(nil).
 					Times(1)
 			},
