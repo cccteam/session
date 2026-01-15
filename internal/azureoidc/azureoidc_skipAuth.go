@@ -11,10 +11,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/types"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
-	"github.com/gorilla/securecookie"
 )
 
 var _ Authenticator = &OIDC{}
@@ -23,16 +23,16 @@ const defaultLoginURL = "/login"
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	redirectURL string
-	s           *securecookie.SecureCookie
-	loginURL    string
+	redirectURL  string
+	cookieClient *cookie.Client
+	loginURL     string
 }
 
 // New returns a new OIDC Authenticator
-func New(s *securecookie.SecureCookie, _, _, _, redirectURL string) *OIDC {
+func New(cookieClient *cookie.Client, _, _, _, redirectURL string) *OIDC {
 	return &OIDC{
-		redirectURL: redirectURL,
-		s:           s,
+		redirectURL:  redirectURL,
+		cookieClient: cookieClient,
 	}
 }
 
@@ -53,9 +53,9 @@ func (o *OIDC) LoginURL() string {
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := map[types.STKey]string{
-		stReturnURL: returnURL, // URL to redirect to following successful authentication
+		types.STReturnURL: returnURL, // URL to redirect to following successful authentication
 	}
-	if err := o.WriteOidcCookie(w, cval); err != nil {
+	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
 		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
 	}
 
@@ -84,13 +84,16 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		return "", "", errors.Wrap(err, "json.Unmarshal()")
 	}
 
-	cval, ok := o.ReadOidcCookie(r)
+	cval, ok, err := o.cookieClient.ReadOidcCookie(r)
+	if err != nil {
+		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
+	}
 	if !ok {
 		return "", "", errors.New("No OIDC cookie")
 	}
-	o.DeleteOidcCookie(w)
+	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval[stReturnURL]
+	returnURL = cval[types.STReturnURL]
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
