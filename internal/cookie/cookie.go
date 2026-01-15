@@ -9,6 +9,7 @@ import (
 
 	"aidanwoods.dev/go-paseto"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -74,8 +75,9 @@ func (c *Client) ReadAuthCookie(r *http.Request) (params map[types.SCKey]string,
 		if strings.Contains(err.Error(), "this token has expired") {
 			return nil, false, nil
 		}
+		logger.FromReq(r).Error(err)
 
-		return nil, false, errors.Wrap(err, "decryptCookie()")
+		return nil, false, nil
 	}
 
 	return cval, true, nil
@@ -189,8 +191,9 @@ func (c *Client) ReadXSRFCookie(r *http.Request) (params map[types.SCKey]string,
 		if strings.Contains(err.Error(), "this token has expired") {
 			return nil, false, nil
 		}
+		logger.FromReq(r).Error(err)
 
-		return nil, false, errors.Wrap(err, "decryptCookie()")
+		return nil, false, nil
 	}
 
 	return cval, true, nil
@@ -205,8 +208,9 @@ func (c *Client) ReadXSRFHeader(r *http.Request) (params map[types.SCKey]string,
 		if strings.Contains(err.Error(), "this token has expired") {
 			return nil, false, nil
 		}
+		logger.FromReq(r).Error(err)
 
-		return nil, false, errors.Wrap(err, "decryptCookie()")
+		return nil, false, nil
 	}
 
 	return cval, true, nil
@@ -240,8 +244,9 @@ func (c *Client) ReadOidcCookie(r *http.Request) (params map[types.SCKey]string,
 		if strings.Contains(err.Error(), "this token has expired") {
 			return nil, false, nil
 		}
+		logger.FromReq(r).Error(err)
 
-		return nil, false, errors.Wrap(err, "securecookie.SecureCookie.Decode()")
+		return nil, false, nil
 	}
 
 	return cval, true, nil
