@@ -12,7 +12,6 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
-	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -159,7 +158,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	}
 
 	// Log the association between the sessionID and Username
-	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(cookie.SessionID), sessionID)
 
 	return nil
 }
@@ -360,7 +359,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

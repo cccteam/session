@@ -10,6 +10,7 @@ retract (
 replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migrate/v4 v4.19.2-beta.0
 
 require (
+	aidanwoods.dev/go-paseto v1.6.0
 	cloud.google.com/go/spanner v1.86.1
 	github.com/cccteam/ccc v0.2.21
 	github.com/cccteam/ccc/accesstypes v0.5.4
@@ -25,7 +26,6 @@ require (
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
-	github.com/gorilla/securecookie v1.1.2
 	github.com/jackc/pgx/v5 v5.7.6
 	go.uber.org/mock v0.6.0
 	golang.org/x/oauth2 v0.34.0
@@ -33,6 +33,7 @@ require (
 )
 
 require (
+	aidanwoods.dev/go-result v0.3.1 // indirect
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.17.0 // indirect

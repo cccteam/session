@@ -12,10 +12,9 @@ package mock_cookie
 import (
 	http "net/http"
 	reflect "reflect"
-	time "time"
 
 	ccc "github.com/cccteam/ccc"
-	types "github.com/cccteam/session/internal/types"
+	cookie "github.com/cccteam/session/internal/cookie"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,17 +43,17 @@ func (m *MockHandler) EXPECT() *MockHandlerMockRecorder {
 }
 
 // CreateXSRFTokenCookie mocks base method.
-func (m *MockHandler) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID, cookieExpiration time.Duration) error {
+func (m *MockHandler) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateXSRFTokenCookie", w, sessionID, cookieExpiration)
+	ret := m.ctrl.Call(m, "CreateXSRFTokenCookie", w, sessionID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CreateXSRFTokenCookie indicates an expected call of CreateXSRFTokenCookie.
-func (mr *MockHandlerMockRecorder) CreateXSRFTokenCookie(w, sessionID, cookieExpiration any) *gomock.Call {
+func (mr *MockHandlerMockRecorder) CreateXSRFTokenCookie(w, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateXSRFTokenCookie", reflect.TypeOf((*MockHandler)(nil).CreateXSRFTokenCookie), w, sessionID, cookieExpiration)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateXSRFTokenCookie", reflect.TypeOf((*MockHandler)(nil).CreateXSRFTokenCookie), w, sessionID)
 }
 
 // HasValidXSRFToken mocks base method.
@@ -73,10 +72,10 @@ func (mr *MockHandlerMockRecorder) HasValidXSRFToken(r any) *gomock.Call {
 }
 
 // NewAuthCookie mocks base method.
-func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (map[types.SCKey]string, error) {
+func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (cookie.Values, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewAuthCookie", w, sameSiteStrict, sessionID)
-	ret0, _ := ret[0].(map[types.SCKey]string)
+	ret0, _ := ret[0].(cookie.Values)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -88,10 +87,10 @@ func (mr *MockHandlerMockRecorder) NewAuthCookie(w, sameSiteStrict, sessionID an
 }
 
 // ReadAuthCookie mocks base method.
-func (m *MockHandler) ReadAuthCookie(r *http.Request) (map[types.SCKey]string, bool, error) {
+func (m *MockHandler) ReadAuthCookie(r *http.Request) (cookie.Values, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReadAuthCookie", r)
-	ret0, _ := ret[0].(map[types.SCKey]string)
+	ret0, _ := ret[0].(cookie.Values)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -104,22 +103,22 @@ func (mr *MockHandlerMockRecorder) ReadAuthCookie(r any) *gomock.Call {
 }
 
 // RefreshXSRFTokenCookie mocks base method.
-func (m *MockHandler) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID, cookieExpiration time.Duration) (bool, error) {
+func (m *MockHandler) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RefreshXSRFTokenCookie", w, r, sessionID, cookieExpiration)
+	ret := m.ctrl.Call(m, "RefreshXSRFTokenCookie", w, r, sessionID)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // RefreshXSRFTokenCookie indicates an expected call of RefreshXSRFTokenCookie.
-func (mr *MockHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID, cookieExpiration any) *gomock.Call {
+func (mr *MockHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshXSRFTokenCookie", reflect.TypeOf((*MockHandler)(nil).RefreshXSRFTokenCookie), w, r, sessionID, cookieExpiration)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshXSRFTokenCookie", reflect.TypeOf((*MockHandler)(nil).RefreshXSRFTokenCookie), w, r, sessionID)
 }
 
 // WriteAuthCookie mocks base method.
-func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval map[types.SCKey]string) error {
+func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval cookie.Values) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, cval)
 	ret0, _ := ret[0].(error)

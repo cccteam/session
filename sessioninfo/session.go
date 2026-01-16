@@ -7,17 +7,19 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/internal/types"
 )
 
-// ctxKey is a type for storing values in the request context
-type ctxKey string
+// CTXKey is a type for storing values in the request context
+type CTXKey string
 
 const (
 	// CtxSessionInfo is the key used to store the SessionInfo in the context.
-	CtxSessionInfo ctxKey = "sessionInfo"
+	CtxSessionInfo CTXKey = "sessionInfo"
 	// CtxUserInfo is the key used to store the UserInfo in the context.
-	CtxUserInfo ctxKey = "userInfo"
+	CtxUserInfo CTXKey = "userInfo"
+
+	// CTXSessionID is the key for storing SessionID in context
+	CTXSessionID CTXKey = "sessionID"
 )
 
 // FromRequest returns the session information from the request context.
@@ -42,9 +44,9 @@ func IDFromRequest(r *http.Request) ccc.UUID {
 
 // IDFromCtx returns the sessionID from the request context
 func IDFromCtx(ctx context.Context) ccc.UUID {
-	id, ok := ctx.Value(types.CTXSessionID).(ccc.UUID)
+	id, ok := ctx.Value(CTXSessionID).(ccc.UUID)
 	if !ok {
-		logger.FromCtx(ctx).Errorf("failed to find %s in request context", types.CTXSessionID)
+		logger.FromCtx(ctx).Errorf("failed to find %s in request context", CTXSessionID)
 	}
 
 	return id

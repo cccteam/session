@@ -11,7 +11,6 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/azureoidc/loader"
 	"github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/types"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"golang.org/x/oauth2"
@@ -49,11 +48,10 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		return "", errors.Wrap(err, "uuid.NewV4()")
 	}
 
-	cval := map[types.STKey]string{
-		types.STState:        state.String(),
-		types.STPkceVerifier: pkceVerifier,
-		types.STReturnURL:    returnURL, // URL to redirect to following successful authentication
-	}
+	cval := cookie.NewValues().
+		Set(cookie.OIDCState, state.String()).
+		Set(cookie.OIDCPkceVerifier, pkceVerifier).
+		Set(cookie.ReturnURL, returnURL)
 
 	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
 		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
@@ -81,19 +79,19 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval[types.STReturnURL]
+	returnURL = cval.Get(cookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
 
 	// Validate state parameter
-	if r.URL.Query().Get("state") != cval[types.STState] {
+	if r.URL.Query().Get("state") != cval.Get(cookie.OIDCState) {
 		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
 	}
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval[types.STPkceVerifier]))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval.Get(cookie.OIDCPkceVerifier)))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}

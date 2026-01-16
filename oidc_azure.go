@@ -13,7 +13,6 @@ import (
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/internal/util"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -159,7 +158,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// Log the association between the sessionID and Username
-		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(types.SCSessionID), sessionID)
+		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(cookie.SessionID), sessionID)
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
@@ -258,7 +257,7 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 

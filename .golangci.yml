@@ -58,6 +58,7 @@ linters:
           files:
             - $all
           allow:
+            - aidanwoods.dev/go-paseto
             - cloud.google.com/go/spanner
             - github.com/cccteam
             - github.com/coreos/go-oidc/v3

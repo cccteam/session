@@ -11,7 +11,6 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -55,7 +54,7 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 		return ctx, errors.Wrap(err, "cookie.CookieHandler.ReadAuthCookie()")
 	}
 
-	sessionID, validSessionID := types.ValidSessionID(cval[types.SCSessionID])
+	sessionID, validSessionID := cookie.ValidSessionID(cval.Get(cookie.SessionID))
 	if !foundAuthCookie || !validSessionID {
 		var err error
 		sessionID, err = ccc.NewUUID()
@@ -70,14 +69,14 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 
 	// Upgrade cookie to SameSite=Strict
 	// since CallbackOIDC() sets it to None to allow OAuth flow to work
-	if cval[types.SCSameSiteStrict] != strconv.FormatBool(true) {
+	if cval.Get(cookie.SameSiteStrict) != strconv.FormatBool(true) {
 		if err := s.CookieHandler.WriteAuthCookie(w, true, cval); err != nil {
 			return ctx, errors.Wrap(err, "cookie.CookieHandler.WriteAuthCookie()")
 		}
 	}
 
 	// Store sessionID in context
-	ctx = context.WithValue(ctx, types.CTXSessionID, sessionID)
+	ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, sessionID)
 
 	// Add session ID to logging context
 	l := logger.FromCtx(ctx).AddRequestAttribute("session ID", sessionID).
@@ -191,12 +190,12 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 // SetXSRFToken sets the XSRF Token
 func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		set, err := s.CookieHandler.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r), types.XSRFCookieLife)
+		set, err := s.CookieHandler.RefreshXSRFTokenCookie(w, r, sessioninfo.IDFromRequest(r))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 		}
 
-		if set && !types.SafeMethods.Contain(r.Method) {
+		if set && !cookie.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
 			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)
@@ -214,7 +213,7 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 func (s *BaseSession) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		// Validate XSRFToken for non-safe
-		if !types.SafeMethods.Contain(r.Method) {
+		if !cookie.SafeMethods.Contain(r.Method) {
 			hasValidXSRFToken, err := s.CookieHandler.HasValidXSRFToken(r)
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(r.Context(), err)

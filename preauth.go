@@ -8,7 +8,6 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/types"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -131,7 +130,7 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	}
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	if err := p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id, types.XSRFCookieLife); err != nil {
+	if err := p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
 	}
 
