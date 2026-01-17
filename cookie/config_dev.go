@@ -2,6 +2,6 @@
 
 package cookie
 
-func secureCookie() bool {
+func SecureCookie() bool {
 	return false
 }

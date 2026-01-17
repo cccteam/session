@@ -5,28 +5,24 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-)
-
-type (
-	// Key is a type for storing values in a cookie
-	Key string
+	"github.com/cccteam/session/cookie"
 )
 
 const (
 	// SessionID is the key used to store the SessionID in a Secure Cookie
-	SessionID Key = "sessionID"
+	SessionID cookie.Key = "sessionID"
 
 	// SameSiteStrict is the key used to store the sameSiteStrict cookie setting
-	SameSiteStrict Key = "sameSiteStrict"
+	SameSiteStrict cookie.Key = "sameSiteStrict"
 
 	// OIDCState is the key used to store the state
-	OIDCState Key = "state"
+	OIDCState cookie.Key = "state"
 
 	// OIDCPkceVerifier is the key used to store the PKCE verifier
-	OIDCPkceVerifier Key = "pkceVerifier"
+	OIDCPkceVerifier cookie.Key = "pkceVerifier"
 
 	// ReturnURL is the key used to store the return URL
-	ReturnURL Key = "returnURL"
+	ReturnURL cookie.Key = "returnURL"
 )
 
 const (
@@ -45,30 +41,6 @@ const (
 	// OIDCCookieExpiration is the default expiration for the OIDC Cookie
 	OIDCCookieExpiration = 10 * time.Minute
 )
-
-// Values is a map of cookie values
-type Values struct {
-	v map[Key]string
-}
-
-// NewValues initializes a new Values type
-func NewValues() Values {
-	return Values{
-		v: make(map[Key]string),
-	}
-}
-
-// Get returns the value of the cookie
-func (c Values) Get(key Key) string {
-	return c.v[key]
-}
-
-// Set sets the value of the cookie
-func (c Values) Set(key Key, value string) Values {
-	c.v[key] = value
-
-	return c
-}
 
 // SafeMethods are Idempotent methods as defined by RFC7231 section 4.2.2.
 var SafeMethods = methods([]string{"GET", "HEAD", "OPTIONS", "TRACE"})

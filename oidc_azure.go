@@ -10,9 +10,10 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/util"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -42,14 +43,14 @@ func NewOIDCAzure(
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) (*OIDCAzure, error) {
-	var cookieOpts []cookie.Option
+	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		if o, ok := opt.(CookieOption); ok {
-			cookieOpts = append(cookieOpts, cookie.Option(o))
+			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		}
 	}
 
-	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
@@ -158,7 +159,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// Log the association between the sessionID and Username
-		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(cookie.SessionID), sessionID)
+		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
@@ -252,14 +253,31 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}
 
-	if _, err := o.baseSession.CookieHandler.NewAuthCookie(w, false, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
-	}
+	o.baseSession.CookieHandler.NewAuthCookie(w, false, id)
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
-	}
+	o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
 
 	return id, nil
+}
+
+// API provides programatic access to OIDCAzure
+func (o *OIDCAzure) API() *OIDCAzureAPI {
+	return newOIDCAzureAPI(o)
+}
+
+// OIDCAzureAPI provides programatic access to OIDCAzure
+type OIDCAzureAPI struct {
+	oidc *OIDCAzure
+}
+
+func newOIDCAzureAPI(oidc *OIDCAzure) *OIDCAzureAPI {
+	return &OIDCAzureAPI{
+		oidc: oidc,
+	}
+}
+
+// Cookie returns the underlying cookie.Client
+func (p *OIDCAzureAPI) Cookie() *cookie.Client {
+	return p.oidc.baseSession.CookieHandler.Cookie()
 }

@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	ccc "github.com/cccteam/ccc"
-	cookie "github.com/cccteam/session/internal/cookie"
+	cookie "github.com/cccteam/session/cookie"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,12 +42,24 @@ func (m *MockHandler) EXPECT() *MockHandlerMockRecorder {
 	return m.recorder
 }
 
-// CreateXSRFTokenCookie mocks base method.
-func (m *MockHandler) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID) error {
+// Cookie mocks base method.
+func (m *MockHandler) Cookie() *cookie.Client {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateXSRFTokenCookie", w, sessionID)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "Cookie")
+	ret0, _ := ret[0].(*cookie.Client)
 	return ret0
+}
+
+// Cookie indicates an expected call of Cookie.
+func (mr *MockHandlerMockRecorder) Cookie() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cookie", reflect.TypeOf((*MockHandler)(nil).Cookie))
+}
+
+// CreateXSRFTokenCookie mocks base method.
+func (m *MockHandler) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CreateXSRFTokenCookie", w, sessionID)
 }
 
 // CreateXSRFTokenCookie indicates an expected call of CreateXSRFTokenCookie.
@@ -72,12 +84,11 @@ func (mr *MockHandlerMockRecorder) HasValidXSRFToken(r any) *gomock.Call {
 }
 
 // NewAuthCookie mocks base method.
-func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) (cookie.Values, error) {
+func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) cookie.Values {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewAuthCookie", w, sameSiteStrict, sessionID)
 	ret0, _ := ret[0].(cookie.Values)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	return ret0
 }
 
 // NewAuthCookie indicates an expected call of NewAuthCookie.
@@ -118,11 +129,9 @@ func (mr *MockHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID any) *
 }
 
 // WriteAuthCookie mocks base method.
-func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval cookie.Values) error {
+func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval cookie.Values) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, cval)
-	ret0, _ := ret[0].(error)
-	return ret0
+	m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, cval)
 }
 
 // WriteAuthCookie indicates an expected call of WriteAuthCookie.

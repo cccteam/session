@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/azureoidc/loader"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"golang.org/x/oauth2"
@@ -20,12 +21,12 @@ var _ Authenticator = &OIDC{}
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	cookieClient *cookie.Client
+	cookieClient *internalcookie.Client
 	loader.Loader
 }
 
 // New returns a new OIDC Authenticator
-func New(cookieClient *cookie.Client, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
+func New(cookieClient *internalcookie.Client, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
 	return &OIDC{
 		cookieClient: cookieClient,
 		Loader:       loader.New(issuerURL, clientID, clientSecret, redirectURL),
@@ -49,13 +50,11 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 	}
 
 	cval := cookie.NewValues().
-		Set(cookie.OIDCState, state.String()).
-		Set(cookie.OIDCPkceVerifier, pkceVerifier).
-		Set(cookie.ReturnURL, returnURL)
+		Set(internalcookie.OIDCState, state.String()).
+		Set(internalcookie.OIDCPkceVerifier, pkceVerifier).
+		Set(internalcookie.ReturnURL, returnURL)
 
-	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
-	}
+	o.cookieClient.WriteOidcCookie(w, cval)
 
 	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
 }
@@ -79,19 +78,19 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval.Get(cookie.ReturnURL)
+	returnURL = cval.Get(internalcookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
 
 	// Validate state parameter
-	if r.URL.Query().Get("state") != cval.Get(cookie.OIDCState) {
+	if r.URL.Query().Get("state") != cval.Get(internalcookie.OIDCState) {
 		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
 	}
 
 	sid = r.URL.Query().Get("session_state")
 
-	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval.Get(cookie.OIDCPkceVerifier)))
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval.Get(internalcookie.OIDCPkceVerifier)))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}

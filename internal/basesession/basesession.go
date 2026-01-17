@@ -10,7 +10,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -24,7 +24,7 @@ type BaseSession struct {
 	SessionTimeout time.Duration
 	Handle         LogHandler
 	Storage        sessionstorage.BaseStore
-	CookieHandler  cookie.Handler
+	CookieHandler  internalcookie.Handler
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
@@ -54,25 +54,20 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 		return ctx, errors.Wrap(err, "cookie.CookieHandler.ReadAuthCookie()")
 	}
 
-	sessionID, validSessionID := cookie.ValidSessionID(cval.Get(cookie.SessionID))
+	sessionID, validSessionID := internalcookie.ValidSessionID(cval.Get(internalcookie.SessionID))
 	if !foundAuthCookie || !validSessionID {
 		var err error
 		sessionID, err = ccc.NewUUID()
 		if err != nil {
 			return ctx, errors.Wrap(err, "ccc.NewUUID()")
 		}
-		cval, err = s.CookieHandler.NewAuthCookie(w, true, sessionID)
-		if err != nil {
-			return ctx, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
-		}
+		cval = s.CookieHandler.NewAuthCookie(w, true, sessionID)
 	}
 
 	// Upgrade cookie to SameSite=Strict
 	// since CallbackOIDC() sets it to None to allow OAuth flow to work
-	if cval.Get(cookie.SameSiteStrict) != strconv.FormatBool(true) {
-		if err := s.CookieHandler.WriteAuthCookie(w, true, cval); err != nil {
-			return ctx, errors.Wrap(err, "cookie.CookieHandler.WriteAuthCookie()")
-		}
+	if cval.Get(internalcookie.SameSiteStrict) != strconv.FormatBool(true) {
+		s.CookieHandler.WriteAuthCookie(w, true, cval)
 	}
 
 	// Store sessionID in context
@@ -195,7 +190,7 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 			return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
 		}
 
-		if set && !cookie.SafeMethods.Contain(r.Method) {
+		if set && !internalcookie.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set
 			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)
@@ -213,7 +208,7 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 func (s *BaseSession) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		// Validate XSRFToken for non-safe
-		if !cookie.SafeMethods.Contain(r.Method) {
+		if !internalcookie.SafeMethods.Contain(r.Method) {
 			hasValidXSRFToken, err := s.CookieHandler.HasValidXSRFToken(r)
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(r.Context(), err)
