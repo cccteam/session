@@ -112,10 +112,10 @@ func Test_newAuthCookie(t *testing.T) {
 				}
 			}
 
-			cookie := w.Header().Get("Set-Cookie")
-			t.Logf("Cookie header: %s", cookie)
+			cookieVal := w.Header().Get("Set-Cookie")
+			t.Logf("Cookie header: %s", cookieVal)
 
-			if sameSiteStrict := strings.Contains(cookie, "; SameSite=Strict"); sameSiteStrict != tt.args.sameSiteStrict {
+			if sameSiteStrict := strings.Contains(cookieVal, "; SameSite=Strict"); sameSiteStrict != tt.args.sameSiteStrict {
 				t.Errorf("SameSiteStrict: %v, want SameSiteStrict: %v", sameSiteStrict, tt.args.sameSiteStrict)
 			}
 		})

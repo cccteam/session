@@ -1,3 +1,4 @@
+// Package cookie provides cookie encryption using PASETO
 package cookie
 
 import (
