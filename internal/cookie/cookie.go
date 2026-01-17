@@ -135,7 +135,7 @@ func (c *Client) readXSRFHeader(r *http.Request) (params cookie.Values, found bo
 		if strings.Contains(err.Error(), "this token has expired") {
 			return cval, false
 		}
-		logger.FromReq(r).Error(err)
+		logger.FromReq(r).Info(err)
 
 		return cval, false
 	}

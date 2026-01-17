@@ -48,7 +48,7 @@ func (c *Client) Read(r *http.Request, cookieName string) (params Values, found 
 		if strings.Contains(err.Error(), "this token has expired") {
 			return cval, false, nil
 		}
-		logger.FromReq(r).Error(err)
+		logger.FromReq(r).Info(err)
 
 		return cval, false, nil
 	}
