@@ -49,7 +49,7 @@ func (c *Client) Read(r *http.Request, cookieName string) (params Values, found 
 		if strings.Contains(err.Error(), "this token has expired") {
 			return cval, false, nil
 		}
-		logger.FromReq(r).Info(err)
+		logger.FromReq(r).Warnf("Invalid cookie or encryption key was rotated: %v", err)
 
 		return cval, false, nil
 	}
