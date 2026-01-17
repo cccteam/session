@@ -11,7 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 )
@@ -23,12 +24,12 @@ const defaultLoginURL = "/login"
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
 	redirectURL  string
-	cookieClient *cookie.Client
+	cookieClient *internalcookie.Client
 	loginURL     string
 }
 
 // New returns a new OIDC Authenticator
-func New(cookieClient *cookie.Client, _, _, _, redirectURL string) *OIDC {
+func New(cookieClient *internalcookie.Client, _, _, _, redirectURL string) *OIDC {
 	return &OIDC{
 		redirectURL:  redirectURL,
 		cookieClient: cookieClient,
@@ -51,7 +52,7 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	cval := cookie.NewValues().Set(cookie.ReturnURL, returnURL)
+	cval := cookie.NewValues().Set(internalcookie.ReturnURL, returnURL)
 
 	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
 		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
@@ -91,7 +92,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval.Get(cookie.ReturnURL)
+	returnURL = cval.Get(internalcookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
