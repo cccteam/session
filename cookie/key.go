@@ -30,9 +30,11 @@ func createPasetoKey(keyBase64 string) (paseto.V4SymmetricKey, error) {
 	}
 
 	// Use HKDF to derive a 32-byte key for PASETO v4 (XChaCha20).
-	// This strengthens the key and ensures it's the correct length.
-	salt := []byte("cccteam-cookie-key-salt")
-	hkdfReader := hkdf.New(sha256.New, keyMaterial, salt, nil)
+	// This strengthens a weak input key and ensures it's the correct length.
+	// Changing the salt or info will invalidate all existing cookies (don't do that).
+	salt := []byte("paseto-hkdf-salt-v1")
+	info := []byte("paseto-hkdf-info-v1")
+	hkdfReader := hkdf.New(sha256.New, keyMaterial, salt, info)
 	derivedKey := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, derivedKey); err != nil {
 		return paseto.V4SymmetricKey{}, errors.Wrap(err, "failed to derive key using HKDF")
