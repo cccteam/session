@@ -17,8 +17,10 @@ type Client struct {
 }
 
 // New returns a new Client
-func New(masterKeyBase64 string) (*Client, error) {
-	pasetoKey, err := createPasetoKey(masterKeyBase64)
+// keyBase64 must be a base64-encoded string of at least 32 random bytes,
+// used to derived the symmetric key.
+func New(keyBase64 string) (*Client, error) {
+	pasetoKey, err := createPasetoKey(keyBase64)
 	if err != nil {
 		return nil, errors.Wrap(err, "createPasetoKey()")
 	}

@@ -70,6 +70,7 @@ linters:
             - github.com/gorilla/securecookie
             - github.com/jackc/pgx/v5
             - go.uber.org/mock
+            - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
             - google.golang.org/grpc/codes
             - $gostd
