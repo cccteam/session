@@ -54,9 +54,7 @@ func (o *OIDC) LoginURL() string {
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := cookie.NewValues().Set(internalcookie.ReturnURL, returnURL)
 
-	if err := o.cookieClient.WriteOidcCookie(w, cval); err != nil {
-		return "", errors.Wrap(err, "OIDC.WriteOidcCookie()")
-	}
+	o.cookieClient.WriteOidcCookie(w, cval)
 
 	return o.redirectURL, nil
 }
