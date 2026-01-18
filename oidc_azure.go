@@ -192,7 +192,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 		}
 
 		if err := o.storage.DestroySessionOIDC(ctx, sid); err != nil {
-			logger.FromReq(r).Error(errors.Wrap(err, "sessionstorage.OIDCStore.DestroySessionOIDC()"))
+			logger.FromReq(r).Info(errors.Wrap(err, "sessionstorage.OIDCStore.DestroySessionOIDC()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)

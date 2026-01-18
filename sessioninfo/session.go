@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/logger"
 )
 
 // CTXKey is a type for storing values in the request context
@@ -46,7 +45,7 @@ func IDFromRequest(r *http.Request) ccc.UUID {
 func IDFromCtx(ctx context.Context) ccc.UUID {
 	id, ok := ctx.Value(CTXSessionID).(ccc.UUID)
 	if !ok {
-		logger.FromCtx(ctx).Errorf("failed to find %s in request context", CTXSessionID)
+		panic(fmt.Sprintf("failed to find %s in request context", CTXSessionID))
 	}
 
 	return id
