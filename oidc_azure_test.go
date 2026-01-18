@@ -409,7 +409,10 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 func createHTTPRequest(method string, body io.Reader, sessionInfo *sessioninfo.SessionInfo, userInfo *sessioninfo.UserInfo, urlParams map[httpio.ParamType]string) (*http.Request, error) {
 	ctx := context.Background()
 	if sessionInfo != nil {
+		ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, sessionInfo.ID)
 		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessionInfo)
+	} else {
+		ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, ccc.Must(ccc.NewUUID()))
 	}
 	if userInfo != nil {
 		ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, userInfo)
