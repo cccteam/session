@@ -3,6 +3,7 @@ package cookie
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/cccteam/ccc"
@@ -68,6 +69,8 @@ func (c *Client) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cva
 	if !sameSiteStrict {
 		sameSite = http.SameSiteNoneMode
 	}
+
+	cval.Set(SameSiteStrict, strconv.FormatBool(sameSiteStrict))
 
 	c.cookie.WriteSessionCookie(w, c.CookieName, c.Domain, true, sameSite, cval)
 }
