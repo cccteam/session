@@ -65,6 +65,7 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method, masterKey
 		r.Header = http.Header{
 			"Cookie": w.Header().Values("Set-Cookie"),
 		}
+		r = r.WithContext(context.WithValue(r.Context(), sessioninfo.CTXSessionID, id))
 	default:
 		// Store sessionID in context
 		id, err := ccc.UUIDFromString(sessionID)
@@ -149,10 +150,11 @@ func TestBaseSessionStartSession(t *testing.T) {
 		},
 		{
 			name: "fail at ReadAuthCookie()",
-			req:  &http.Request{URL: &url.URL{}},
+			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, cookieKey, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *mock_cookie.MockHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues(), false, errors.New("error reading cookie"))
 			},
+			wantSessionID:  ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
 			expectedStatus: http.StatusInternalServerError,
 		},
 	}
@@ -578,7 +580,7 @@ func TestBaseSession_Authenticated(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			r := chi.NewRouter()
-			req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
+			req := createHTTPRequestWithSessionID(http.MethodGet, "/testPath")
 
 			r.Route("/", func(r chi.Router) {
 				r.Get("/testPath", session.Authenticated())
@@ -715,14 +717,14 @@ func TestBaseSessionSetXSRFToken(t *testing.T) {
 			name: "success",
 			args: args{
 				next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) }),
-				r:    &http.Request{Method: http.MethodGet},
+				r:    createHTTPRequestWithSessionID(http.MethodGet, ""),
 			},
 			want: http.StatusAccepted,
 		},
 		{
 			name: "redirect",
 			args: args{
-				r: &http.Request{Method: http.MethodPost, URL: &url.URL{}},
+				r: createHTTPRequestWithSessionID(http.MethodPost, ""),
 			},
 			want: http.StatusTemporaryRedirect,
 		},
@@ -821,4 +823,12 @@ func TestBaseSessionValidateXSRFToken(t *testing.T) {
 			}
 		})
 	}
+}
+
+func createHTTPRequestWithSessionID(method, urlPath string) *http.Request {
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, ccc.Must(ccc.NewUUID()))
+	req, _ := http.NewRequestWithContext(ctx, method, urlPath, http.NoBody)
+
+	return req
 }
