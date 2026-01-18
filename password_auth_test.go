@@ -15,7 +15,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessioninfo"
@@ -107,23 +107,6 @@ func TestPasswordAuth_Login(t *testing.T) {
 			wantStatusCode: http.StatusInternalServerError,
 		},
 		{
-			name: "fails on new auth cookie",
-			reqBody: map[string]string{
-				"username": "user",
-				"password": "password",
-			},
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
-				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
-					Username:     "user",
-					PasswordHash: validHash,
-				}, nil)
-				sessionID := ccc.Must(ccc.NewUUID())
-				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues(), errors.New("new auth cookie failed"))
-			},
-			wantStatusCode: http.StatusInternalServerError,
-		},
-		{
 			name: "success",
 			reqBody: map[string]string{
 				"username": "user",
@@ -136,7 +119,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues(), nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
 			wantStatusCode: http.StatusOK,
@@ -157,7 +140,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues(), nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
 			wantStatusCode: http.StatusOK,
@@ -178,7 +161,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
-				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues(), nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
 			wantStatusCode: http.StatusOK,

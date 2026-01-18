@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	gomock "go.uber.org/mock/gomock"
@@ -44,13 +45,13 @@ func TestPreauthAPI_Login(t *testing.T) {
 							Value: sessionID.String(),
 							Path:  "/",
 						})
-						return cookie.NewValues().Set(cookie.SessionID, sessionID.String()), nil
+						return cookie.NewValues().Set(internalcookie.SessionID, sessionID.String()), nil
 					}).
 					Times(1)
 
 				mockCookies.EXPECT().
 					CreateXSRFTokenCookie(gomock.Any(), gomock.Any()).
-					Return(nil).
+					Return().
 					Times(1)
 			},
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
@@ -63,24 +64,6 @@ func TestPreauthAPI_Login(t *testing.T) {
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user").
 					Return(ccc.NilUUID, errors.New("storage error")).
-					Times(1)
-			},
-			wantErr: true,
-		},
-		{
-			name:     "failed to set auth cookie",
-			username: "test_user",
-			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
-				// Mock successful session creation
-				mockStorage.EXPECT().
-					NewSession(gomock.Any(), "test_user").
-					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil).
-					Times(1)
-
-				// Simulate failure in setting the auth cookie
-				mockCookies.EXPECT().
-					NewAuthCookie(gomock.Any(), true, gomock.Any()).
-					Return(cookie.NewValues(), errors.New("failed to set auth cookie")).
 					Times(1)
 			},
 			wantErr: true,

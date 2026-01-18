@@ -9,8 +9,9 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
@@ -47,17 +48,17 @@ func NewPasswordAuth(storage sessionstorage.PasswordAuthStore, cookieKey string,
 		Storage:        storage,
 	}
 
-	var cookieOpts []cookie.Option
+	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case CookieOption:
-			cookieOpts = append(cookieOpts, cookie.Option(o))
+			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		case BaseSessionOption:
 			o(baseSession)
 		}
 	}
 
-	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
@@ -158,7 +159,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	}
 
 	// Log the association between the sessionID and Username
-	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(cookie.SessionID), sessionID)
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 
 	return nil
 }
@@ -354,14 +355,10 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
-	if _, err := p.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
-	}
+	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)
 
 	// write new XSRF Token Cookie to match the new SessionID
-	if err := p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
-	}
+	p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
 
 	return id, nil
 }
@@ -591,4 +588,9 @@ func (p *PasswordAuthAPI) DeactivateSessionUser(ctx context.Context, sessionUser
 // ActivateSessionUser handles activating a user
 func (p *PasswordAuthAPI) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	return p.passwordAuth.activateSessionUser(ctx, sessionUserUUID)
+}
+
+// Cookie returns the underlying cookie.Client
+func (p *PasswordAuthAPI) Cookie() *cookie.Client {
+	return p.passwordAuth.baseSession.CookieHandler.Cookie()
 }

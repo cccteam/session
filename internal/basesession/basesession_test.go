@@ -13,7 +13,8 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
@@ -54,14 +55,12 @@ func mockRequestWithSession(ctx context.Context, t *testing.T, method, masterKey
 			}
 		}
 
-		cookieClient, err := cookie.NewCookieClient(masterKeyBase64)
+		cookieClient, err := internalcookie.NewCookieClient(masterKeyBase64)
 		if err != nil {
 			t.Fatalf("NewCookieClient() = %v", err)
 		}
 		a := &BaseSession{CookieHandler: cookieClient}
-		if _, err := a.CookieHandler.NewAuthCookie(w, false, id); err != nil {
-			t.Fatalf("newAuthCookie() = %v", err)
-		}
+		_ = a.CookieHandler.NewAuthCookie(w, false, id)
 
 		r.Header = http.Header{
 			"Cookie": w.Header().Values("Set-Cookie"),
@@ -95,8 +94,8 @@ func TestBaseSessionStartSession(t *testing.T) {
 			prepare: func(c *mock_cookie.MockHandler, tt *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(
 					cookie.NewValues().
-						Set(cookie.SessionID, "92922509-bad-session-id").
-						Set(cookie.SameSiteStrict, "true"),
+						Set(internalcookie.SessionID, "92922509-bad-session-id").
+						Set(internalcookie.SameSiteStrict, "true"),
 					true, nil)
 				c.EXPECT().NewAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).
 					Do(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID) {
@@ -104,9 +103,9 @@ func TestBaseSessionStartSession(t *testing.T) {
 					}).
 					Return(
 						cookie.NewValues().
-							Set(cookie.SessionID, "92922509-82d2-4ba1-853a-d73b8926a55f").
-							Set(cookie.SameSiteStrict, "true"),
-						nil)
+							Set(internalcookie.SessionID, "92922509-82d2-4ba1-853a-d73b8926a55f").
+							Set(internalcookie.SameSiteStrict, "true"),
+					)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -120,9 +119,9 @@ func TestBaseSessionStartSession(t *testing.T) {
 						tt.wantSessionID = sessionID
 					}).
 					Return(cookie.NewValues().
-						Set(cookie.SessionID, "92922509-82d2-4ba1-853a-d73b8926a55f").
-						Set(cookie.SameSiteStrict, "true"),
-						nil)
+						Set(internalcookie.SessionID, "92922509-82d2-4ba1-853a-d73b8926a55f").
+						Set(internalcookie.SameSiteStrict, "true"),
+					)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -130,8 +129,8 @@ func TestBaseSessionStartSession(t *testing.T) {
 			name: "success with existing cookie upgraded",
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, cookieKey, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *mock_cookie.MockHandler, _ *test) {
-				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues().Set(cookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f"), true, nil)
-				c.EXPECT().WriteAuthCookie(gomock.Any(), true, cookie.NewValues().Set(cookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f")).Return(nil)
+				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues().Set(internalcookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f"), true, nil)
+				c.EXPECT().WriteAuthCookie(gomock.Any(), true, cookie.NewValues().Set(internalcookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f")).Return()
 			},
 			wantSessionID:  ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
 			expectedStatus: http.StatusOK,
@@ -141,42 +140,18 @@ func TestBaseSessionStartSession(t *testing.T) {
 			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, cookieKey, "92922509-82d2-4bc7-853a-d73b8926a55f"),
 			prepare: func(c *mock_cookie.MockHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues().
-					Set(cookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f").
-					Set(cookie.SameSiteStrict, "true"),
+					Set(internalcookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f").
+					Set(internalcookie.SameSiteStrict, "true"),
 					true, nil)
 			},
 			wantSessionID:  ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")),
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name: "fails to upgrade existing cookie",
-			req:  mockRequestWithSession(context.Background(), t, http.MethodGet, cookieKey, "92922509-82d2-4bc7-853a-d73b8926a55f"),
-			prepare: func(c *mock_cookie.MockHandler, _ *test) {
-				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues().
-					Set(cookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f").
-					Set(cookie.SameSiteStrict, "false"),
-					true, nil)
-				c.EXPECT().WriteAuthCookie(gomock.Any(), true, cookie.NewValues().
-					Set(cookie.SessionID, "92922509-82d2-4bc7-853a-d73b8926a55f").
-					Set(cookie.SameSiteStrict, "false"),
-				).Return(errors.New("error writing cookie"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-		},
-		{
 			name: "fail at ReadAuthCookie()",
 			req:  &http.Request{URL: &url.URL{}},
 			prepare: func(c *mock_cookie.MockHandler, _ *test) {
 				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues(), false, errors.New("error reading cookie"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-		},
-		{
-			name: "fail at NewAuthCookie()",
-			req:  &http.Request{URL: &url.URL{}},
-			prepare: func(c *mock_cookie.MockHandler, _ *test) {
-				c.EXPECT().ReadAuthCookie(gomock.Any()).Return(cookie.NewValues(), false, nil)
-				c.EXPECT().NewAuthCookie(gomock.Any(), gomock.Any(), gomock.Any()).Return(cookie.NewValues(), errors.New("error creating cookie"))
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -524,7 +499,7 @@ func TestBaseSession_validSessionID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotUUID, got := cookie.ValidSessionID(tt.args.sessionID)
+			gotUUID, got := internalcookie.ValidSessionID(tt.args.sessionID)
 			if got != tt.want {
 				t.Errorf("validSessionID() = %v, want %v", got, tt.want)
 			}
@@ -691,7 +666,7 @@ func TestBaseSession_Logout(t *testing.T) {
 func mockRequestWithXSRFToken(t *testing.T, method string, setHeader bool, cookieSessionID, requestSessionID ccc.UUID) *http.Request {
 	// Use setXSRFTokenCookie() to generate a valid cookie
 	w := httptest.NewRecorder()
-	c, err := cookie.NewCookieClient(cookieKey)
+	c, err := internalcookie.NewCookieClient(cookieKey)
 	if err != nil {
 		t.Fatalf("NewCookieClient() = %v", err)
 	}
@@ -709,13 +684,13 @@ func mockRequestWithXSRFToken(t *testing.T, method string, setHeader bool, cooki
 
 	if setHeader {
 		// Get XSRF cookie
-		c, err := r.Cookie(cookie.XSRFCookieName)
+		c, err := r.Cookie(internalcookie.XSRFCookieName)
 		if err != nil {
 			return r
 		}
 
 		// Set XSRF Token header to XSRF cookie value
-		r.Header.Set(cookie.XSRFHeaderName, c.Value)
+		r.Header.Set(internalcookie.XSRFHeaderName, c.Value)
 	}
 
 	// Store sessionID in context
@@ -755,7 +730,7 @@ func TestBaseSessionSetXSRFToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cookieClient, err := cookie.NewCookieClient(cookieKey)
+			cookieClient, err := internalcookie.NewCookieClient(cookieKey)
 			if err != nil {
 				t.Fatalf("NewCookieClient() = %v", err)
 			}
@@ -825,7 +800,7 @@ func TestBaseSessionValidateXSRFToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cookieClient, err := cookie.NewCookieClient(cookieKey)
+			cookieClient, err := internalcookie.NewCookieClient(cookieKey)
 			if err != nil {
 				t.Fatalf("NewCookieClient() = %v", err)
 			}

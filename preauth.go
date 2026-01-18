@@ -6,8 +6,9 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
-	"github.com/cccteam/session/internal/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -36,16 +37,16 @@ func NewPreauth(storage sessionstorage.PreauthStore, cookieKey string, options .
 		Storage:        storage,
 	}
 
-	var cookieOpts []cookie.Option
+	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case CookieOption:
-			cookieOpts = append(cookieOpts, cookie.Option(o))
+			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		case BaseSessionOption:
 			o(baseSession)
 		}
 	}
-	cookieClient, err := cookie.NewCookieClient(cookieKey, cookieOpts...)
+	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
@@ -125,14 +126,10 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	}
 
 	// Write new Auth Cookie
-	if _, err := p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.NewAuthCookie()")
-	}
+	p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, id)
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	if err := p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "cookie.CookieHandler.CreateXSRFTokenCookie()")
-	}
+	p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
 
 	return id, nil
 }
@@ -169,4 +166,9 @@ func (p *PreauthAPI) ValidateSession(ctx context.Context) (context.Context, erro
 	}
 
 	return ctx, nil
+}
+
+// Cookie returns the underlying cookie.Client
+func (p *PreauthAPI) Cookie() *cookie.Client {
+	return p.preauth.baseSession.CookieHandler.Cookie()
 }
