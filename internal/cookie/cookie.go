@@ -145,7 +145,7 @@ func (c *Client) readXSRFHeader(r *http.Request) (params cookie.Values, found bo
 
 // WriteOidcCookie writes the OIDC cookie to the response
 func (c *Client) WriteOidcCookie(w http.ResponseWriter, cval cookie.Values) {
-	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, false, http.SameSiteStrictMode, OIDCCookieExpiration, cval)
+	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, cval)
 }
 
 // ReadOidcCookie reads the OIDC cookie from the request
