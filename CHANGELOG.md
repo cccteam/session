@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.7.0](https://github.com/cccteam/session/compare/v0.6.2...v0.7.0) (2026-01-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* Change package interface to take in cookieKey instead of securecookie.SecureCookie ([#159](https://github.com/cccteam/session/issues/159))
+
+### Features
+
+* Add API to PasswordAuth to provide access to handler internals ([#157](https://github.com/cccteam/session/issues/157)) ([060bbca](https://github.com/cccteam/session/commit/060bbca24f1098358de014bb855f7785b806f9cb))
+* Add API to Preauth to provide access to handler internals ([#157](https://github.com/cccteam/session/issues/157)) ([060bbca](https://github.com/cccteam/session/commit/060bbca24f1098358de014bb855f7785b806f9cb))
+* Add cookie options for XSRF token ([#155](https://github.com/cccteam/session/issues/155)) ([167a9fc](https://github.com/cccteam/session/commit/167a9fc4b6fe631bd3ff6f3f2d540fa65717bfd9))
+* Replace securecookie with paseto for fast modern encryption ([#160](https://github.com/cccteam/session/issues/160)) ([f3e6d4f](https://github.com/cccteam/session/commit/f3e6d4f704051603735343636741c2d2dd77dfa3))
+
+
+### Bug Fixes
+
+* Fix cookie upgrade bug where SameSite mode was not being recorded in cookie ([#165](https://github.com/cccteam/session/issues/165)) ([901c6e7](https://github.com/cccteam/session/commit/901c6e7952226ddd78b2bfdde88c22afe87e43d7))
+* Fix long standing issue with expiring XSRF Token issue on Login forms ([#160](https://github.com/cccteam/session/issues/160)) ([f3e6d4f](https://github.com/cccteam/session/commit/f3e6d4f704051603735343636741c2d2dd77dfa3))
+* Initial value for PasswordAuth SameSiteStrictMode should be strict ([#158](https://github.com/cccteam/session/issues/158)) ([c3b533b](https://github.com/cccteam/session/commit/c3b533babc637b5f41be7a4bdd6e2f3526b889cc))
+
+
+### Code Refactoring
+
+* Change package interface to take in cookieKey instead of securecookie.SecureCookie ([#159](https://github.com/cccteam/session/issues/159)) ([c21f645](https://github.com/cccteam/session/commit/c21f64517bd6168f10c51493071e1d7b7be43aa8))
+* Expose cookie management via API ([#162](https://github.com/cccteam/session/issues/162)) ([512152f](https://github.com/cccteam/session/commit/512152f2b9a5864eb8f93fd76b28d2bdb7d10686))
+* Expose methods to extract ID from context ([#155](https://github.com/cccteam/session/issues/155)) ([167a9fc](https://github.com/cccteam/session/commit/167a9fc4b6fe631bd3ff6f3f2d540fa65717bfd9))
+* Modify cookie.Handler interface to always return an error in preparation for replacing securecookie package ([#159](https://github.com/cccteam/session/issues/159)) ([c21f645](https://github.com/cccteam/session/commit/c21f64517bd6168f10c51493071e1d7b7be43aa8))
+* Remove access to internal implementation methods ([#157](https://github.com/cccteam/session/issues/157)) ([060bbca](https://github.com/cccteam/session/commit/060bbca24f1098358de014bb855f7785b806f9cb))
+
+
+### Code Cleanup
+
+* Cleanup error reporting ([#164](https://github.com/cccteam/session/issues/164)) ([af2ca26](https://github.com/cccteam/session/commit/af2ca260e1b40693c3e2e64bf8bb7530411b7d54))
+
+
+### Code Upgrade
+
+* Bump the go-dependencies group across 1 directory with 7 updates ([#163](https://github.com/cccteam/session/issues/163)) ([a52ee48](https://github.com/cccteam/session/commit/a52ee48e6c457741c7f6d08b32f5fa09925db126))
+
 ## [0.6.2](https://github.com/cccteam/session/compare/v0.6.1...v0.6.2) (2025-12-11)
 
 
