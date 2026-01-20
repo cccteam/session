@@ -277,6 +277,16 @@ func newOIDCAzureAPI(oidc *OIDCAzure) *OIDCAzureAPI {
 	}
 }
 
+// ValidateSession checks the session cookie and if it is valid, stores the session data into the context
+func (p *OIDCAzureAPI) ValidateSession(ctx context.Context) (context.Context, error) {
+	ctx, err := p.oidc.baseSession.ValidateSessionAPI(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
+	}
+
+	return ctx, nil
+}
+
 // Cookie returns the underlying cookie.Client
 func (p *OIDCAzureAPI) Cookie() *cookie.Client {
 	return p.oidc.baseSession.CookieHandler.Cookie()
