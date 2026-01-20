@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.1](https://github.com/cccteam/session/compare/v0.7.0...v0.7.1) (2026-01-20)
+
+
+### Features
+
+* Add ValdateSession to the OIDC API ([#166](https://github.com/cccteam/session/issues/166)) ([c43e2bb](https://github.com/cccteam/session/commit/c43e2bb6434416a4d455d867fc490ce7bb84b468))
+
+
+### Bug Fixes
+
+* Fix AzureOIDC Login handler to redirect back into the app if an error occures ([#166](https://github.com/cccteam/session/issues/166)) ([c43e2bb](https://github.com/cccteam/session/commit/c43e2bb6434416a4d455d867fc490ce7bb84b468))
+
+
+### Code Upgrade
+
+* Bump the github-actions group with 3 updates ([#151](https://github.com/cccteam/session/issues/151)) ([a884c2c](https://github.com/cccteam/session/commit/a884c2cbf63e4888aebd80c4ad546db61591e19f))
+
 ## [0.7.0](https://github.com/cccteam/session/compare/v0.6.2...v0.7.0) (2026-01-18)
 
 
