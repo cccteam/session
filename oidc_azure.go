@@ -122,7 +122,9 @@ func (o *OIDCAzure) Login() http.HandlerFunc {
 		returnURL := r.URL.Query().Get("returnUrl")
 		authCodeURL, err := o.oidc.AuthCodeURL(ctx, w, returnURL)
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+
+			return errors.Wrap(err, "azureoidc.Authenticator.AuthCodeURL()")
 		}
 
 		http.Redirect(w, r, authCodeURL, http.StatusFound)
