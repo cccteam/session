@@ -9,9 +9,16 @@ concurrency:
 
 jobs:
   golang-ci:
-    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@v5.17.2
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@v5.19.2
     with:
       golangci-lint-version: 'v2.4.0'
       build-tags: '["","skipAuth"]'
+
   semantic-titles:
-    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@v5.17.2
+    permissions:
+      pull-requests: read
+    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@v5.19.2
