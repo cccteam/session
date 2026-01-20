@@ -122,7 +122,9 @@ func (o *OIDCAzure) Login() http.HandlerFunc {
 		returnURL := r.URL.Query().Get("returnUrl")
 		authCodeURL, err := o.oidc.AuthCodeURL(ctx, w, returnURL)
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+
+			return errors.Wrap(err, "azureoidc.Authenticator.AuthCodeURL()")
 		}
 
 		http.Redirect(w, r, authCodeURL, http.StatusFound)
@@ -275,6 +277,16 @@ func newOIDCAzureAPI(oidc *OIDCAzure) *OIDCAzureAPI {
 	return &OIDCAzureAPI{
 		oidc: oidc,
 	}
+}
+
+// ValidateSession checks the session cookie and if it is valid, stores the session data into the context
+func (p *OIDCAzureAPI) ValidateSession(ctx context.Context) (context.Context, error) {
+	ctx, err := p.oidc.baseSession.ValidateSessionAPI(ctx)
+	if err != nil {
+		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
+	}
+
+	return ctx, nil
 }
 
 // Cookie returns the underlying cookie.Client
