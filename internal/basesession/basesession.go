@@ -54,7 +54,16 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 		return ctx, errors.Wrap(err, "cookie.CookieHandler.ReadAuthCookie()")
 	}
 
-	sessionID, validSessionID := internalcookie.ValidSessionID(cval.Get(internalcookie.SessionID))
+	var sessionID ccc.UUID
+	var validSessionID bool
+	if foundAuthCookie {
+		cSessionID, err := cval.GetString(internalcookie.SessionID)
+		if err != nil {
+			return ctx, errors.Wrap(err, "cookie.Values.GetString()")
+		}
+		sessionID, validSessionID = internalcookie.ValidSessionID(cSessionID)
+	}
+
 	if !foundAuthCookie || !validSessionID {
 		var err error
 		sessionID, err = ccc.NewUUID()
@@ -64,9 +73,9 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 		cval = s.CookieHandler.NewAuthCookie(w, true, sessionID)
 	}
 
-	// Upgrade cookie to SameSite=Strict
-	// since CallbackOIDC() sets it to None to allow OAuth flow to work
-	if cval.Get(internalcookie.SameSiteStrict) != strconv.FormatBool(true) {
+	if sameSiteStrict, _ := cval.GetString(internalcookie.SameSiteStrict); sameSiteStrict != strconv.FormatBool(true) {
+		// Upgrade cookie to SameSite=Strict
+		// CallbackOIDC() sets it to None to allow OAuth flow to work
 		s.CookieHandler.WriteAuthCookie(w, true, cval)
 	}
 
