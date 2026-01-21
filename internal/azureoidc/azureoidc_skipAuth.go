@@ -52,7 +52,7 @@ func (o *OIDC) LoginURL() string {
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	cval := cookie.NewValues().Set(internalcookie.ReturnURL, returnURL)
+	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
 
 	o.cookieClient.WriteOidcCookie(w, cval)
 
@@ -90,7 +90,10 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval.Get(internalcookie.ReturnURL)
+	returnURL, err = cval.GetString(internalcookie.ReturnURL)
+	if err != nil {
+		return "", "", errors.Wrap(err, "cookie.Values.GetString()")
+	}
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
