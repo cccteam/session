@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/cccteam/session/compare/v0.7.1...v0.7.2) (2026-01-22)
+
+
+### Features
+
+* Enhance the cookie.Values API to handle storing anything that can be json encoded ([#168](https://github.com/cccteam/session/issues/168)) ([8e3dd03](https://github.com/cccteam/session/commit/8e3dd03a79e8fe38bebf064a9d1e9ac36c0f6c6f))
+
 ## [0.7.1](https://github.com/cccteam/session/compare/v0.7.0...v0.7.1) (2026-01-20)
 
 
