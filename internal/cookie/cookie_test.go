@@ -321,7 +321,7 @@ func Test_RefreshXSRFTokenCookie(t *testing.T) {
 	}
 }
 
-func Test_hasValidXSRFToken(t *testing.T) {
+func Test_HasValidXSRFToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -438,57 +438,6 @@ func TestCreateXSRFTokenCookie(t *testing.T) {
 	}
 }
 
-func Test_readXSRFCookie(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		req           *http.Request
-		wantSessionID string
-		wantOK        bool
-		wantErr       bool
-	}{
-		{
-			name: "fails to find the cookie",
-			req:  &http.Request{},
-		},
-		{
-			name:    "fails to decode the cookie",
-			req:     &http.Request{Header: http.Header{"Cookie": []string{fmt.Sprintf("%s=someValue", XSRFCookieName)}}},
-			wantErr: false,
-		},
-		{
-			name:          "success reading the cookie",
-			req:           mockRequestWithXSRFToken(t, true, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), ccc.Must(ccc.UUIDFromString("ba4fdd80-b566-4128-b593-68614e15a753"))),
-			wantSessionID: "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5",
-			wantOK:        true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			c, err := NewCookieClient(cookieKey)
-			if err != nil {
-				t.Fatalf("NewCookieClient() error = %v", err)
-			}
-			got, gotOK, err := c.readXSRFCookie(tt.req)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("readXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			if gotOK != tt.wantOK {
-				t.Fatalf("readXSRFCookie() gotOK = %v, want %v", gotOK, tt.wantOK)
-			}
-			if !tt.wantOK {
-				return
-			}
-			if v, err := got.GetString(SessionID); err != nil || v != tt.wantSessionID {
-				t.Errorf("ReadXSRFCookie() got[stSessionID] = %v, want %v", got, tt.wantSessionID)
-			}
-		})
-	}
-}
-
 func Test_readXSRFHeader(t *testing.T) {
 	t.Parallel()
 
@@ -533,7 +482,7 @@ func Test_readXSRFHeader(t *testing.T) {
 	}
 }
 
-func Test_write_read_TokenCookie(t *testing.T) {
+func Test_validate_TokenHeader_to_TokenCookie(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -579,7 +528,7 @@ func Test_write_read_TokenCookie(t *testing.T) {
 			// Set XSRF Token header to XSRF cookie value
 			r.Header.Set(XSRFHeaderName, c.Value)
 
-			gotc, got1, err := cookieClient.readXSRFCookie(r)
+			gotc, got1, err := cookieClient.cookie.Read(r, cookieClient.STCookieName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReadXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -596,10 +545,10 @@ func Test_write_read_TokenCookie(t *testing.T) {
 
 			goth, got1 := cookieClient.readXSRFHeader(r)
 			if diff := cmp.Diff(gotc, goth, cmp.AllowUnexported(cookie.Values{}, paseto.Token{}), cmpopts.IgnoreFields(paseto.Token{}, "footer")); diff != "" {
-				t.Errorf("ReadXSRFHeader() mismatch (-want +got):\n%s", diff)
+				t.Errorf("readXSRFHeader() mismatch (-want +got):\n%s", diff)
 			}
 			if got1 != true {
-				t.Errorf("ReadXSRFHeader() got1 = %v, want %v", got1, true)
+				t.Errorf("readXSRFHeader() got1 = %v, want %v", got1, true)
 			}
 		})
 	}

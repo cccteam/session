@@ -90,10 +90,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL, err = cval.GetString(internalcookie.ReturnURL)
-	if err != nil {
-		return "", "", errors.Wrap(err, "cookie.Values.GetString()")
-	}
+	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}

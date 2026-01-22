@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	// keyPrefix is used to prevent collisions between keys of this package and keys in the underlying paseto.Token.
+	// changing this prefix will break all existing cookies (don't do that)
 	keyPrefix = "ccc:"
 )
 

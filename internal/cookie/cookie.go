@@ -78,19 +78,17 @@ func (c *Client) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, val
 
 // RefreshXSRFTokenCookie updates the cookie when it is close to expiration, or sets it if it does not exist.
 func (c *Client) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID) (set bool, err error) {
-	cval, found, err := c.readXSRFCookie(r)
+	cval, found, err := c.cookie.Read(r, c.STCookieName)
 	if err != nil {
 		return false, errors.Wrap(err, "CookieClient.ReadXSRFCookie()")
 	}
 
 	if found {
 		cSessionID, err := cval.GetString(SessionID)
-		if err != nil {
-			return false, errors.Wrap(err, "cookie.Values.GetString()")
-		}
-
-		if sessionID.String() == cSessionID {
-			return false, nil
+		if err == nil {
+			if sessionID.String() == cSessionID {
+				return false, nil
+			}
 		}
 	}
 
@@ -109,43 +107,25 @@ func (c *Client) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID
 
 // HasValidXSRFToken checks if the XSRF token is valid
 func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
-	cval, found, err := c.readXSRFCookie(r)
+	cval, found, err := c.cookie.Read(r, c.STCookieName)
 	if err != nil {
 		return false, errors.Wrap(err, "CookieClient.ReadXSRFCookie()")
 	}
 	if !found {
 		return false, nil
 	}
-
-	cSessionID, err := cval.GetString(SessionID)
-	if err != nil {
-		return false, errors.Wrap(err, "cookie.Values.GetString()")
-	}
-
+	cSessionID, _ := cval.GetString(SessionID)
 	if sessioninfo.IDFromRequest(r).String() != cSessionID {
 		return false, nil
 	}
+
 	hval, found := c.readXSRFHeader(r)
 	if !found {
 		return false, nil
 	}
-
-	hSessionID, err := hval.GetString(SessionID)
-	if err != nil {
-		return false, errors.Wrap(err, "cookie.Values.GetString()")
-	}
+	hSessionID, _ := hval.GetString(SessionID)
 
 	return hSessionID == cSessionID, nil
-}
-
-// readXSRFCookie reads the XSRF cookie from the request
-func (c *Client) readXSRFCookie(r *http.Request) (values *cookie.Values, found bool, err error) {
-	cval, found, err := c.cookie.Read(r, c.STCookieName)
-	if err != nil {
-		return nil, found, errors.Wrap(err, "cookie.Client.Read()")
-	}
-
-	return cval, found, nil
 }
 
 // readXSRFHeader reads the XSRF header from the request

@@ -58,10 +58,9 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 	var validSessionID bool
 	if foundAuthCookie {
 		cSessionID, err := cval.GetString(internalcookie.SessionID)
-		if err != nil {
-			return ctx, errors.Wrap(err, "cookie.Values.GetString()")
+		if err == nil {
+			sessionID, validSessionID = internalcookie.ValidSessionID(cSessionID)
 		}
-		sessionID, validSessionID = internalcookie.ValidSessionID(cSessionID)
 	}
 
 	if !foundAuthCookie || !validSessionID {
