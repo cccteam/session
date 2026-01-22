@@ -50,9 +50,9 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 	}
 
 	cval := cookie.NewValues().
-		Set(internalcookie.OIDCState, state.String()).
-		Set(internalcookie.OIDCPkceVerifier, pkceVerifier).
-		Set(internalcookie.ReturnURL, returnURL)
+		SetString(internalcookie.OIDCState, state.String()).
+		SetString(internalcookie.OIDCPkceVerifier, pkceVerifier).
+		SetString(internalcookie.ReturnURL, returnURL)
 
 	o.cookieClient.WriteOidcCookie(w, cval)
 
@@ -78,19 +78,25 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
-	returnURL = cval.Get(internalcookie.ReturnURL)
+	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
 	if strings.TrimSpace(returnURL) == "" {
 		returnURL = "/"
 	}
 
+	state, err := cval.GetString(internalcookie.OIDCState)
+	if err != nil {
+		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
+	}
 	// Validate state parameter
-	if r.URL.Query().Get("state") != cval.Get(internalcookie.OIDCState) {
+	if r.URL.Query().Get("state") != state {
 		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
 	}
 
-	sid = r.URL.Query().Get("session_state")
-
-	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(cval.Get(internalcookie.OIDCPkceVerifier)))
+	verifier, err := cval.GetString(internalcookie.OIDCPkceVerifier)
+	if err != nil {
+		return "", "", httpio.NewForbiddenMessage("Invalid 'pkceVerifier' parameter value")
+	}
+	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
 	}
@@ -109,6 +115,8 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	if err := idToken.Claims(&claims); err != nil {
 		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims")
 	}
+
+	sid = r.URL.Query().Get("session_state")
 
 	return returnURL, sid, nil
 }

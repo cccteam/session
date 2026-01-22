@@ -84,10 +84,10 @@ func (mr *MockHandlerMockRecorder) HasValidXSRFToken(r any) *gomock.Call {
 }
 
 // NewAuthCookie mocks base method.
-func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) cookie.Values {
+func (m *MockHandler) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) *cookie.Values {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewAuthCookie", w, sameSiteStrict, sessionID)
-	ret0, _ := ret[0].(cookie.Values)
+	ret0, _ := ret[0].(*cookie.Values)
 	return ret0
 }
 
@@ -98,10 +98,10 @@ func (mr *MockHandlerMockRecorder) NewAuthCookie(w, sameSiteStrict, sessionID an
 }
 
 // ReadAuthCookie mocks base method.
-func (m *MockHandler) ReadAuthCookie(r *http.Request) (cookie.Values, bool, error) {
+func (m *MockHandler) ReadAuthCookie(r *http.Request) (*cookie.Values, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReadAuthCookie", r)
-	ret0, _ := ret[0].(cookie.Values)
+	ret0, _ := ret[0].(*cookie.Values)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -129,13 +129,13 @@ func (mr *MockHandlerMockRecorder) RefreshXSRFTokenCookie(w, r, sessionID any) *
 }
 
 // WriteAuthCookie mocks base method.
-func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, cval cookie.Values) {
+func (m *MockHandler) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, values *cookie.Values) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, cval)
+	m.ctrl.Call(m, "WriteAuthCookie", w, sameSiteStrict, values)
 }
 
 // WriteAuthCookie indicates an expected call of WriteAuthCookie.
-func (mr *MockHandlerMockRecorder) WriteAuthCookie(w, sameSiteStrict, cval any) *gomock.Call {
+func (mr *MockHandlerMockRecorder) WriteAuthCookie(w, sameSiteStrict, values any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteAuthCookie", reflect.TypeOf((*MockHandler)(nil).WriteAuthCookie), w, sameSiteStrict, cval)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteAuthCookie", reflect.TypeOf((*MockHandler)(nil).WriteAuthCookie), w, sameSiteStrict, values)
 }

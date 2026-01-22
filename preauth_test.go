@@ -39,13 +39,13 @@ func TestPreauthAPI_Login(t *testing.T) {
 				// Simulate cookie setting
 				mockCookies.EXPECT().
 					NewAuthCookie(gomock.Any(), true, gomock.Any()).
-					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (cookie.Values, error) {
+					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (*cookie.Values, error) {
 						http.SetCookie(w, &http.Cookie{
 							Name:  "auth",
 							Value: sessionID.String(),
 							Path:  "/",
 						})
-						return cookie.NewValues().Set(internalcookie.SessionID, sessionID.String()), nil
+						return cookie.NewValues().SetString(internalcookie.SessionID, sessionID.String()), nil
 					}).
 					Times(1)
 
