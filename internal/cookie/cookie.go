@@ -31,9 +31,9 @@ func NewCookieClient(masterKeyBase64 string, opts ...Option) (*Client, error) {
 	client := &Client{
 		cookie: c,
 		cookieOptions: &cookieOptions{
-			CookieName:   AuthCookieName,
-			STCookieName: XSRFCookieName,
-			STHeaderName: XSRFHeaderName,
+			CookieName:     AuthCookieName,
+			XSRFCookieName: XSRFCookieName,
+			XSRFHeaderName: XSRFHeaderName,
 		},
 	}
 
@@ -46,8 +46,7 @@ func NewCookieClient(masterKeyBase64 string, opts ...Option) (*Client, error) {
 
 // NewAuthCookie writes a new Auth Cookie for given sessionID
 func (c *Client) NewAuthCookie(w http.ResponseWriter, sameSiteStrict bool, sessionID ccc.UUID) *cookie.Values {
-	cval := cookie.NewValues()
-	cval.SetString(SessionID, sessionID.String())
+	cval := cookie.NewValues().SetString(SessionID, sessionID.String())
 
 	c.WriteAuthCookie(w, sameSiteStrict, cval)
 
@@ -78,9 +77,9 @@ func (c *Client) WriteAuthCookie(w http.ResponseWriter, sameSiteStrict bool, val
 
 // RefreshXSRFTokenCookie updates the cookie when it is close to expiration, or sets it if it does not exist.
 func (c *Client) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, sessionID ccc.UUID) (set bool, err error) {
-	cval, found, err := c.cookie.Read(r, c.STCookieName)
+	cval, found, err := c.cookie.Read(r, c.XSRFCookieName)
 	if err != nil {
-		return false, errors.Wrap(err, "CookieClient.ReadXSRFCookie()")
+		return false, errors.Wrap(err, "cookie.Client.Read()")
 	}
 
 	if found {
@@ -99,17 +98,16 @@ func (c *Client) RefreshXSRFTokenCookie(w http.ResponseWriter, r *http.Request, 
 
 // CreateXSRFTokenCookie sets a new cookie
 func (c *Client) CreateXSRFTokenCookie(w http.ResponseWriter, sessionID ccc.UUID) {
-	cval := cookie.NewValues()
-	cval.SetString(SessionID, sessionID.String())
+	cval := cookie.NewValues().SetString(SessionID, sessionID.String())
 
-	c.cookie.WriteSessionCookie(w, c.STCookieName, c.Domain, false, http.SameSiteStrictMode, cval)
+	c.cookie.WriteSessionCookie(w, c.XSRFCookieName, c.Domain, false, http.SameSiteStrictMode, cval)
 }
 
 // HasValidXSRFToken checks if the XSRF token is valid
 func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
-	cval, found, err := c.cookie.Read(r, c.STCookieName)
+	cval, found, err := c.cookie.Read(r, c.XSRFCookieName)
 	if err != nil {
-		return false, errors.Wrap(err, "CookieClient.ReadXSRFCookie()")
+		return false, errors.Wrap(err, "cookie.Client.Read()")
 	}
 	if !found {
 		return false, nil
@@ -130,9 +128,9 @@ func (c *Client) HasValidXSRFToken(r *http.Request) (bool, error) {
 
 // readXSRFHeader reads the XSRF header from the request
 func (c *Client) readXSRFHeader(r *http.Request) (values *cookie.Values, found bool) {
-	h := r.Header.Get(c.STHeaderName)
+	h := r.Header.Get(c.XSRFHeaderName)
 
-	cval, err := c.cookie.Decrypt(c.STCookieName, h)
+	cval, err := c.cookie.Decrypt(c.XSRFCookieName, h)
 	if err != nil {
 		if strings.Contains(err.Error(), "this token has expired") {
 			return nil, false

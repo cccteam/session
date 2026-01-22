@@ -528,7 +528,7 @@ func Test_validate_TokenHeader_to_TokenCookie(t *testing.T) {
 			// Set XSRF Token header to XSRF cookie value
 			r.Header.Set(XSRFHeaderName, c.Value)
 
-			gotc, got1, err := cookieClient.cookie.Read(r, cookieClient.STCookieName)
+			gotc, got1, err := cookieClient.cookie.Read(r, cookieClient.XSRFCookieName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReadXSRFCookie() error = %v, wantErr %v", err, tt.wantErr)
 			}

@@ -1,10 +1,10 @@
 package cookie
 
 type cookieOptions struct {
-	CookieName   string
-	STCookieName string
-	STHeaderName string
-	Domain       string
+	CookieName     string
+	XSRFCookieName string
+	XSRFHeaderName string
+	Domain         string
 }
 
 // Option defines a function signature for setting cookie client options.
@@ -27,13 +27,13 @@ func WithCookieDomain(domain string) Option {
 // WithXSRFCookieName sets the cookie name for the XSRF cookie.
 func WithXSRFCookieName(name string) Option {
 	return Option(func(c *cookieOptions) {
-		c.STCookieName = name
+		c.XSRFCookieName = name
 	})
 }
 
 // WithXSRFHeaderName sets the header name for the XSRF header.
 func WithXSRFHeaderName(name string) Option {
 	return Option(func(c *cookieOptions) {
-		c.STHeaderName = name
+		c.XSRFHeaderName = name
 	})
 }
