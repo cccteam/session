@@ -328,7 +328,7 @@ func TestSessionStorageDriver_User(t *testing.T) {
 			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			wantUser: &dbtype.SessionUser{
 				ID:       ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-				Username: "testuser",
+				Username: "testUser",
 				Disabled: false,
 			},
 			preAssertions: []string{
@@ -389,18 +389,33 @@ func TestSessionStorageDriver_UserByUserName(t *testing.T) {
 		postAssertions []string
 	}{
 		{
-			name:      "success",
-			username:  "testuser",
+			name:      "found user with case insensitive match",
+			username:  "tESTUSer",
 			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
 			wantUser: &dbtype.SessionUser{
 				ID:       ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-				Username: "testuser",
+				Username: "testUser",
 				Disabled: false,
 			},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 1 
 				FROM "SessionUsers" 
-				WHERE "Username" = 'testuser'`,
+				WHERE "Username" = 'testUser'`,
+			},
+		},
+		{
+			name:      "success",
+			username:  "testUser",
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantUser: &dbtype.SessionUser{
+				ID:       ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+				Username: "testUser",
+				Disabled: false,
+			},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 1 
+				FROM "SessionUsers" 
+				WHERE "Username" = 'testUser'`,
 			},
 		},
 		{
