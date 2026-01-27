@@ -125,6 +125,24 @@ func TestPasswordAuth_Login(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 		{
+			name: "success with differing username case",
+			reqBody: map[string]string{
+				"username": "USEr",
+				"password": "password",
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().UserByUserName(gomock.Any(), "USEr").Return(&dbtype.SessionUser{
+					Username:     "user",
+					PasswordHash: validHash,
+				}, nil)
+				sessionID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().NewSession(gomock.Any(), "user").Return(sessionID, nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
 			name: "success with password hash upgrade",
 			reqBody: map[string]string{
 				"username": "user",
