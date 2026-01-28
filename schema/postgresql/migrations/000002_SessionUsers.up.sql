@@ -7,15 +7,16 @@ BEGIN;
 CREATE TABLE "SessionUsers" (
   "Id"            UUID NOT NULL,
   "Username"      character varying NOT NULL,
+  "NormalizedUsername" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED,
   "PasswordHash"  character varying,
   "Disabled"      BOOL NOT NULL DEFAULT (FALSE),
   CONSTRAINT "SessionUsers_pkey" PRIMARY KEY ("Id")
 );
 
--- DROP INDEX "SessionUsers_Username_idx";
+-- DROP INDEX "SessionUsers_NormalizedUsername_idx";
 
-CREATE UNIQUE INDEX "SessionUsers_Username_idx"
+CREATE UNIQUE INDEX "SessionUsers_NormalizedUsername_idx"
     ON "SessionUsers" USING btree
-    ("Username");
+    ("NormalizedUsername");
 
 COMMIT;

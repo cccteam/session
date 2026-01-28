@@ -201,7 +201,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 			PasswordHash,
 			Disabled
 		FROM %s
-		WHERE Username = @username
+		WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)
 	`, s.userTableName))
 	stmt.Params["username"] = username
 

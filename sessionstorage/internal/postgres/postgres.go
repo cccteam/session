@@ -172,7 +172,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 			"PasswordHash", 
 			"Disabled"
 		FROM "%s"
-		WHERE "Username" = $1
+		WHERE "NormalizedUsername" = casefold(normalize($1))
 	`, s.userTableName)
 
 	user := &dbtype.SessionUser{}
