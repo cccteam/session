@@ -13,12 +13,6 @@ CREATE TABLE "SessionUsers" (
   CONSTRAINT "SessionUsers_pkey" PRIMARY KEY ("Id")
 );
 
--- DROP INDEX "SessionUsers_Username_idx";
-
-CREATE UNIQUE INDEX "SessionUsers_Username_idx"
-    ON "SessionUsers" USING btree
-    ("Username");
-
 -- DROP INDEX "SessionUsers_NormalizedUsername_idx";
 
 CREATE UNIQUE INDEX "SessionUsers_NormalizedUsername_idx"

@@ -7,5 +7,4 @@ CREATE TABLE SessionUsers (
   CONSTRAINT CK_SessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY(Id);
 
-CREATE UNIQUE INDEX SessionUsersByUsername ON SessionUsers(Username);
 CREATE UNIQUE INDEX SessionUsersByNormalizedUsername ON SessionUsers(NormalizedUsername);
