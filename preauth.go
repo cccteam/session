@@ -6,6 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
@@ -120,18 +121,21 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	defer span.End()
 
 	// Create new Session in database
-	id, err := p.preauth.storage.NewSession(ctx, username)
+	sessionID, err := p.preauth.storage.NewSession(ctx, username)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}
 
 	// Write new Auth Cookie
-	p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, id)
+	p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, sessionID)
 
 	// Write new XSRF Token Cookie to match the new SessionID
-	p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
+	p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, sessionID)
 
-	return id, nil
+	// Log the association between the sessionID and Username
+	logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+
+	return sessionID, nil
 }
 
 // Logout destroys the current session
