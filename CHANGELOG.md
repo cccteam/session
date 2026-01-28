@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.3](https://github.com/cccteam/session/compare/v0.7.2...v0.7.3) (2026-01-28)
+
+
+### Features
+
+* allow login with username case mismatch ([#172](https://github.com/cccteam/session/issues/172)) ([e70830d](https://github.com/cccteam/session/commit/e70830db5acb6a179e881e960e90477c43ab13f7))
+
+
+### Bug Fixes
+
+* Add missing Username and SessionID log attributes for Preauth Login ([#174](https://github.com/cccteam/session/issues/174)) ([b676d33](https://github.com/cccteam/session/commit/b676d33af2165cb4f0e540b2580903949bfe9065))
+
+
+### Code Upgrade
+
+* Bump github.com/cccteam/ccc/resource from 0.9.4 to 0.9.5 in the go-dependencies group ([#171](https://github.com/cccteam/session/issues/171)) ([3baf017](https://github.com/cccteam/session/commit/3baf01794c59ad873e97dd6f2653f7ed0868eedb))
+* Bump the github-actions group with 3 updates ([#170](https://github.com/cccteam/session/issues/170)) ([432927f](https://github.com/cccteam/session/commit/432927fdf0551fa64c0b0f181be5af6b7c77e251))
+
 ## [0.7.2](https://github.com/cccteam/session/compare/v0.7.1...v0.7.2) (2026-01-22)
 
 
