@@ -212,6 +212,24 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	return s.User(ctx, id)
 }
 
+// SetUserUsername updates the user password username
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE "%s" SET "Username" = $2
+		WHERE "Id" = $1`, s.userTableName)
+
+	if cmdTag, err := s.conn.Exec(ctx, query, userID, username); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)

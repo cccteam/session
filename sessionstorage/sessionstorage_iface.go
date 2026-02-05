@@ -47,6 +47,8 @@ type PasswordAuthStore interface {
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	// SetUserUsername updates the user username
+	SetUserUsername(ctx context.Context, id ccc.UUID, username string) error
 	// SetUserPasswordHash updates the user password hash
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user
@@ -103,6 +105,8 @@ type db interface {
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	// SetUserUsername updates the user username
+	SetUserUsername(ctx context.Context, id ccc.UUID, username string) error
 	// SetUserPasswordHash updates the user password hash
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user

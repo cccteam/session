@@ -247,6 +247,35 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	return user, nil
 }
 
+// SetUserUsername updates the user username
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	ctx, span := ccc.StartTrace(ctx)
+	defer span.End()
+
+	usernameUpdate := struct {
+		ID       ccc.UUID `spanner:"Id"`
+		Username string   `spanner:"Username"`
+	}{
+		ID:       userID,
+		Username: username,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, usernameUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", usernameUpdate.ID)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)

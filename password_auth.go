@@ -364,6 +364,14 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	return id, nil
 }
 
+func (p *PasswordAuth) setUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	if err := p.storage.SetUserUsername(ctx, userID, username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsername()")
+	}
+
+	return nil
+}
+
 func (p *PasswordAuth) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	newHash, err := p.hasher.Hash(password)
 	if err != nil {
@@ -385,6 +393,20 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	}
 
 	return decoder
+}
+
+// changeSessionUserUsername handles modifications to a user username
+func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	user, err := p.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
+	}
+
+	if err := p.setUsername(ctx, user.ID, username); err != nil {
+		return errors.Wrap(err, "PasswordAuth.setUsername()")
+	}
+
+	return nil
 }
 
 // changeSessionUserPassword handles modifications to a user password
@@ -559,6 +581,11 @@ func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context,
 	}
 
 	return ctx, nil
+}
+
+// ChangeSessionUserUsername handles modifications to a user username
+func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	return p.passwordAuth.changeSessionUserUsername(ctx, userID, username)
 }
 
 // ChangeSessionUserPassword handles modifications to a user password
