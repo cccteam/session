@@ -1090,6 +1090,83 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 	}
 }
 
+func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	username := "<username>"
+
+	tests := []struct {
+		name     string
+		userID   ccc.UUID
+		username string
+		prepare  func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr  bool
+	}{
+		{
+			name:     "fails on user error",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("db error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:     "fails on storage error",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil)
+				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:     "success",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil)
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "set username uses the new username",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "something different"}, nil)
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username /*not what the query returned*/).Return(nil)
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p, err := NewPasswordAuth(storage, cookieKey)
+			if err != nil {
+				t.Fatalf("NewPasswordAuth() error=%v", err)
+			}
+			p.storage = storage
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err = p.API().ChangeSessionUserUsername(context.Background(), tt.userID, tt.username)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.API.ChangeSessionUserUsername() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestPasswordAuth_ChangeSessionUserHash(t *testing.T) {
 	t.Parallel()
 
