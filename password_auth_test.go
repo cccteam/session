@@ -500,6 +500,89 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 	}
 }
 
+func TestPassword_ChangeUsername(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		userID         ccc.UUID
+		reqBody        string
+		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantMessage    bool
+		wantStatusCode int
+	}{
+		{
+			name:    "fails on storage error",
+			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			reqBody: `{"username": "new_username"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(errors.New("db error"))
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name:           "fails decode request",
+			userID:         ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			reqBody:        `invalid json`,
+			wantMessage:    true,
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:    "success",
+			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			reqBody: `{"username": "new_username"}`,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p, err := NewPasswordAuth(storage, cookieKey)
+			if err != nil {
+				t.Fatalf("NewPasswordAuth() error=%v", err)
+			}
+			p.storage = storage
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			var body io.Reader = http.NoBody
+			if tt.reqBody != "" {
+				body = strings.NewReader(tt.reqBody)
+			}
+
+			req, err := createHTTPRequest(http.MethodPost, body, nil, &sessioninfo.UserInfo{ID: tt.userID}, map[httpio.ParamType]string{RouterSessionUserID: tt.userID.String()})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+
+			p.ChangeUsername().ServeHTTP(rr, req)
+
+			if got := rr.Code; got != tt.wantStatusCode {
+				t.Errorf("response.Code = %v, want %v", got, tt.wantStatusCode)
+			}
+			if tt.wantMessage {
+				var got httpio.MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+					t.Errorf("json.Unmarshal() error=%v", err)
+				}
+				if got.Message == "" {
+					t.Errorf("Password.ChangeUsername() message = %v, wantMessage = %v", got, tt.wantMessage)
+				}
+			}
+		})
+	}
+}
+
 func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 	t.Parallel()
 
@@ -1085,6 +1168,80 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 			err = p.changeSessionUserPassword(t.Context(), tt.userID, tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.ChangeSessionUserPassword() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	username := "<username>"
+
+	tests := []struct {
+		name     string
+		userID   ccc.UUID
+		username string
+		prepare  func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr  bool
+	}{
+		{
+			name:     "fails on user error",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:     "fails on storage error",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:     "success",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "set username uses the new username",
+			userID:   userID,
+			username: username,
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username /*not what the query returned*/).Return(nil)
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p, err := NewPasswordAuth(storage, cookieKey)
+			if err != nil {
+				t.Fatalf("NewPasswordAuth() error=%v", err)
+			}
+			p.storage = storage
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err = p.API().ChangeSessionUserUsername(context.Background(), tt.userID, tt.username)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.API.ChangeSessionUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

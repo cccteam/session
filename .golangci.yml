@@ -68,6 +68,7 @@ linters:
             - github.com/gofrs/uuid
             - github.com/google/go-cmp
             - github.com/gorilla/securecookie
+            - github.com/jackc/pgerrcode
             - github.com/jackc/pgx/v5
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf

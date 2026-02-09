@@ -4,6 +4,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -241,10 +242,47 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+		}
+
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
 	return user, nil
+}
+
+// SetUserUsername updates the user username
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	usernameUpdate := struct {
+		ID       ccc.UUID `spanner:"Id"`
+		Username string   `spanner:"Username"`
+	}{
+		ID:       userID,
+		Username: username,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, usernameUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", usernameUpdate.ID)
+		}
+
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+			return httpio.NewConflictMessagef("username %q already exists", usernameUpdate.Username)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
 }
 
 // SetUserPasswordHash updates the user password hash

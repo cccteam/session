@@ -243,6 +243,33 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	})
 }
 
+// ChangeUsername handles modifications to the username
+func (p *PasswordAuth) ChangeUsername() http.HandlerFunc {
+	type request struct {
+		Username string `json:"username"`
+	}
+
+	decoder := newDecoder[request]()
+
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		userInfo := sessioninfo.UserFromCtx(ctx)
+
+		if err := p.changeSessionUserUsername(ctx, userInfo.ID, req.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
 // ChangeUserPassword handles modifications to a user password
 func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	type request struct {
@@ -385,6 +412,15 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	}
 
 	return decoder
+}
+
+// changeSessionUserUsername handles modifications to a user username
+func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	if err := p.storage.SetUserUsername(ctx, userID, username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsername()")
+	}
+
+	return nil
 }
 
 // changeSessionUserPassword handles modifications to a user password
@@ -559,6 +595,11 @@ func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context,
 	}
 
 	return ctx, nil
+}
+
+// ChangeSessionUserUsername handles modifications to a user username
+func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	return p.passwordAuth.changeSessionUserUsername(ctx, userID, username)
 }
 
 // ChangeSessionUserPassword handles modifications to a user password

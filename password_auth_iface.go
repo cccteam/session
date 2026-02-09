@@ -14,6 +14,8 @@ type PasswordAuthHandlers interface {
 	ActivateUser() http.HandlerFunc
 	// Authenticated is the handler reports if the session is authenticated.
 	Authenticated() http.HandlerFunc
+	// ChangeUsername handles modifications to the username.
+	ChangeUsername() http.HandlerFunc
 	// ChangeUserPassword handles modifications to a user password.
 	ChangeUserPassword() http.HandlerFunc
 	// CreateUser handles creating a user account.

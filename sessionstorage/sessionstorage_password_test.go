@@ -55,11 +55,11 @@ func TestPasswordAuth_User(t *testing.T) {
 			}
 			gotUser, err := storage.User(context.Background(), tt.id)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Password.User() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.User() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotUser, tt.wantUser) {
-				t.Errorf("Password.User() = %v, want %v", gotUser, tt.wantUser)
+				t.Errorf("PasswordAuth.User() = %v, want %v", gotUser, tt.wantUser)
 			}
 		})
 	}
@@ -107,11 +107,11 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 			}
 			gotUser, err := storage.UserByUserName(context.Background(), tt.username)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Password.UserByUserName() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.UserByUserName() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotUser, tt.wantUser) {
-				t.Errorf("Password.UserByUserName() = %v, want %v", gotUser, tt.wantUser)
+				t.Errorf("PasswordAuth.UserByUserName() = %v, want %v", gotUser, tt.wantUser)
 			}
 		})
 	}
@@ -166,11 +166,60 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			}
 			gotUser, err := storage.CreateUser(t.Context(), &dbtype.InsertSessionUser{Username: tt.username, PasswordHash: tt.hash})
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Password.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotUser, tt.wantUser) {
-				t.Errorf("Password.CreateUser() = %v, want %v", gotUser, tt.wantUser)
+				t.Errorf("PasswordAuth.CreateUser() = %v, want %v", gotUser, tt.wantUser)
+			}
+		})
+	}
+}
+
+func TestPasswordAuth_SetUserUsername(t *testing.T) {
+	t.Parallel()
+	userID := ccc.Must(ccc.NewUUID())
+	username := "<username>"
+	tests := []struct {
+		name     string
+		id       ccc.UUID
+		username string
+		prepare  func(mockDB *mock_sessionstorage.Mockdb)
+		wantErr  bool
+	}{
+		{
+			name:     "success",
+			id:       userID,
+			username: username,
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
+			},
+		},
+		{
+			name:     "failure",
+			id:       userID,
+			username: username,
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			storage := &PasswordAuth{
+				sessionStorage: sessionStorage{
+					db: mockDB,
+				},
+			}
+			if tt.prepare != nil {
+				tt.prepare(mockDB)
+			}
+			if err := storage.SetUserUsername(context.Background(), tt.id, tt.username); (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -222,7 +271,7 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 				tt.prepare(mockDB)
 			}
 			if err := storage.SetUserPasswordHash(context.Background(), tt.id, tt.hash); (err != nil) != tt.wantErr {
-				t.Errorf("Password.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -291,7 +340,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 			}
 
 			if err := p.DeactivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
-				t.Errorf("Password.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -344,7 +393,7 @@ func TestPassword_DeleteUser(t *testing.T) {
 			}
 
 			if err := p.DeleteUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
-				t.Errorf("Password.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -397,7 +446,7 @@ func TestPassword_ActivateUser(t *testing.T) {
 			}
 
 			if err := p.ActivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
-				t.Errorf("Password.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -444,7 +493,7 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 			}
 
 			if err := p.DestroyAllUserSessions(context.Background(), username); (err != nil) != tt.wantErr {
-				t.Errorf("Password.DestroyAllUserSessions() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PasswordAuth.DestroyAllUserSessions() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

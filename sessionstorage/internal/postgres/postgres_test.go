@@ -7,6 +7,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 )
 
@@ -471,6 +472,7 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 		hash           *securehash.Hash
 		sourceURL      []string
 		wantErr        bool
+		wantErrMsg     string
 		preAssertions  []string
 		postAssertions []string
 	}{
@@ -487,11 +489,12 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			},
 		},
 		{
-			name:      "user already exists",
-			username:  "testuser",
-			hash:      hash,
-			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:   true,
+			name:       "user already exists",
+			username:   "testuser",
+			hash:       hash,
+			sourceURL:  []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:    true,
+			wantErrMsg: `username "testuser" already exists`,
 		},
 	}
 	for _, tt := range tests {
@@ -514,6 +517,81 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			_, err = c.CreateUser(ctx, user)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
+				t.Errorf("SessionStorageDriver.CreateUser() error message = %s, want %s", httpio.Message(err), tt.wantErrMsg)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		id             ccc.UUID
+		username       string
+		sourceURL      []string
+		wantErr        bool
+		wantErrMsg     string
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:      "success",
+			id:        ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			username:  "<username>",
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions: []string{
+				`
+					SELECT "Username" = 'testUser' 
+					FROM "SessionUsers" 
+					WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'
+				`,
+			},
+			postAssertions: []string{
+				`
+					SELECT "Username" = '<username>'
+					FROM "SessionUsers"
+					WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'
+				`,
+			},
+		},
+		{
+			name:      "user not found",
+			id:        ccc.Must(ccc.NewUUID()),
+			username:  "<username>",
+			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:   true,
+		},
+		{
+			name:       "username already exists",
+			id:         ccc.Must(ccc.UUIDFromString("54918893-2342-4621-8673-79520a84b84f")),
+			username:   "testUser",
+			sourceURL:  []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:    true,
+			wantErrMsg: `username "testUser" already exists`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.SetUserUsername(ctx, tt.id, tt.username)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
+				t.Errorf("SessionStorageDriver.SetUserUsername() error message = %q, want %q", httpio.Message(err), tt.wantErrMsg)
 			}
 			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
 		})
