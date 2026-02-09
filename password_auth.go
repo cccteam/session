@@ -243,6 +243,33 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	})
 }
 
+// ChangeUsername handles modifications to the username
+func (p *PasswordAuth) ChangeUsername() http.HandlerFunc {
+	type request struct {
+		Username string `json:"username"`
+	}
+
+	decoder := newDecoder[request]()
+
+	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		userInfo := sessioninfo.UserFromCtx(ctx)
+
+		if err := p.changeSessionUserUsername(ctx, userInfo.ID, req.Username); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
 // ChangeUserPassword handles modifications to a user password
 func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	type request struct {
