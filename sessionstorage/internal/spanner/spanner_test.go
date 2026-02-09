@@ -7,6 +7,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 )
 
@@ -465,6 +466,7 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 		hash           *securehash.Hash
 		sourceURL      []string
 		wantErr        bool
+		wantErrMsg     string
 		preAssertions  []string
 		postAssertions []string
 	}{
@@ -481,11 +483,12 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			},
 		},
 		{
-			name:      "user already exists",
-			username:  "testuser",
-			hash:      hash,
-			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:   true,
+			name:       "user already exists",
+			username:   "testuser",
+			hash:       hash,
+			sourceURL:  []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:    true,
+			wantErrMsg: `username "testuser" already exists`,
 		},
 	}
 	for _, tt := range tests {
@@ -509,6 +512,9 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
+			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
+				t.Errorf("SessionStorageDriver.CreateUser() error message = %s, want %s", httpio.Message(err), tt.wantErrMsg)
+			}
 			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})
 	}
@@ -523,6 +529,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 		username       string
 		sourceURL      []string
 		wantErr        bool
+		wantErrMsg     string
 		preAssertions  []string
 		postAssertions []string
 	}{
@@ -553,6 +560,14 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
 			wantErr:   true,
 		},
+		{
+			name:       "user already exists",
+			id:         ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			username:   "disableduser",
+			sourceURL:  []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:    true,
+			wantErrMsg: `username "disableduser" already exists`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -568,6 +583,9 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			err = c.SetUserUsername(ctx, tt.id, tt.username)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
+				t.Errorf("SessionStorageDriver.CreateUser() error message = %s, want %s", httpio.Message(err), tt.wantErrMsg)
 			}
 			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})

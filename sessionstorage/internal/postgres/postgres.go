@@ -13,7 +13,9 @@ import (
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
@@ -206,6 +208,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 		`, s.userTableName)
 
 	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.PasswordHash, user.Disabled); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
+			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+		}
+
 		return nil, errors.Wrap(err, "Queryer.Exec()")
 	}
 
@@ -222,6 +229,11 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		WHERE "Id" = $1`, s.userTableName)
 
 	if cmdTag, err := s.conn.Exec(ctx, query, userID, username); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
+			return httpio.NewConflictMessagef("username %q already exists", username)
+		}
+
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)

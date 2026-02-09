@@ -4,6 +4,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -241,6 +242,10 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
+		}
+
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -268,6 +273,10 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
 			return httpio.NewNotFoundMessagef("user id %q does not exist", usernameUpdate.ID)
+		}
+
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+			return httpio.NewConflictMessagef("username %q already exists", usernameUpdate.Username)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")
