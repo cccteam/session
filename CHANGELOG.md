@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.4](https://github.com/cccteam/session/compare/v0.7.3...v0.7.4) (2026-02-09)
+
+
+### Features
+
+* Add handler for changing username ([#176](https://github.com/cccteam/session/issues/176)) ([2d11cd0](https://github.com/cccteam/session/commit/2d11cd05403784894a14228b3162494ad00fd603))
+* Adds functionality to the API to change a username ([#176](https://github.com/cccteam/session/issues/176)) ([2d11cd0](https://github.com/cccteam/session/commit/2d11cd05403784894a14228b3162494ad00fd603))
+
+
+### Bug Fixes
+
+* Fix go vulnerability GO-2026-4337 ([#177](https://github.com/cccteam/session/issues/177)) ([75dfaa7](https://github.com/cccteam/session/commit/75dfaa785b1a2dcfed5c139ee8893bd88cebf9ba))
+
+
+### Code Upgrade
+
+* Bump Go and go-dependencies ([#177](https://github.com/cccteam/session/issues/177)) ([75dfaa7](https://github.com/cccteam/session/commit/75dfaa785b1a2dcfed5c139ee8893bd88cebf9ba))
+
 ## [0.7.3](https://github.com/cccteam/session/compare/v0.7.2...v0.7.3) (2026-01-28)
 
 
