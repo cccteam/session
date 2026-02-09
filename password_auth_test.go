@@ -1108,7 +1108,7 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("db error"))
+				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -1117,7 +1117,6 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil)
 				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
@@ -1127,7 +1126,6 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil)
 				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
 			},
 			wantErr: false,
@@ -1137,7 +1135,6 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "something different"}, nil)
 				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username /*not what the query returned*/).Return(nil)
 			},
 			wantErr: false,
