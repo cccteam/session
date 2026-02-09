@@ -79,7 +79,7 @@ func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessio
 
 // SetUserUsername updates the user username
 func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, username string) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.SetUserUsername(ctx, id, username); err != nil {
