@@ -8,6 +8,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/georgysavva/scany/v2/pgxscan"
@@ -43,7 +44,7 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -71,7 +72,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 // UpdateSessionActivity updates the session activity column with the current time
 func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -92,7 +93,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 
 // InsertSession inserts a Session into database
 func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -116,7 +117,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 
 // DestroySession marks the session as expired
 func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -135,7 +136,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 
 // User returns the user record associated with the user id
 func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -162,7 +163,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 
 // UserByUserName returns the user record associated with the username
 func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -189,7 +190,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 
 // CreateUser creates a new user
 func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -213,7 +214,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -231,7 +232,7 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 
 // DeactivateUser deactivates a user
 func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -249,7 +250,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 
 // DeleteUser deletes a user
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -267,7 +268,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 
 // ActivateUser activates a user
 func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
@@ -285,7 +286,7 @@ func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id ccc.UUID) er
 
 // DestroyAllUserSessions destroys all sessions for a given user
 func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, username string) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`

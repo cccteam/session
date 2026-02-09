@@ -6,6 +6,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
@@ -39,7 +40,7 @@ func NewPostgresOIDC(pg postgres.Queryer) *OIDC {
 
 // NewSession inserts SessionInfo into database
 func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	session := &dbtype.InsertOIDCSession{
@@ -61,7 +62,7 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string) (ccc.UU
 
 // DestroySessionOIDC marks the session as expired
 func (s *OIDC) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := s.db.DestroySessionOIDC(ctx, oidcSID); err != nil {

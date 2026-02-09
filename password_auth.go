@@ -7,6 +7,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
@@ -113,7 +114,7 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		// decode request
@@ -169,7 +170,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 // StartSession handler must be called before calling ValidateSession
 func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := p.baseSession.ValidateSessionAPI(ctx)
@@ -209,7 +210,7 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 	}
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := p.baseSession.ValidateSessionAPI(ctx)
@@ -252,7 +253,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -285,7 +286,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 	decoder := newDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		req, err := decoder.Decode(r)
@@ -305,7 +306,7 @@ func (p *PasswordAuth) CreateUser() http.HandlerFunc {
 // DeactivateUser handles deactivating a user account.
 func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
@@ -320,7 +321,7 @@ func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 // DeleteUser handles deleting a user account.
 func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
@@ -335,7 +336,7 @@ func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
 // ActivateUser handles activating a user account.
 func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
