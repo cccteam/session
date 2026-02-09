@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	internalcookie "github.com/cccteam/session/internal/cookie"
@@ -32,7 +33,7 @@ type BaseSession struct {
 // the sessionID is inserted into the context.
 func (s *BaseSession) StartSession(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := s.StartSessionAPI(ctx, w, r)
@@ -95,7 +96,7 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 // StartSession handler must be called before calling ValidateSession
 func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := s.ValidateSessionAPI(ctx)
@@ -111,7 +112,7 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 
 // ValidateSessionAPI checks the session cookie and if it is valid, stores the session data into the context
 func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	// Validate that the sessionID is in database
@@ -151,7 +152,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 	}
 
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := s.ValidateSessionAPI(ctx)
@@ -178,7 +179,7 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 // Logout destroys the current session
 func (s *BaseSession) Logout() http.HandlerFunc {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		// Destroy session in database

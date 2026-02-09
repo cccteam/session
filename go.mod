@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.25.6
+go 1.25.7
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface
@@ -12,24 +12,25 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 require (
 	aidanwoods.dev/go-paseto v1.6.0
 	cloud.google.com/go/spanner v1.87.0
-	github.com/cccteam/ccc v0.2.21
-	github.com/cccteam/ccc/accesstypes v0.5.4
-	github.com/cccteam/ccc/resource v0.9.5
-	github.com/cccteam/ccc/securehash v0.0.7
-	github.com/cccteam/db-initiator v0.2.17
+	github.com/cccteam/ccc v0.2.22
+	github.com/cccteam/ccc/accesstypes v0.5.5
+	github.com/cccteam/ccc/resource v0.9.7
+	github.com/cccteam/ccc/securehash v0.0.8
+	github.com/cccteam/ccc/tracer v0.0.3
+	github.com/cccteam/db-initiator v0.3.1
 	github.com/cccteam/httpio v0.7.9
-	github.com/cccteam/logger v0.1.14
+	github.com/cccteam/logger v0.1.15
 	github.com/cccteam/spxscan v0.0.7
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/georgysavva/scany/v2 v2.1.4
-	github.com/go-chi/chi/v5 v5.2.4
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.8.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.47.0
-	golang.org/x/oauth2 v0.34.0
+	golang.org/x/oauth2 v0.35.0
 	google.golang.org/grpc v1.78.0
 )
 
@@ -44,11 +45,15 @@ require (
 	cloud.google.com/go/logging v1.13.1 // indirect
 	cloud.google.com/go/longrunning v0.8.0 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
+	cloud.google.com/go/trace v1.11.7 // indirect
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.14 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.31.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.31.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.55.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -128,8 +133,8 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	google.golang.org/api v0.263.0 // indirect
-	google.golang.org/genproto v0.0.0-20260128004102-de31872fb2ec // indirect
+	google.golang.org/api v0.264.0 // indirect
+	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

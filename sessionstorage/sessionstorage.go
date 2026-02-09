@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -27,7 +28,7 @@ func (s *sessionStorage) SetUserTableName(name string) {
 
 // NewSession inserts SessionInfo into the spanner database
 func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	session := &dbtype.InsertSession{
@@ -46,7 +47,7 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.U
 
 // Session returns the session information from the database for given sessionID
 func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	si, err := s.db.Session(ctx, sessionID)
@@ -59,7 +60,7 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 
 // UpdateSessionActivity updates the database with the current time for the session activity
 func (s *sessionStorage) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := s.db.UpdateSessionActivity(ctx, sessionID); err != nil {
@@ -71,7 +72,7 @@ func (s *sessionStorage) UpdateSessionActivity(ctx context.Context, sessionID cc
 
 // DestroySession marks the session as expired
 func (s *sessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := s.db.DestroySession(ctx, sessionID); err != nil {

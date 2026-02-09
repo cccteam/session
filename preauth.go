@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
@@ -117,7 +118,7 @@ func newPreauthAPI(preauth *Preauth) *PreauthAPI {
 
 // Login creates a new session for a pre-authenticated user.
 func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	// Create new Session in database

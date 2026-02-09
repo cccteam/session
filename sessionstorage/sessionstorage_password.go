@@ -6,6 +6,7 @@ import (
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
@@ -39,7 +40,7 @@ func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
 
 // User returns the user record associated with the username
 func (p *PasswordAuth) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	u, err := p.db.User(ctx, id)
@@ -52,7 +53,7 @@ func (p *PasswordAuth) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUs
 
 // UserByUserName returns the user record associated with the username
 func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	u, err := p.db.UserByUserName(ctx, username)
@@ -65,7 +66,7 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 
 // CreateUser creates a new user
 func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	u, err := p.db.CreateUser(ctx, user)
@@ -78,7 +79,7 @@ func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessio
 
 // SetUserPasswordHash updates the user password hash
 func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.SetUserPasswordHash(ctx, id, hash); err != nil {
@@ -90,7 +91,7 @@ func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, has
 
 // DeactivateUser deactivates a user
 func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.DeactivateUser(ctx, id); err != nil {
@@ -102,7 +103,7 @@ func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 
 // DeleteUser deletes a user
 func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.DeleteUser(ctx, id); err != nil {
@@ -114,7 +115,7 @@ func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
 
 // ActivateUser activates a user
 func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.ActivateUser(ctx, id); err != nil {
@@ -126,7 +127,7 @@ func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
 
 // DestroyAllUserSessions destroys all sessions for a given user
 func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username string) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := p.db.DestroyAllUserSessions(ctx, username); err != nil {

@@ -5,13 +5,14 @@ import (
 	"fmt"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/go-playground/errors/v5"
 )
 
 // InsertSessionOIDC inserts a Session into database
 func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertOIDCSession) (ccc.UUID, error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	id, err := ccc.NewUUID()
@@ -35,7 +36,7 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 
 // DestroySessionOIDC marks the session as expired using the oidcSID
 func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`

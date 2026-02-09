@@ -8,6 +8,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
@@ -116,7 +117,7 @@ func (o *OIDCAzure) ValidateXSRFToken(next http.Handler) http.Handler {
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure) Login() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		returnURL := r.URL.Query().Get("returnUrl")
@@ -141,7 +142,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 	}
 
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		claims := &claims{}
@@ -185,7 +186,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
 func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := ccc.StartTrace(r.Context())
+		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sid := r.URL.Query().Get("sid")
@@ -204,7 +205,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
 func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
-	ctx, span := ccc.StartTrace(ctx)
+	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	domains, err := o.userRoleManager.Domains(ctx)
