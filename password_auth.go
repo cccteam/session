@@ -262,7 +262,7 @@ func (p *PasswordAuth) ChangeUsername() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		if err := p.changeSessionUserUsername(ctx, userInfo.ID, req.Username); err != nil {
+		if err := p.changeSessionUserUsername(ctx, w, userInfo.ID, req.Username); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -415,10 +415,22 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 }
 
 // changeSessionUserUsername handles modifications to a user username
-func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, username string) error {
 	if err := p.storage.SetUserUsername(ctx, userID, username); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsername()")
 	}
+
+	if err := p.storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
+		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	}
+
+	sessionID, err := p.startNewSession(ctx, w, username)
+	if err != nil {
+		return errors.Wrap(err, "PasswordAuth.startNewSession()")
+	}
+
+	// Log the association between the sessionID and Username
+	logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 
 	return nil
 }
@@ -598,8 +610,8 @@ func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context,
 }
 
 // ChangeSessionUserUsername handles modifications to a user username
-func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
-	return p.passwordAuth.changeSessionUserUsername(ctx, userID, username)
+func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, username string) error {
+	return p.passwordAuth.changeSessionUserUsername(ctx, w, userID, username)
 }
 
 // ChangeSessionUserPassword handles modifications to a user password
