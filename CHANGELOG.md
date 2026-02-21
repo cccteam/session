@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0](https://github.com/cccteam/session/compare/v0.7.4...v0.8.0) (2026-02-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* Update the user's session as part of changing their username ([#181](https://github.com/cccteam/session/issues/181))
+
+### Bug Fixes
+
+* Update the user's session as part of changing their username ([#181](https://github.com/cccteam/session/issues/181)) ([f661bea](https://github.com/cccteam/session/commit/f661beaacb9a0d0f7cd9b050ddb294cb6917ba7c))
+
 ## [0.7.4](https://github.com/cccteam/session/compare/v0.7.3...v0.7.4) (2026-02-09)
 
 
