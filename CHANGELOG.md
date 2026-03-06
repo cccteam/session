@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/cccteam/session/compare/v0.8.0...v0.8.1) (2026-03-06)
+
+
+### Code Upgrade
+
+* Bump the github-actions group with 3 updates ([#183](https://github.com/cccteam/session/issues/183)) ([863a903](https://github.com/cccteam/session/commit/863a903d79ad56197b0810e0f47570644a4bccd0))
+* Bump the github-actions group with 3 updates ([#185](https://github.com/cccteam/session/issues/185)) ([d7ad018](https://github.com/cccteam/session/commit/d7ad01824c125ccc53ef780fb68158fc509890cd))
+
 ## [0.8.0](https://github.com/cccteam/session/compare/v0.7.4...v0.8.0) (2026-02-21)
 
 
