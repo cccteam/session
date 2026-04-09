@@ -73,6 +73,18 @@ func (mr *MockBaseStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockBaseStore)(nil).Session), ctx, sessionID)
 }
 
+// SetCustomSessionColumns mocks base method.
+func (m *MockBaseStore) SetCustomSessionColumns(columns []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionColumns", columns)
+}
+
+// SetCustomSessionColumns indicates an expected call of SetCustomSessionColumns.
+func (mr *MockBaseStoreMockRecorder) SetCustomSessionColumns(columns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionColumns", reflect.TypeOf((*MockBaseStore)(nil).SetCustomSessionColumns), columns)
+}
+
 // SetSessionTableName mocks base method.
 func (m *MockBaseStore) SetSessionTableName(name string) {
 	m.ctrl.T.Helper()
@@ -177,6 +189,18 @@ func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*se
 func (mr *MockPreauthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPreauthStore)(nil).Session), ctx, sessionID)
+}
+
+// SetCustomSessionColumns mocks base method.
+func (m *MockPreauthStore) SetCustomSessionColumns(columns []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionColumns", columns)
+}
+
+// SetCustomSessionColumns indicates an expected call of SetCustomSessionColumns.
+func (mr *MockPreauthStoreMockRecorder) SetCustomSessionColumns(columns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionColumns", reflect.TypeOf((*MockPreauthStore)(nil).SetCustomSessionColumns), columns)
 }
 
 // SetSessionTableName mocks base method.
@@ -327,18 +351,23 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) 
 }
 
 // NewSession mocks base method.
-func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewSession", ctx, username)
+	varargs := []any{ctx, username}
+	for _, a := range customSessionData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "NewSession", varargs...)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any, customSessionData ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), ctx, username)
+	varargs := append([]any{ctx, username}, customSessionData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), varargs...)
 }
 
 // Session mocks base method.
@@ -354,6 +383,18 @@ func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID)
 func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPasswordAuthStore)(nil).Session), ctx, sessionID)
+}
+
+// SetCustomSessionColumns mocks base method.
+func (m *MockPasswordAuthStore) SetCustomSessionColumns(columns []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionColumns", columns)
+}
+
+// SetCustomSessionColumns indicates an expected call of SetCustomSessionColumns.
+func (mr *MockPasswordAuthStoreMockRecorder) SetCustomSessionColumns(columns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionColumns", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetCustomSessionColumns), columns)
 }
 
 // SetSessionTableName mocks base method.
@@ -534,6 +575,18 @@ func (mr *MockOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockOIDCStore)(nil).Session), ctx, sessionID)
 }
 
+// SetCustomSessionColumns mocks base method.
+func (m *MockOIDCStore) SetCustomSessionColumns(columns []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionColumns", columns)
+}
+
+// SetCustomSessionColumns indicates an expected call of SetCustomSessionColumns.
+func (mr *MockOIDCStoreMockRecorder) SetCustomSessionColumns(columns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionColumns", reflect.TypeOf((*MockOIDCStore)(nil).SetCustomSessionColumns), columns)
+}
+
 // SetSessionTableName mocks base method.
 func (m *MockOIDCStore) SetSessionTableName(name string) {
 	m.ctrl.T.Helper()
@@ -695,6 +748,21 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*Mockdb)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
+// InsertCustomSession mocks base method.
+func (m *Mockdb) InsertCustomSession(ctx context.Context, session *dbtype.InsertCustomSession) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertCustomSession", ctx, session)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertCustomSession indicates an expected call of InsertCustomSession.
+func (mr *MockdbMockRecorder) InsertCustomSession(ctx, session any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertCustomSession", reflect.TypeOf((*Mockdb)(nil).InsertCustomSession), ctx, session)
+}
+
 // InsertSession mocks base method.
 func (m *Mockdb) InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -738,6 +806,18 @@ func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Sessi
 func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*Mockdb)(nil).Session), ctx, sessionID)
+}
+
+// SetCustomSessionColumns mocks base method.
+func (m *Mockdb) SetCustomSessionColumns(columns []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionColumns", columns)
+}
+
+// SetCustomSessionColumns indicates an expected call of SetCustomSessionColumns.
+func (mr *MockdbMockRecorder) SetCustomSessionColumns(columns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionColumns", reflect.TypeOf((*Mockdb)(nil).SetCustomSessionColumns), columns)
 }
 
 // SetSessionTableName mocks base method.

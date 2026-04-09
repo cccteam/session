@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -20,9 +21,10 @@ import (
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
-	conn             Queryer
-	sessionTableName string
-	userTableName    string
+	conn                 Queryer
+	sessionTableName     string
+	userTableName        string
+	customSessionColumns []string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -44,29 +46,67 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
 }
 
+// SetCustomSessionColumns sets the custom column names for the session table.
+func (s *SessionStorageDriver) SetCustomSessionColumns(columns []string) {
+	s.customSessionColumns = columns
+}
+
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	var columns strings.Builder
+	columns.WriteString(`"Id", "Username", "CreatedAt", "UpdatedAt", "Expired"`)
+	for _, col := range s.customSessionColumns {
+		fmt.Fprintf(&columns, `, "%s"`, col)
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
-			"Id", 
-			"Username", 
-			"CreatedAt", 
-			"UpdatedAt", 
-			"Expired"
+			%s
 		FROM "%s"
 		WHERE "Id" = $1
-	`, s.sessionTableName)
+	`, columns.String(), s.sessionTableName)
 
-	session := &dbtype.Session{}
-	if err := pgxscan.Get(ctx, s.conn, session, query, sessionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+	rows, err := s.conn.Query(ctx, query, sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Queryer.Query()")
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, errors.Wrap(err, "rows.Err()")
 		}
 
-		return nil, errors.Wrap(err, "pgxscan.Get()")
+		return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+	}
+
+	// Build scan destinations: base fields + custom columns
+	session := &dbtype.Session{}
+	scanDests := make([]any, 0, 5+len(s.customSessionColumns))
+	scanDests = append(scanDests, &session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired)
+
+	customValues := make([]any, len(s.customSessionColumns))
+	for i := range s.customSessionColumns {
+		customValues[i] = new(any)
+	}
+	scanDests = append(scanDests, customValues...)
+
+	if err := rows.Scan(scanDests...); err != nil {
+		return nil, errors.Wrap(err, "rows.Scan()")
+	}
+
+	if len(s.customSessionColumns) > 0 {
+		session.CustomData = make(map[string]any, len(s.customSessionColumns))
+		for i, col := range s.customSessionColumns {
+			val, ok := customValues[i].(*any)
+			if !ok {
+				return nil, errors.Newf("unexpected type for custom column %q", col)
+			}
+			session.CustomData[col] = *val
+		}
 	}
 
 	return session, nil
@@ -111,6 +151,43 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		`, s.sessionTableName)
 
 	if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	return id, nil
+}
+
+// InsertCustomSession inserts a Session with custom column data into database
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertCustomSession) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	columns := []string{`"Id"`, `"Username"`, `"CreatedAt"`, `"UpdatedAt"`, `"Expired"`}
+	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+
+	for _, c := range insertSession.CustomData {
+		columns = append(columns, fmt.Sprintf(`%q`, c.ColumnName))
+		args = append(args, c.Value)
+	}
+
+	placeholders := make([]string, len(args))
+	for i := range args {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO "%s"
+			(%s)
+		VALUES
+			(%s)
+		`, s.sessionTableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+
+	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
 	}
 

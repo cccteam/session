@@ -43,6 +43,8 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
 // PasswordAuthStore defines an interface for managing password sessions.
 type PasswordAuthStore interface {
+	// NewSession creates a new session in the database with optional custom session data, returning its id
+	NewSession(ctx context.Context, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error)
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -61,9 +63,11 @@ type PasswordAuthStore interface {
 	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
+	// SetCustomSessionColumns sets the custom column names for the session table.
+	SetCustomSessionColumns(columns []string)
 
 	// shared storage methods
-	PreauthStore
+	BaseStore
 }
 
 var _ OIDCStore = (*OIDC)(nil)
@@ -88,6 +92,8 @@ type db interface {
 	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
 	// InsertSession creates a new session in the database and returns its session ID.
 	InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error)
+	// InsertCustomSession creates a new session with custom column data in the database and returns its session ID.
+	InsertCustomSession(ctx context.Context, session *dbtype.InsertCustomSession) (ccc.UUID, error)
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
@@ -96,6 +102,8 @@ type db interface {
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
 	SetUserTableName(name string)
+	// SetCustomSessionColumns sets the custom column names for the session table.
+	SetCustomSessionColumns(columns []string)
 
 	//
 	// Password specific methods

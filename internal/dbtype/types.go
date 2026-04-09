@@ -6,15 +6,17 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // Session defines the structure for storing session data in the database.
 type Session struct {
-	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
-	Username  string    `spanner:"Username"  db:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"   db:"Expired"`
+	ID         ccc.UUID  `spanner:"Id"        db:"Id"`
+	Username   string    `spanner:"Username"  db:"Username"`
+	CreatedAt  time.Time `spanner:"CreatedAt" db:"CreatedAt"`
+	UpdatedAt  time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
+	Expired    bool      `spanner:"Expired"   db:"Expired"`
+	CustomData map[string]any
 }
 
 // InsertSession defines the structure for inserting new session data into the database.
@@ -23,6 +25,12 @@ type InsertSession struct {
 	CreatedAt time.Time `spanner:"CreatedAt"`
 	UpdatedAt time.Time `spanner:"UpdatedAt"`
 	Expired   bool      `spanner:"Expired"`
+}
+
+// InsertCustomSession defines the structure for inserting new session data with custom columns into the database.
+type InsertCustomSession struct {
+	InsertSession
+	CustomData []sessioninfo.CustomData
 }
 
 // InsertOIDCSession defines the structure for inserting new OIDC session data into the database.

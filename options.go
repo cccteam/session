@@ -1,12 +1,15 @@
 package session
 
 import (
+	"context"
 	"time"
 
+	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // CookieOption defines a function signature for setting cookie client options.
@@ -101,5 +104,24 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
 		p.hasher = securehash.New(hasher)
+	})
+}
+
+// WithCustomSessionTableColumns sets additional column names to be included in the session table.
+// This is used for session implementations that require additional columns in the session table, such as a tenant ID column for multi-tenant applications. (default: none)
+func WithCustomSessionTableColumns(columnNames ...string) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.customSessionTableColumns = columnNames
+		p.storage.SetCustomSessionColumns(columnNames)
+	})
+}
+
+// CustomSessionDataResolver defines a function signature for resolving custom session data for a given user ID at session creation time.
+type CustomSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]sessioninfo.CustomData, error)
+
+// WithCustomSessionDataResolver sets a function that resolves custom session data for a given user ID at session creation time.
+func WithCustomSessionDataResolver(resolver CustomSessionDataResolver) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.customSessionDataResolver = resolver
 	})
 }

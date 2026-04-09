@@ -26,7 +26,7 @@ func (s *sessionStorage) SetUserTableName(name string) {
 	s.db.SetUserTableName(name)
 }
 
-// NewSession inserts SessionInfo into the spanner database
+// NewSession inserts SessionInfo into the database
 func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

@@ -38,11 +38,12 @@ func TestPasswordAuth_Login(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		reqBody        any
-		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
-		wantMessage    bool
-		wantStatusCode int
+		name                      string
+		reqBody                   any
+		customSessionDataResolver CustomSessionDataResolver
+		prepare                   func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
+		wantMessage               bool
+		wantStatusCode            int
 	}{
 		{
 			name:           "fails on decode",
@@ -184,6 +185,52 @@ func TestPasswordAuth_Login(t *testing.T) {
 			},
 			wantStatusCode: http.StatusOK,
 		},
+		{
+			name: "success with custom session data",
+			reqBody: map[string]string{
+				"username": "user",
+				"password": "password",
+			},
+			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]sessioninfo.CustomData, error) {
+				return []sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "admin"},
+					{ColumnName: "CustomInt", Value: 42},
+				}, nil
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
+				userID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					ID:           userID,
+					Username:     "user",
+					PasswordHash: validHash,
+				}, nil)
+				sessionID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().NewSession(gomock.Any(), "user",
+					sessioninfo.CustomData{ColumnName: "CustomString", Value: "admin"},
+					sessioninfo.CustomData{ColumnName: "CustomInt", Value: 42},
+				).Return(sessionID, nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "fails on custom session data resolver error",
+			reqBody: map[string]string{
+				"username": "user",
+				"password": "password",
+			},
+			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]sessioninfo.CustomData, error) {
+				return nil, errors.New("resolver error")
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					Username:     "user",
+					PasswordHash: validHash,
+				}, nil)
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,6 +246,9 @@ func TestPasswordAuth_Login(t *testing.T) {
 			}
 			p.hasher = securehash.New(securehash.Argon2())
 			p.baseSession.CookieHandler = cookieHandler
+			if tt.customSessionDataResolver != nil {
+				p.customSessionDataResolver = tt.customSessionDataResolver
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(storage, cookieHandler)

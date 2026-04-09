@@ -73,6 +73,7 @@ linters:
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
+            - google.golang.org/api/iterator
             - google.golang.org/grpc/codes
             - $gostd
     dupl:

@@ -15,14 +15,16 @@ import (
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
 // SessionStorageDriver represents the session storage implementation for Spanner.
 type SessionStorageDriver struct {
-	spanner          *spanner.Client
-	sessionTableName string
-	userTableName    string
+	spanner              *spanner.Client
+	sessionTableName     string
+	userTableName        string
+	customSessionColumns []string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -44,30 +46,69 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
 }
 
+// SetCustomSessionColumns sets the custom column names for the session table.
+func (s *SessionStorageDriver) SetCustomSessionColumns(columnNames []string) {
+	s.customSessionColumns = columnNames
+}
+
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	var columns strings.Builder
+	columns.WriteString("Id, Username, CreatedAt, UpdatedAt, Expired")
+	for _, col := range s.customSessionColumns {
+		columns.WriteString(", ")
+		columns.WriteString(col)
+	}
+
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 		SELECT
-			Id, 
-			Username, 
-			CreatedAt, 
-			UpdatedAt, 
-			Expired
+			%s
 		FROM %s
 		WHERE Id = @id
-	`, s.sessionTableName))
+	`, columns.String(), s.sessionTableName))
 	stmt.Params["id"] = sessionID
 
-	session := &dbtype.Session{}
-	if err := spxscan.Get(ctx, s.spanner.Single(), session, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+	iter := s.spanner.Single().Query(ctx, stmt)
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
-		return nil, errors.Wrap(err, "spxscan.Get()")
+		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+
+	session := &dbtype.Session{}
+	baseColumns := []struct {
+		name string
+		dest any
+	}{
+		{"Id", &session.ID},
+		{"Username", &session.Username},
+		{"CreatedAt", &session.CreatedAt},
+		{"UpdatedAt", &session.UpdatedAt},
+		{"Expired", &session.Expired},
+	}
+	for _, col := range baseColumns {
+		if err := row.ColumnByName(col.name, col.dest); err != nil {
+			return nil, errors.Wrapf(err, "row.ColumnByName(%s)", col.name)
+		}
+	}
+
+	if len(s.customSessionColumns) > 0 {
+		session.CustomData = make(map[string]any, len(s.customSessionColumns))
+		for _, col := range s.customSessionColumns {
+			var val spanner.GenericColumnValue
+			if err := row.ColumnByName(col, &val); err != nil {
+				return nil, errors.Wrapf(err, "row.ColumnByName(%s)", col)
+			}
+			session.CustomData[col] = val.Value.AsInterface()
+		}
 	}
 
 	return session, nil
@@ -124,6 +165,35 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return id, nil
+}
+
+// InsertCustomSession inserts a Session with custom column data into database
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertCustomSession) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	row := map[string]any{
+		"Id":        id,
+		"Username":  insertSession.Username,
+		"CreatedAt": insertSession.CreatedAt,
+		"UpdatedAt": insertSession.UpdatedAt,
+		"Expired":   insertSession.Expired,
+	}
+	for _, c := range insertSession.CustomData {
+		row[c.ColumnName] = c.Value
+	}
+
+	mutation := spanner.InsertMap(s.sessionTableName, row)
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
 	}

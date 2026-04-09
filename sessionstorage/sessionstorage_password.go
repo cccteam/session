@@ -2,12 +2,14 @@ package sessionstorage
 
 import (
 	"context"
+	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -36,6 +38,28 @@ func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
 			db: postgres.NewSessionStorageDriver(pg),
 		},
 	}
+}
+
+// NewSession creates a new session in the database with optional custom session data, returning the session's id.
+func (p *PasswordAuth) NewSession(ctx context.Context, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session := &dbtype.InsertCustomSession{
+		InsertSession: dbtype.InsertSession{
+			Username:  username,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		CustomData: customSessionData,
+	}
+
+	id, err := p.db.InsertCustomSession(ctx, session)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "db.InsertCustomSession()")
+	}
+
+	return id, nil
 }
 
 // User returns the user record associated with the username
@@ -147,4 +171,9 @@ func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username stri
 	}
 
 	return nil
+}
+
+// SetCustomSessionColumns sets the custom column names for the session table.
+func (s *sessionStorage) SetCustomSessionColumns(columnNames []string) {
+	s.db.SetCustomSessionColumns(columnNames)
 }
