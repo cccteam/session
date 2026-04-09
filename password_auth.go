@@ -33,10 +33,11 @@ var _ PasswordAuthHandlers = &PasswordAuth{}
 
 // PasswordAuth implements the PasswordHandlers interface for handling password authentication.
 type PasswordAuth struct {
-	storage     sessionstorage.PasswordAuthStore
-	hasher      *securehash.SecureHasher
-	autoUpgrade bool
-	baseSession *basesession.BaseSession
+	storage                   sessionstorage.PasswordAuthStore
+	hasher                    *securehash.SecureHasher
+	autoUpgrade               bool
+	baseSession               *basesession.BaseSession
+	customSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -153,8 +154,17 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 		return httpio.NewUnauthorizedMessageWithError(err, "Account disabled")
 	}
 
+	var customSessionData []*sessioninfo.CustomData
+	if p.customSessionDataResolver != nil {
+		resolvedData, err := p.customSessionDataResolver(ctx, user.ID)
+		if err != nil {
+			return errors.Wrap(err, "customSessionDataResolver()")
+		}
+		customSessionData = resolvedData
+	}
+
 	// user is successfully authenticated, start a new session
-	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	sessionID, err := p.startNewSession(ctx, w, user.Username, customSessionData...)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -376,11 +386,11 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	// Create new Session in database
-	id, err := p.storage.NewSession(ctx, username)
+	id, err := p.storage.NewSession(ctx, username, customData...)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewSession()")
 	}
 
 	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)

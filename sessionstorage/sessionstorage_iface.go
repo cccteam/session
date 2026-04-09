@@ -43,6 +43,8 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
 // PasswordAuthStore defines an interface for managing password sessions.
 type PasswordAuthStore interface {
+	// NewSession creates a new session in the database with optional custom session data, returning its id
+	NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -61,9 +63,11 @@ type PasswordAuthStore interface {
 	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
+	// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+	SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig)
 
 	// shared storage methods
-	PreauthStore
+	BaseStore
 }
 
 var _ OIDCStore = (*OIDC)(nil)
@@ -87,7 +91,7 @@ type db interface {
 	// Session returns the session information from the database for given sessionID.
 	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
 	// InsertSession creates a new session in the database and returns its session ID.
-	InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error)
+	InsertSession(ctx context.Context, session *dbtype.InsertSession, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
@@ -96,6 +100,8 @@ type db interface {
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
 	SetUserTableName(name string)
+	// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+	SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig)
 
 	//
 	// Password specific methods

@@ -1,12 +1,16 @@
 package session
 
 import (
+	"context"
 	"time"
 
+	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // CookieOption defines a function signature for setting cookie client options.
@@ -101,5 +105,38 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
 		p.hasher = securehash.New(hasher)
+	})
+}
+
+// WithCustomSessionDataTable configures a separate table for storing custom session data.
+//
+// Requirements:
+//   - The table MUST have a primary key column named "SessionId" that is a FK to the session table's primary key with ON DELETE CASCADE.
+//   - Do NOT include "SessionId" in the columnNames argument (it is implied).
+//
+// Parameters:
+//   - tableName   - name of the custom session data table.
+//   - columnNames - names of columns to read from that table (excluding "SessionId").
+//
+// Examples:
+//
+//	// table SessionCustomFields has columns: SessionId, TenantId, RoleId
+//	WithCustomSessionDataTable("SessionCustomFields", "TenantId", "RoleId")
+func WithCustomSessionDataTable(tableName string, columnNames ...string) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.storage.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
+			TableName: tableName,
+			Columns:   columnNames,
+		})
+	})
+}
+
+// CustomSessionDataResolver defines a function signature for resolving custom session data for a given user ID at session creation time.
+type CustomSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
+
+// WithCustomSessionDataResolver sets a function that resolves custom session data for a given user ID at session creation time.
+func WithCustomSessionDataResolver(resolver CustomSessionDataResolver) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.customSessionDataResolver = resolver
 	})
 }

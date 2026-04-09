@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -11,6 +12,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgerrcode"
@@ -23,6 +25,7 @@ type SessionStorageDriver struct {
 	conn             Queryer
 	sessionTableName string
 	userTableName    string
+	customDataConfig *dbtype.CustomSessionDataConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -44,29 +47,59 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
 }
 
+// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+func (s *SessionStorageDriver) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
+	s.customDataConfig = config
+}
+
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`
-		SELECT
-			"Id", 
-			"Username", 
-			"CreatedAt", 
-			"UpdatedAt", 
-			"Expired"
-		FROM "%s"
-		WHERE "Id" = $1
-	`, s.sessionTableName)
+	query := s.sessionQuery()
+	rows, err := s.conn.Query(ctx, query, sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Queryer.Query()")
+	}
+	defer rows.Close()
 
-	session := &dbtype.Session{}
-	if err := pgxscan.Get(ctx, s.conn, session, query, sessionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, errors.Wrap(err, "rows.Err()")
 		}
 
-		return nil, errors.Wrap(err, "pgxscan.Get()")
+		return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
+	}
+
+	customColumns := []string{}
+	if s.customDataConfig != nil {
+		customColumns = s.customDataConfig.Columns
+	}
+
+	session := &dbtype.Session{}
+	scanDests := make([]any, 0, 5+len(customColumns))
+	scanDests = append(scanDests, &session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired)
+
+	customValues := make([]any, len(customColumns))
+	for i := range customColumns {
+		customValues[i] = new(any)
+	}
+	scanDests = append(scanDests, customValues...)
+
+	if err := rows.Scan(scanDests...); err != nil {
+		return nil, errors.Wrap(err, "rows.Scan()")
+	}
+
+	if len(customColumns) > 0 {
+		session.CustomData = make(map[string]any, len(customColumns))
+		for i, col := range customColumns {
+			val, ok := customValues[i].(*any)
+			if !ok {
+				return nil, errors.Newf("unexpected type for custom column %q", col)
+			}
+			session.CustomData[col] = *val
+		}
 	}
 
 	return session, nil
@@ -94,14 +127,26 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 }
 
 // InsertSession inserts a Session into database
-func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if len(customData) > 0 && s.customDataConfig == nil {
+		return ccc.NilUUID, errors.New("custom session data provided but custom session data config is not set")
+	}
 
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
 
 	query := fmt.Sprintf(`
 		INSERT INTO "%s"
@@ -110,8 +155,36 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 			($1, $2, $3, $4, $5)
 		`, s.sessionTableName)
 
-	if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+	if _, err := txn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
+	}
+
+	if len(customData) > 0 {
+		columns := []string{pgx.Identifier{"SessionId"}.Sanitize()}
+		args := []any{id}
+		for _, c := range customData {
+			columns = append(columns, pgx.Identifier{c.ColumnName}.Sanitize())
+			args = append(args, c.Value)
+		}
+		placeholders := make([]string, len(args))
+		for i := range args {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+
+		q := fmt.Sprintf(`
+			INSERT INTO %s
+				(%s)
+			VALUES
+				(%s)
+		`, pgx.Identifier{s.customDataConfig.TableName}.Sanitize(), strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+
+		if _, err := txn.Exec(ctx, q, args...); err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
+		}
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "tx.Commit()")
 	}
 
 	return id, nil
@@ -329,4 +402,24 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	}
 
 	return nil
+}
+
+func (s *SessionStorageDriver) sessionQuery() string {
+	var columns strings.Builder
+	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
+
+	joinClause := ""
+	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
+		for _, col := range s.customDataConfig.Columns {
+			fmt.Fprintf(&columns, `, %s`, pgx.Identifier{col}.Sanitize())
+		}
+		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customDataConfig.TableName}.Sanitize(), pgx.Identifier{"SessionId"}.Sanitize())
+	}
+
+	return fmt.Sprintf(`
+			SELECT %s 
+			FROM %q s 
+			%s 
+			WHERE s."Id" = $1`,
+		columns.String(), s.sessionTableName, joinClause)
 }

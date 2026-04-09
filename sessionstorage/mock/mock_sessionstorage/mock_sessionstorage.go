@@ -327,18 +327,23 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) 
 }
 
 // NewSession mocks base method.
-func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewSession", ctx, username)
+	varargs := []any{ctx, username}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "NewSession", varargs...)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any, customData ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), ctx, username)
+	varargs := append([]any{ctx, username}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), varargs...)
 }
 
 // Session mocks base method.
@@ -354,6 +359,18 @@ func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID)
 func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPasswordAuthStore)(nil).Session), ctx, sessionID)
+}
+
+// SetCustomSessionDataConfig mocks base method.
+func (m *MockPasswordAuthStore) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionDataConfig", config)
+}
+
+// SetCustomSessionDataConfig indicates an expected call of SetCustomSessionDataConfig.
+func (mr *MockPasswordAuthStoreMockRecorder) SetCustomSessionDataConfig(config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionDataConfig", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetCustomSessionDataConfig), config)
 }
 
 // SetSessionTableName mocks base method.
@@ -696,18 +713,23 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 }
 
 // InsertSession mocks base method.
-func (m *Mockdb) InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error) {
+func (m *Mockdb) InsertSession(ctx context.Context, session *dbtype.InsertSession, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertSession", ctx, session)
+	varargs := []any{ctx, session}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "InsertSession", varargs...)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // InsertSession indicates an expected call of InsertSession.
-func (mr *MockdbMockRecorder) InsertSession(ctx, session any) *gomock.Call {
+func (mr *MockdbMockRecorder) InsertSession(ctx, session any, customData ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSession", reflect.TypeOf((*Mockdb)(nil).InsertSession), ctx, session)
+	varargs := append([]any{ctx, session}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSession", reflect.TypeOf((*Mockdb)(nil).InsertSession), varargs...)
 }
 
 // InsertSessionOIDC mocks base method.
@@ -738,6 +760,18 @@ func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Sessi
 func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*Mockdb)(nil).Session), ctx, sessionID)
+}
+
+// SetCustomSessionDataConfig mocks base method.
+func (m *Mockdb) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCustomSessionDataConfig", config)
+}
+
+// SetCustomSessionDataConfig indicates an expected call of SetCustomSessionDataConfig.
+func (mr *MockdbMockRecorder) SetCustomSessionDataConfig(config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCustomSessionDataConfig", reflect.TypeOf((*Mockdb)(nil).SetCustomSessionDataConfig), config)
 }
 
 // SetSessionTableName mocks base method.
