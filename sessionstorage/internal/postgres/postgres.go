@@ -59,7 +59,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	var columns strings.Builder
 	columns.WriteString(`"Id", "Username", "CreatedAt", "UpdatedAt", "Expired"`)
 	for _, col := range s.customSessionColumns {
-		fmt.Fprintf(&columns, `, "%s"`, col)
+		fmt.Fprintf(&columns, `, %q`, col)
 	}
 
 	query := fmt.Sprintf(`
