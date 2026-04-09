@@ -37,7 +37,6 @@ type PasswordAuth struct {
 	hasher                    *securehash.SecureHasher
 	autoUpgrade               bool
 	baseSession               *basesession.BaseSession
-	customSessionTableColumns []string
 	customSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]sessioninfo.CustomData, error)
 }
 
@@ -160,6 +159,11 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 		resolvedData, err := p.customSessionDataResolver(ctx, user.ID)
 		if err != nil {
 			return errors.Wrap(err, "customSessionDataResolver()")
+		}
+		for _, d := range resolvedData {
+			if dbtype.IsReservedColumnName(d.ColumnName) {
+				return errors.Newf("column name %s is reserved and cannot be used in custom session data", d.ColumnName)
+			}
 		}
 		customSessionData = resolvedData
 	}

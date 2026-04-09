@@ -111,7 +111,6 @@ func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 // This is used for session implementations that require additional columns in the session table, such as a tenant ID column for multi-tenant applications. (default: none)
 func WithCustomSessionTableColumns(columnNames ...string) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
-		p.customSessionTableColumns = columnNames
 		p.storage.SetCustomSessionColumns(columnNames)
 	})
 }

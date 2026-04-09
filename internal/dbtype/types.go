@@ -53,3 +53,20 @@ type InsertSessionUser struct {
 	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
 	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
 }
+
+// IsReservedColumnName checks if a given column name is reserved and therefore cannot be used as a custom session column name.
+func IsReservedColumnName(name string) bool {
+	_, reserved := reservedColumnNames()[name]
+
+	return reserved
+}
+
+func reservedColumnNames() map[string]struct{} {
+	return map[string]struct{}{
+		"Id":        {},
+		"Username":  {},
+		"CreatedAt": {},
+		"UpdatedAt": {},
+		"Expired":   {},
+	}
+}

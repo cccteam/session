@@ -2,6 +2,8 @@ package sessionstorage
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
@@ -173,7 +175,25 @@ func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username stri
 	return nil
 }
 
+var validColumnName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
+
 // SetCustomSessionColumns sets the custom column names for the session table.
-func (s *sessionStorage) SetCustomSessionColumns(columnNames []string) {
-	s.db.SetCustomSessionColumns(columnNames)
+func (p *PasswordAuth) SetCustomSessionColumns(columnNames []string) {
+	seen := make(map[string]struct{}, len(columnNames))
+	dedupedColumns := make([]string, 0)
+	for _, name := range columnNames {
+		if !validColumnName.MatchString(name) {
+			panic(fmt.Sprintf("invalid column name: %s. Column names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", name))
+		}
+		if dbtype.IsReservedColumnName(name) {
+			panic(fmt.Sprintf("invalid column name: %s. This column name is reserved and cannot be used as a custom session column.", name))
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		dedupedColumns = append(dedupedColumns, name)
+	}
+
+	p.db.SetCustomSessionColumns(dedupedColumns)
 }
