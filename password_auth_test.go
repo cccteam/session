@@ -206,8 +206,8 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewSession(gomock.Any(), "user",
-					sessioninfo.CustomData{ColumnName: "CustomString", Value: "admin"},
-					sessioninfo.CustomData{ColumnName: "CustomInt", Value: 42},
+					&sessioninfo.CustomData{ColumnName: "CustomString", Value: "admin"},
+					&sessioninfo.CustomData{ColumnName: "CustomInt", Value: 42},
 				).Return(sessionID, nil)
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
