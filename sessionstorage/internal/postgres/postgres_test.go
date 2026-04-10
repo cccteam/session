@@ -1037,7 +1037,7 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 					UpdatedAt: time.Now(),
 					Expired:   false,
 				},
-				CustomData: []sessioninfo.CustomData{
+				CustomData: []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "editor"},
 				},
 			},
@@ -1062,7 +1062,7 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 					UpdatedAt: time.Now(),
 					Expired:   false,
 				},
-				CustomData: []sessioninfo.CustomData{
+				CustomData: []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "manager"},
 					{ColumnName: "CustomInt", Value: 42},
 					{ColumnName: "CustomBool", Value: true},

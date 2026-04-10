@@ -191,8 +191,8 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]sessioninfo.CustomData, error) {
-				return []sessioninfo.CustomData{
+			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},
 				}, nil
@@ -220,7 +220,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]sessioninfo.CustomData, error) {
+			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return nil, errors.New("resolver error")
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {

@@ -116,7 +116,7 @@ func WithCustomSessionTableColumns(columnNames ...string) PasswordOption {
 }
 
 // CustomSessionDataResolver defines a function signature for resolving custom session data for a given user ID at session creation time.
-type CustomSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]sessioninfo.CustomData, error)
+type CustomSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 
 // WithCustomSessionDataResolver sets a function that resolves custom session data for a given user ID at session creation time.
 func WithCustomSessionDataResolver(resolver CustomSessionDataResolver) PasswordOption {

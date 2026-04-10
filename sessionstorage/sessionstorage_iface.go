@@ -44,7 +44,7 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 // PasswordAuthStore defines an interface for managing password sessions.
 type PasswordAuthStore interface {
 	// NewSession creates a new session in the database with optional custom session data, returning its id
-	NewSession(ctx context.Context, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error)
+	NewSession(ctx context.Context, username string, customSessionData ...*sessioninfo.CustomData) (ccc.UUID, error)
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username

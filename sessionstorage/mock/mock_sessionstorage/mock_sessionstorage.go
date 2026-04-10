@@ -327,7 +327,7 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) 
 }
 
 // NewSession mocks base method.
-func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error) {
+func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string, customSessionData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, username}
 	for _, a := range customSessionData {

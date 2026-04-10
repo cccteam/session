@@ -37,7 +37,7 @@ type PasswordAuth struct {
 	hasher                    *securehash.SecureHasher
 	autoUpgrade               bool
 	baseSession               *basesession.BaseSession
-	customSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]sessioninfo.CustomData, error)
+	customSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -154,7 +154,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 		return httpio.NewUnauthorizedMessageWithError(err, "Account disabled")
 	}
 
-	var customSessionData []sessioninfo.CustomData
+	var customSessionData []*sessioninfo.CustomData
 	if p.customSessionDataResolver != nil {
 		resolvedData, err := p.customSessionDataResolver(ctx, user.ID)
 		if err != nil {
@@ -391,7 +391,7 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, customSessionData ...sessioninfo.CustomData) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, customSessionData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	// Create new Session in database
 	id, err := p.storage.NewSession(ctx, username, customSessionData...)
 	if err != nil {

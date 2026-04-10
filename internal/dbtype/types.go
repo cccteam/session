@@ -30,7 +30,7 @@ type InsertSession struct {
 // InsertCustomSession defines the structure for inserting new session data with custom columns into the database.
 type InsertCustomSession struct {
 	InsertSession
-	CustomData []sessioninfo.CustomData
+	CustomData []*sessioninfo.CustomData
 }
 
 // InsertOIDCSession defines the structure for inserting new OIDC session data into the database.
