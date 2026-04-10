@@ -966,6 +966,40 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				Expired:  false,
 			},
 		},
+		{
+			name:      "success with custom column name matching base session column",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "collision_user_1",
+				Expired:  false,
+			},
+			wantCustomData: map[string]any{
+				"Expired": "custom_not_expired",
+			},
+		},
+		{
+			name:      "success with custom column name matching base session column expired session",
+			sessionID: ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+				Username: "collision_user_2",
+				Expired:  true,
+			},
+			wantCustomData: map[string]any{
+				"Expired": "custom_expired",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1151,6 +1185,32 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			},
 			postAssertions: []string{
 				`SELECT COUNT(*) = 2 FROM Sessions`,
+			},
+		},
+		{
+			name: "success inserting session with custom column name matching base session column",
+			insertSession: &dbtype.InsertSession{
+				Username:  "collision_insert_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "Expired", Value: "custom_value"},
+			},
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			wantCustomData: map[string]any{
+				"Expired": "custom_value",
 			},
 		},
 	}

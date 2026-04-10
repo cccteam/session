@@ -57,8 +57,8 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := s.sessionQuery()
-	rows, err := s.conn.Query(ctx, query, sessionID)
+	query, args := s.sessionQuery(sessionID)
+	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, errors.Wrap(err, "Queryer.Query()")
 	}
@@ -404,22 +404,24 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	return nil
 }
 
-func (s *SessionStorageDriver) sessionQuery() string {
+func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, args []any) {
 	var columns strings.Builder
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
 
 	joinClause := ""
 	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
 		for _, col := range s.customDataConfig.Columns {
-			fmt.Fprintf(&columns, `, %s`, pgx.Identifier{col}.Sanitize())
+			fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{col}.Sanitize())
 		}
 		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customDataConfig.TableName}.Sanitize(), pgx.Identifier{"SessionId"}.Sanitize())
 	}
 
-	return fmt.Sprintf(`
+	query = fmt.Sprintf(`
 			SELECT %s 
-			FROM %q s 
+			FROM "%s" s 
 			%s 
 			WHERE s."Id" = $1`,
 		columns.String(), s.sessionTableName, joinClause)
+
+	return query, []any{sessionID}
 }
