@@ -11,7 +11,6 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
-	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -42,8 +41,8 @@ func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
 	}
 }
 
-// NewSession creates a new session in the database with optional custom session data, returning the session's id.
-func (p *PasswordAuth) NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
+// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
+func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -53,7 +52,7 @@ func (p *PasswordAuth) NewSession(ctx context.Context, username string, customDa
 		UpdatedAt: time.Now(),
 	}
 
-	id, err := p.db.InsertSession(ctx, session, customData...)
+	id, err := p.db.InsertCustomSession(ctx, session, resolver)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
 	}

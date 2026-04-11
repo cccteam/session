@@ -326,24 +326,34 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroySession), ctx, sessionID)
 }
 
-// NewSession mocks base method.
-func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
+// NewCustomSession mocks base method.
+func (m *MockPasswordAuthStore) NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, username}
-	for _, a := range customData {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "NewSession", varargs...)
+	ret := m.ctrl.Call(m, "NewCustomSession", ctx, username, resolver)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewCustomSession indicates an expected call of NewCustomSession.
+func (mr *MockPasswordAuthStoreMockRecorder) NewCustomSession(ctx, username, resolver any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCustomSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewCustomSession), ctx, username, resolver)
+}
+
+// NewSession mocks base method.
+func (m *MockPasswordAuthStore) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewSession", ctx, username)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewSession indicates an expected call of NewSession.
-func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any, customData ...any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, username}, customData...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), ctx, username)
 }
 
 // Session mocks base method.
@@ -712,24 +722,34 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*Mockdb)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
-// InsertSession mocks base method.
-func (m *Mockdb) InsertSession(ctx context.Context, session *dbtype.InsertSession, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
+// InsertCustomSession mocks base method.
+func (m *Mockdb) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, session}
-	for _, a := range customData {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "InsertSession", varargs...)
+	ret := m.ctrl.Call(m, "InsertCustomSession", ctx, insertSession, resolver)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertCustomSession indicates an expected call of InsertCustomSession.
+func (mr *MockdbMockRecorder) InsertCustomSession(ctx, insertSession, resolver any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertCustomSession", reflect.TypeOf((*Mockdb)(nil).InsertCustomSession), ctx, insertSession, resolver)
+}
+
+// InsertSession mocks base method.
+func (m *Mockdb) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertSession", ctx, insertSession)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // InsertSession indicates an expected call of InsertSession.
-func (mr *MockdbMockRecorder) InsertSession(ctx, session any, customData ...any) *gomock.Call {
+func (mr *MockdbMockRecorder) InsertSession(ctx, insertSession any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, session}, customData...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSession", reflect.TypeOf((*Mockdb)(nil).InsertSession), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSession", reflect.TypeOf((*Mockdb)(nil).InsertSession), ctx, insertSession)
 }
 
 // InsertSessionOIDC mocks base method.

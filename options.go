@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
@@ -131,10 +132,10 @@ func WithCustomSessionDataTable(tableName string, columnNames ...string) Passwor
 	})
 }
 
-// CustomSessionDataResolver defines a function signature for resolving custom session data for a given user ID at session creation time.
-type CustomSessionDataResolver func(ctx context.Context, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
+// CustomSessionDataResolver defines a function signature for resolving custom session data at session creation time.
+type CustomSessionDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 
-// WithCustomSessionDataResolver sets a function that resolves custom session data for a given user ID at session creation time.
+// WithCustomSessionDataResolver sets a function that resolves custom session data at session creation time.
 func WithCustomSessionDataResolver(resolver CustomSessionDataResolver) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
 		p.customSessionDataResolver = resolver

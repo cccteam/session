@@ -43,8 +43,8 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
 // PasswordAuthStore defines an interface for managing password sessions.
 type PasswordAuthStore interface {
-	// NewSession creates a new session in the database with optional custom session data, returning its id
-	NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
+	// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
+	NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error)
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -67,7 +67,7 @@ type PasswordAuthStore interface {
 	SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig)
 
 	// shared storage methods
-	BaseStore
+	PreauthStore
 }
 
 var _ OIDCStore = (*OIDC)(nil)
@@ -90,8 +90,10 @@ var (
 type db interface {
 	// Session returns the session information from the database for given sessionID.
 	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
-	// InsertSession creates a new session in the database and returns its session ID.
-	InsertSession(ctx context.Context, session *dbtype.InsertSession, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
+	// InsertSession inserts a Session into the database and returns its id
+	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error)
+	// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.
+	InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error)
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
