@@ -1,15 +1,18 @@
 package postgres
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/go-playground/errors/v5"
 )
 
 func TestClient_FullMigration(t *testing.T) {
@@ -1015,31 +1018,32 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 	}
 }
 
-func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
+func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		insertSession  *dbtype.InsertCustomSession
-		customColumns  []string
-		sourceURL      []string
-		wantErr        bool
-		preAssertions  []string
-		postAssertions []string
-		wantCustomData map[string]any
+		name               string
+		insertSession      *dbtype.InsertSession
+		customDataResolver dbtype.CustomSessionDataResolver
+		customColumns      []string
+		sourceURL          []string
+		wantErr            bool
+		preAssertions      []string
+		postAssertions     []string
+		wantCustomData     map[string]any
 	}{
 		{
 			name: "success inserting session with custom data",
-			insertSession: &dbtype.InsertCustomSession{
-				InsertSession: dbtype.InsertSession{
-					Username:  "newuser",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-					Expired:   false,
-				},
-				CustomData: []*sessioninfo.CustomData{
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "editor"},
-				},
+				}, nil
 			},
 			customColumns: []string{"CustomString"},
 			sourceURL:     []string{"file://testdata/sessions_test/custom_columns_schema"},
@@ -1055,20 +1059,20 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 		},
 		{
 			name: "success inserting session with multiple custom data types",
-			insertSession: &dbtype.InsertCustomSession{
-				InsertSession: dbtype.InsertSession{
-					Username:  "newuser_multi",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-					Expired:   false,
-				},
-				CustomData: []*sessioninfo.CustomData{
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_multi",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "manager"},
-					{ColumnName: "CustomInt", Value: 42},
+					{ColumnName: "CustomInt", Value: int32(42)},
 					{ColumnName: "CustomBool", Value: true},
-					{ColumnName: "CustomFloat", Value: 88.3},
+					{ColumnName: "CustomFloat", Value: float64(88.3)},
 					{ColumnName: "CustomTimestamp", Value: time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)},
-				},
+				}, nil
 			},
 			customColumns: []string{"CustomString", "CustomInt", "CustomBool", "CustomFloat", "CustomTimestamp"},
 			sourceURL:     []string{"file://testdata/sessions_test/custom_columns_schema"},
@@ -1088,13 +1092,14 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 		},
 		{
 			name: "success inserting session without custom data",
-			insertSession: &dbtype.InsertCustomSession{
-				InsertSession: dbtype.InsertSession{
-					Username:  "newuser_no_custom",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-					Expired:   false,
-				},
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_no_custom",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+				return nil, nil
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
 			preAssertions: []string{
@@ -1102,6 +1107,26 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 			},
 			postAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "resolver error rolls back session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_err",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+				return nil, errors.New("resolver error")
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions"`,
 			},
 		},
 	}
@@ -1119,12 +1144,14 @@ func TestSessionStorageDriver_InsertSession_CustomSessionData(t *testing.T) {
 			}
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			id, err := c.InsertCustomSession(ctx, tt.insertSession)
+			id, err := c.InsertCustomSession(ctx, tt.insertSession, tt.customDataResolver)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.InsertCustomSession() error = %v, wantErr %v", err, tt.wantErr)
+				runAssertions(ctx, t, conn.Pool, tt.postAssertions)
 				return
 			}
 			if tt.wantErr {
+				runAssertions(ctx, t, conn.Pool, tt.postAssertions)
 				return
 			}
 

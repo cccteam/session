@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
@@ -21,6 +22,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -191,7 +193,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customSessionDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},
@@ -205,10 +207,21 @@ func TestPasswordAuth_Login(t *testing.T) {
 					PasswordHash: validHash,
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
-				storage.EXPECT().NewSession(gomock.Any(), "user",
-					&sessioninfo.CustomData{ColumnName: "CustomString", Value: "admin"},
-					&sessioninfo.CustomData{ColumnName: "CustomInt", Value: 42},
-				).Return(sessionID, nil)
+				storage.EXPECT().NewCustomSession(gomock.Any(), "user", gomock.Any()).
+					DoAndReturn(func(ctx context.Context, _ string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+						got, err := resolver(ctx, nil)
+						if err != nil {
+							return ccc.NilUUID, err
+						}
+						want := []*sessioninfo.CustomData{
+							{ColumnName: "CustomString", Value: "admin"},
+							{ColumnName: "CustomInt", Value: 42},
+						}
+						if diff := cmp.Diff(got, want); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected custom session data: " + diff)
+						}
+						return sessionID, nil
+					})
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
@@ -220,7 +233,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customSessionDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return nil, errors.New("resolver error")
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
@@ -228,6 +241,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 					Username:     "user",
 					PasswordHash: validHash,
 				}, nil)
+				storage.EXPECT().NewCustomSession(gomock.Any(), "user", gomock.Any()).Return(ccc.NilUUID, errors.New("resolver error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},

@@ -6,12 +6,82 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
+
+func TestPasswordAuth_NewCustomSession(t *testing.T) {
+	t.Parallel()
+
+	resolver := func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+		return []*sessioninfo.CustomData{
+			{ColumnName: "CustomString", Value: "admin"},
+		}, nil
+	}
+	expectedID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
+
+	tests := []struct {
+		name       string
+		username   string
+		prepare    func(*mock_sessionstorage.Mockdb)
+		wantErr    bool
+		expectedID ccc.UUID
+	}{
+		{
+			name:     "successful custom session creation",
+			username: "test_user",
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().
+					InsertCustomSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(expectedID, nil).
+					Times(1)
+			},
+			expectedID: expectedID,
+		},
+		{
+			name:     "failed custom session creation",
+			username: "test_user",
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().
+					InsertCustomSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(ccc.NilUUID, errors.New("insert failed")).
+					Times(1)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			storage := &PasswordAuth{
+				sessionStorage: sessionStorage{
+					db: mockDB,
+				},
+			}
+
+			if tt.prepare != nil {
+				tt.prepare(mockDB)
+			}
+
+			id, err := storage.NewCustomSession(context.Background(), tt.username, resolver)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewCustomSession() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if id != tt.expectedID {
+				t.Errorf("NewCustomSession() id = %v, expectedID = %v", id, tt.expectedID)
+			}
+		})
+	}
+}
 
 func TestPasswordAuth_User(t *testing.T) {
 	t.Parallel()
