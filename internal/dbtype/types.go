@@ -2,12 +2,18 @@
 package dbtype
 
 import (
+	"context"
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/sessioninfo"
 )
+
+// CustomSessionDataResolver defines a function that resolves custom session data inside a txn.
+// Implementations receive a read-only view of the txn so reads are consistent with the session insert happening in the txn.
+type CustomSessionDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error)
 
 // Session defines the structure for storing session data in the database.
 type Session struct {
@@ -25,12 +31,6 @@ type InsertSession struct {
 	CreatedAt time.Time `spanner:"CreatedAt"`
 	UpdatedAt time.Time `spanner:"UpdatedAt"`
 	Expired   bool      `spanner:"Expired"`
-}
-
-// InsertCustomSession defines the structure for inserting new session data with custom columns into the database.
-type InsertCustomSession struct {
-	InsertSession
-	CustomData []*sessioninfo.CustomData
 }
 
 // InsertOIDCSession defines the structure for inserting new OIDC session data into the database.

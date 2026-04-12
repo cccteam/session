@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/spxscan"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgerrcode"
@@ -157,8 +158,8 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	return id, nil
 }
 
-// InsertCustomSession inserts a Session with custom column data into database
-func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertCustomSession) (ccc.UUID, error) {
+// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -170,7 +171,20 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 	columns := []string{`"Id"`, `"Username"`, `"CreatedAt"`, `"UpdatedAt"`, `"Expired"`}
 	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	for _, c := range insertSession.CustomData {
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	customData, err := resolver(ctx, &pgxTxReadOnlyTransaction{tx: txn})
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "CustomSessionDataResolver()")
+	}
+
+	for _, c := range customData {
 		columns = append(columns, pgx.Identifier{c.ColumnName}.Sanitize())
 		args = append(args, c.Value)
 	}
@@ -187,8 +201,12 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 			(%s)
 		`, s.sessionTableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 
-	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
+	if _, err := txn.Exec(ctx, query, args...); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "tx.Commit()")
 	}
 
 	return id, nil
@@ -406,4 +424,39 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	}
 
 	return nil
+}
+
+// pgxTxReadOnlyTransaction wraps a pgx.Tx as a resource.ReadOnlyTransaction
+type pgxTxReadOnlyTransaction struct {
+	tx pgx.Tx
+}
+
+// PostgresReadOnlyTransaction returns a query-only wrapper around the underlying pgx.Tx
+func (t *pgxTxReadOnlyTransaction) PostgresReadOnlyTransaction() any {
+	return &pgxQueryer{tx: t.tx}
+}
+
+// SpannerReadOnlyTransaction panics because this is a Postgres-only adapter.
+func (t *pgxTxReadOnlyTransaction) SpannerReadOnlyTransaction() spxscan.Querier {
+	panic("pgxTxReadOnlyTransaction.SpannerReadOnlyTransaction() should never be called")
+}
+
+// pgxQueryer exposes only the read methods of a pgx.Tx so that it cannot be used to perform writes, commit, or rollback the transaction.
+type pgxQueryer struct {
+	tx pgx.Tx
+}
+
+// Query executes a query that returns rows.
+func (q *pgxQueryer) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	rows, err := q.tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "pgx.Tx.Query()")
+	}
+
+	return rows, nil
+}
+
+// QueryRow executes a query that returns at most one row.
+func (q *pgxQueryer) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return q.tx.QueryRow(ctx, sql, args...)
 }

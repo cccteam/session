@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
@@ -173,7 +174,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 }
 
 // InsertCustomSession inserts a Session with custom column data into database
-func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertCustomSession) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -189,13 +190,26 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 		"UpdatedAt": insertSession.UpdatedAt,
 		"Expired":   insertSession.Expired,
 	}
-	for _, c := range insertSession.CustomData {
-		row[c.ColumnName] = c.Value
-	}
+	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		customData, err := resolver(ctx, resource.NewSpannerReadWriteTransaction(txn))
+		if err != nil {
+			return errors.Wrap(err, "CustomSessionDataResolver()")
+		}
 
-	mutation := spanner.InsertMap(s.sessionTableName, row)
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+		for _, c := range customData {
+			row[c.ColumnName] = c.Value
+		}
+
+		mutation := spanner.InsertMap(s.sessionTableName, row)
+		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return id, nil
