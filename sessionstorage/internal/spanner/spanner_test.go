@@ -1091,10 +1091,10 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
 			preAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM Sessions`,
+				`SELECT COUNT(*) = 4 FROM Sessions`,
 			},
 			wantCustomData: map[string]any{
 				"CustomString": "editor",
@@ -1120,10 +1120,10 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 			customDataConfig: customDataConfig,
 			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
 			preAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 3 FROM Sessions`,
+				`SELECT COUNT(*) = 4 FROM Sessions`,
 			},
 			wantCustomData: map[string]any{
 				"CustomString":    "manager",
@@ -1153,10 +1153,10 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
 			wantErr:   true,
 			preAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 		},
 		{
@@ -1175,10 +1175,10 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
 			wantErr:   true,
 			preAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 			postAssertions: []string{
-				`SELECT COUNT(*) = 2 FROM Sessions`,
+				`SELECT COUNT(*) = 3 FROM Sessions`,
 			},
 		},
 		{
