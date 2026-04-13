@@ -10,7 +10,9 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -58,6 +60,27 @@ func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, re
 	}
 
 	return id, nil
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuth) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session, err := p.db.Session(ctx, sessionID)
+	if err != nil {
+		return errors.Wrap(err, "db.Session()")
+	}
+
+	if session.Expired {
+		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+	}
+
+	if err := p.db.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomSessionData()")
+	}
+
+	return nil
 }
 
 // User returns the user record associated with the username

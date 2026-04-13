@@ -14,6 +14,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
 	"google.golang.org/api/iterator"
@@ -514,6 +515,35 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
+// UpdateCustomSessionData updates the custom session data for the given session via an upsert on the custom session data table.
+func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.customDataConfig == nil {
+		return errors.New("custom session data config is not set")
+	}
+
+	if len(customData) == 0 {
+		return nil
+	}
+
+	row := map[string]any{
+		"SessionId": sessionID,
+	}
+	for _, c := range customData {
+		row[c.ColumnName] = c.Value
+	}
+
+	m := spanner.InsertOrUpdateMap(s.customDataConfig.TableName, row)
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		return errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
 	return nil

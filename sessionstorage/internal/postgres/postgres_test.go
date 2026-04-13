@@ -1273,3 +1273,117 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionStorageDriver_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &dbtype.CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Columns:   []string{"CustomString", "CustomInt", "CustomBool", "CustomFloat", "CustomTimestamp"},
+	}
+
+	tests := []struct {
+		name             string
+		sessionID        string
+		customData       []*sessioninfo.CustomData
+		customDataConfig *dbtype.CustomSessionDataConfig
+		sourceURL        []string
+		wantErr          bool
+		wantCustomData   map[string]any
+	}{
+		{
+			name:      "updates existing custom data row",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "updated_role"},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "updated_role",
+			},
+		},
+		{
+			name:      "inserts new custom data row when none exists",
+			sessionID: "33333333-3333-3333-3333-333333333333",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "new_role"},
+				{ColumnName: "CustomInt", Value: 42},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "new_role",
+				"CustomInt":    int32(42),
+			},
+		},
+		{
+			name:      "updates multiple columns on existing row",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "manager"},
+				{ColumnName: "CustomInt", Value: 99},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "manager",
+				"CustomInt":    int32(99),
+			},
+		},
+		{
+			name:      "error when custom data config not set",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "x"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v", err)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+			if tt.customDataConfig != nil {
+				c.SetCustomSessionDataConfig(tt.customDataConfig)
+			}
+
+			sessionID := ccc.Must(ccc.UUIDFromString(tt.sessionID))
+			err = c.UpdateCustomSessionData(ctx, sessionID, tt.customData...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			// Read back the session and verify custom data
+			if tt.wantCustomData != nil {
+				gotSession, err := c.Session(ctx, sessionID)
+				if err != nil {
+					t.Fatalf("SessionStorageDriver.Session() error = %v", err)
+				}
+				if gotSession.CustomData == nil {
+					t.Fatal("SessionStorageDriver.Session() CustomData is nil, want non-nil")
+				}
+				for key, wantVal := range tt.wantCustomData {
+					gotVal, ok := gotSession.CustomData[key]
+					if !ok {
+						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
+						continue
+					}
+					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
+						t.Errorf("SessionStorageDriver.Session() CustomData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
+					}
+				}
+			}
+		})
+	}
+}

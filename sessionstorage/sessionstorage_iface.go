@@ -45,6 +45,8 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 type PasswordAuthStore interface {
 	// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
 	NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error)
+	// UpdateCustomSessionData updates the custom session data for an active session.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -94,6 +96,8 @@ type db interface {
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error)
 	// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.
 	InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error)
+	// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.

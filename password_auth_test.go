@@ -1728,3 +1728,60 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 		})
 	}
 }
+
+func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name       string
+		sessionID  ccc.UUID
+		customData []*sessioninfo.CustomData
+		prepare    func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr    bool
+	}{
+		{
+			name:      "success",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
+			},
+		},
+		{
+			name:      "fails on storage error",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p, err := NewPasswordAuth(storage, cookieKey)
+			if err != nil {
+				t.Fatalf("NewPasswordAuth() error=%v", err)
+			}
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err = p.updateCustomSessionData(t.Context(), tt.sessionID, tt.customData...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.updateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

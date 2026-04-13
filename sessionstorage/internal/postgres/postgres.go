@@ -415,6 +415,62 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	return nil
 }
 
+// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
+func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.customDataConfig == nil {
+		return errors.New("custom session data config is not set")
+	}
+
+	if len(customData) == 0 {
+		return nil
+	}
+
+	columns := []string{pgx.Identifier{"SessionId"}.Sanitize()}
+	args := []any{sessionID}
+	setClauses := make([]string, 0, len(customData))
+
+	for _, c := range customData {
+		col := pgx.Identifier{c.ColumnName}.Sanitize()
+		columns = append(columns, col)
+		args = append(args, c.Value)
+		setClauses = append(setClauses, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
+	}
+
+	placeholders := make([]string, len(args))
+	for i := range args {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s
+			(%s)
+		VALUES
+			(%s)
+		ON CONFLICT (%s) DO UPDATE SET
+			%s
+	`,
+		pgx.Identifier{s.customDataConfig.TableName}.Sanitize(),
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+		pgx.Identifier{"SessionId"}.Sanitize(),
+		strings.Join(setClauses, ", "),
+	)
+
+	cmdTag, err := s.conn.Exec(ctx, query, args...)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+	}
+
+	return nil
+}
+
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, args []any) {
 	var columns strings.Builder
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)

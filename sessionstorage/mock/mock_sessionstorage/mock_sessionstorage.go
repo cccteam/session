@@ -435,6 +435,25 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsername(ctx, id, username a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsername), ctx, id, username)
 }
 
+// UpdateCustomSessionData mocks base method.
+func (m *MockPasswordAuthStore) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sessionID}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
+func (mr *MockPasswordAuthStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sessionID}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateCustomSessionData), varargs...)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *MockPasswordAuthStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -844,6 +863,25 @@ func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, username stri
 func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, username)
+}
+
+// UpdateCustomSessionData mocks base method.
+func (m *Mockdb) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sessionID}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
+func (mr *MockdbMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sessionID}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*Mockdb)(nil).UpdateCustomSessionData), varargs...)
 }
 
 // UpdateSessionActivity mocks base method.

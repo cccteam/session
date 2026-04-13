@@ -559,6 +559,15 @@ func (p *PasswordAuth) activateSessionUser(ctx context.Context, sessionUserUUID 
 	return nil
 }
 
+// updateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuth) updateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	if err := p.storage.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UpdateCustomSessionData()")
+	}
+
+	return nil
+}
+
 // API provides programatic access to PasswordAuth handler internals
 func (p *PasswordAuth) API() *PasswordAuthAPI {
 	return newPasswordAuthAPI(p)
@@ -660,6 +669,11 @@ func (p *PasswordAuthAPI) DeactivateSessionUser(ctx context.Context, sessionUser
 // ActivateSessionUser handles activating a user
 func (p *PasswordAuthAPI) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	return p.passwordAuth.activateSessionUser(ctx, sessionUserUUID)
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuthAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	return p.passwordAuth.updateCustomSessionData(ctx, sessionID, customData...)
 }
 
 // Cookie returns the underlying cookie.Client
