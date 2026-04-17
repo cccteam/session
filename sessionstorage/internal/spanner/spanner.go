@@ -174,7 +174,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 }
 
 // InsertCustomSession inserts a Session into database, resolving the custom session data within the read-write transaction. The session's id is returned.
-func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -204,7 +204,7 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 
 		customData, err := resolver(ctx, resource.NewSpannerReadWriteTransaction(txn))
 		if err != nil {
-			return errors.Wrap(err, "CustomSessionDataResolver()")
+			return errors.Wrap(err, "NewSessionCustomDataResolver()")
 		}
 
 		if len(customData) > 0 {

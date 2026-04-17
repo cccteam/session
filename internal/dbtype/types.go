@@ -12,9 +12,9 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// CustomSessionDataResolver defines a function that resolves custom session data inside a txn.
+// NewSessionCustomDataResolver defines a function that resolves custom session data inside a txn.
 // Implementations receive a read-only view of the txn so reads are consistent with the session insert happening in the txn.
-type CustomSessionDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error)
+type NewSessionCustomDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error)
 
 // Session defines the structure for storing session data in the database.
 type Session struct {

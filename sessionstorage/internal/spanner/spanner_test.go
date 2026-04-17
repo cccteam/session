@@ -1070,7 +1070,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 	tests := []struct {
 		name               string
 		insertSession      *dbtype.InsertSession
-		customDataResolver dbtype.CustomSessionDataResolver
+		customDataResolver dbtype.NewSessionCustomDataResolver
 		customDataConfig   *dbtype.CustomSessionDataConfig
 		sourceURL          []string
 		wantErr            bool

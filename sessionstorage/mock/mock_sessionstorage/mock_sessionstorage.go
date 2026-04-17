@@ -327,7 +327,7 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) 
 }
 
 // NewCustomSession mocks base method.
-func (m *MockPasswordAuthStore) NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+func (m *MockPasswordAuthStore) NewCustomSession(ctx context.Context, username string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewCustomSession", ctx, username, resolver)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -742,7 +742,7 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 }
 
 // InsertCustomSession mocks base method.
-func (m *Mockdb) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+func (m *Mockdb) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InsertCustomSession", ctx, insertSession, resolver)
 	ret0, _ := ret[0].(ccc.UUID)

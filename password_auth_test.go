@@ -40,12 +40,12 @@ func TestPasswordAuth_Login(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                      string
-		reqBody                   any
-		customSessionDataResolver CustomSessionDataResolver
-		prepare                   func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
-		wantMessage               bool
-		wantStatusCode            int
+		name               string
+		reqBody            any
+		customDataResolver NewSessionCustomDataResolver
+		prepare            func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
+		wantMessage        bool
+		wantStatusCode     int
 	}{
 		{
 			name:           "fails on decode",
@@ -193,7 +193,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},
@@ -208,7 +208,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().NewCustomSession(gomock.Any(), "user", gomock.Any()).
-					DoAndReturn(func(ctx context.Context, _ string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+					DoAndReturn(func(ctx context.Context, _ string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
 						got, err := resolver(ctx, nil)
 						if err != nil {
 							return ccc.NilUUID, err
@@ -233,7 +233,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customSessionDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},
@@ -263,8 +263,8 @@ func TestPasswordAuth_Login(t *testing.T) {
 			}
 			p.hasher = securehash.New(securehash.Argon2())
 			p.baseSession.CookieHandler = cookieHandler
-			if tt.customSessionDataResolver != nil {
-				p.customSessionDataResolver = tt.customSessionDataResolver
+			if tt.customDataResolver != nil {
+				p.customDataResolver = tt.customDataResolver
 			}
 
 			if tt.prepare != nil {

@@ -44,7 +44,7 @@ func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
 }
 
 // NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
-func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, resolver dbtype.CustomSessionDataResolver) (ccc.UUID, error) {
+func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 

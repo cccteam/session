@@ -152,12 +152,12 @@ func WithCustomSessionDataTable[T any](tableName string, decoder func(map[string
 	})
 }
 
-// CustomSessionDataResolver defines a function signature for resolving custom session data at session creation time.
-type CustomSessionDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
+// NewSessionCustomDataResolver defines a function signature for resolving custom session data at session creation time.
+type NewSessionCustomDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 
-// WithCustomSessionDataResolver sets a function that resolves custom session data at session creation time.
-func WithCustomSessionDataResolver(resolver CustomSessionDataResolver) PasswordOption {
+// WithNewSessionCustomDataResolver sets a function that resolves custom session data at session creation time.
+func WithNewSessionCustomDataResolver(resolver NewSessionCustomDataResolver) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
-		p.customSessionDataResolver = resolver
+		p.customDataResolver = resolver
 	})
 }
