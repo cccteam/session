@@ -59,10 +59,10 @@ func (mr *MockBaseStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.
 }
 
 // Session mocks base method.
-func (m *MockBaseStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockBaseStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionData)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -165,10 +165,10 @@ func (mr *MockPreauthStoreMockRecorder) NewSession(ctx, username any) *gomock.Ca
 }
 
 // Session mocks base method.
-func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionData)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -357,10 +357,10 @@ func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username any) *gomo
 }
 
 // Session mocks base method.
-func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionData)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -566,10 +566,10 @@ func (mr *MockOIDCStoreMockRecorder) NewSession(ctx, username, oidcSID any) *gom
 }
 
 // Session mocks base method.
-func (m *MockOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (m *MockOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessioninfo.SessionInfo)
+	ret0, _ := ret[0].(*sessioninfo.SessionData)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -787,10 +787,10 @@ func (mr *MockdbMockRecorder) InsertSessionOIDC(ctx, session any) *gomock.Call {
 }
 
 // Session mocks base method.
-func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
+func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*dbtype.Session)
+	ret0, _ := ret[0].(*dbtype.SessionData)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

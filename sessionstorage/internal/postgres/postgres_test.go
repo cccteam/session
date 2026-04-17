@@ -78,18 +78,18 @@ func TestSessionStorageDriver_Session(t *testing.T) {
 		name        string
 		sessionID   ccc.UUID
 		sourceURL   []string
-		wantSession *dbtype.Session
+		wantSession *dbtype.SessionData
 		wantErr     bool
 	}{
 		{
 			name:      "success",
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 				Username: "test user 2",
 				Expired:  true,
-			},
+			}},
 		},
 		{
 			name:      "not found",
@@ -900,7 +900,7 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 		sessionID        ccc.UUID
 		customDataConfig *dbtype.CustomSessionDataConfig
 		sourceURL        []string
-		wantSession      *dbtype.Session
+		wantSession      *dbtype.SessionData
 		wantCustomData   map[string]any
 		wantErr          bool
 	}{
@@ -912,11 +912,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				Columns:   []string{"CustomString"},
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 				Username: "custom_user_1",
 				Expired:  false,
-			},
+			}},
 			wantCustomData: map[string]any{
 				"CustomString": "admin",
 			},
@@ -926,11 +926,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 			sessionID:        ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 			customDataConfig: customDataConfig,
 			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 				Username: "custom_user_1",
 				Expired:  false,
-			},
+			}},
 			wantCustomData: map[string]any{
 				"CustomString":    "admin",
 				"CustomInt":       int32(10),
@@ -944,11 +944,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 			sessionID:        ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
 			customDataConfig: customDataConfig,
 			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
 				Username: "custom_user_2",
 				Expired:  true,
-			},
+			}},
 			wantCustomData: map[string]any{
 				"CustomString":    "viewer",
 				"CustomInt":       int32(5),
@@ -971,11 +971,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 			name:      "success without custom data config",
 			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 				Username: "custom_user_1",
 				Expired:  false,
-			},
+			}},
 		},
 		{
 			name:      "success with custom column name matching base session column",
@@ -985,11 +985,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				Columns:   []string{"Expired"},
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
 				Username: "collision_user_1",
 				Expired:  false,
-			},
+			}},
 			wantCustomData: map[string]any{
 				"Expired": "custom_not_expired",
 			},
@@ -1002,11 +1002,11 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				Columns:   []string{"Expired"},
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
 				Username: "collision_user_2",
 				Expired:  true,
-			},
+			}},
 			wantCustomData: map[string]any{
 				"Expired": "custom_expired",
 			},
@@ -1045,8 +1045,12 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				if gotSession.CustomData == nil {
 					t.Fatal("SessionStorageDriver.Session() gotSession.CustomData is nil, want non-nil")
 				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
 				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := gotSession.CustomData[key]
+					gotVal, ok := customData[key]
 					if !ok {
 						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
 						continue
@@ -1257,8 +1261,12 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				if gotSession.CustomData == nil {
 					t.Fatal("SessionStorageDriver.Session() CustomSessionData is nil, want non-nil")
 				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
 				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := gotSession.CustomData[key]
+					gotVal, ok := customData[key]
 					if !ok {
 						t.Errorf("SessionStorageDriver.Session() CustomSessionData missing key %q", key)
 						continue
@@ -1373,8 +1381,12 @@ func TestSessionStorageDriver_UpdateCustomSessionData(t *testing.T) {
 				if gotSession.CustomData == nil {
 					t.Fatal("SessionStorageDriver.Session() CustomData is nil, want non-nil")
 				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
 				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := gotSession.CustomData[key]
+					gotVal, ok := customData[key]
 					if !ok {
 						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
 						continue

@@ -9,12 +9,19 @@ import (
 
 // SessionInfo struct contains information about a session
 type SessionInfo struct {
-	ID         ccc.UUID
-	Username   string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	Expired    bool
-	CustomData map[string]any
+	ID        ccc.UUID
+	Username  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Expired   bool
+}
+
+// SessionData pairs a SessionInfo with optional custom session data.
+// This is stored in the request context internally; consumers should use FromCtx/FromRequest to get the SessionInfo and
+// CustomDataFromCtx[T]/CustomDataFromRequest[T] to get the strongly typed custom data.
+type SessionData struct {
+	*SessionInfo
+	CustomData any
 }
 
 // UserInfo struct contains information about a user

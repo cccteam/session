@@ -519,10 +519,10 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.Session{
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
-				}, nil)
+				}}, nil)
 				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
 			},
 		},
@@ -544,10 +544,10 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.Session{
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: true,
-				}, nil)
+				}}, nil)
 			},
 			wantErr: true,
 		},
@@ -558,10 +558,10 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.Session{
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
-				}, nil)
+				}}, nil)
 				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
 			},
 			wantErr: true,

@@ -54,7 +54,7 @@ func (s *SessionStorageDriver) SetCustomSessionDataConfig(config *dbtype.CustomS
 }
 
 // Session returns the session information from the database for given sessionID
-func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
+func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -92,18 +92,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
 
-	if len(customColumns) > 0 {
-		session.CustomData = make(map[string]any, len(customColumns))
-		for i, col := range customColumns {
-			val, ok := customValues[i].(*any)
-			if !ok {
-				return nil, errors.Newf("unexpected type for custom column %q", col)
-			}
-			session.CustomData[col] = *val
-		}
-	}
+	sessData := &dbtype.SessionData{Session: session}
 
-	return session, nil
+	customData, err := s.decodeCustomData(customColumns, customValues)
+	if err != nil {
+		return nil, err
+	}
+	sessData.CustomData = customData
+
+	return sessData, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
@@ -491,6 +488,29 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 		columns.String(), s.sessionTableName, joinClause)
 
 	return query, []any{sessionID}
+}
+
+// decodeCustomData converts scanned custom column values into a raw map and decodes them using the custom data config's decoder (if configured).
+func (s *SessionStorageDriver) decodeCustomData(customColumnNames []string, customValues []any) (any, error) {
+	if len(customColumnNames) == 0 {
+		return nil, nil
+	}
+
+	rawData := make(map[string]any, len(customColumnNames))
+	for i, col := range customColumnNames {
+		val, ok := customValues[i].(*any)
+		if !ok {
+			return nil, errors.Newf("unexpected type for custom column %q", col)
+		}
+		rawData[col] = *val
+	}
+
+	decoded, err := s.customDataConfig.DecodeRawData(rawData)
+	if err != nil {
+		return nil, errors.Wrap(err, "customDataConfig.DecodeRawMap()")
+	}
+
+	return decoded, nil
 }
 
 func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, customDataConfig *dbtype.CustomSessionDataConfig, customData ...*sessioninfo.CustomData) error {

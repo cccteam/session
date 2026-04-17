@@ -221,5 +221,6 @@ func (p *PasswordAuth) SetCustomSessionDataConfig(config *dbtype.CustomSessionDa
 	p.db.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
 		TableName: config.TableName,
 		Columns:   dedupedColumns,
+		Decoder:   config.Decoder,
 	})
 }

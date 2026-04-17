@@ -17,7 +17,7 @@ import (
 // BaseStore defines an interface for managing session storage.
 type BaseStore interface {
 	// Session returns the session information from the database for given sessionID
-	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
+	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error)
 	// UpdateSessionActivity updates the database with the current time for the session activity
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired
@@ -91,7 +91,7 @@ var (
 // db defines an interface for database operations related to session management.
 type db interface {
 	// Session returns the session information from the database for given sessionID.
-	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
+	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error)
 	// InsertSession inserts a Session into the database and returns its id
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error)
 	// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.

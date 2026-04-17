@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/go-playground/errors/v5"
 )
 
 // CustomSessionDataResolver defines a function that resolves custom session data inside a txn.
@@ -17,12 +18,17 @@ type CustomSessionDataResolver func(ctx context.Context, txn resource.ReadOnlyTr
 
 // Session defines the structure for storing session data in the database.
 type Session struct {
-	ID         ccc.UUID  `spanner:"Id"        db:"Id"`
-	Username   string    `spanner:"Username"  db:"Username"`
-	CreatedAt  time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt  time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-	Expired    bool      `spanner:"Expired"   db:"Expired"`
-	CustomData map[string]any
+	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
+	Username  string    `spanner:"Username"  db:"Username"`
+	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
+	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
+	Expired   bool      `spanner:"Expired"   db:"Expired"`
+}
+
+// SessionData pairs a Session with optional custom session data.
+type SessionData struct {
+	*Session
+	CustomData any
 }
 
 // InsertSession defines the structure for inserting new session data into the database.
@@ -60,6 +66,24 @@ type CustomSessionDataConfig struct {
 	TableName string
 	// Columns is the list of column names to read from the custom table.
 	Columns []string
+	// Decoder converts the raw map[string]any from the database into a strongly typed value.
+	// When nil, the raw map[string]any is stored directly.
+	Decoder func(rawCustomData map[string]any) (any, error)
+}
+
+// DecodeRawData decodes a raw column map into the final custom data value.
+// If a Decoder is configured it is used; otherwise the raw map is returned as-is.
+func (c *CustomSessionDataConfig) DecodeRawData(rawCustomData map[string]any) (any, error) {
+	if c.Decoder != nil {
+		decoded, err := c.Decoder(rawCustomData)
+		if err != nil {
+			return nil, errors.Wrap(err, "CustomSessionDataConfig.Decoder()")
+		}
+
+		return decoded, nil
+	}
+
+	return rawCustomData, nil
 }
 
 // IsReservedCustomColumn checks if a given column name is reserved and therefore cannot be used as a custom session data column name.

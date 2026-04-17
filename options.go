@@ -111,23 +111,43 @@ func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 
 // WithCustomSessionDataTable configures a separate table for storing custom session data.
 //
+// The type parameter T is the consumer's strongly typed struct that the custom data will be decoded into.
+// The decoder function converts the raw column values (keyed by column name) into T.
+// Consumers retrieve the typed data via sessioninfo.CustomDataFromCtx[T](ctx) or sessioninfo.CustomDataFromRequest[T](r).
+//
 // Requirements:
 //   - The table MUST have a primary key column named "SessionId" that is a FK to the session table's primary key with ON DELETE CASCADE.
 //   - Do NOT include "SessionId" in the columnNames argument (it is implied).
 //
 // Parameters:
 //   - tableName   - name of the custom session data table.
+//   - decoder     - a function that converts the raw map[string]any from the DB into the consumer's typed struct.
 //   - columnNames - names of columns to read from that table (excluding "SessionId").
 //
 // Examples:
 //
-//	// table SessionCustomFields has columns: SessionId, TenantId, RoleId
-//	WithCustomSessionDataTable("SessionCustomFields", "TenantId", "RoleId")
-func WithCustomSessionDataTable(tableName string, columnNames ...string) PasswordOption {
+//	type MyCustomData struct {
+//		TenantId string
+//		RoleId   string
+//	}
+//
+//	WithCustomSessionDataTable("SessionCustomData",
+//		func(m map[string]any) (MyCustomData, error) {
+//			return MyCustomData{
+//				TenantId: m["TenantId"].(string),
+//				RoleId:   m["RoleId"].(string),
+//			}, nil
+//		},
+//		"TenantId", "RoleId",
+//	)
+func WithCustomSessionDataTable[T any](tableName string, decoder func(map[string]any) (T, error), columnNames ...string) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
 		p.storage.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
 			TableName: tableName,
 			Columns:   columnNames,
+			Decoder: func(m map[string]any) (any, error) {
+				return decoder(m)
+			},
 		})
 	})
 }

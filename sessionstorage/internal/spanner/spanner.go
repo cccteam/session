@@ -54,7 +54,7 @@ func (s *SessionStorageDriver) SetCustomSessionDataConfig(config *dbtype.CustomS
 }
 
 // Session returns the session information from the database for given sessionID
-func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
+func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -92,19 +92,27 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		idx++
 	}
 
+	sessData := &dbtype.SessionData{Session: session}
+
 	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
-		session.CustomData = make(map[string]any, len(s.customDataConfig.Columns))
+		rawCustomData := make(map[string]any, len(s.customDataConfig.Columns))
 		for _, col := range s.customDataConfig.Columns {
 			var val spanner.GenericColumnValue
 			if err := row.Column(idx, &val); err != nil {
 				return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, col)
 			}
-			session.CustomData[col] = val.Value.AsInterface()
+			rawCustomData[col] = val.Value.AsInterface()
 			idx++
 		}
+
+		decoded, err := s.customDataConfig.DecodeRawData(rawCustomData)
+		if err != nil {
+			return nil, errors.Wrap(err, "customDataConfig.DecodeRawMap()")
+		}
+		sessData.CustomData = decoded
 	}
 
-	return session, nil
+	return sessData, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
