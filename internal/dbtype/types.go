@@ -103,5 +103,5 @@ func reservedCustomColumnNames() map[string]struct{} {
 // ReadWriteTransaction is an interface that abstracts over the specific read-write transaction types of supported databases (e.g. Spanner, Postgres).
 type ReadWriteTransaction interface {
 	SpannerReadWriteTransaction() *spanner.ReadWriteTransaction
-	PostgresReadWriteTransaction() *pgx.Tx
+	PostgresReadWriteTransaction() pgx.Tx
 }

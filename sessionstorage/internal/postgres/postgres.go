@@ -177,7 +177,7 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
 	}
 
-	customData, err := resolver(ctx, &pgxReadWriteTransaction{tx: &txn})
+	customData, err := resolver(ctx, &pgxReadWriteTransaction{tx: txn})
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "NewSessionCustomDataResolver()")
 	}
@@ -546,11 +546,11 @@ func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID
 
 // pgxReadWriteTransaction wraps a pgx.Tx and implements the dbtype.ReadWriteTransaction interface
 type pgxReadWriteTransaction struct {
-	tx *pgx.Tx
+	tx pgx.Tx
 }
 
 // PostgresReadOnlyTransaction returns a query-only wrapper around the underlying pgx.Tx
-func (t *pgxReadWriteTransaction) PostgresReadWriteTransaction() *pgx.Tx {
+func (t *pgxReadWriteTransaction) PostgresReadWriteTransaction() pgx.Tx {
 	return t.tx
 }
 

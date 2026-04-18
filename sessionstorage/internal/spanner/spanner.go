@@ -583,6 +583,6 @@ func (t *spannerReadWriteTransaction) SpannerReadWriteTransaction() *spanner.Rea
 	return t.txn
 }
 
-func (t *spannerReadWriteTransaction) PostgresReadWriteTransaction() *pgx.Tx {
+func (t *spannerReadWriteTransaction) PostgresReadWriteTransaction() pgx.Tx {
 	panic("spannerReadOnlyTransaction.PostgresReadWriteTransaction() should never be called")
 }
