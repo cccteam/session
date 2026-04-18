@@ -9,7 +9,6 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
@@ -17,6 +16,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
@@ -202,7 +202,7 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		customData, err := resolver(ctx, resource.NewSpannerReadWriteTransaction(txn))
+		customData, err := resolver(ctx, &spannerReadWriteTransaction{txn: txn})
 		if err != nil {
 			return errors.Wrap(err, "NewSessionCustomDataResolver()")
 		}
@@ -573,4 +573,16 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statemen
 	stmt.Params["id"] = sessionID
 
 	return stmt
+}
+
+type spannerReadWriteTransaction struct {
+	txn *spanner.ReadWriteTransaction
+}
+
+func (t *spannerReadWriteTransaction) SpannerReadWriteTransaction() *spanner.ReadWriteTransaction {
+	return t.txn
+}
+
+func (t *spannerReadWriteTransaction) PostgresReadWriteTransaction() *pgx.Tx {
+	panic("spannerReadOnlyTransaction.PostgresReadWriteTransaction() should never be called")
 }

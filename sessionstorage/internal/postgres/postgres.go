@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/spxscan"
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgerrcode"
@@ -177,7 +177,7 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
 	}
 
-	customData, err := resolver(ctx, &pgxTxReadOnlyTransaction{tx: txn})
+	customData, err := resolver(ctx, &pgxReadWriteTransaction{tx: &txn})
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "NewSessionCustomDataResolver()")
 	}
@@ -544,37 +544,17 @@ func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID
 	return nil
 }
 
-// pgxTxReadOnlyTransaction wraps a pgx.Tx as a resource.ReadOnlyTransaction
-type pgxTxReadOnlyTransaction struct {
-	tx pgx.Tx
+// pgxReadWriteTransaction wraps a pgx.Tx and implements the dbtype.ReadWriteTransaction interface
+type pgxReadWriteTransaction struct {
+	tx *pgx.Tx
 }
 
 // PostgresReadOnlyTransaction returns a query-only wrapper around the underlying pgx.Tx
-func (t *pgxTxReadOnlyTransaction) PostgresReadOnlyTransaction() any {
-	return &pgxQueryer{tx: t.tx}
+func (t *pgxReadWriteTransaction) PostgresReadWriteTransaction() *pgx.Tx {
+	return t.tx
 }
 
 // SpannerReadOnlyTransaction panics because this is a Postgres-only adapter.
-func (t *pgxTxReadOnlyTransaction) SpannerReadOnlyTransaction() spxscan.Querier {
-	panic("pgxTxReadOnlyTransaction.SpannerReadOnlyTransaction() should never be called")
-}
-
-// pgxQueryer exposes only the read methods of a pgx.Tx so that it cannot be used to perform writes, commit, or rollback the transaction.
-type pgxQueryer struct {
-	tx pgx.Tx
-}
-
-// Query executes a query that returns rows.
-func (q *pgxQueryer) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	rows, err := q.tx.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, errors.Wrap(err, "pgx.Tx.Query()")
-	}
-
-	return rows, nil
-}
-
-// QueryRow executes a query that returns at most one row.
-func (q *pgxQueryer) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return q.tx.QueryRow(ctx, sql, args...)
+func (t *pgxReadWriteTransaction) SpannerReadWriteTransaction() *spanner.ReadWriteTransaction {
+	panic("pgxReadWriteTransaction.SpannerReadOnlyTransaction() should never be called")
 }

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
@@ -193,7 +192,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ DBReadWriteTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},
@@ -233,7 +232,7 @@ func TestPasswordAuth_Login(t *testing.T) {
 				"username": "user",
 				"password": "password",
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ DBReadWriteTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "admin"},
 					{ColumnName: "CustomInt", Value: 42},

@@ -381,7 +381,7 @@ func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWrite
 	// Bind userID into the resolver
 	var resolver dbtype.NewSessionCustomDataResolver
 	if p.customDataResolver != nil {
-		resolver = func(ctx context.Context, txn resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+		resolver = func(ctx context.Context, txn dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 			return p.customDataResolver(ctx, txn, userID)
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
@@ -152,8 +151,13 @@ func WithCustomSessionDataTable[T any](tableName string, decoder func(map[string
 	})
 }
 
+// DBReadWriteTransaction is an interface that abstracts over the specific read-write transaction types of supported databases (e.g. Spanner, Postgres).
+type DBReadWriteTransaction interface {
+	dbtype.ReadWriteTransaction
+}
+
 // NewSessionCustomDataResolver defines a function signature for resolving custom session data at session creation time.
-type NewSessionCustomDataResolver func(ctx context.Context, txn resource.ReadOnlyTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
+type NewSessionCustomDataResolver func(ctx context.Context, txn DBReadWriteTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
 
 // WithNewSessionCustomDataResolver sets a function that resolves custom session data at session creation time.
 func WithNewSessionCustomDataResolver(resolver NewSessionCustomDataResolver) PasswordOption {

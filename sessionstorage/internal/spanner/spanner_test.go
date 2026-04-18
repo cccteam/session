@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
@@ -1086,7 +1085,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "editor"},
 				}, nil
@@ -1114,7 +1113,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "manager"},
 					{ColumnName: "CustomInt", Value: int64(42)},
@@ -1147,7 +1146,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "x"},
 				}, nil
@@ -1173,7 +1172,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "x"},
 				}, nil
@@ -1195,7 +1194,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "Expired", Value: "custom_value"},
 				}, nil

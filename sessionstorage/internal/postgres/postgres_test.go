@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestClient_FullMigration(t *testing.T) {
@@ -1049,15 +1049,8 @@ func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
 				if !ok {
 					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
 				}
-				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := customData[key]
-					if !ok {
-						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
-						continue
-					}
-					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
-						t.Errorf("SessionStorageDriver.Session() CustomData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
-					}
+				if diff := cmp.Diff(tt.wantCustomData, customData); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomData mismatch (-want +got):\n%s", diff)
 				}
 			} else if !tt.wantErr && gotSession != nil && gotSession.CustomData != nil {
 				t.Errorf("SessionStorageDriver.Session() gotSession.CustomData = %v, want nil", gotSession.CustomData)
@@ -1093,7 +1086,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "editor"},
 				}, nil
@@ -1121,7 +1114,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "manager"},
 					{ColumnName: "CustomInt", Value: 42},
@@ -1154,7 +1147,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "x"},
 				}, nil
@@ -1180,7 +1173,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "CustomString", Value: "x"},
 				}, nil
@@ -1202,7 +1195,7 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 				Expired:   false,
 			},
-			customDataResolver: func(_ context.Context, _ resource.ReadOnlyTransaction) ([]*sessioninfo.CustomData, error) {
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
 				return []*sessioninfo.CustomData{
 					{ColumnName: "Expired", Value: "custom_value"},
 				}, nil
@@ -1265,15 +1258,12 @@ func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
 				if !ok {
 					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
 				}
-				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := customData[key]
-					if !ok {
-						t.Errorf("SessionStorageDriver.Session() CustomSessionData missing key %q", key)
-						continue
-					}
-					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
-						t.Errorf("SessionStorageDriver.Session() CustomSessionData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
-					}
+				got := make(map[string]any, len(tt.wantCustomData))
+				for key := range tt.wantCustomData {
+					got[key] = customData[key]
+				}
+				if diff := cmp.Diff(tt.wantCustomData, got); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomSessionData mismatch (-want +got):\n%s", diff)
 				}
 			}
 
@@ -1385,15 +1375,12 @@ func TestSessionStorageDriver_UpdateCustomSessionData(t *testing.T) {
 				if !ok {
 					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
 				}
-				for key, wantVal := range tt.wantCustomData {
-					gotVal, ok := customData[key]
-					if !ok {
-						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
-						continue
-					}
-					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
-						t.Errorf("SessionStorageDriver.Session() CustomData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
-					}
+				got := make(map[string]any, len(tt.wantCustomData))
+				for key := range tt.wantCustomData {
+					got[key] = customData[key]
+				}
+				if diff := cmp.Diff(tt.wantCustomData, got); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomData mismatch (-want +got):\n%s", diff)
 				}
 			}
 		})
