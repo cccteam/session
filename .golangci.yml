@@ -158,6 +158,9 @@ linters:
           - revive
         path: internal/cookie/cookie\.go
         text: CookieClient by other packages, and that stutters
+      - linters:
+          - gocognit
+        path: sessionstorage/internal/spanner/spanner_test\.go
     paths:
       - third_party$
       - builtin$
