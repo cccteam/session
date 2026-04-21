@@ -228,11 +228,11 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
-					Return(&sessioninfo.SessionInfo{
+					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 						Username:  "specialUser",
 						UpdatedAt: time.Now().Add(-10 * time.Second),
-					}, nil)
+					}}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -247,17 +247,17 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
-					Return(&sessioninfo.SessionInfo{
+					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 						Username:  "specialUser",
 						UpdatedAt: time.Now().Add(-10 * time.Second),
-					}, nil)
+					}}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(nil)
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "checkSession() returns forbidden error",
+			name: "ValidateSessionAPI() returns forbidden error",
 			fields: fields{
 				sessionTimeout: time.Minute,
 			},
@@ -270,7 +270,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "checkSession() returns general error",
+			name: "ValidateSessionAPI() returns general error",
 			fields: fields{
 				sessionTimeout: time.Minute,
 			},
@@ -279,11 +279,11 @@ func TestBaseSessionValidateSession(t *testing.T) {
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore) {
 				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).
-					Return(&sessioninfo.SessionInfo{
+					Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 						ID:        ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")),
 						Username:  "specialUser",
 						UpdatedAt: time.Now().Add(-10 * time.Second),
-					}, nil)
+					}}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(errors.New("big fat error"))
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -319,7 +319,7 @@ func TestBaseSessionValidateSession(t *testing.T) {
 	}
 }
 
-func TestBaseSessionCheckSession(t *testing.T) {
+func TestBaseSession_ValidateSessionAPI(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -353,7 +353,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 				UpdatedAt: time.Now().Add(-10 * time.Second),
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(nil)
 			},
 		},
@@ -371,7 +371,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 				UpdatedAt: time.Now(),
 			},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 		},
 		{
@@ -384,7 +384,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second)},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 				storageManager.EXPECT().UpdateSessionActivity(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(errors.New("big fat error"))
 			},
 			wantErr: true,
@@ -399,7 +399,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f")), Username: "specialUser", UpdatedAt: time.Now().Add(-10 * time.Second), Expired: true},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(tt.want, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 			wantUnauthorized: true,
 			wantMsg:          "session expired",
@@ -415,7 +415,7 @@ func TestBaseSessionCheckSession(t *testing.T) {
 			},
 			want: &sessioninfo.SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: "specialUser", UpdatedAt: time.Now().Add(-time.Hour)},
 			prepare: func(storageManager *mock_sessionstorage.MockBaseStore, tt test) {
-				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(tt.want, nil)
+				storageManager.EXPECT().Session(gomock.Any(), ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(&sessioninfo.SessionData{SessionInfo: tt.want}, nil)
 			},
 			wantUnauthorized: true,
 			wantMsg:          "session expired",
@@ -449,17 +449,17 @@ func TestBaseSessionCheckSession(t *testing.T) {
 
 			gotReq, err := a.ValidateSessionAPI(tt.args.r.Context())
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("App.checkSession() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("App.ValidateSessionAPI() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil && tt.wantUnauthorized != httpio.HasUnauthorized(err) {
-				t.Errorf("App.checkSession() error did not have the type 'unauthorized'")
+				t.Errorf("App.ValidateSessionAPI() error did not have the type 'unauthorized'")
 			}
 
 			if tt.wantErr {
 				cerr := &httpio.ClientMessage{}
 				errors.As(err, &cerr)
 				if cerr.Message() != tt.wantMsg {
-					t.Errorf("App.checkSession() error Message = %v, want %v", cerr.Message(), tt.wantMsg)
+					t.Errorf("App.ValidateSessionAPI() error Message = %v, want %v", cerr.Message(), tt.wantMsg)
 				}
 
 				return
@@ -537,7 +537,7 @@ func TestBaseSession_Authenticated(t *testing.T) {
 		{
 			name: "fails to check the user's session",
 			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{UpdatedAt: time.Now().Add(-10 * time.Second)}, nil).Times(1)
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{UpdatedAt: time.Now().Add(-10 * time.Second)}}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(errors.New("failed to update session activity")).Times(1)
 			},
 			expectedStatus: http.StatusInternalServerError,
@@ -545,10 +545,10 @@ func TestBaseSession_Authenticated(t *testing.T) {
 		{
 			name: "successful authentication",
 			prepare: func(storage *mock_sessionstorage.MockBaseStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					Username:  "test Username",
 					UpdatedAt: time.Now().Add(-10 * time.Second),
-				}, nil).Times(1)
+				}}, nil).Times(1)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 			},
 			expectedStatus: http.StatusOK,
@@ -647,8 +647,7 @@ func TestBaseSession_Logout(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			r := chi.NewRouter()
-			req := httptest.NewRequest(http.MethodDelete, "/testPath", http.NoBody)
-			req = req.WithContext(context.WithValue(req.Context(), sessioninfo.CTXSessionID, tt.wantSessionID))
+			req := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, tt.wantSessionID), http.MethodDelete, "/testPath", http.NoBody)
 
 			r.Route("/", func(r chi.Router) {
 				r.Delete("/testPath", a.Logout())

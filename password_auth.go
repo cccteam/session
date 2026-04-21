@@ -33,10 +33,11 @@ var _ PasswordAuthHandlers = &PasswordAuth{}
 
 // PasswordAuth implements the PasswordHandlers interface for handling password authentication.
 type PasswordAuth struct {
-	storage     sessionstorage.PasswordAuthStore
-	hasher      *securehash.SecureHasher
-	autoUpgrade bool
-	baseSession *basesession.BaseSession
+	storage            sessionstorage.PasswordAuthStore
+	hasher             *securehash.SecureHasher
+	autoUpgrade        bool
+	baseSession        *basesession.BaseSession
+	customDataResolver NewSessionCustomDataResolver
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -154,7 +155,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	}
 
 	// user is successfully authenticated, start a new session
-	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	sessionID, err := p.startNewSession(ctx, w, user.Username, user.ID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -376,11 +377,28 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, userID ccc.UUID) (ccc.UUID, error) {
+	// Bind userID into the resolver
+	var resolver dbtype.NewSessionCustomDataResolver
+	if p.customDataResolver != nil {
+		resolver = func(ctx context.Context, txn dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+			return p.customDataResolver(ctx, txn, userID)
+		}
+	}
+
 	// Create new Session in database
-	id, err := p.storage.NewSession(ctx, username)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
+	var id ccc.UUID
+	var err error
+	if resolver != nil {
+		id, err = p.storage.NewCustomSession(ctx, username, resolver)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewCustomSession()")
+		}
+	} else {
+		id, err = p.storage.NewSession(ctx, username)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewSession()")
+		}
 	}
 
 	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)
@@ -424,7 +442,7 @@ func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, w http.Res
 		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
 	}
 
-	sessionID, err := p.startNewSession(ctx, w, username)
+	sessionID, err := p.startNewSession(ctx, w, username, userID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -541,6 +559,15 @@ func (p *PasswordAuth) activateSessionUser(ctx context.Context, sessionUserUUID 
 	return nil
 }
 
+// updateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuth) updateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	if err := p.storage.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UpdateCustomSessionData()")
+	}
+
+	return nil
+}
+
 // API provides programatic access to PasswordAuth handler internals
 func (p *PasswordAuth) API() *PasswordAuthAPI {
 	return newPasswordAuthAPI(p)
@@ -642,6 +669,11 @@ func (p *PasswordAuthAPI) DeactivateSessionUser(ctx context.Context, sessionUser
 // ActivateSessionUser handles activating a user
 func (p *PasswordAuthAPI) ActivateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	return p.passwordAuth.activateSessionUser(ctx, sessionUserUUID)
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuthAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	return p.passwordAuth.updateCustomSessionData(ctx, sessionID, customData...)
 }
 
 // Cookie returns the underlying cookie.Client

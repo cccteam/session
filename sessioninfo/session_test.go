@@ -27,7 +27,7 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 			name: "gets session info from request",
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
-				req = req.WithContext(context.WithValue(context.Background(), CtxSessionInfo, &SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))}))
+				req = req.WithContext(context.WithValue(context.Background(), CtxSessionInfo, &SessionData{SessionInfo: &SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))}}))
 
 				return req
 			}(),

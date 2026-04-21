@@ -13,8 +13,11 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/spxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/jackc/pgx/v5"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -23,6 +26,7 @@ type SessionStorageDriver struct {
 	spanner          *spanner.Client
 	sessionTableName string
 	userTableName    string
+	customDataConfig *dbtype.CustomSessionDataConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -44,33 +48,71 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
 }
 
+// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+func (s *SessionStorageDriver) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
+	s.customDataConfig = config
+}
+
 // Session returns the session information from the database for given sessionID
-func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error) {
+func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	stmt := spanner.NewStatement(fmt.Sprintf(`
-		SELECT
-			Id, 
-			Username, 
-			CreatedAt, 
-			UpdatedAt, 
-			Expired
-		FROM %s
-		WHERE Id = @id
-	`, s.sessionTableName))
-	stmt.Params["id"] = sessionID
+	qryStmt := s.sessionQuery(sessionID)
+	iter := s.spanner.Single().Query(ctx, qryStmt)
+	defer iter.Stop()
 
-	session := &dbtype.Session{}
-	if err := spxscan.Get(ctx, s.spanner.Single(), session, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+	row, err := iter.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
-		return nil, errors.Wrap(err, "spxscan.Get()")
+		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
 	}
 
-	return session, nil
+	session := &dbtype.Session{}
+
+	// Use positional column access (row.Column) instead of row.ColumnByName b/c the JOIN may produce duplicate column names
+	idx := 0
+	baseDests := []struct {
+		name string
+		dest any
+	}{
+		{"Id", &session.ID},
+		{"Username", &session.Username},
+		{"CreatedAt", &session.CreatedAt},
+		{"UpdatedAt", &session.UpdatedAt},
+		{"Expired", &session.Expired},
+	}
+	for _, col := range baseDests {
+		if err := row.Column(idx, col.dest); err != nil {
+			return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, col.name)
+		}
+		idx++
+	}
+
+	sessData := &dbtype.SessionData{Session: session}
+
+	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
+		rawCustomData := make(map[string]any, len(s.customDataConfig.Columns))
+		for _, col := range s.customDataConfig.Columns {
+			var val spanner.GenericColumnValue
+			if err := row.Column(idx, &val); err != nil {
+				return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, col)
+			}
+			rawCustomData[col] = val.Value.AsInterface()
+			idx++
+		}
+
+		decoded, err := s.customDataConfig.DecodeRawData(rawCustomData)
+		if err != nil {
+			return nil, errors.Wrap(err, "customDataConfig.DecodeRawData()")
+		}
+		sessData.CustomData = decoded
+	}
+
+	return sessData, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
@@ -102,7 +144,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	return nil
 }
 
-// InsertSession inserts a Session into database
+// InsertSession inserts a Session into the database and returns its id
 func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -126,6 +168,67 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	}
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return id, nil
+}
+
+// InsertCustomSession inserts a Session into database, resolving the custom session data within the read-write transaction. The session's id is returned.
+func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	session := &struct {
+		ID ccc.UUID
+		*dbtype.InsertSession
+	}{
+		ID:            id,
+		InsertSession: insertSession,
+	}
+
+	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+	}
+
+	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if err := txn.BufferWrite([]*spanner.Mutation{sessionMutation}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
+		customData, err := resolver(ctx, &spannerReadWriteTransaction{txn: txn})
+		if err != nil {
+			return errors.Wrap(err, "NewSessionCustomDataResolver()")
+		}
+
+		if len(customData) > 0 {
+			if s.customDataConfig == nil {
+				return errors.New("resolver returned custom session data but custom session data config is not set")
+			}
+
+			row := map[string]any{
+				"SessionId": id,
+			}
+			for _, c := range customData {
+				row[c.ColumnName] = c.Value
+			}
+
+			m := spanner.InsertMap(s.customDataConfig.TableName, row)
+			if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+				return errors.Wrap(err, "txn.BufferWrite()")
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return id, nil
@@ -423,4 +526,63 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	}
 
 	return nil
+}
+
+// UpdateCustomSessionData updates the custom session data for the given session via an upsert on the custom session data table.
+func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.customDataConfig == nil {
+		return errors.New("custom session data config is not set")
+	}
+
+	if len(customData) == 0 {
+		return nil
+	}
+
+	row := map[string]any{
+		"SessionId": sessionID,
+	}
+	for _, c := range customData {
+		row[c.ColumnName] = c.Value
+	}
+
+	m := spanner.InsertOrUpdateMap(s.customDataConfig.TableName, row)
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statement {
+	var columns strings.Builder
+	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
+
+	joinClause := ""
+	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
+		for _, col := range s.customDataConfig.Columns {
+			fmt.Fprintf(&columns, ", c.%s", col)
+		}
+		joinClause = fmt.Sprintf("LEFT JOIN %s c ON s.Id = c.SessionId", s.customDataConfig.TableName)
+	}
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s s %s WHERE s.Id = @id`, columns.String(), s.sessionTableName, joinClause))
+	stmt.Params["id"] = sessionID
+
+	return stmt
+}
+
+type spannerReadWriteTransaction struct {
+	txn *spanner.ReadWriteTransaction
+}
+
+func (t *spannerReadWriteTransaction) SpannerReadWriteTransaction() *spanner.ReadWriteTransaction {
+	return t.txn
+}
+
+func (t *spannerReadWriteTransaction) PostgresReadWriteTransaction() pgx.Tx {
+	panic("spannerReadOnlyTransaction.PostgresReadWriteTransaction() should never be called")
 }

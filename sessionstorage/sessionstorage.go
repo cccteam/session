@@ -26,7 +26,7 @@ func (s *sessionStorage) SetUserTableName(name string) {
 	s.db.SetUserTableName(name)
 }
 
-// NewSession inserts SessionInfo into the spanner database
+// NewSession inserts SessionInfo into the database
 func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -46,7 +46,7 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.U
 }
 
 // Session returns the session information from the database for given sessionID
-func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error) {
+func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -55,7 +55,10 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 		return nil, errors.Wrap(err, "db.Session()")
 	}
 
-	return (*sessioninfo.SessionInfo)(si), nil
+	return &sessioninfo.SessionData{
+		SessionInfo: (*sessioninfo.SessionInfo)(si.Session),
+		CustomData:  si.CustomData,
+	}, nil
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity

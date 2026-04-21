@@ -8,6 +8,7 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
@@ -494,6 +495,93 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 
 			if err := p.DestroyAllUserSessions(context.Background(), username); (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DestroyAllUserSessions() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name       string
+		sessionID  ccc.UUID
+		customData []*sessioninfo.CustomData
+		prepare    func(mockDB *mock_sessionstorage.Mockdb)
+		wantErr    bool
+	}{
+		{
+			name:      "success",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
+					ID:      sessionID,
+					Expired: false,
+				}}, nil)
+				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
+			},
+		},
+		{
+			name:      "fails when session not found",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(nil, errors.New("not found"))
+			},
+			wantErr: true,
+		},
+		{
+			name:      "fails when session is expired",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
+					ID:      sessionID,
+					Expired: true,
+				}}, nil)
+			},
+			wantErr: true,
+		},
+		{
+			name:      "fails on db update error",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
+					ID:      sessionID,
+					Expired: false,
+				}}, nil)
+				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			storage := &PasswordAuth{
+				sessionStorage: sessionStorage{
+					db: mockDB,
+				},
+			}
+			if tt.prepare != nil {
+				tt.prepare(mockDB)
+			}
+			if err := storage.UpdateCustomSessionData(context.Background(), tt.sessionID, tt.customData...); (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

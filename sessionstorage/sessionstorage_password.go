@@ -2,12 +2,17 @@ package sessionstorage
 
 import (
 	"context"
+	"fmt"
+	"regexp"
+	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -36,6 +41,46 @@ func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
 			db: postgres.NewSessionStorageDriver(pg),
 		},
 	}
+}
+
+// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
+func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session := &dbtype.InsertSession{
+		Username:  username,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	id, err := p.db.InsertCustomSession(ctx, session, resolver)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
+	}
+
+	return id, nil
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuth) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session, err := p.db.Session(ctx, sessionID)
+	if err != nil {
+		return errors.Wrap(err, "db.Session()")
+	}
+
+	if session.Expired {
+		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+	}
+
+	if err := p.db.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomSessionData()")
+	}
+
+	return nil
 }
 
 // User returns the user record associated with the username
@@ -147,4 +192,35 @@ func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username stri
 	}
 
 	return nil
+}
+
+var validColumnName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
+
+// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+func (p *PasswordAuth) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
+	if !validColumnName.MatchString(config.TableName) {
+		panic(fmt.Sprintf("invalid table name: %s. Table names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", config.TableName))
+	}
+
+	seen := make(map[string]struct{}, len(config.Columns))
+	dedupedColumns := make([]string, 0, len(config.Columns))
+	for _, name := range config.Columns {
+		if !validColumnName.MatchString(name) {
+			panic(fmt.Sprintf("invalid column name: %s. Column names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", name))
+		}
+		if dbtype.IsReservedCustomColumn(name) {
+			panic(fmt.Sprintf("invalid column name: %s. This column name is reserved and cannot be used as a custom session data column.", name))
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		dedupedColumns = append(dedupedColumns, name)
+	}
+
+	p.db.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
+		TableName: config.TableName,
+		Columns:   dedupedColumns,
+		Decoder:   config.Decoder,
+	})
 }

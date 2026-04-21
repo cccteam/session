@@ -14,6 +14,8 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+type testCustomData struct{ Role string }
+
 func Test_sessionStorage_NewSession(t *testing.T) {
 	t.Parallel()
 
@@ -81,7 +83,7 @@ func Test_sessionStorage_Session(t *testing.T) {
 		sessionID  ccc.UUID
 		prepare    func(*mock_sessionstorage.Mockdb)
 		wantErr    bool
-		expectedSI *sessioninfo.SessionInfo
+		expectedSI *sessioninfo.SessionData
 	}{
 		{
 			name:      "successful session retrieval",
@@ -89,25 +91,86 @@ func Test_sessionStorage_Session(t *testing.T) {
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
-					Return(&dbtype.Session{
-						ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-						Username:  "test_user",
-						CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
-						UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
-						Expired:   false,
+					Return(&dbtype.SessionData{
+						Session: &dbtype.Session{
+							ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+							Username:  "test_user",
+							CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							Expired:   false,
+						},
 					}, nil).
 					Times(1)
 			},
-			expectedSI: &sessioninfo.SessionInfo{
-				ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-				Username:  "test_user",
-				CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
-				UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
-				Expired:   false,
+			expectedSI: &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+					Username:  "test_user",
+					CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					Expired:   false,
+				},
 			},
 		},
 		{
-			name:      "failed session retrieval",
+			name:      "successful session retrieval with custom data",
+			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().
+					Session(gomock.Any(), gomock.Any()).
+					Return(&dbtype.SessionData{
+						Session: &dbtype.Session{
+							ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+							Username:  "test_user",
+							CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							Expired:   false,
+						},
+						CustomData: map[string]any{"Role": "admin"},
+					}, nil).
+					Times(1)
+			},
+			expectedSI: &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+					Username:  "test_user",
+					CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					Expired:   false,
+				},
+				CustomData: map[string]any{"Role": "admin"},
+			},
+		},
+		{
+			name:      "successful session retrieval with decoded custom data",
+			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+				mockDB.EXPECT().
+					Session(gomock.Any(), gomock.Any()).
+					Return(&dbtype.SessionData{
+						Session: &dbtype.Session{
+							ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+							Username:  "test_user",
+							CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+							Expired:   false,
+						},
+						CustomData: testCustomData{Role: "admin"},
+					}, nil).
+					Times(1)
+			},
+			expectedSI: &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{
+					ID:        ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+					Username:  "test_user",
+					CreatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					UpdatedAt: ccc.Must(time.Parse(time.RFC3339, "2021-01-01T00:00:00Z")),
+					Expired:   false,
+				},
+				CustomData: testCustomData{Role: "admin"},
+			},
+		},
+		{
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
 				mockDB.EXPECT().

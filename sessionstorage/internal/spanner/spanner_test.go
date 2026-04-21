@@ -1,6 +1,7 @@
 package spanner
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 func TestClient_FullMigration(t *testing.T) {
@@ -75,17 +77,19 @@ func TestSessionStorageDriver_Session(t *testing.T) {
 		name        string
 		sessionID   ccc.UUID
 		sourceURL   []string
-		wantSession *dbtype.Session
+		wantSession *dbtype.SessionData
 		wantErr     bool
 	}{
 		{
 			name:      "success",
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../../../schema/spanner/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
-			wantSession: &dbtype.Session{
-				ID:       ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
-				Username: "test user 2",
-				Expired:  true,
+			wantSession: &dbtype.SessionData{
+				Session: &dbtype.Session{
+					ID:       ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
+					Username: "test user 2",
+					Expired:  true,
+				},
 			},
 		},
 		{
@@ -871,6 +875,519 @@ func TestSessionStorageDriver_DestroyAllSessionsForUser(t *testing.T) {
 				t.Errorf("SessionStorageDriver.DestroyAllSessionsForUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			runAssertions(ctx, t, conn.Client, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &dbtype.CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Columns:   []string{"CustomString", "CustomInt", "CustomBool", "CustomFloat", "CustomTimestamp"},
+	}
+
+	tests := []struct {
+		name             string
+		sessionID        ccc.UUID
+		customDataConfig *dbtype.CustomSessionDataConfig
+		sourceURL        []string
+		wantSession      *dbtype.SessionData
+		wantCustomData   map[string]any
+		wantErr          bool
+	}{
+		{
+			name:      "success with custom column",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"CustomString"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: map[string]any{
+				"CustomString": "admin",
+			},
+		},
+		{
+			name:             "success with multiple custom column types",
+			sessionID:        ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: map[string]any{
+				"CustomString":    "admin",
+				"CustomInt":       "10",
+				"CustomBool":      true,
+				"CustomFloat":     float64(99.5),
+				"CustomTimestamp": "2024-06-15T08:30:00Z",
+			},
+		},
+		{
+			name:             "success with custom column expired session",
+			sessionID:        ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+				Username: "custom_user_2",
+				Expired:  true,
+			}},
+			wantCustomData: map[string]any{
+				"CustomString":    "viewer",
+				"CustomInt":       "5",
+				"CustomBool":      false,
+				"CustomFloat":     float64(42.0),
+				"CustomTimestamp": "2024-03-20T14:00:00Z",
+			},
+		},
+		{
+			name:      "session not found with custom columns",
+			sessionID: ccc.Must(ccc.NewUUID()),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"CustomString"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+		},
+		{
+			name:      "success without custom data config",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+		},
+		{
+			name:      "success with custom column name matching base session column",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "collision_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: map[string]any{
+				"Expired": "custom_not_expired",
+			},
+		},
+		{
+			name:      "success with custom column name matching base session column expired session",
+			sessionID: ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+				Username: "collision_user_2",
+				Expired:  true,
+			}},
+			wantCustomData: map[string]any{
+				"Expired": "custom_expired",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Client)
+			if tt.customDataConfig != nil {
+				c.SetCustomSessionDataConfig(tt.customDataConfig)
+			}
+
+			gotSession, err := c.Session(ctx, tt.sessionID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.Session() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantSession != nil {
+				if gotSession.ID != tt.wantSession.ID {
+					t.Errorf("SessionStorageDriver.Session() gotSession.ID = %v, want %v", gotSession.ID, tt.wantSession.ID)
+				}
+				if gotSession.Username != tt.wantSession.Username {
+					t.Errorf("SessionStorageDriver.Session() gotSession.Username = %v, want %v", gotSession.Username, tt.wantSession.Username)
+				}
+				if gotSession.Expired != tt.wantSession.Expired {
+					t.Errorf("SessionStorageDriver.Session() gotSession.Expired = %v, want %v", gotSession.Expired, tt.wantSession.Expired)
+				}
+			}
+			if tt.wantCustomData != nil {
+				if gotSession.CustomData == nil {
+					t.Fatal("SessionStorageDriver.Session() gotSession.CustomData is nil, want non-nil")
+				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
+				for key, wantVal := range tt.wantCustomData {
+					gotVal, ok := customData[key]
+					if !ok {
+						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
+						continue
+					}
+					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
+						t.Errorf("SessionStorageDriver.Session() CustomData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
+					}
+				}
+			} else if !tt.wantErr && gotSession != nil && gotSession.CustomData != nil {
+				t.Errorf("SessionStorageDriver.Session() gotSession.CustomData = %v, want nil", gotSession.CustomData)
+			}
+		})
+	}
+}
+
+func TestSessionStorageDriver_InsertCustomSession(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &dbtype.CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Columns:   []string{"CustomString", "CustomInt", "CustomBool", "CustomFloat", "CustomTimestamp"},
+	}
+
+	tests := []struct {
+		name               string
+		insertSession      *dbtype.InsertSession
+		customDataResolver dbtype.NewSessionCustomDataResolver
+		customDataConfig   *dbtype.CustomSessionDataConfig
+		sourceURL          []string
+		wantErr            bool
+		preAssertions      []string
+		postAssertions     []string
+		wantCustomData     map[string]any
+	}{
+		{
+			name: "success inserting session with custom data",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "editor"},
+				}, nil
+			},
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"CustomString"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM Sessions`,
+			},
+			wantCustomData: map[string]any{
+				"CustomString": "editor",
+			},
+		},
+		{
+			name: "success inserting session with multiple custom data types",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_multi",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "manager"},
+					{ColumnName: "CustomInt", Value: int64(42)},
+					{ColumnName: "CustomBool", Value: true},
+					{ColumnName: "CustomFloat", Value: float64(88.3)},
+					{ColumnName: "CustomTimestamp", Value: time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC)},
+				}, nil
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM Sessions`,
+			},
+			wantCustomData: map[string]any{
+				"CustomString":    "manager",
+				"CustomInt":       "42",
+				"CustomBool":      true,
+				"CustomFloat":     float64(88.3),
+				"CustomTimestamp": "2025-01-10T12:00:00Z",
+			},
+		},
+		{
+			name: "atomicity: custom data insert failure rolls back session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "atomic_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "x"},
+				}, nil
+			},
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "NonExistentCustomData",
+				Columns:   []string{"CustomString"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+		},
+		{
+			name: "error when resolver returns data but config not set",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_err",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "x"},
+				}, nil
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+		},
+		{
+			name: "success inserting session with custom column name matching base session column",
+			insertSession: &dbtype.InsertSession{
+				Username:  "collision_insert_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			customDataResolver: func(_ context.Context, _ dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "Expired", Value: "custom_value"},
+				}, nil
+			},
+			customDataConfig: &dbtype.CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Columns:   []string{"Expired"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			wantCustomData: map[string]any{
+				"Expired": "custom_value",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Client)
+			if tt.customDataConfig != nil {
+				c.SetCustomSessionDataConfig(tt.customDataConfig)
+			}
+
+			runAssertions(ctx, t, conn.Client, tt.preAssertions)
+			id, err := c.InsertCustomSession(ctx, tt.insertSession, tt.customDataResolver)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.InsertCustomSession() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				runAssertions(ctx, t, conn.Client, tt.postAssertions)
+				return
+			}
+
+			if id == ccc.NilUUID {
+				t.Error("SessionStorageDriver.InsertCustomSession() id is nil, want valid UUID")
+			}
+			runAssertions(ctx, t, conn.Client, []string{fmt.Sprintf(`SELECT COUNT(*) = 1 FROM Sessions WHERE Id = '%s'`, id)})
+
+			// Read back the session and verify custom data
+			if tt.wantCustomData != nil {
+				gotSession, err := c.Session(ctx, id)
+				if err != nil {
+					t.Fatalf("SessionStorageDriver.Session() error = %v", err)
+				}
+				if gotSession.CustomData == nil {
+					t.Fatal("SessionStorageDriver.Session() CustomSessionData is nil, want non-nil")
+				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
+				for key, wantVal := range tt.wantCustomData {
+					gotVal, ok := customData[key]
+					if !ok {
+						t.Errorf("SessionStorageDriver.Session() CustomSessionData missing key %q", key)
+						continue
+					}
+					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
+						t.Errorf("SessionStorageDriver.Session() CustomSessionData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
+					}
+				}
+			}
+
+			runAssertions(ctx, t, conn.Client, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &dbtype.CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Columns:   []string{"CustomString", "CustomInt", "CustomBool", "CustomFloat", "CustomTimestamp"},
+	}
+
+	tests := []struct {
+		name             string
+		sessionID        string
+		customData       []*sessioninfo.CustomData
+		customDataConfig *dbtype.CustomSessionDataConfig
+		sourceURL        []string
+		wantErr          bool
+		wantCustomData   map[string]any
+	}{
+		{
+			name:      "updates existing custom data row",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "updated_role"},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "updated_role",
+			},
+		},
+		{
+			name:      "inserts new custom data row when none exists",
+			sessionID: "33333333-3333-3333-3333-333333333333",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "new_role"},
+				{ColumnName: "CustomInt", Value: 42},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "new_role",
+				"CustomInt":    int64(42),
+			},
+		},
+		{
+			name:      "updates multiple columns on existing row",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "manager"},
+				{ColumnName: "CustomInt", Value: 99},
+			},
+			customDataConfig: customDataConfig,
+			sourceURL:        []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: map[string]any{
+				"CustomString": "manager",
+				"CustomInt":    int64(99),
+			},
+		},
+		{
+			name:      "error when custom data config not set",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "CustomString", Value: "x"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v", err)
+			}
+			c := NewSessionStorageDriver(conn.Client)
+			if tt.customDataConfig != nil {
+				c.SetCustomSessionDataConfig(tt.customDataConfig)
+			}
+
+			sessionID := ccc.Must(ccc.UUIDFromString(tt.sessionID))
+			err = c.UpdateCustomSessionData(ctx, sessionID, tt.customData...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			// Read back the session and verify custom data
+			if tt.wantCustomData != nil {
+				gotSession, err := c.Session(ctx, sessionID)
+				if err != nil {
+					t.Fatalf("SessionStorageDriver.Session() error = %v", err)
+				}
+				if gotSession.CustomData == nil {
+					t.Fatal("SessionStorageDriver.Session() CustomData is nil, want non-nil")
+				}
+				customData, ok := gotSession.CustomData.(map[string]any)
+				if !ok {
+					t.Fatalf("SessionStorageDriver.Session() gotSession.CustomData is %T, want map[string]any", gotSession.CustomData)
+				}
+				for key, wantVal := range tt.wantCustomData {
+					gotVal, ok := customData[key]
+					if !ok {
+						t.Errorf("SessionStorageDriver.Session() CustomData missing key %q", key)
+						continue
+					}
+					if fmt.Sprintf("%v", gotVal) != fmt.Sprintf("%v", wantVal) {
+						t.Errorf("SessionStorageDriver.Session() CustomData[%q] = %v (%T), want %v (%T)", key, gotVal, gotVal, wantVal, wantVal)
+					}
+				}
+			}
 		})
 	}
 }

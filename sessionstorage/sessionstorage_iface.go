@@ -17,7 +17,7 @@ import (
 // BaseStore defines an interface for managing session storage.
 type BaseStore interface {
 	// Session returns the session information from the database for given sessionID
-	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionInfo, error)
+	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error)
 	// UpdateSessionActivity updates the database with the current time for the session activity
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired
@@ -43,6 +43,10 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
 // PasswordAuthStore defines an interface for managing password sessions.
 type PasswordAuthStore interface {
+	// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
+	NewCustomSession(ctx context.Context, username string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error)
+	// UpdateCustomSessionData updates the custom session data for an active session.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -61,6 +65,8 @@ type PasswordAuthStore interface {
 	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
+	// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+	SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig)
 
 	// shared storage methods
 	PreauthStore
@@ -85,9 +91,13 @@ var (
 // db defines an interface for database operations related to session management.
 type db interface {
 	// Session returns the session information from the database for given sessionID.
-	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Session, error)
-	// InsertSession creates a new session in the database and returns its session ID.
-	InsertSession(ctx context.Context, session *dbtype.InsertSession) (ccc.UUID, error)
+	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error)
+	// InsertSession inserts a Session into the database and returns its id
+	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error)
+	// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.
+	InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error)
+	// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
@@ -96,6 +106,8 @@ type db interface {
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
 	SetUserTableName(name string)
+	// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
+	SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig)
 
 	//
 	// Password specific methods

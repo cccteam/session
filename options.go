@@ -1,12 +1,16 @@
 package session
 
 import (
+	"context"
 	"time"
 
+	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // CookieOption defines a function signature for setting cookie client options.
@@ -101,5 +105,63 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return passwordOption(func(p *PasswordAuth) {
 		p.hasher = securehash.New(hasher)
+	})
+}
+
+// WithCustomSessionDataTable configures a separate table for storing custom session data.
+//
+// The type parameter T is the consumer's strongly typed struct that the custom data will be decoded into.
+// The decoder function converts the raw column values (keyed by column name) into T.
+// Consumers retrieve the typed data via sessioninfo.CustomDataFromCtx[T](ctx) or sessioninfo.CustomDataFromRequest[T](r).
+//
+// Requirements:
+//   - The table MUST have a primary key column named "SessionId" that is a FK to the session table's primary key with ON DELETE CASCADE.
+//   - Do NOT include "SessionId" in the columnNames argument (it is implied).
+//
+// Parameters:
+//   - tableName   - name of the custom session data table.
+//   - decoder     - a function that converts the raw map[string]any from the DB into the consumer's typed struct.
+//   - columnNames - names of columns to read from that table (excluding "SessionId").
+//
+// Examples:
+//
+//	type MyCustomData struct {
+//		TenantId string
+//		RoleId   string
+//	}
+//
+//	WithCustomSessionDataTable("SessionCustomData",
+//		func(m map[string]any) (MyCustomData, error) {
+//			return MyCustomData{
+//				TenantId: m["TenantId"].(string),
+//				RoleId:   m["RoleId"].(string),
+//			}, nil
+//		},
+//		"TenantId", "RoleId",
+//	)
+func WithCustomSessionDataTable[T any](tableName string, decoder func(map[string]any) (T, error), columnNames ...string) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.storage.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
+			TableName: tableName,
+			Columns:   columnNames,
+			Decoder: func(m map[string]any) (any, error) {
+				return decoder(m)
+			},
+		})
+	})
+}
+
+// DBReadWriteTransaction is an interface that abstracts over the specific read-write transaction types of supported databases (e.g. Spanner, Postgres).
+type DBReadWriteTransaction interface {
+	dbtype.ReadWriteTransaction
+}
+
+// NewSessionCustomDataResolver defines a function signature for resolving custom session data at session creation time.
+type NewSessionCustomDataResolver func(ctx context.Context, txn DBReadWriteTransaction, userID ccc.UUID) ([]*sessioninfo.CustomData, error)
+
+// WithNewSessionCustomDataResolver sets a function that resolves custom session data at session creation time.
+func WithNewSessionCustomDataResolver(resolver NewSessionCustomDataResolver) PasswordOption {
+	return passwordOption(func(p *PasswordAuth) {
+		p.customDataResolver = resolver
 	})
 }
