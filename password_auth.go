@@ -33,10 +33,11 @@ var _ PasswordAuthHandlers = &PasswordAuth{}
 
 // PasswordAuth implements the PasswordHandlers interface for handling password authentication.
 type PasswordAuth struct {
-	storage     sessionstorage.PasswordAuthStore
-	hasher      *securehash.SecureHasher
-	autoUpgrade bool
-	baseSession *basesession.BaseSession
+	storage            sessionstorage.PasswordAuthStore
+	hasher             *securehash.SecureHasher
+	autoUpgrade        bool
+	baseSession        *basesession.BaseSession
+	customDataResolver NewSessionCustomDataResolver
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -142,7 +143,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	}
 
 	// user is successfully authenticated, start a new session
-	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	sessionID, err := p.startNewSession(ctx, w, user.Username, user.ID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -386,11 +387,28 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 }
 
 // startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, userID ccc.UUID) (ccc.UUID, error) {
+	// Bind userID into the resolver
+	var resolver dbtype.NewSessionCustomDataResolver
+	if p.customDataResolver != nil {
+		resolver = func(ctx context.Context, txn dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
+			return p.customDataResolver(ctx, txn, userID)
+		}
+	}
+
 	// Create new Session in database
-	id, err := p.storage.NewSession(ctx, username)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
+	var id ccc.UUID
+	var err error
+	if resolver != nil {
+		id, err = p.storage.NewCustomSession(ctx, username, resolver)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewCustomSession()")
+		}
+	} else {
+		id, err = p.storage.NewSession(ctx, username)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewSession()")
+		}
 	}
 
 	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)
@@ -463,8 +481,10 @@ func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, w http.Res
 		return errors.Wrap(err, "PasswordAuth.setPasswordHash()")
 	}
 
-	// Start a new session so the caller remains authenticated under a new session ID
-	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	// Start a new session so the caller remains authenticated under a new session ID.
+	// Custom session data is resolved fresh for the new session; values previously set
+	// via UpdateCustomSessionData do not carry over.
+	sessionID, err := p.startNewSession(ctx, w, user.Username, user.ID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -558,6 +578,15 @@ func (p *PasswordAuth) deactivateSessionUser(ctx context.Context, sessionUserID 
 func (p *PasswordAuth) activateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.ActivateUser()")
+	}
+
+	return nil
+}
+
+// updateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuth) updateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	if err := p.storage.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UpdateCustomSessionData()")
 	}
 
 	return nil
@@ -687,6 +716,11 @@ func (p *PasswordAuthAPI) DestroyAllUserSessions(ctx context.Context, username s
 	}
 
 	return nil
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session.
+func (p *PasswordAuthAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	return p.passwordAuth.updateCustomSessionData(ctx, sessionID, customData...)
 }
 
 // Cookie returns the underlying cookie.Client

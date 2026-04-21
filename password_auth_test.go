@@ -22,6 +22,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -39,11 +40,12 @@ func TestPasswordAuth_Login(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		reqBody        any
-		prepare        func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
-		wantMessage    bool
-		wantStatusCode int
+		name               string
+		reqBody            any
+		customDataResolver NewSessionCustomDataResolver
+		prepare            func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
+		wantMessage        bool
+		wantStatusCode     int
 	}{
 		{
 			name:           "fails on decode",
@@ -185,6 +187,67 @@ func TestPasswordAuth_Login(t *testing.T) {
 			},
 			wantStatusCode: http.StatusOK,
 		},
+		{
+			name: "success with custom session data",
+			reqBody: map[string]string{
+				"username": "user",
+				"password": "password",
+			},
+			customDataResolver: func(_ context.Context, _ DBReadWriteTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "admin"},
+					{ColumnName: "CustomInt", Value: 42},
+				}, nil
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
+				userID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					ID:           userID,
+					Username:     "user",
+					PasswordHash: validHash,
+				}, nil)
+				sessionID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().NewCustomSession(gomock.Any(), "user", gomock.Any()).
+					DoAndReturn(func(ctx context.Context, _ string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
+						got, err := resolver(ctx, nil)
+						if err != nil {
+							return ccc.NilUUID, err
+						}
+						want := []*sessioninfo.CustomData{
+							{ColumnName: "CustomString", Value: "admin"},
+							{ColumnName: "CustomInt", Value: 42},
+						}
+						if diff := cmp.Diff(got, want); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected custom session data: " + diff)
+						}
+						return sessionID, nil
+					})
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "new custom session fails",
+			reqBody: map[string]string{
+				"username": "user",
+				"password": "password",
+			},
+			customDataResolver: func(_ context.Context, _ DBReadWriteTransaction, _ ccc.UUID) ([]*sessioninfo.CustomData, error) {
+				return []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "admin"},
+					{ColumnName: "CustomInt", Value: 42},
+				}, nil
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					Username:     "user",
+					PasswordHash: validHash,
+				}, nil)
+				storage.EXPECT().NewCustomSession(gomock.Any(), "user", gomock.Any()).Return(ccc.NilUUID, errors.New("resolver error"))
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,6 +263,9 @@ func TestPasswordAuth_Login(t *testing.T) {
 			}
 			p.hasher = securehash.New(securehash.Argon2())
 			p.baseSession.CookieHandler = cookieHandler
+			if tt.customDataResolver != nil {
+				p.customDataResolver = tt.customDataResolver
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(storage, cookieHandler)
@@ -262,12 +328,12 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		{
 			name: "fails on user not found",
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -275,12 +341,12 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		{
 			name: "fails on disabled user",
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Disabled: true}, nil)
 			},
 			wantStatusCode: http.StatusUnauthorized,
@@ -289,12 +355,12 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.UUIDFromString("66f0def8-f353-4bcf-97a2-12d719fb2dcf")),
 					Username:  "user",
 					CreatedAt: tnow,
 					UpdatedAt: tnow.Add(5 * time.Minute),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					ID:       ccc.Must(ccc.UUIDFromString("c3c2e09e-90f8-40f8-9857-88d420625a89")),
 					Username: "user",
@@ -390,12 +456,12 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 				Username: "user",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(nil, errors.New("not found"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -407,12 +473,12 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 				Username: "user",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Disabled: true}, nil)
 			},
 			wantStatusCode: http.StatusUnauthorized,
@@ -424,12 +490,12 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 				Username: "user",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        ccc.Must(ccc.NewUUID()),
 					Username:  "user",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Username: "user"}, nil)
 			},
 			wantStatusCode: http.StatusOK,
@@ -442,12 +508,12 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				sessionID := ccc.Must(ccc.NewUUID())
-				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionInfo{
+				storage.EXPECT().Session(gomock.Any(), gomock.Any()).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{
 					ID:        sessionID,
 					Username:  "user",
 					CreatedAt: time.Now().Add(-8 * time.Second),
 					UpdatedAt: time.Now().Add(-6 * time.Second),
-				}, nil)
+				}}, nil)
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{Username: "user"}, nil)
 				storage.EXPECT().UpdateSessionActivity(gomock.Any(), sessionID).Return(nil)
 			},
@@ -1112,11 +1178,12 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 	username := "<username>"
 
 	tests := []struct {
-		name    string
-		userID  ccc.UUID
-		req     *ChangeSessionUserPasswordRequest
-		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore)
-		wantErr bool
+		name               string
+		userID             ccc.UUID
+		req                *ChangeSessionUserPasswordRequest
+		customDataResolver NewSessionCustomDataResolver
+		prepare            func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr            bool
 	}{
 		{
 			name:   "fails on user not found",
@@ -1215,6 +1282,39 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:   "success with custom session data resolved for the regenerated session",
+			userID: userID,
+			req: &ChangeSessionUserPasswordRequest{
+				OldPassword: "oldpassword",
+				NewPassword: "newpassword",
+			},
+			customDataResolver: func(_ context.Context, _ DBReadWriteTransaction, gotUserID ccc.UUID) ([]*sessioninfo.CustomData, error) {
+				if gotUserID != userID {
+					return nil, errors.Newf("resolver userID = %s, want %s", gotUserID, userID)
+				}
+
+				return []*sessioninfo.CustomData{{ColumnName: "CustomString", Value: "admin"}}, nil
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{
+					ID:           userID,
+					Username:     username,
+					PasswordHash: validHash,
+				}, nil)
+				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
+				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(nil)
+				storage.EXPECT().NewCustomSession(gomock.Any(), username, gomock.Any()).
+					DoAndReturn(func(ctx context.Context, _ string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
+						if _, err := resolver(ctx, nil); err != nil {
+							return ccc.NilUUID, err
+						}
+
+						return ccc.Must(ccc.NewUUID()), nil
+					})
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1228,6 +1328,9 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 			}
 			p.storage = storage
 			p.hasher = hasher
+			if tt.customDataResolver != nil {
+				p.customDataResolver = tt.customDataResolver
+			}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
@@ -1676,6 +1779,63 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 			err = p.deleteSessionUser(tt.ctx, tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeleteSessionUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name       string
+		sessionID  ccc.UUID
+		customData []*sessioninfo.CustomData
+		prepare    func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr    bool
+	}{
+		{
+			name:      "success",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
+			},
+		},
+		{
+			name:      "fails on storage error",
+			sessionID: sessionID,
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			p, err := NewPasswordAuth(storage, cookieKey)
+			if err != nil {
+				t.Fatalf("NewPasswordAuth() error=%v", err)
+			}
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err = p.updateCustomSessionData(t.Context(), tt.sessionID, tt.customData...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PasswordAuth.updateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

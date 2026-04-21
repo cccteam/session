@@ -412,7 +412,7 @@ func createHTTPRequest(method string, body io.Reader, sessionInfo *sessioninfo.S
 	ctx := context.Background()
 	if sessionInfo != nil {
 		ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, sessionInfo.ID)
-		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessionInfo)
+		ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{SessionInfo: sessionInfo})
 	} else {
 		ctx = context.WithValue(ctx, sessioninfo.CTXSessionID, ccc.Must(ccc.NewUUID()))
 	}
