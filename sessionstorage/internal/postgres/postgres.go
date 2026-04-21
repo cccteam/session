@@ -507,7 +507,7 @@ func (s *SessionStorageDriver) decodeCustomData(customColumnNames []string, cust
 
 	decoded, err := s.customDataConfig.DecodeRawData(rawData)
 	if err != nil {
-		return nil, errors.Wrap(err, "customDataConfig.DecodeRawMap()")
+		return nil, errors.Wrap(err, "customDataConfig.DecodeRawData()")
 	}
 
 	return decoded, nil

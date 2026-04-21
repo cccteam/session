@@ -107,7 +107,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 		decoded, err := s.customDataConfig.DecodeRawData(rawCustomData)
 		if err != nil {
-			return nil, errors.Wrap(err, "customDataConfig.DecodeRawMap()")
+			return nil, errors.Wrap(err, "customDataConfig.DecodeRawData()")
 		}
 		sessData.CustomData = decoded
 	}

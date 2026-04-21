@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -90,7 +89,7 @@ func CustomDataFromCtx[T any](ctx context.Context) (T, error) {
 
 	v, ok := sess.CustomData.(T)
 	if !ok {
-		return zeroVal, httpio.NewBadRequestMessagef("custom session data type mismatch: want %T, got %T", zeroVal, sess.CustomData)
+		return zeroVal, errors.Newf("custom session data type mismatch: want %T, got %T", zeroVal, sess.CustomData)
 	}
 
 	return v, nil
