@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
+	"github.com/go-playground/errors/v5"
 )
 
 // CTXKey is a type for storing values in the request context
@@ -28,12 +29,12 @@ func FromRequest(r *http.Request) *SessionInfo {
 
 // FromCtx returns the session information from the context.
 func FromCtx(ctx context.Context) *SessionInfo {
-	sessionInfo, ok := ctx.Value(CtxSessionInfo).(*SessionInfo)
+	sessionData, ok := ctx.Value(CtxSessionInfo).(*SessionData)
 	if !ok {
 		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
 	}
 
-	return sessionInfo
+	return sessionData.SessionInfo
 }
 
 // IDFromRequest returns the sessionID from the request
@@ -64,4 +65,32 @@ func UserFromCtx(ctx context.Context) *UserInfo {
 	}
 
 	return userInfo
+}
+
+// CustomDataFromRequest returns the strongly typed custom session data from the request context.
+// T must match the type used in WithCustomSessionDataTable.
+func CustomDataFromRequest[T any](r *http.Request) (T, error) {
+	return CustomDataFromCtx[T](r.Context())
+}
+
+// CustomDataFromCtx returns the strongly typed custom session data from the context.
+// T must match the type used in WithCustomSessionDataTable.
+func CustomDataFromCtx[T any](ctx context.Context) (T, error) {
+	var zeroVal T
+
+	sess, ok := ctx.Value(CtxSessionInfo).(*SessionData)
+	if !ok {
+		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
+	}
+
+	if sess.CustomData == nil {
+		return zeroVal, errors.New("no custom session data found in context")
+	}
+
+	v, ok := sess.CustomData.(T)
+	if !ok {
+		return zeroVal, errors.Newf("custom session data type mismatch: want %T, got %T", zeroVal, sess.CustomData)
+	}
+
+	return v, nil
 }
