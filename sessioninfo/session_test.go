@@ -20,13 +20,13 @@ func Test_sessionInfoFromRequest(t *testing.T) {
 	}{
 		{
 			name:      "does not find session info in request",
-			r:         httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody),
+			r:         httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/testPath", http.NoBody),
 			wantPanic: true,
 		},
 		{
 			name: "gets session info from request",
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/testPath", http.NoBody)
 				req = req.WithContext(context.WithValue(context.Background(), CtxSessionInfo, &SessionInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))}))
 
 				return req
@@ -64,13 +64,13 @@ func Test_userInfoFromRequest(t *testing.T) {
 	}{
 		{
 			name:      "does not find user info in request",
-			r:         httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody),
+			r:         httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/testPath", http.NoBody),
 			wantPanic: true,
 		},
 		{
 			name: "gets user info from request",
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodGet, "/testPath", http.NoBody)
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/testPath", http.NoBody)
 				req = req.WithContext(context.WithValue(context.Background(), CtxUserInfo, &UserInfo{ID: ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))}))
 
 				return req

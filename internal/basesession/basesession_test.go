@@ -647,7 +647,7 @@ func TestBaseSession_Logout(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			r := chi.NewRouter()
-			req := httptest.NewRequest(http.MethodDelete, "/testPath", http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/testPath", http.NoBody)
 			req = req.WithContext(context.WithValue(req.Context(), sessioninfo.CTXSessionID, tt.wantSessionID))
 
 			r.Route("/", func(r chi.Router) {

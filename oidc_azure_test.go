@@ -81,7 +81,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 				},
 				oidc: authenticator,
 			}
-			req := httptest.NewRequest(http.MethodPost, "/testPath?returnUrl=testReturnUrl", http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/testPath?returnUrl=testReturnUrl", http.NoBody)
 			rr := httptest.NewRecorder()
 			if tt.prepare != nil {
 				tt.prepare(rr, authenticator)
@@ -395,7 +395,7 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, tt.reqURL, http.NoBody)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tt.reqURL, http.NoBody)
 
 			a.FrontChannelLogout().ServeHTTP(recorder, req)
 			if recorder.Code != tt.expectedStatus {
