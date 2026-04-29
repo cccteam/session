@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.25.7
+go 1.26.2
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface
@@ -28,11 +28,11 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/oauth2 v0.35.0
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.79.3
 )
 
 require (

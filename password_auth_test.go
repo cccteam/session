@@ -211,9 +211,9 @@ func TestPasswordAuth_Login(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(b))
+				req = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/login", bytes.NewReader(b))
 			} else {
-				req = httptest.NewRequest(http.MethodPost, "/login", http.NoBody)
+				req = httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/login", http.NoBody)
 			}
 
 			rr := httptest.NewRecorder()
