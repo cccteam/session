@@ -123,8 +123,25 @@ func (p *PasswordAuth) Login() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
+		userId, loginRateLimitErr := a.accountManager.User().LimitLoginAttempts(ctx, req.Username)
+		if loginRateLimitErr != nil && !errors.Is(loginRateLimitErr, account.ErrLoginRateNearLimit) && !errors.Is(loginRateLimitErr, account.ErrLoginRateLimitFinalChance) {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Cause(loginRateLimitErr))
+		}
+
 		if err := p.loginAPI(ctx, w, req.Username, req.Password); err != nil {
+			if loginRateLimitErr != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Cause(loginRateLimitErr))
+			}
+
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := a.accountManager.User().ResetLoginAttempts(ctx, *userId); err != nil {
+			// Only logging the error because the login was validated
+			// and we don't want to report this error to the user, or
+			// prevent them from logging in.
+			ctxLogger := logger.FromCtx(ctx).WithAttributes().AddAttribute("username", req.Username)
+			ctxLogger.Logger().Error(errors.Wrap(err, "account.userChangeManager.ResetLoginAttempts()"))
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
