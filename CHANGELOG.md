@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.1](https://github.com/cccteam/session/compare/v0.8.0...v0.8.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* address Trivy active incident ([#189](https://github.com/cccteam/session/issues/189)) ([96d498e](https://github.com/cccteam/session/commit/96d498e25c8df4c48273c577995708d39fa0160c))
+* grant required permissions and add manual trigger to security-scan workflow ([#200](https://github.com/cccteam/session/issues/200)) ([577b843](https://github.com/cccteam/session/commit/577b843d96b3237b02bb78cad194385d9eec6b92))
+
+
+### Code Upgrade
+
+* Bump the github-actions group with 3 updates ([#183](https://github.com/cccteam/session/issues/183)) ([863a903](https://github.com/cccteam/session/commit/863a903d79ad56197b0810e0f47570644a4bccd0))
+* Bump the github-actions group with 3 updates ([#185](https://github.com/cccteam/session/issues/185)) ([d7ad018](https://github.com/cccteam/session/commit/d7ad01824c125ccc53ef780fb68158fc509890cd))
+* Upgrade Go toolchain, vulnerable deps, and pinned workflows ([#197](https://github.com/cccteam/session/issues/197)) ([229ffe4](https://github.com/cccteam/session/commit/229ffe400b84c8f41af35f80a52b40e48dad194b))
+
 ## [0.8.0](https://github.com/cccteam/session/compare/v0.7.4...v0.8.0) (2026-02-21)
 
 
