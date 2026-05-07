@@ -3,6 +3,7 @@ name: Security Scan
 on:
   schedule:
     - cron: "0 14 * * 1" # Daily at 8:00 AM CDT
+  workflow_dispatch:
 
 permissions:
   contents: read
