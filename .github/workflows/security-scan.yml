@@ -3,12 +3,15 @@ name: Security Scan
 on:
   schedule:
     - cron: "0 14 * * 1" # Daily at 8:00 AM CDT
-
-permissions:
-  contents: read
+  workflow_dispatch:
 
 jobs:
   security_scan:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      issues: write
     uses: cccteam/github-workflows/.github/workflows/golang-security-scan.yml@1ccb2a0d5c48271b34c23abb3821e365019838be # v5.24.0
     with:
       execute-trivy-scan: false
