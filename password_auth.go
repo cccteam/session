@@ -602,6 +602,32 @@ func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, user
 	return p.passwordAuth.loginAPI(ctx, w, username, password)
 }
 
+// StartAuthenticatedSession creates a new authenticated session for the given username,
+// bypassing the login process. This is intended for scenarios where the user has
+// already been authenticated by an external system.
+func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	user, err := p.passwordAuth.storage.UserByUserName(ctx, username)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.UserByUserName()")
+	}
+
+	if user.Disabled {
+		return ccc.NilUUID, httpio.NewUnauthorizedMessage("Account disabled")
+	}
+
+	sessionID, err := p.passwordAuth.startNewSession(ctx, w, user.Username, user.ID)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "PasswordAuth.startNewSession()")
+	}
+
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+
+	return sessionID, nil
+}
+
 // Logout destroys the current session
 func (p *PasswordAuthAPI) Logout(ctx context.Context) error {
 	// Destroy session in database
