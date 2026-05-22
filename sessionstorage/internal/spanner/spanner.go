@@ -285,6 +285,72 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	return nil
 }
 
+// SetUserUsernameAndSessions updates the user record and every active session row
+// for that user atomically. The user's current Username is read inside the
+// transaction so concurrent username changes cannot leave session rows stranded
+// under a stale username.
+func (s *SessionStorageDriver) SetUserUsernameAndSessions(ctx context.Context, userID ccc.UUID, newUsername string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	usernameUpdate := struct {
+		ID       ccc.UUID `spanner:"Id"`
+		Username string   `spanner:"Username"`
+	}{
+		ID:       userID,
+		Username: newUsername,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, usernameUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
+		if err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+
+		var oldUsername string
+		if err := row.Column(0, &oldUsername); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+
+		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
+				UPDATE %s
+				SET Username = @newUsername, UpdatedAt = @updatedAt
+				WHERE Username = @oldUsername AND Expired = FALSE
+		`, s.sessionTableName))
+		sessionsStmt.Params["oldUsername"] = oldUsername
+		sessionsStmt.Params["newUsername"] = newUsername
+		sessionsStmt.Params["updatedAt"] = time.Now()
+
+		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+			return httpio.NewConflictMessagef("username %q already exists", newUsername)
+		}
+
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)

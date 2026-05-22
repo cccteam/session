@@ -598,6 +598,103 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 	}
 }
 
+func TestSessionStorageDriver_SetUserUsernameAndSessions(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844"))
+	fullFixtures := []string{
+		"file://../../../schema/postgresql/migrations",
+		"file://testdata/users_test/valid_users",
+		"file://testdata/sessions_test/user_sessions",
+	}
+	usersOnlyFixtures := []string{
+		"file://../../../schema/postgresql/migrations",
+		"file://testdata/users_test/valid_users",
+	}
+
+	tests := []struct {
+		name           string
+		id             ccc.UUID
+		newUsername    string
+		sourceURL      []string
+		wantErr        bool
+		wantErrMsg     string
+		preAssertions  []string
+		postAssertions []string
+	}{
+		{
+			name:        "success updates user and active sessions, leaves expired and other users alone",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
+			preAssertions: []string{
+				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = TRUE`,
+			},
+			postAssertions: []string{
+				`SELECT "Username" = '<username>' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = '<username>' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = TRUE`,
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'disableduser' AND "Expired" = FALSE`,
+			},
+		},
+		{
+			name:        "success when user has no active sessions",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   usersOnlyFixtures,
+			postAssertions: []string{
+				`SELECT "Username" = '<username>' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
+		},
+		{
+			name:        "user not found",
+			id:          ccc.Must(ccc.NewUUID()),
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			postAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+			},
+		},
+		{
+			name:        "username already exists",
+			id:          userID,
+			newUsername: "disableduser",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			wantErrMsg:  `username "disableduser" already exists`,
+			postAssertions: []string{
+				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			err = c.SetUserUsernameAndSessions(ctx, tt.id, tt.newUsername)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.SetUserUsernameAndSessions() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
+				t.Errorf("SessionStorageDriver.SetUserUsernameAndSessions() error message = %q, want %q", httpio.Message(err), tt.wantErrMsg)
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
 func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
 	t.Parallel()
 

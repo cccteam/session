@@ -242,6 +242,62 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	return nil
 }
 
+// SetUserUsernameAndSessions updates the user record and every active session row
+// for that user atomically. The user's current Username is read inside the transaction
+// with a row lock so concurrent username changes cannot leave session rows stranded
+// under a stale username.
+func (s *SessionStorageDriver) SetUserUsernameAndSessions(ctx context.Context, userID ccc.UUID, newUsername string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	selectQuery := fmt.Sprintf(`
+		SELECT "Username" FROM "%s"
+		WHERE "Id" = $1
+		FOR UPDATE`, s.userTableName)
+
+	var oldUsername string
+	if err := tx.QueryRow(ctx, selectQuery, userID).Scan(&oldUsername); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	userQuery := fmt.Sprintf(`
+		UPDATE "%s" SET "Username" = $2
+		WHERE "Id" = $1`, s.userTableName)
+
+	if _, err := tx.Exec(ctx, userQuery, userID, newUsername); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
+			return httpio.NewConflictMessagef("username %q already exists", newUsername)
+		}
+
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	sessionQuery := fmt.Sprintf(`
+		UPDATE "%s" SET "Username" = $2
+		WHERE "Username" = $1 AND "Expired" = FALSE`, s.sessionTableName)
+
+	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)

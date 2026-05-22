@@ -408,6 +408,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsername(ctx, id, username a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsername), ctx, id, username)
 }
 
+// SetUserUsernameAndSessions mocks base method.
+func (m *MockPasswordAuthStore) SetUserUsernameAndSessions(ctx context.Context, id ccc.UUID, newUsername string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserUsernameAndSessions", ctx, id, newUsername)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserUsernameAndSessions indicates an expected call of SetUserUsernameAndSessions.
+func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsernameAndSessions(ctx, id, newUsername any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsernameAndSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsernameAndSessions), ctx, id, newUsername)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *MockPasswordAuthStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -790,6 +804,20 @@ func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, username stri
 func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, username)
+}
+
+// SetUserUsernameAndSessions mocks base method.
+func (m *Mockdb) SetUserUsernameAndSessions(ctx context.Context, id ccc.UUID, newUsername string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserUsernameAndSessions", ctx, id, newUsername)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserUsernameAndSessions indicates an expected call of SetUserUsernameAndSessions.
+func (mr *MockdbMockRecorder) SetUserUsernameAndSessions(ctx, id, newUsername any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsernameAndSessions", reflect.TypeOf((*Mockdb)(nil).SetUserUsernameAndSessions), ctx, id, newUsername)
 }
 
 // UpdateSessionActivity mocks base method.

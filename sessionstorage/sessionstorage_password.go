@@ -89,6 +89,19 @@ func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, usernam
 	return nil
 }
 
+// SetUserUsernameAndSessions updates the user username and, atomically, the Username
+// on every active session row for that user.
+func (p *PasswordAuth) SetUserUsernameAndSessions(ctx context.Context, id ccc.UUID, newUsername string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := p.db.SetUserUsernameAndSessions(ctx, id, newUsername); err != nil {
+		return errors.Wrap(err, "db.SetUserUsernameAndSessions()")
+	}
+
+	return nil
+}
+
 // SetUserPasswordHash updates the user password hash
 func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
