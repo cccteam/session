@@ -182,7 +182,7 @@ func (p *PasswordAuth) ValidateSession(next http.Handler) http.Handler {
 
 		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
 		if err != nil {
-			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		if user.Disabled {
@@ -226,7 +226,7 @@ func (p *PasswordAuth) Authenticated() http.HandlerFunc {
 
 		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
 		if err != nil {
-			return httpio.NewEncoder(w).InternalServerErrorWithError(ctx, err)
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		if user.Disabled {
