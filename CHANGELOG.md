@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/cccteam/session/compare/v0.8.1...v0.8.2) (2026-05-26)
+
+
+### Bug Fixes
+
+* Remove hard coded internal server error ([#203](https://github.com/cccteam/session/issues/203)) ([d507fd1](https://github.com/cccteam/session/commit/d507fd1ef9804aa444f2ba8036ccca2c69927bd7))
+
 ## [0.8.1](https://github.com/cccteam/session/compare/v0.8.0...v0.8.1) (2026-05-07)
 
 
