@@ -137,6 +137,23 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	if err != nil {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
+	if err := p.validateCredentials(ctx, user, password); err != nil {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+
+	// user is successfully authenticated, start a new session
+	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	if err != nil {
+		return errors.Wrap(err, "PasswordAuth.startNewSession()")
+	}
+
+	// Log the association between the sessionID and Username
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+
+	return nil
+}
+
+func (p *PasswordAuth) validateCredentials(ctx context.Context, user *dbtype.SessionUser, password string) error {
 	upgrade, err := p.hasher.Compare(user.PasswordHash, password)
 	if err != nil {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
@@ -152,15 +169,6 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	if user.Disabled {
 		return httpio.NewUnauthorizedMessageWithError(err, "Account disabled")
 	}
-
-	// user is successfully authenticated, start a new session
-	sessionID, err := p.startNewSession(ctx, w, user.Username)
-	if err != nil {
-		return errors.Wrap(err, "PasswordAuth.startNewSession()")
-	}
-
-	// Log the association between the sessionID and Username
-	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 
 	return nil
 }
@@ -562,7 +570,17 @@ func newPasswordAuthAPI(passwordAuth *PasswordAuth) *PasswordAuthAPI {
 	}
 }
 
-// Login validates the username and password.
+// ValidateCredentials validates the username and password, without creating a session.
+func (p *PasswordAuthAPI) ValidateCredentials(ctx context.Context, username, password string) error {
+	user, err := p.passwordAuth.storage.UserByUserName(ctx, username)
+	if err != nil {
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+
+	return p.passwordAuth.validateCredentials(ctx, user, password)
+}
+
+// Login validates the username and password and creates a new session for the user.
 func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, username, password string) error {
 	return p.passwordAuth.loginAPI(ctx, w, username, password)
 }
