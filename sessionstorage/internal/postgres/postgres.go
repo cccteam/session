@@ -284,10 +284,10 @@ func (s *SessionStorageDriver) SetUserUsernameAndSessions(ctx context.Context, u
 	}
 
 	sessionQuery := fmt.Sprintf(`
-		UPDATE "%s" SET "Username" = $2
+		UPDATE "%s" SET "Username" = $2, "UpdatedAt" = $3
 		WHERE "Username" = $1 AND "Expired" = FALSE`, s.sessionTableName)
 
-	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername); err != nil {
+	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername, time.Now()); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
