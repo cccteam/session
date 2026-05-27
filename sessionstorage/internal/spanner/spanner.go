@@ -52,10 +52,10 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 		SELECT
-			Id, 
-			Username, 
-			CreatedAt, 
-			UpdatedAt, 
+			Id,
+			Username,
+			CreatedAt,
+			UpdatedAt,
 			Expired
 		FROM %s
 		WHERE Id = @id
@@ -170,7 +170,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 	defer span.End()
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-		SELECT 
+		SELECT
 			Id,
 			Username,
 			PasswordHash,
@@ -198,7 +198,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	defer span.End()
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-		SELECT 
+		SELECT
 			Id,
 			Username,
 			PasswordHash,
@@ -383,7 +383,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 	defer span.End()
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-			DELETE FROM %s 
+			DELETE FROM %s
 			WHERE Id = @id`, s.userTableName))
 	stmt.Params["id"] = id
 
@@ -438,8 +438,8 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	defer span.End()
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s 
-			SET Expired = TRUE, UpdatedAt = @updatedAt 
+			UPDATE %s
+			SET Expired = TRUE, UpdatedAt = @updatedAt
 			WHERE Username = @username
 	`, s.sessionTableName))
 	stmt.Params["username"] = username
