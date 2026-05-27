@@ -104,7 +104,7 @@ func (p *PasswordAuth) StartSession(next http.Handler) http.Handler {
 	return p.baseSession.StartSession(next)
 }
 
-// Login validates the username and password and establishes the sessoin cookie.
+// Login validates the username and password and establishes the session cookie.
 func (p *PasswordAuth) Login() http.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
