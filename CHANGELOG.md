@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.0](https://github.com/cccteam/session/compare/v0.8.2...v0.9.0) (2026-05-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* Revert breaking change to `PasswordAuthAPI.ChangeSessionUserUsername()` introduced in v0.8.0 ([#204](https://github.com/cccteam/session/issues/204))
+
+### Features
+
+* Expose DestroyAllUserSessions via the API ([#209](https://github.com/cccteam/session/issues/209)) ([afebbfd](https://github.com/cccteam/session/commit/afebbfddece9e7be46caf0f9b20e0790396c05f7))
+* validate credentials PasswordAuth API ([#207](https://github.com/cccteam/session/issues/207)) ([26d9fee](https://github.com/cccteam/session/commit/26d9feec728f29a08050c4cc78c406e05c24f280))
+
+
+### Bug Fixes
+
+* Revert breaking change to `PasswordAuthAPI.ChangeSessionUserUsername()` introduced in v0.8.0 ([#204](https://github.com/cccteam/session/issues/204)) ([e4ed38c](https://github.com/cccteam/session/commit/e4ed38c13332597c831f637ddc98fb2725f76a4a))
+* Update active sessions in place when changing a username ([#204](https://github.com/cccteam/session/issues/204)) ([e4ed38c](https://github.com/cccteam/session/commit/e4ed38c13332597c831f637ddc98fb2725f76a4a))
+
 ## [0.8.2](https://github.com/cccteam/session/compare/v0.8.1...v0.8.2) (2026-05-26)
 
 
