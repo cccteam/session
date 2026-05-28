@@ -173,6 +173,15 @@ func (p *PreauthAPI) ValidateSession(ctx context.Context) (context.Context, erro
 	return ctx, nil
 }
 
+// DestroyAllUserSessions destroys all sessions for a given user
+func (p *PreauthAPI) DestroyAllUserSessions(ctx context.Context, username string) error {
+	if err := p.preauth.storage.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PreauthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
 // Cookie returns the underlying cookie.Client
 func (p *PreauthAPI) Cookie() *cookie.Client {
 	return p.preauth.baseSession.CookieHandler.Cookie()

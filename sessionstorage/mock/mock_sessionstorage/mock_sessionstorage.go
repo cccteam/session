@@ -135,6 +135,20 @@ func (m *MockPreauthStore) EXPECT() *MockPreauthStoreMockRecorder {
 	return m.recorder
 }
 
+// DestroyAllUserSessions mocks base method.
+func (m *MockPreauthStore) DestroyAllUserSessions(ctx context.Context, username string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyAllUserSessions", ctx, username)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyAllUserSessions indicates an expected call of DestroyAllUserSessions.
+func (mr *MockPreauthStoreMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPreauthStore)(nil).DestroyAllUserSessions), ctx, username)
+}
+
 // DestroySession mocks base method.
 func (m *MockPreauthStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()

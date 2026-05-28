@@ -638,6 +638,15 @@ func (p *PasswordAuthAPI) ActivateSessionUser(ctx context.Context, sessionUserUU
 	return p.passwordAuth.activateSessionUser(ctx, sessionUserUUID)
 }
 
+// DestroyAllUserSessions destroys all sessions for a given user
+func (p *PasswordAuthAPI) DestroyAllUserSessions(ctx context.Context, username string) error {
+	if err := p.passwordAuth.storage.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PreauthStore.DestroyAllUserSessions()")
+	}
+
+	return nil
+}
+
 // Cookie returns the underlying cookie.Client
 func (p *PasswordAuthAPI) Cookie() *cookie.Client {
 	return p.passwordAuth.baseSession.CookieHandler.Cookie()

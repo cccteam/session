@@ -81,3 +81,15 @@ func (s *sessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID)
 
 	return nil
 }
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (s *sessionStorage) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "db.DestroyAllUserSessions()")
+	}
+
+	return nil
+}

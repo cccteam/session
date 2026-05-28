@@ -137,15 +137,3 @@ func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
 
 	return nil
 }
-
-// DestroyAllUserSessions destroys all sessions for a given user
-func (p *PasswordAuth) DestroyAllUserSessions(ctx context.Context, username string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := p.db.DestroyAllUserSessions(ctx, username); err != nil {
-		return errors.Wrap(err, "db.DestroyAllUserSessions()")
-	}
-
-	return nil
-}
