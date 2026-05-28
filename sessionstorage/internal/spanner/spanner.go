@@ -14,6 +14,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/spxscan"
+	"github.com/cccteam/spxscan/spxapi"
 	"github.com/go-playground/errors/v5"
 	"google.golang.org/grpc/codes"
 )
@@ -63,7 +64,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	session := &dbtype.Session{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), session, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
@@ -181,7 +182,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
 		}
 
@@ -209,7 +210,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
 		}
 
