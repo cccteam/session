@@ -34,6 +34,8 @@ var _ PreauthStore = (*Preauth)(nil)
 type PreauthStore interface {
 	// NewSession creates a new session in the database, returning its id
 	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+	// DestroyAllUserSessions destroys all sessions for a given user
+	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	// shared storage methods
 	BaseStore
@@ -60,8 +62,6 @@ type PasswordAuthStore interface {
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id ccc.UUID) error
-	// DestroyAllUserSessions destroys all sessions for a given user
-	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	// shared storage methods
 	PreauthStore
