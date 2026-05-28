@@ -262,7 +262,7 @@ func (p *PasswordAuth) ChangeUsername() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		if err := p.changeSessionUserUsername(ctx, w, userInfo.ID, req.Username); err != nil {
+		if err := p.changeSessionUserUsername(ctx, userInfo.ID, req.Username); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -414,23 +414,15 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 	return decoder
 }
 
-// changeSessionUserUsername handles modifications to a user username
-func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, username string) error {
+// changeSessionUserUsername handles modifications to a user username.
+// The user record and every active session row for that user are updated atomically,
+// preserving the acting session and any other sessions the user has open.
+func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
 	if err := p.storage.SetUserUsername(ctx, userID, username); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsername()")
 	}
 
-	if err := p.storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
-	}
-
-	sessionID, err := p.startNewSession(ctx, w, username)
-	if err != nil {
-		return errors.Wrap(err, "PasswordAuth.startNewSession()")
-	}
-
-	// Log the association between the sessionID and Username
-	logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+	logger.FromCtx(ctx).AddRequestAttribute("Username", username)
 
 	return nil
 }
@@ -609,9 +601,11 @@ func (p *PasswordAuthAPI) ValidateSession(ctx context.Context) (context.Context,
 	return ctx, nil
 }
 
-// ChangeSessionUserUsername handles modifications to a user username
-func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, username string) error {
-	return p.passwordAuth.changeSessionUserUsername(ctx, w, userID, username)
+// ChangeSessionUserUsername handles modifications to a user username.
+// The user record and every active session row for that user are updated atomically,
+// preserving the acting session and any other sessions the user has open.
+func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+	return p.passwordAuth.changeSessionUserUsername(ctx, userID, username)
 }
 
 // ChangeSessionUserPassword handles modifications to a user password

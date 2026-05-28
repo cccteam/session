@@ -523,10 +523,21 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 	t.Parallel()
 
+	userID := ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844"))
+	fullFixtures := []string{
+		"file://../../../schema/spanner/migrations",
+		"file://testdata/users_test/valid_users",
+		"file://testdata/sessions_test/user_sessions",
+	}
+	usersOnlyFixtures := []string{
+		"file://../../../schema/spanner/migrations",
+		"file://testdata/users_test/valid_users",
+	}
+
 	tests := []struct {
 		name           string
 		id             ccc.UUID
-		username       string
+		newUsername    string
 		sourceURL      []string
 		wantErr        bool
 		wantErrMsg     string
@@ -534,39 +545,53 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 		postAssertions []string
 	}{
 		{
-			name:      "success",
-			id:        ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-			username:  "<username>",
-			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
+			name:        "success updates user and active sessions, leaves expired and other users alone",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
 			preAssertions: []string{
-				`
-					SELECT Username = 'testUser'
-					FROM SessionUsers 
-					WHERE Id = '27b43588-b743-4133-8730-e0439065a844'
-				`,
+				`SELECT Username = 'testUser' FROM SessionUsers WHERE Id = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = FALSE) = 2`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = TRUE) = 1`,
 			},
 			postAssertions: []string{
-				`
-					SELECT Username = '<username>'
-					FROM SessionUsers
-					WHERE Id = '27b43588-b743-4133-8730-e0439065a844'
-				`,
+				`SELECT Username = '<username>' FROM SessionUsers WHERE Id = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = '<username>' AND Expired = FALSE) = 2`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = TRUE) = 1`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = FALSE) = 0`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'disableduser' AND Expired = FALSE) = 1`,
 			},
 		},
 		{
-			name:      "user not found",
-			id:        ccc.Must(ccc.NewUUID()),
-			username:  "<username>",
-			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:   true,
+			name:        "success when user has no active sessions",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   usersOnlyFixtures,
+			postAssertions: []string{
+				`SELECT Username = '<username>' FROM SessionUsers WHERE Id = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
 		},
 		{
-			name:       "user already exists",
-			id:         ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-			username:   "disableduser",
-			sourceURL:  []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:    true,
-			wantErrMsg: `username "disableduser" already exists`,
+			name:        "user not found",
+			id:          ccc.Must(ccc.NewUUID()),
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			postAssertions: []string{
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = FALSE) = 2`,
+			},
+		},
+		{
+			name:        "username already exists",
+			id:          userID,
+			newUsername: "disableduser",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			wantErrMsg:  `username "disableduser" already exists`,
+			postAssertions: []string{
+				`SELECT Username = 'testUser' FROM SessionUsers WHERE Id = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT (SELECT COUNT(*) FROM Sessions WHERE Username = 'testUser' AND Expired = FALSE) = 2`,
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -580,12 +605,12 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.SetUserUsername(ctx, tt.id, tt.username)
+			err = c.SetUserUsername(ctx, tt.id, tt.newUsername)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil && tt.wantErrMsg != "" && httpio.Message(err) != tt.wantErrMsg {
-				t.Errorf("SessionStorageDriver.CreateUser() error message = %s, want %s", httpio.Message(err), tt.wantErrMsg)
+				t.Errorf("SessionStorageDriver.SetUserUsername() error message = %q, want %q", httpio.Message(err), tt.wantErrMsg)
 			}
 			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})

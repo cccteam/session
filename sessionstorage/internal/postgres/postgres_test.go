@@ -529,10 +529,21 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 	t.Parallel()
 
+	userID := ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844"))
+	fullFixtures := []string{
+		"file://../../../schema/postgresql/migrations",
+		"file://testdata/users_test/valid_users",
+		"file://testdata/sessions_test/user_sessions",
+	}
+	usersOnlyFixtures := []string{
+		"file://../../../schema/postgresql/migrations",
+		"file://testdata/users_test/valid_users",
+	}
+
 	tests := []struct {
 		name           string
 		id             ccc.UUID
-		username       string
+		newUsername    string
 		sourceURL      []string
 		wantErr        bool
 		wantErrMsg     string
@@ -540,39 +551,53 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 		postAssertions []string
 	}{
 		{
-			name:      "success",
-			id:        ccc.Must(ccc.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-			username:  "<username>",
-			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
+			name:        "success updates user and active sessions, leaves expired and other users alone",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
 			preAssertions: []string{
-				`
-					SELECT "Username" = 'testUser' 
-					FROM "SessionUsers" 
-					WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'
-				`,
+				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = TRUE`,
 			},
 			postAssertions: []string{
-				`
-					SELECT "Username" = '<username>'
-					FROM "SessionUsers"
-					WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'
-				`,
+				`SELECT "Username" = '<username>' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = '<username>' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = TRUE`,
+				`SELECT COUNT(*) = 0 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+				`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Username" = 'disableduser' AND "Expired" = FALSE`,
 			},
 		},
 		{
-			name:      "user not found",
-			id:        ccc.Must(ccc.NewUUID()),
-			username:  "<username>",
-			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:   true,
+			name:        "success when user has no active sessions",
+			id:          userID,
+			newUsername: "<username>",
+			sourceURL:   usersOnlyFixtures,
+			postAssertions: []string{
+				`SELECT "Username" = '<username>' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+			},
 		},
 		{
-			name:       "username already exists",
-			id:         ccc.Must(ccc.UUIDFromString("54918893-2342-4621-8673-79520a84b84f")),
-			username:   "testUser",
-			sourceURL:  []string{"file://../../../schema/postgresql/migrations", "file://testdata/users_test/valid_users"},
-			wantErr:    true,
-			wantErrMsg: `username "testUser" already exists`,
+			name:        "user not found",
+			id:          ccc.Must(ccc.NewUUID()),
+			newUsername: "<username>",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			postAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+			},
+		},
+		{
+			name:        "username already exists",
+			id:          userID,
+			newUsername: "disableduser",
+			sourceURL:   fullFixtures,
+			wantErr:     true,
+			wantErrMsg:  `username "disableduser" already exists`,
+			postAssertions: []string{
+				`SELECT "Username" = 'testUser' FROM "SessionUsers" WHERE "Id" = '27b43588-b743-4133-8730-e0439065a844'`,
+				`SELECT COUNT(*) = 2 FROM "Sessions" WHERE "Username" = 'testUser' AND "Expired" = FALSE`,
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -586,7 +611,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			err = c.SetUserUsername(ctx, tt.id, tt.username)
+			err = c.SetUserUsername(ctx, tt.id, tt.newUsername)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}

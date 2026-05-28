@@ -14,6 +14,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/spxscan"
+	"github.com/cccteam/spxscan/spxapi"
 	"github.com/go-playground/errors/v5"
 	"google.golang.org/grpc/codes"
 )
@@ -63,7 +64,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	session := &dbtype.Session{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), session, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
 
@@ -181,7 +182,7 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", id)
 		}
 
@@ -209,7 +210,7 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 
 	user := &dbtype.SessionUser{}
 	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
-		if errors.Is(err, spxscan.ErrNotFound) {
+		if errors.Is(err, spxapi.ErrNotFound) {
 			return nil, httpio.NewNotFoundMessagef("username %q does not exist", username)
 		}
 
@@ -252,8 +253,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	return user, nil
 }
 
-// SetUserUsername updates the user username
-func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+// SetUserUsername updates the user record and every active session row
+// for that user atomically. The user's current Username is read inside the
+// transaction so concurrent username changes cannot leave session rows stranded
+// under a stale username.
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, newUsername string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -262,7 +266,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		Username string   `spanner:"Username"`
 	}{
 		ID:       userID,
-		Username: username,
+		Username: newUsername,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.userTableName, usernameUpdate)
@@ -270,16 +274,46 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		return errors.Wrap(err, "spanner.UpdateStruct()")
 	}
 
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID}, []string{"Username"})
+		if err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+
+		var oldUsername string
+		if err := row.Column(0, &oldUsername); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+
+		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
+				UPDATE %s
+				SET Username = @newUsername, UpdatedAt = @updatedAt
+				WHERE Username = @oldUsername AND Expired = FALSE
+		`, s.sessionTableName))
+		sessionsStmt.Params["oldUsername"] = oldUsername
+		sessionsStmt.Params["newUsername"] = newUsername
+		sessionsStmt.Params["updatedAt"] = time.Now()
+
+		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", usernameUpdate.ID)
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
-			return httpio.NewConflictMessagef("username %q already exists", usernameUpdate.Username)
+			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 
-		return errors.Wrap(err, "spanner.Client.Apply()")
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil

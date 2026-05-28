@@ -512,15 +512,6 @@ func TestPassword_ChangeUsername(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:    "fails on storage error",
-			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			reqBody: `{"username": "new_username"}`,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(errors.New("db error"))
-			},
-			wantStatusCode: http.StatusInternalServerError,
-		},
-		{
 			name:           "fails decode request",
 			userID:         ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			reqBody:        `invalid json`,
@@ -528,23 +519,11 @@ func TestPassword_ChangeUsername(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 		},
 		{
-			name:    "fails to destroy old session",
+			name:    "fails on storage update",
 			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			reqBody: `{"username": "new_username"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), ccc.Must(ccc.UUIDFromString("abcdef01-2345-6789-abcd-ef0123456789"))).Return(errors.New("destroy session failed"))
-			},
-			wantStatusCode: http.StatusInternalServerError,
-		},
-		{
-			name:    "fails to create new session",
-			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			reqBody: `{"username": "new_username"}`,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), ccc.Must(ccc.UUIDFromString("abcdef01-2345-6789-abcd-ef0123456789"))).Return(nil)
-				storage.EXPECT().NewSession(gomock.Any(), "new_username").Return(ccc.NilUUID, errors.New("new session failed"))
+				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -554,8 +533,6 @@ func TestPassword_ChangeUsername(t *testing.T) {
 			reqBody: `{"username": "new_username"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), ccc.Must(ccc.UUIDFromString("abcdef01-2345-6789-abcd-ef0123456789"))).Return(nil)
-				storage.EXPECT().NewSession(gomock.Any(), "new_username").Return(ccc.NilUUID, nil)
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -1202,7 +1179,6 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
-	requestID := ccc.Must(ccc.NewUUID())
 	username := "<username>"
 
 	tests := []struct {
@@ -1213,41 +1189,11 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "fails on user error",
+			name:     "fails on storage update",
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
-			},
-			wantErr: true,
-		},
-		{
-			name:     "fails on storage error",
-			userID:   userID,
-			username: username,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("db error"))
-			},
-			wantErr: true,
-		},
-		{
-			name:     "fails on destroy session error",
-			userID:   userID,
-			username: username,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), requestID).Return(errors.New("db error"))
-			},
-			wantErr: true,
-		},
-		{
-			name:     "fails on new session error",
-			userID:   userID,
-			username: username,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), requestID).Return(nil)
-				storage.EXPECT().NewSession(gomock.Any(), gomock.Any()).Return(ccc.NilUUID, errors.New("db error"))
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -1257,19 +1203,6 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), requestID).Return(nil)
-				storage.EXPECT().NewSession(gomock.Any(), username).Return(ccc.NilUUID, nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:     "set username uses the new username",
-			userID:   userID,
-			username: username,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username /*not what the query returned*/).Return(nil)
-				storage.EXPECT().DestroySession(gomock.Any(), requestID).Return(nil)
-				storage.EXPECT().NewSession(gomock.Any(), username).Return(ccc.NilUUID, nil)
 			},
 			wantErr: false,
 		},
@@ -1290,8 +1223,7 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			ctx := context.WithValue(context.Background(), sessioninfo.CTXSessionID, requestID)
-			err = p.API().ChangeSessionUserUsername(ctx, httptest.NewRecorder(), tt.userID, tt.username)
+			err = p.API().ChangeSessionUserUsername(t.Context(), tt.userID, tt.username)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.API.ChangeSessionUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}

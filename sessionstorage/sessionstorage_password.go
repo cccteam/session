@@ -77,12 +77,13 @@ func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessio
 	return u, nil
 }
 
-// SetUserUsername updates the user username
-func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, username string) error {
+// SetUserUsername updates the user username and, atomically, the Username
+// on every active session row for that user.
+func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.SetUserUsername(ctx, id, username); err != nil {
+	if err := p.db.SetUserUsername(ctx, id, newUsername); err != nil {
 		return errors.Wrap(err, "db.SetUserUsername()")
 	}
 
