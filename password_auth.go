@@ -418,8 +418,8 @@ func newDecoder[T any]() *resource.StructDecoder[T] {
 // The user record and every active session row for that user are updated atomically,
 // preserving the acting session and any other sessions the user has open.
 func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
-	if err := p.storage.SetUserUsernameAndSessions(ctx, userID, username); err != nil {
-		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsernameAndSessions()")
+	if err := p.storage.SetUserUsername(ctx, userID, username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.SetUserUsername()")
 	}
 
 	logger.FromCtx(ctx).AddRequestAttribute("Username", username)

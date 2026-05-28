@@ -523,7 +523,7 @@ func TestPassword_ChangeUsername(t *testing.T) {
 			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			reqBody: `{"username": "new_username"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsernameAndSessions(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(errors.New("db error"))
+				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -532,7 +532,7 @@ func TestPassword_ChangeUsername(t *testing.T) {
 			userID:  ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			reqBody: `{"username": "new_username"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsernameAndSessions(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
+				storage.EXPECT().SetUserUsername(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), "new_username").Return(nil)
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -1193,7 +1193,7 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsernameAndSessions(gomock.Any(), userID, username).Return(errors.New("db error"))
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -1202,7 +1202,7 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			userID:   userID,
 			username: username,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().SetUserUsernameAndSessions(gomock.Any(), userID, username).Return(nil)
+				storage.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
 			},
 			wantErr: false,
 		},

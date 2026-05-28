@@ -219,34 +219,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	return s.User(ctx, id)
 }
 
-// SetUserUsername updates the user password username
-func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	query := fmt.Sprintf(`
-		UPDATE "%s" SET "Username" = $2
-		WHERE "Id" = $1`, s.userTableName)
-
-	if cmdTag, err := s.conn.Exec(ctx, query, userID, username); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
-			return httpio.NewConflictMessagef("username %q already exists", username)
-		}
-
-		return errors.Wrap(err, "Queryer.Exec()")
-	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
-	}
-
-	return nil
-}
-
-// SetUserUsernameAndSessions updates the user record and every active session row
+// SetUserUsername updates the user record and every active session row
 // for that user atomically. The user's current Username is read inside the transaction
 // with a row lock so concurrent username changes cannot leave session rows stranded
 // under a stale username.
-func (s *SessionStorageDriver) SetUserUsernameAndSessions(ctx context.Context, userID ccc.UUID, newUsername string) error {
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, newUsername string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 

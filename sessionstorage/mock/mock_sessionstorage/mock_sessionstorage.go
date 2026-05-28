@@ -395,31 +395,17 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetUserTableName(name any) *gomock.
 }
 
 // SetUserUsername mocks base method.
-func (m *MockPasswordAuthStore) SetUserUsername(ctx context.Context, id ccc.UUID, username string) error {
+func (m *MockPasswordAuthStore) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, username)
+	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, newUsername)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetUserUsername indicates an expected call of SetUserUsername.
-func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsername(ctx, id, username any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsername), ctx, id, username)
-}
-
-// SetUserUsernameAndSessions mocks base method.
-func (m *MockPasswordAuthStore) SetUserUsernameAndSessions(ctx context.Context, id ccc.UUID, newUsername string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserUsernameAndSessions", ctx, id, newUsername)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetUserUsernameAndSessions indicates an expected call of SetUserUsernameAndSessions.
-func (mr *MockPasswordAuthStoreMockRecorder) SetUserUsernameAndSessions(ctx, id, newUsername any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsernameAndSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsernameAndSessions), ctx, id, newUsername)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetUserUsername), ctx, id, newUsername)
 }
 
 // UpdateSessionActivity mocks base method.
@@ -793,31 +779,17 @@ func (mr *MockdbMockRecorder) SetUserTableName(name any) *gomock.Call {
 }
 
 // SetUserUsername mocks base method.
-func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, username string) error {
+func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, username)
+	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, newUsername)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetUserUsername indicates an expected call of SetUserUsername.
-func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, username any) *gomock.Call {
+func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, username)
-}
-
-// SetUserUsernameAndSessions mocks base method.
-func (m *Mockdb) SetUserUsernameAndSessions(ctx context.Context, id ccc.UUID, newUsername string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserUsernameAndSessions", ctx, id, newUsername)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetUserUsernameAndSessions indicates an expected call of SetUserUsernameAndSessions.
-func (mr *MockdbMockRecorder) SetUserUsernameAndSessions(ctx, id, newUsername any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsernameAndSessions", reflect.TypeOf((*Mockdb)(nil).SetUserUsernameAndSessions), ctx, id, newUsername)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, newUsername)
 }
 
 // UpdateSessionActivity mocks base method.

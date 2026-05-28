@@ -252,44 +252,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	return user, nil
 }
 
-// SetUserUsername updates the user username
-func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	usernameUpdate := struct {
-		ID       ccc.UUID `spanner:"Id"`
-		Username string   `spanner:"Username"`
-	}{
-		ID:       userID,
-		Username: username,
-	}
-
-	mutation, err := spanner.UpdateStruct(s.userTableName, usernameUpdate)
-	if err != nil {
-		return errors.Wrap(err, "spanner.UpdateStruct()")
-	}
-
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
-		if spanner.ErrCode(err) == codes.NotFound {
-			return httpio.NewNotFoundMessagef("user id %q does not exist", usernameUpdate.ID)
-		}
-
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
-			return httpio.NewConflictMessagef("username %q already exists", usernameUpdate.Username)
-		}
-
-		return errors.Wrap(err, "spanner.Client.Apply()")
-	}
-
-	return nil
-}
-
-// SetUserUsernameAndSessions updates the user record and every active session row
+// SetUserUsername updates the user record and every active session row
 // for that user atomically. The user's current Username is read inside the
 // transaction so concurrent username changes cannot leave session rows stranded
 // under a stale username.
-func (s *SessionStorageDriver) SetUserUsernameAndSessions(ctx context.Context, userID ccc.UUID, newUsername string) error {
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.UUID, newUsername string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
