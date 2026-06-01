@@ -12,7 +12,7 @@ jobs:
       actions: read
       security-events: write
       issues: write
-    uses: cccteam/github-workflows/.github/workflows/golang-security-scan.yml@1ccb2a0d5c48271b34c23abb3821e365019838be # v5.24.0
+    uses: cccteam/github-workflows/.github/workflows/golang-security-scan.yml@5be491dfaa55f4e80e42bbef5dbe7ca7027f612f # v6.1.1
     with:
       execute-trivy-scan: false
     secrets:
