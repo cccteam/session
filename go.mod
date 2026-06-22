@@ -11,26 +11,26 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 
 require (
 	aidanwoods.dev/go-paseto v1.6.0
-	cloud.google.com/go/spanner v1.91.0
+	cloud.google.com/go/spanner v1.92.0
 	github.com/cccteam/ccc v0.3.0
 	github.com/cccteam/ccc/accesstypes v0.5.6
-	github.com/cccteam/ccc/resource v0.10.0
-	github.com/cccteam/ccc/securehash v0.0.10
-	github.com/cccteam/ccc/tracer v0.1.2
-	github.com/cccteam/db-initiator v0.3.8
-	github.com/cccteam/httpio v0.7.14
-	github.com/cccteam/logger v0.1.21
-	github.com/cccteam/spxscan v0.0.10
-	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/cccteam/ccc/resource v0.10.1
+	github.com/cccteam/ccc/securehash v0.0.11
+	github.com/cccteam/ccc/tracer v0.1.3
+	github.com/cccteam/db-initiator v0.3.9
+	github.com/cccteam/httpio v0.7.15
+	github.com/cccteam/logger v0.1.22
+	github.com/cccteam/spxscan v0.0.11
+	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	go.uber.org/mock v0.6.0
-	golang.org/x/crypto v0.52.0
+	golang.org/x/crypto v0.53.0
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/grpc v1.81.1
 )
@@ -58,7 +58,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudspannerecosystem/memefish v0.6.2 // indirect
+	github.com/cloudspannerecosystem/memefish v0.7.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -126,11 +126,11 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/api v0.282.0 // indirect
+	google.golang.org/api v0.283.0 // indirect
 	google.golang.org/genproto v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
