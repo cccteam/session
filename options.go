@@ -85,6 +85,19 @@ func WithLoginURL(l string) OIDCOption {
 	})
 }
 
+// oidcAzureOption defines a function signature for setting options on the OIDCAzure value itself.
+type oidcAzureOption func(*OIDCAzure)
+
+func (oidcAzureOption) isOIDCAzureOption() {}
+
+// WithOnAuthenticated registers a hook that is invoked after a successful OIDC login with the
+// verified ID-token claims. Returning an error from the hook aborts the login.
+func WithOnAuthenticated(fn OnAuthenticatedFunc) OIDCAzureOption {
+	return oidcAzureOption(func(o *OIDCAzure) {
+		o.onAuthenticated = fn
+	})
+}
+
 // passwordOption defines a function signature for setting Password options.
 type passwordOption func(*PasswordAuth)
 

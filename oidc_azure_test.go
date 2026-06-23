@@ -110,6 +110,20 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 	}
 }
 
+// unmarshalClaims returns a Verify stub that unmarshals raw into the claims argument and
+// reports a successful verification.
+func unmarshalClaims(t *testing.T, raw string) func(context.Context, http.ResponseWriter, *http.Request, interface{}) (string, string, error) {
+	t.Helper()
+
+	return func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
+		if err := json.Unmarshal([]byte(raw), claims); err != nil {
+			t.Fatalf("failed to unmarshal claims: %v", err)
+		}
+
+		return "testReturnUrl", "a test SID value", nil
+	}
+}
+
 func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +132,9 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_azureoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
 		wantErr         bool
 		wantRedirectURL string
+		hook            bool
+		wantHookCalled  bool
+		wantClaims      Claims
 	}{
 		{
 			name: "fails to verify callback request",
@@ -155,14 +172,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "fails to get existing user roles",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
-						if err != nil {
-							t.Fatalf("failed to unmarshal claims: %v", err)
-						}
-						return "testReturnUrl", "a test SID value", nil
-					}).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
@@ -176,14 +186,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "fails to add user roles",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
-						if err != nil {
-							t.Fatalf("failed to unmarshal claims: %v", err)
-						}
-						return "testReturnUrl", "a test SID value", nil
-					}).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
@@ -202,14 +205,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "fails to delete user roles",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
-						if err != nil {
-							t.Fatalf("failed to unmarshal claims: %v", err)
-						}
-						return "testReturnUrl", "a test SID value", nil
-					}).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
@@ -229,14 +225,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "unauthorized due to no assigned roles",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
-						if err != nil {
-							t.Fatalf("failed to unmarshal claims: %v", err)
-						}
-						return "testReturnUrl", "a test SID value", nil
-					}).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
@@ -255,14 +244,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		{
 			name: "success authenticating via OIDC callback",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`), claims)
-						if err != nil {
-							t.Fatalf("failed to unmarshal claims: %v", err)
-						}
-						return "testReturnUrl", "a test SID value", nil
-					}).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
@@ -285,6 +267,23 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.Domain("test domain 2"), accesstypes.User("test username"), accesstypes.Role("testRole4")).Return(nil).Times(1)
 			},
+			wantRedirectURL: "/testReturnUrl",
+		},
+		{
+			name: "success invoking OnAuthenticated hook",
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(unmarshalClaims(t, `{"preferred_username": "test username", "oid": "test-oid", "name": "test name", "email": "test@example.com", "roles": ["testRole1"]}`)).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
+				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
+				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
+				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1"}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1"}).Return(map[accesstypes.Domain][]accesstypes.Role{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.Role("testRole1")).Return(true).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+			},
+			hook:            true,
+			wantHookCalled:  true,
+			wantClaims:      Claims{Username: "test username", Oid: "test-oid", Name: "test name", Email: "test@example.com"},
 			wantRedirectURL: "/testReturnUrl",
 		},
 	}
@@ -313,6 +312,19 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				},
 				oidc: authenticator,
 			}
+
+			var (
+				hookCalled   bool
+				gotSessionID ccc.UUID
+				gotClaims    Claims
+			)
+			if tt.hook {
+				a.onAuthenticated = func(_ context.Context, sessionID ccc.UUID, claims Claims) {
+					hookCalled = true
+					gotSessionID = sessionID
+					gotClaims = claims
+				}
+			}
 			req, err := createHTTPRequest(http.MethodPost, http.NoBody, nil, nil, nil)
 			if err != nil {
 				t.Error(err)
@@ -329,6 +341,19 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			}
 			if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 				t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
+			}
+			if hookCalled != tt.wantHookCalled {
+				t.Errorf("OnAuthenticated called = %v, want %v", hookCalled, tt.wantHookCalled)
+			}
+			if tt.wantHookCalled {
+				wantSessionID := ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))
+				if gotSessionID != wantSessionID {
+					t.Errorf("OnAuthenticated sessionID = %v, want %v", gotSessionID, wantSessionID)
+				}
+				if gotClaims.Username != tt.wantClaims.Username || gotClaims.Oid != tt.wantClaims.Oid ||
+					gotClaims.Name != tt.wantClaims.Name || gotClaims.Email != tt.wantClaims.Email {
+					t.Errorf("OnAuthenticated claims = %+v, want %+v", gotClaims, tt.wantClaims)
+				}
 			}
 		})
 	}

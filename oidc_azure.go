@@ -66,7 +66,22 @@ type OIDCAzure struct {
 	oidc            azureoidc.Authenticator
 	storage         sessionstorage.OIDCStore
 	baseSession     *basesession.BaseSession
+	onAuthenticated OnAuthenticatedFunc
 }
+
+// Claims contains the verified OIDC ID-token claims captured during the callback.
+type Claims struct {
+	Username string   `json:"preferred_username"`
+	Oid      string   `json:"oid"`
+	Name     string   `json:"name"`
+	Email    string   `json:"email"`
+	Roles    []string `json:"roles"`
+}
+
+// OnAuthenticatedFunc is an informational callback invoked after a successful login, once the
+// session has been initialized, with the session ID and the verified claims. It cannot affect
+// the login.
+type OnAuthenticatedFunc func(ctx context.Context, sessionID ccc.UUID, claims Claims)
 
 // NewOIDCAzure creates a new OIDCAzure.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
@@ -97,21 +112,25 @@ func NewOIDCAzure(
 		Storage:        storage,
 	}
 
+	a := &OIDCAzure{
+		userRoleManager: userRoleManager,
+		oidc:            oidc,
+		baseSession:     baseSession,
+		storage:         storage,
+	}
+
 	for _, opt := range options {
 		switch o := any(opt).(type) {
 		case BaseSessionOption:
 			o(baseSession)
 		case OIDCOption:
 			o(oidc)
+		case oidcAzureOption:
+			o(a)
 		}
 	}
 
-	return &OIDCAzure{
-		userRoleManager: userRoleManager,
-		oidc:            oidc,
-		baseSession:     baseSession,
-		storage:         storage,
-	}, nil
+	return a, nil
 }
 
 // Authenticated is the handler reports if the session is authenticated
@@ -174,16 +193,11 @@ func (o *OIDCAzure) Login() http.HandlerFunc {
 // type documentation for the role-synchronization semantics and their multi-tenancy
 // limitations.
 func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
-	type claims struct {
-		Username string   `json:"preferred_username"`
-		Roles    []string `json:"roles"`
-	}
-
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		claims := &claims{}
+		claims := &Claims{}
 		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, claims)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
@@ -213,6 +227,11 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
 			return err
+		}
+
+		// Notify the consumer of the verified claims. This is informational and does not affect login.
+		if o.onAuthenticated != nil {
+			o.onAuthenticated(ctx, sessionID, *claims)
 		}
 
 		http.Redirect(w, r, returnURL, http.StatusFound)
