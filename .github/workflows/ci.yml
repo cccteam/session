@@ -13,7 +13,7 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@5be491dfaa55f4e80e42bbef5dbe7ca7027f612f # v6.1.1
+    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
     with:
       golangci-lint-version: 'v2.11.4'
       build-tags: '["","skipAuth"]'
@@ -21,4 +21,4 @@ jobs:
   semantic-titles:
     permissions:
       pull-requests: read
-    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@5be491dfaa55f4e80e42bbef5dbe7ca7027f612f # v6.1.1
+    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
