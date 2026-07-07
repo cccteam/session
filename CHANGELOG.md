@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.9.0](https://github.com/cccteam/session/compare/v0.8.2...v0.9.0) (2026-07-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* Revert breaking change to `PasswordAuthAPI.ChangeSessionUserUsername()` introduced in v0.8.0 ([#204](https://github.com/cccteam/session/issues/204))
+
+### Features
+
+* Expose DestroyAllUserSessions via the API ([#209](https://github.com/cccteam/session/issues/209)) ([afebbfd](https://github.com/cccteam/session/commit/afebbfddece9e7be46caf0f9b20e0790396c05f7))
+* validate credentials PasswordAuth API ([#207](https://github.com/cccteam/session/issues/207)) ([26d9fee](https://github.com/cccteam/session/commit/26d9feec728f29a08050c4cc78c406e05c24f280))
+
+
+### Bug Fixes
+
+* Revert breaking change to `PasswordAuthAPI.ChangeSessionUserUsername()` introduced in v0.8.0 ([#204](https://github.com/cccteam/session/issues/204)) ([e4ed38c](https://github.com/cccteam/session/commit/e4ed38c13332597c831f637ddc98fb2725f76a4a))
+* Update active sessions in place when changing a username ([#204](https://github.com/cccteam/session/issues/204)) ([e4ed38c](https://github.com/cccteam/session/commit/e4ed38c13332597c831f637ddc98fb2725f76a4a))
+* Upgrade Go Version for Vuln Fix ([#212](https://github.com/cccteam/session/issues/212)) ([b4f2d41](https://github.com/cccteam/session/commit/b4f2d416639546d3beb6a007f40c42b7f88224a8))
+
+
+### Code Upgrade
+
+* Bump the github-actions group across 1 directory with 4 updates ([#202](https://github.com/cccteam/session/issues/202)) ([7764aba](https://github.com/cccteam/session/commit/7764abaa1922ced1c8e9dd2a8cf0f1b023c865a1))
+* Bump the github-actions group with 3 updates ([#215](https://github.com/cccteam/session/issues/215)) ([aa4f569](https://github.com/cccteam/session/commit/aa4f569349afb8fa30b5cfe508948a1a9d023f54))
+
 ## [0.8.2](https://github.com/cccteam/session/compare/v0.8.1...v0.8.2) (2026-05-26)
 
 
