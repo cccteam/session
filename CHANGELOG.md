@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/cccteam/session/compare/v0.9.0...v0.9.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* bump Go toolchain to 1.26.5 to patch GO-2026-5856 (crypto/tls ECH privacy leak) ([#221](https://github.com/cccteam/session/issues/221)) ([a4f9f1f](https://github.com/cccteam/session/commit/a4f9f1fd3107ac4c4777c35f24eb2dc4713c4dd8))
+
 ## [0.9.0](https://github.com/cccteam/session/compare/v0.8.2...v0.9.0) (2026-07-06)
 
 
