@@ -647,8 +647,10 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{
 					ID:           userID,
+					Username:     username,
 					PasswordHash: validHash,
 				}, nil)
+				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(nil)
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -666,7 +668,6 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 					Username:     username,
 					PasswordHash: validHash,
 				}, nil)
-				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -1151,8 +1152,10 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{
 					ID:           userID,
+					Username:     username,
 					PasswordHash: validHash,
 				}, nil)
+				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(nil)
 				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
@@ -1170,7 +1173,6 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 					Username:     username,
 					PasswordHash: validHash,
 				}, nil)
-				storage.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil)
 				storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(errors.New("db error"))
 			},
 			wantErr: true,

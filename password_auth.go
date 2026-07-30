@@ -455,14 +455,17 @@ func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, w http.Res
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
-	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
-		return errors.Wrap(err, "PasswordAuth.setPasswordHash()")
-	}
-
-	// Destroy every session for the user, including the acting one. This must run before the
-	// new session is started, since sessions are destroyed by username, not by session ID.
+	// Destroy every session for the user, including the acting one. This runs before the new
+	// hash is written so that a failure here leaves everything unchanged; destroying after the
+	// write would leave the password changed with every pre-existing session still valid. It
+	// also must run before the new session is started, since sessions are destroyed by
+	// username, not by session ID.
 	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
+	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+		return errors.Wrap(err, "PasswordAuth.setPasswordHash()")
 	}
 
 	// Start a new session so the caller remains authenticated under a new session ID
