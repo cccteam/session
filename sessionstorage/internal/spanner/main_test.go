@@ -42,16 +42,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// migrateSem serializes database create+migrate so only one runs at a time. The Spanner
-// emulator is a single process that intermittently mis-applies migrations when too many run
-// concurrently (flaky "no migration found for version N: read down" / "Row not found" setup
-// errors), so the setup is serialized to keep the suite stable while test bodies stay parallel.
-var migrateSem = make(chan struct{}, 1)
-
 func prepareDatabase(ctx context.Context, t *testing.T, sourceURL ...string) (*initiator.SpannerDB, error) {
-	migrateSem <- struct{}{}
-	defer func() { <-migrateSem }()
-
 	db, err := container.CreateDatabase(ctx, t.Name())
 	if err != nil {
 		return nil, errors.Wrapf(err, "initiator.SpannerContainer.CreateTestDatabase()")

@@ -78,9 +78,7 @@ type Claims struct {
 	Roles    []string `json:"roles"`
 }
 
-// OnAuthenticatedFunc is an informational callback invoked after a successful login, once the
-// session has been initialized, with the session ID and the verified claims. It cannot affect
-// the login.
+// OnAuthenticatedFunc is an informational callback invoked after a successful login. It cannot affect the login.
 type OnAuthenticatedFunc func(ctx context.Context, sessionID ccc.UUID, claims Claims)
 
 // NewOIDCAzure creates a new OIDCAzure.
@@ -229,7 +227,6 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 			return err
 		}
 
-		// Notify the consumer of the verified claims. This is informational and does not affect login.
 		if o.onAuthenticated != nil {
 			o.onAuthenticated(ctx, sessionID, *claims)
 		}
