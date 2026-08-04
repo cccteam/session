@@ -278,7 +278,9 @@ func (p *PasswordAuth) ChangeUsername() http.HandlerFunc {
 	})
 }
 
-// ChangeUserPassword handles modifications to a user password
+// ChangeUserPassword handles modifications to a user password. All of the user's sessions
+// are destroyed and a new session is started for the caller, so the caller remains
+// authenticated under a new session ID.
 func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 	type request struct {
 		OldPassword string `json:"oldPassword"`
@@ -298,7 +300,7 @@ func (p *PasswordAuth) ChangeUserPassword() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		if err := p.changeSessionUserPassword(ctx, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
+		if err := p.changeSessionUserPassword(ctx, w, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -435,8 +437,15 @@ func (p *PasswordAuth) changeSessionUserUsername(ctx context.Context, userID ccc
 	return nil
 }
 
-// changeSessionUserPassword handles modifications to a user password
-func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+// changeSessionUserPassword handles modifications to a user password. A password change is a
+// privilege level change, so every session for the user is destroyed and a new session is
+// started for the caller. This regenerates the session ID and destroys the previous one, which
+// is what protects against session fixation: an attacker holding a session ID that was fixed
+// or captured before the password change cannot keep using it afterward.
+//
+// See the OWASP Session Management Cheat Sheet, "Renew the Session ID After Any Privilege
+// Level Change", which names password changes explicitly.
+func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
 	// Validate credentials
 	user, err := p.storage.User(ctx, userID)
 	if err != nil {
@@ -446,9 +455,22 @@ func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, userID ccc
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
+	if err := p.storage.DestroyAllUserSessions(ctx, user.Username); err != nil {
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyAllUserSessions()")
+	}
+
 	if err := p.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
 		return errors.Wrap(err, "PasswordAuth.setPasswordHash()")
 	}
+
+	// Start a new session so the caller remains authenticated under a new session ID
+	sessionID, err := p.startNewSession(ctx, w, user.Username)
+	if err != nil {
+		return errors.Wrap(err, "PasswordAuth.startNewSession()")
+	}
+
+	// Log the association between the sessionID and Username
+	logger.FromCtx(ctx).AddRequestAttribute("Username", user.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 
 	return nil
 }
@@ -626,9 +648,11 @@ func (p *PasswordAuthAPI) ChangeSessionUserUsername(ctx context.Context, userID 
 	return p.passwordAuth.changeSessionUserUsername(ctx, userID, username)
 }
 
-// ChangeSessionUserPassword handles modifications to a user password
-func (p *PasswordAuthAPI) ChangeSessionUserPassword(ctx context.Context, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
-	return p.passwordAuth.changeSessionUserPassword(ctx, userID, req)
+// ChangeSessionUserPassword handles modifications to a user password. All of the user's
+// sessions are destroyed and a new session is started for the caller, so the caller remains
+// authenticated under a new session ID. Requires the ResponseWriter for the new session cookies.
+func (p *PasswordAuthAPI) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+	return p.passwordAuth.changeSessionUserPassword(ctx, w, userID, req)
 }
 
 // ChangeSessionUserHash handles modifications to a user hash.
