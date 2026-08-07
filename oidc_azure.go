@@ -28,6 +28,39 @@ type OIDCAzureOption interface {
 var _ OIDCAzureHandlers = &OIDCAzure{}
 
 // OIDCAzure implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure.
+//
+// Role synchronization: the OIDC callback provides an integrated authentication and
+// role-synchronization flow designed for organizations that manage users and roles
+// centrally through Active Directory group/app-role assignments, avoiding the need
+// for a separate Admin UI. On every login the callback reconciles the user's roles to
+// the token's role claims: roles named in the token are assigned (where a role of
+// that name exists), and any role the user currently holds that is NOT in the token
+// is removed. The login is rejected as Unauthorized unless the token yields at least
+// one recognized role.
+//
+// DESIGN LIMITATION — role synchronization is domain-blind (global): the token's
+// roles are applied identically in every domain/tenant where the role name exists.
+//
+// Use this flow when:
+//   - the application is single-tenant, or
+//   - the application is multi-tenant but a user's roles should apply uniformly
+//     across all tenants.
+//
+// Do NOT rely on this flow's role synchronization when strict multi-tenancy is
+// required (different roles per domain, e.g. Admin in tenant A but Viewer in tenant
+// B). Encoding tenancy into AD groups (Admin_TenantA, …) leads to an unmaintainable
+// explosion of groups; per-domain roles should instead be managed inside the
+// application, with OIDC role synchronization disabled.
+//
+// Because the reconciliation removes roles absent from the token, application-side
+// role assignment cannot coexist with this flow — any manually assigned role would be
+// silently reverted at the user's next login. Role management must be either
+// IdP-driven (this flow) or application-driven, never both for the same app.
+//
+// DisabledUserRoleManager disables the persistence half of the synchronization (no
+// roles are written or removed), but the login gate above still requires at least one
+// role claim in the token. A configuration option to fully disable role maintenance
+// during login (for application-managed roles) is planned but not yet implemented.
 type OIDCAzure struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
@@ -134,7 +167,12 @@ func (o *OIDCAzure) Login() http.HandlerFunc {
 	})
 }
 
-// CallbackOIDC is the handler for the callback from the OIDC auth provider
+// CallbackOIDC is the handler for the callback from the OIDC auth provider.
+//
+// Besides completing authentication, it reconciles the user's roles to the token's
+// role claims and rejects logins that yield no recognized role — see the OIDCAzure
+// type documentation for the role-synchronization semantics and their multi-tenancy
+// limitations.
 func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 	type claims struct {
 		Username string   `json:"preferred_username"`
