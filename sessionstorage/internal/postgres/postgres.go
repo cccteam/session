@@ -118,9 +118,11 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	return nil
 }
 
-// InsertSession inserts a Session into the database and returns its id. When a custom
-// session data configuration with a resolver is attached, the resolver runs within the
-// same transaction as the session insert; a resolver error aborts the insert.
+// InsertSession inserts a Session into the database and returns its id. When the
+// request carries caller-supplied custom data it is written atomically with the session
+// insert and the configured resolver is not invoked. Otherwise, when a custom session
+// data configuration with a resolver is attached, the resolver runs within the same
+// transaction as the session insert; a resolver error aborts the insert.
 func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -137,7 +139,13 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 			($1, $2, $3, $4, $5)
 		`, s.sessionTableName)
 
-	if s.customData == nil || s.customData.Resolver == nil {
+	// Per-call custom data wins: the configured resolver is not invoked.
+	perCallData := len(req.CustomData) > 0
+	if perCallData && s.customData == nil {
+		return ccc.NilUUID, errors.New("custom session data provided but no custom session data config is attached")
+	}
+
+	if !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
 		if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
 		}
@@ -157,9 +165,12 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
 	}
 
-	customData, err := s.customData.Resolver(ctx, txn, req)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
+	customData := req.CustomData
+	if !perCallData {
+		customData, err = s.customData.Resolver(ctx, txn, req)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
+		}
 	}
 
 	if len(customData) > 0 {

@@ -142,9 +142,11 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	return nil
 }
 
-// InsertSession inserts a Session into the database and returns its id. When a custom
-// session data configuration with a resolver is attached, the resolver runs within the
-// same read-write transaction as the session insert; a resolver error aborts the insert.
+// InsertSession inserts a Session into the database and returns its id. When the
+// request carries caller-supplied custom data it is written atomically with the session
+// insert and the configured resolver is not invoked. Otherwise, when a custom session
+// data configuration with a resolver is attached, the resolver runs within the same
+// read-write transaction as the session insert; a resolver error aborts the insert.
 func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -165,6 +167,28 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+	}
+
+	// Per-call custom data wins: written atomically with the session insert in a
+	// single commit; the configured resolver is not invoked.
+	if len(req.CustomData) > 0 {
+		if s.customData == nil {
+			return ccc.NilUUID, errors.New("custom session data provided but no custom session data config is attached")
+		}
+
+		row := map[string]any{
+			dbtype.SessionIDColumn: id,
+		}
+		for _, c := range req.CustomData {
+			row[c.ColumnName] = c.Value
+		}
+
+		mutations := []*spanner.Mutation{sessionMutation, spanner.InsertMap(s.customData.TableName, row)}
+		if _, err := s.spanner.Apply(ctx, mutations); err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+		}
+
+		return id, nil
 	}
 
 	if s.customData == nil || s.customData.Resolver == nil {

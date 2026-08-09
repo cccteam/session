@@ -386,12 +386,16 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 
 // startNewSession starts a new session for the given username and returns the session ID.
 // The reason is passed through to any configured custom session data resolver, which runs
-// inside the session-insert transaction.
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, reason sessioninfo.NewSessionReason, username string, userID ccc.UUID) (ccc.UUID, error) {
+// inside the session-insert transaction. When customData is provided it is written
+// atomically with the session insert and the configured resolver is skipped.
+func (p *PasswordAuth) startNewSession(
+	ctx context.Context, w http.ResponseWriter, reason sessioninfo.NewSessionReason, username string, userID ccc.UUID, customData ...*sessioninfo.CustomData,
+) (ccc.UUID, error) {
 	id, err := p.storage.CreateSession(ctx, sessioninfo.NewSessionRequest{
-		Reason:   reason,
-		Username: username,
-		UserID:   userID,
+		Reason:     reason,
+		Username:   username,
+		UserID:     userID,
+		CustomData: customData,
 	})
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateSession()")
@@ -625,7 +629,13 @@ func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, user
 // StartAuthenticatedSession creates a new authenticated session for the given username,
 // bypassing the login process. This is intended for scenarios where the user has
 // already been authenticated by an external system.
-func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+//
+// Optional customData is written atomically with the session insert — the session and
+// its custom data row land together or not at all. When customData is provided, the
+// configured custom session data resolver is NOT invoked for this creation (per-call
+// data wins); it requires a custom session data configuration on the storage. When no
+// customData is provided the configured resolver (if any) runs as usual.
+func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -638,7 +648,7 @@ func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.
 		return ccc.NilUUID, httpio.NewUnauthorizedMessage("Account disabled")
 	}
 
-	sessionID, err := p.passwordAuth.startNewSession(ctx, w, sessioninfo.ReasonExternalAuth, user.Username, user.ID)
+	sessionID, err := p.passwordAuth.startNewSession(ctx, w, sessioninfo.ReasonExternalAuth, user.Username, user.ID, customData...)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -730,7 +740,10 @@ func (p *PasswordAuthAPI) DestroyAllUserSessions(ctx context.Context, username s
 	return nil
 }
 
-// UpdateCustomSessionData updates the custom session data for an active session.
+// UpdateCustomSessionData updates the custom session data for an active session. It is
+// intended for genuine mid-session updates only — initial population belongs in the
+// creation path (the configured resolver, or per-call custom data on
+// StartAuthenticatedSession), which is atomic with the session insert.
 func (p *PasswordAuthAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
 	return p.passwordAuth.updateCustomSessionData(ctx, sessionID, customData...)
 }

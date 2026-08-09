@@ -31,4 +31,9 @@ type NewSessionRequest struct {
 	// UserID is the user record's ID. It is the zero UUID for session types that do
 	// not track user records (e.g. preauth).
 	UserID ccc.UUID
+	// CustomData is caller-supplied custom session data for this creation. When
+	// non-empty it is written atomically with the session insert and the configured
+	// resolver is NOT invoked for this creation (per-call data wins). It requires a
+	// custom session data configuration on the storage.
+	CustomData []*CustomData
 }

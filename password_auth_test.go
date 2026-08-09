@@ -1764,9 +1764,10 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
-		name    string
-		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
-		wantErr bool
+		name       string
+		customData []*sessioninfo.CustomData
+		prepare    func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
+		wantErr    bool
 	}{
 		{
 			name: "fails on user not found",
@@ -1807,6 +1808,39 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
 		},
+		{
+			name: "success with per-call custom data in the request",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "PartnerId", Value: "partner-1"},
+				{ColumnName: "RoleId", Value: "role-1"},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
+					ID:       userID,
+					Username: "user",
+				}, nil)
+				sessionID := ccc.Must(ccc.NewUUID())
+				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+						want := sessioninfo.NewSessionRequest{
+							Reason:   sessioninfo.ReasonExternalAuth,
+							Username: "user",
+							UserID:   userID,
+							CustomData: []*sessioninfo.CustomData{
+								{ColumnName: "PartnerId", Value: "partner-1"},
+								{ColumnName: "RoleId", Value: "role-1"},
+							},
+						}
+						if diff := cmp.Diff(want, req); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
+						}
+
+						return sessionID, nil
+					})
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1828,7 +1862,7 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 
 			w := httptest.NewRecorder()
 
-			sessionID, err := newPasswordAuthAPI(p).StartAuthenticatedSession(t.Context(), w, "user")
+			sessionID, err := newPasswordAuthAPI(p).StartAuthenticatedSession(t.Context(), w, "user", tt.customData...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuthAPI.StartAuthenticatedSession() error = %v, wantErr %v", err, tt.wantErr)
 			}

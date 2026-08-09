@@ -1304,6 +1304,88 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			},
 		},
 		{
+			name: "per-call custom data written atomically and resolver skipped",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:   sessioninfo.ReasonExternalAuth,
+				Username: "percall_user",
+				CustomData: []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "per_call_value"},
+				},
+			},
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error) {
+				return nil, errors.New("resolver must not run when per-call data is provided")
+			},
+			tableName: "SessionCustomData",
+			columns:   []string{"CustomString"},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM Sessions`,
+			},
+			wantCustomData: map[string]any{
+				"CustomString": "per_call_value",
+			},
+		},
+		{
+			name: "per-call custom data without config errors before insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_noconfig_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:   sessioninfo.ReasonExternalAuth,
+				Username: "percall_noconfig_user",
+				CustomData: []*sessioninfo.CustomData{
+					{ColumnName: "CustomString", Value: "x"},
+				},
+			},
+			noConfig:  true,
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+		},
+		{
+			name: "atomicity: per-call custom data with bad column rolls back session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_atomic_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:   sessioninfo.ReasonExternalAuth,
+				Username: "percall_atomic_user",
+				CustomData: []*sessioninfo.CustomData{
+					{ColumnName: "DoesNotExist", Value: "x"},
+				},
+			},
+			tableName: "SessionCustomData",
+			columns:   []string{"CustomString"},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM Sessions`,
+			},
+		},
+		{
 			name: "success inserting session with custom column name matching base session column",
 			insertSession: &dbtype.InsertSession{
 				Username:  "collision_insert_user",
