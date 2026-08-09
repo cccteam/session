@@ -52,6 +52,8 @@ type SpannerCustomSessionData struct {
 //   - The table MUST have a primary key column named "SessionId" that is a FK to the
 //     session table's primary key with ON DELETE CASCADE.
 //   - Do NOT include "SessionId" in columns (it is implied and reserved).
+//
+// See the "Custom session data" section of the README for the full lifecycle.
 func NewSpannerCustomSessionData[T any](tableName string, decoder func(map[string]any) (T, error), resolver SpannerNewSessionResolver, columns ...string) (*SpannerCustomSessionData, error) {
 	dedupedColumns, err := validateCustomSessionData(tableName, decoder == nil, columns)
 	if err != nil {
@@ -116,6 +118,8 @@ type PostgresCustomSessionData struct {
 //   - The table MUST have a primary key column named "SessionId" that is a FK to the
 //     session table's primary key with ON DELETE CASCADE.
 //   - Do NOT include "SessionId" in columns (it is implied and reserved).
+//
+// See the "Custom session data" section of the README for the full lifecycle.
 func NewPostgresCustomSessionData[T any](tableName string, decoder func(map[string]any) (T, error), resolver PostgresNewSessionResolver, columns ...string) (*PostgresCustomSessionData, error) {
 	dedupedColumns, err := validateCustomSessionData(tableName, decoder == nil, columns)
 	if err != nil {

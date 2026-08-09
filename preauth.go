@@ -118,10 +118,16 @@ func newPreauthAPI(preauth *Preauth) *PreauthAPI {
 
 // Login creates a new session for a pre-authenticated user.
 //
+// Preauth is trust-the-caller: no user record is required or consulted, which makes it
+// the right tool for stepping-stone sessions (e.g. MFA-pending) where identity is not
+// yet fully established. For a full session backed by an existing user record after
+// external authentication, use PasswordAuth's StartAuthenticatedSession instead.
+//
 // Optional customData is written atomically with the session insert — the session and
-// its custom data row land together or not at all. Preauth is trust-the-caller: the
-// library does not validate the data beyond the custom session data configuration,
-// which must be attached to the storage for customData to be accepted.
+// its custom data row land together or not at all. The library does not validate the
+// data beyond the custom session data configuration, which must be attached to the
+// storage for customData to be accepted. See the "Custom session data" section of the
+// README for the full lifecycle.
 func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

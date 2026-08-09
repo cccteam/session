@@ -68,13 +68,15 @@ func UserFromCtx(ctx context.Context) *UserInfo {
 }
 
 // CustomDataFromRequest returns the strongly typed custom session data from the request context.
-// T must match the type used in WithCustomSessionDataTable.
+// T must match the type parameter used when the custom session data configuration was built.
 func CustomDataFromRequest[T any](r *http.Request) (T, error) {
 	return CustomDataFromCtx[T](r.Context())
 }
 
 // CustomDataFromCtx returns the strongly typed custom session data from the context.
-// T must match the type used in WithCustomSessionDataTable.
+// T must match the type parameter used when the custom session data configuration was
+// built (NewSpannerCustomSessionData / NewPostgresCustomSessionData). See the
+// "Custom session data" section of the README for the full lifecycle.
 func CustomDataFromCtx[T any](ctx context.Context) (T, error) {
 	var zeroVal T
 

@@ -630,11 +630,17 @@ func (p *PasswordAuthAPI) Login(ctx context.Context, w http.ResponseWriter, user
 // bypassing the login process. This is intended for scenarios where the user has
 // already been authenticated by an external system.
 //
+// It requires an existing, non-disabled user record and participates fully in custom
+// session data (the resolver receives ReasonExternalAuth). For a trust-the-caller
+// stepping-stone session with no user record — e.g. an MFA-pending flow — use
+// Preauth.API().Login() instead.
+//
 // Optional customData is written atomically with the session insert — the session and
 // its custom data row land together or not at all. When customData is provided, the
 // configured custom session data resolver is NOT invoked for this creation (per-call
 // data wins); it requires a custom session data configuration on the storage. When no
-// customData is provided the configured resolver (if any) runs as usual.
+// customData is provided the configured resolver (if any) runs as usual. See the
+// "Custom session data" section of the README for the full lifecycle.
 func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
