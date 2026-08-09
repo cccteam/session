@@ -50,8 +50,9 @@ You write two functions. The library runs them at opposite ends of the session's
   hands the raw values to the decoder; handlers retrieve the result with
   `sessioninfo.CustomDataFromCtx[T](ctx)`.
 
-**Resolve once at creation; decode on every request.** That is the whole mental model —
-everything below is detail. Both functions are declared together with the table name and
+**Resolve once at creation; decode on every request; update deliberately when mid-session
+state changes.** That is the whole mental model — everything below is detail. Both
+functions are declared together with the table name and
 column list in one validated config unit (`NewSpannerCustomSessionData` /
 `NewPostgresCustomSessionData`), attached to any storage constructor — password auth,
 OIDC, or Preauth — via a typed option (`WithSpannerCustomSessionData` /
@@ -242,6 +243,46 @@ Per-call data requires a custom session data configuration on the storage (the c
 have a nil resolver). Passing data with no configuration attached is an error before
 anything is inserted.
 
+### Mid-session updates
+
+Some session state legitimately changes while the session is alive — the canonical case
+is a **tenant switcher**: the resolver records the user's default tenant at login, and the
+user later selects a different one. That is what `UpdateCustomSessionData` is for:
+
+```go
+err := auth.API().UpdateCustomSessionData(ctx, sessionID,
+    &sessioninfo.CustomData{ColumnName: "TenantId", Value: newTenantID},
+)
+```
+
+Semantics to know:
+
+- **It is an upsert, per column.** Only the columns you pass are written; a session with
+  no custom row gets one. Concurrent updates are last-write-wins per column.
+- **It takes effect on the next request** — the per-request decode picks up the new
+  values; requests already in flight decode the old ones.
+- **The library does not authorize the change.** The resolver established what the user
+  was granted at login; before writing a switch, your handler must verify the user is
+  allowed the new value (e.g. is a member of the target tenant).
+- **Updates do not survive regeneration.** A password change re-resolves fresh and the
+  selected value reverts to the resolver's answer (see Session regeneration).
+- Expired sessions are rejected; a custom data configuration must be attached; columns
+  outside the configured list are written but never read back — stick to configured
+  columns.
+
+The rule of thumb for choosing the verb: **resolve** for identity-derived state
+(what the user *is* at login), **update** for user-chosen context within
+already-granted options (which tenant they're *looking at*), and **regenerate/destroy**
+for privilege changes — if a user's rights change, kill their sessions rather than
+patching them (`DestroyAllUserSessions`); the next login re-resolves.
+
+Never use `UpdateCustomSessionData` for initial population — that belongs in the creation
+transaction (resolver or per-call data), which is atomic with the session insert.
+
+> Availability note: mid-session updates are currently exposed for password auth only
+> (`PasswordAuthAPI.UpdateCustomSessionData`); OIDC and Preauth sessions have no update
+> path yet.
+
 ### Session regeneration
 
 A password change destroys all of the user's sessions and starts a fresh one for the
@@ -261,6 +302,7 @@ on regeneration feels like data loss, it was user data, not session data — see
 | Per-call data with no config attached | Error before any insert |
 | Column name not in your DDL | Database error from the creation transaction (aborts atomically) or from the per-request query |
 | Decoder returns an error | The request fails (401) — every request, until fixed |
+| `UpdateCustomSessionData` on an expired session | Rejected (bad request); the row is not written |
 | Session has no custom row | Not a failure: decoder receives all-nil values (LEFT JOIN) |
 
 ##### Created and maintained by the CCC team.
