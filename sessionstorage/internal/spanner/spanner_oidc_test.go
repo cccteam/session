@@ -1,20 +1,31 @@
 package spanner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
+	"github.com/go-playground/errors/v5"
 )
 
 func Test_client_InsertSessionOIDC(t *testing.T) {
 	t.Parallel()
+
+	rawClaims := json.RawMessage(`{"preferred_username":"test user 2","oid":"abc-123","name":"Test User"}`)
+
 	tests := []struct {
 		name           string
 		insertSession  *dbtype.InsertOIDCSession
+		req            sessioninfo.NewSessionRequest
+		resolver       func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error)
+		withConfig     bool
 		sourceURL      []string
 		wantErr        bool
 		preAssertions  []string
@@ -31,6 +42,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 					Expired:   true,
 				},
 			},
+			req:       sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "test user 2"},
 			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
 			wantErr:   true,
 		},
@@ -45,6 +57,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 					Expired:   true,
 				},
 			},
+			req:       sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "test user 2"},
 			sourceURL: []string{"file://../../../schema/spanner/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
 			preAssertions: []string{
 				`SELECT COUNT(*) = 2 FROM Sessions WHERE username = 'test user 2'`,
@@ -53,7 +66,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			postAssertions: []string{
 				`SELECT COUNT(*) = 3 FROM Sessions WHERE username = 'test user 2'`,
 				`
-				SELECT COUNT(*) = 1 FROM Sessions 
+				SELECT COUNT(*) = 1 FROM Sessions
 				WHERE Id = '%s'
 					AND Username = 'test user 2'
 					AND OidcSid = '00000000-0000-0000-0000-000000000001'
@@ -62,6 +75,65 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 					AND Expired = true`,
 			},
 			wantErr: false,
+		},
+		{
+			name: "resolver receives raw claims and writes custom data atomically",
+			insertSession: &dbtype.InsertOIDCSession{
+				OidcSID: "00000000-0000-0000-0000-000000000002",
+				InsertSession: dbtype.InsertSession{
+					Username:  "claims user",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				},
+			},
+			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "claims user", Claims: rawClaims},
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error) {
+				if !bytes.Equal(req.Claims, rawClaims) {
+					return nil, errors.Newf("unexpected claims: %s", string(req.Claims))
+				}
+				var c struct {
+					Oid string `json:"oid"`
+				}
+				if err := json.Unmarshal(req.Claims, &c); err != nil {
+					return nil, errors.Wrap(err, "json.Unmarshal()")
+				}
+
+				return []*sessioninfo.CustomData{{ColumnName: "CustomString", Value: c.Oid}}, nil
+			},
+			withConfig: true,
+			sourceURL:  []string{"file://testdata/sessions_test/oidc_custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 1 FROM Sessions`,
+				`SELECT COUNT(*) = 1 FROM SessionCustomData WHERE CustomString = 'abc-123'`,
+			},
+		},
+		{
+			name: "atomicity: resolver error aborts OIDC session insert",
+			insertSession: &dbtype.InsertOIDCSession{
+				OidcSID: "00000000-0000-0000-0000-000000000003",
+				InsertSession: dbtype.InsertSession{
+					Username:  "abort user",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				},
+			},
+			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "abort user", Claims: rawClaims},
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error) {
+				return nil, errors.New("resolver failure")
+			},
+			withConfig: true,
+			sourceURL:  []string{"file://testdata/sessions_test/oidc_custom_columns_schema"},
+			wantErr:    true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM Sessions`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 0 FROM Sessions`,
+				`SELECT COUNT(*) = 0 FROM SessionCustomData`,
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -74,10 +146,18 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
 			}
 			c := NewSessionStorageDriver(conn.Client)
+			if tt.withConfig {
+				c.SetCustomSessionData(&CustomSessionDataConfig{
+					TableName: "SessionCustomData",
+					Columns:   []string{"CustomString", "CustomInt"},
+					Decoder:   rawDecoder,
+					Resolver:  tt.resolver,
+				})
+			}
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
 
-			got, err := c.InsertSessionOIDC(ctx, tt.insertSession)
+			got, err := c.InsertSessionOIDC(ctx, tt.insertSession, &tt.req)
 			if err != nil != tt.wantErr {
 				t.Errorf("client.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -117,12 +117,17 @@ func newPreauthAPI(preauth *Preauth) *PreauthAPI {
 }
 
 // Login creates a new session for a pre-authenticated user.
-func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username string) (ccc.UUID, error) {
+//
+// Optional customData is written atomically with the session insert — the session and
+// its custom data row land together or not at all. Preauth is trust-the-caller: the
+// library does not validate the data beyond the custom session data configuration,
+// which must be attached to the storage for customData to be accepted.
+func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	// Create new Session in database
-	sessionID, err := p.preauth.storage.NewSession(ctx, username)
+	sessionID, err := p.preauth.storage.NewSession(ctx, username, customData...)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
 	}

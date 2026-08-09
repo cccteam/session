@@ -7,11 +7,15 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
 
-// InsertSessionOIDC inserts a Session into database
-func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertOIDCSession) (ccc.UUID, error) {
+// InsertSessionOIDC inserts an OIDC Session into the database and returns its id. It
+// honors the request's custom session data semantics: per-call data or a configured
+// resolver is written atomically with the session insert; a resolver error aborts the
+// insert (see SessionStorageDriver.execSessionInsert).
+func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSession *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -26,9 +30,10 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 		VALUES
 			($1, $2, $3, $4, $5, $6)
 		`, s.sessionTableName)
+	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	if _, err := s.conn.Exec(ctx, query, id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+	if err := s.execSessionInsert(ctx, id, query, args, req); err != nil {
+		return ccc.NilUUID, err
 	}
 
 	return id, nil

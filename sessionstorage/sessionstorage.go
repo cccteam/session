@@ -26,8 +26,10 @@ func (s *sessionStorage) SetUserTableName(name string) {
 	s.db.SetUserTableName(name)
 }
 
-// NewSession inserts SessionInfo into the database
-func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.UUID, error) {
+// NewSession inserts SessionInfo into the database. Optional caller-supplied customData
+// is written atomically with the session insert (per-call data wins over any configured
+// resolver) and requires a custom session data configuration on the storage.
+func (s *sessionStorage) NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -37,11 +39,10 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.U
 		UpdatedAt: time.Now(),
 	}
 
-	// Preauth stores cannot carry a custom-data resolver today, so the request only
-	// exists to satisfy the unified insert path (see backlog item 7 for Preauth wiring).
-	req := sessioninfo.NewSessionRequest{
-		Reason:   sessioninfo.ReasonPreauth,
-		Username: username,
+	req := &sessioninfo.NewSessionRequest{
+		Reason:     sessioninfo.ReasonPreauth,
+		Username:   username,
+		CustomData: customData,
 	}
 
 	id, err := s.db.InsertSession(ctx, session, req)

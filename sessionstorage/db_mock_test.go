@@ -144,7 +144,7 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 }
 
 // InsertSession mocks base method.
-func (m *Mockdb) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (m *Mockdb) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InsertSession", ctx, insertSession, req)
 	ret0, _ := ret[0].(ccc.UUID)
@@ -159,18 +159,18 @@ func (mr *MockdbMockRecorder) InsertSession(ctx, insertSession, req any) *gomock
 }
 
 // InsertSessionOIDC mocks base method.
-func (m *Mockdb) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession) (ccc.UUID, error) {
+func (m *Mockdb) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertSessionOIDC", ctx, session)
+	ret := m.ctrl.Call(m, "InsertSessionOIDC", ctx, session, req)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // InsertSessionOIDC indicates an expected call of InsertSessionOIDC.
-func (mr *MockdbMockRecorder) InsertSessionOIDC(ctx, session any) *gomock.Call {
+func (mr *MockdbMockRecorder) InsertSessionOIDC(ctx, session, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertSessionOIDC), ctx, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertSessionOIDC), ctx, session, req)
 }
 
 // Session mocks base method.

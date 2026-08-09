@@ -5,6 +5,7 @@ package sessionstorage
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
@@ -32,8 +33,10 @@ var _ PreauthStore = (*Preauth)(nil)
 
 // PreauthStore defines an interface for managing pre-authenticated session storage.
 type PreauthStore interface {
-	// NewSession creates a new session in the database, returning its id
-	NewSession(ctx context.Context, username string) (ccc.UUID, error)
+	// NewSession creates a new session in the database, returning its id. Optional
+	// caller-supplied customData is written atomically with the session insert and
+	// requires a custom session data configuration on the storage.
+	NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
@@ -55,7 +58,7 @@ type PasswordAuthStore interface {
 	// custom session data configuration with a resolver is attached to the storage, the
 	// resolver runs inside the session-insert transaction; a resolver error aborts
 	// session creation. With no resolver it is a plain insert.
-	CreateSession(ctx context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error)
+	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// UpdateCustomSessionData updates the custom session data for an active session.
 	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// User returns a session user for give user id
@@ -87,7 +90,10 @@ var _ OIDCStore = (*OIDC)(nil)
 // OIDCStore defines an interface for managing OIDC session storage.
 type OIDCStore interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
-	NewSession(ctx context.Context, username, oidcSID string) (ccc.UUID, error)
+	// NewSession creates a new OIDC session. claims carries the raw verified ID-token
+	// claims into any configured custom session data resolver, which runs inside the
+	// session-insert transaction; a resolver error aborts session creation.
+	NewSession(ctx context.Context, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error)
 
 	// shared storage methods
 	BaseStore
@@ -105,7 +111,7 @@ type db interface {
 	// InsertSession inserts a Session into the database and returns its id. When a custom
 	// session data configuration with a resolver is attached, the resolver runs within the
 	// same transaction as the session insert; a resolver error aborts the insert.
-	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error)
+	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
 	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// UpdateSessionActivity updates the session activity column with the current time.
@@ -146,7 +152,8 @@ type db interface {
 	//
 
 	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
-	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession) (ccc.UUID, error)
+	// It honors the request's custom session data semantics (per-call data or configured resolver, atomic with the insert).
+	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// DestroySessionOIDC marks the OIDC session as expired by oidcSID.
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 }

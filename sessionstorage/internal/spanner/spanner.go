@@ -147,7 +147,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 // insert and the configured resolver is not invoked. Otherwise, when a custom session
 // data configuration with a resolver is attached, the resolver runs within the same
 // read-write transaction as the session insert; a resolver error aborts the insert.
-func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -169,11 +169,22 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
 
-	// Per-call custom data wins: written atomically with the session insert in a
-	// single commit; the configured resolver is not invoked.
+	if err := s.applySessionInsert(ctx, id, sessionMutation, req); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	return id, nil
+}
+
+// applySessionInsert commits a session-insert mutation, honoring the request's custom
+// session data semantics: per-call data wins and is committed with the session mutation
+// in a single Apply (the configured resolver is not invoked); otherwise a configured
+// resolver runs within a read-write transaction; otherwise the session mutation is
+// applied alone.
+func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UUID, sessionMutation *spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
 	if len(req.CustomData) > 0 {
 		if s.customData == nil {
-			return ccc.NilUUID, errors.New("custom session data provided but no custom session data config is attached")
+			return errors.New("custom session data provided but no custom session data config is attached")
 		}
 
 		row := map[string]any{
@@ -185,27 +196,27 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 
 		mutations := []*spanner.Mutation{sessionMutation, spanner.InsertMap(s.customData.TableName, row)}
 		if _, err := s.spanner.Apply(ctx, mutations); err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
 
-		return id, nil
+		return nil
 	}
 
 	if s.customData == nil || s.customData.Resolver == nil {
 		if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{sessionMutation}); err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "spanner.Client.Apply()")
+			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
 
-		return id, nil
+		return nil
 	}
 
 	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
-	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if err := txn.BufferWrite([]*spanner.Mutation{sessionMutation}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		customData, err := s.customData.Resolver(ctx, txn, req)
+		customData, err := s.customData.Resolver(ctx, txn, *req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}
@@ -227,10 +238,10 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return nil
 	})
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
-	return id, nil
+	return nil
 }
 
 // DestroySession marks the session as expired

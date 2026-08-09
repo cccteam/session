@@ -123,7 +123,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 // insert and the configured resolver is not invoked. Otherwise, when a custom session
 // data configuration with a resolver is attached, the resolver runs within the same
 // transaction as the session insert; a resolver error aborts the insert.
-func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -138,52 +138,64 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		VALUES
 			($1, $2, $3, $4, $5)
 		`, s.sessionTableName)
+	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	// Per-call custom data wins: the configured resolver is not invoked.
+	if err := s.execSessionInsert(ctx, id, query, args, req); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	return id, nil
+}
+
+// execSessionInsert executes a session-insert statement, honoring the request's custom
+// session data semantics: per-call data wins and is written with the session insert in
+// one transaction (the configured resolver is not invoked); otherwise a configured
+// resolver runs within the same transaction; otherwise the insert executes alone.
+func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
 	perCallData := len(req.CustomData) > 0
 	if perCallData && s.customData == nil {
-		return ccc.NilUUID, errors.New("custom session data provided but no custom session data config is attached")
+		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
 	if !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
-		if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
 		}
 
-		return id, nil
+		return nil
 	}
 
 	txn, err := s.conn.Begin(ctx)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "Queryer.Begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
 	}()
 
-	if _, err := txn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
+	if _, err := txn.Exec(ctx, query, args...); err != nil {
+		return errors.Wrap(err, "tx.Exec()")
 	}
 
 	customData := req.CustomData
 	if !perCallData {
-		customData, err = s.customData.Resolver(ctx, txn, req)
+		customData, err = s.customData.Resolver(ctx, txn, *req)
 		if err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
+			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}
 	}
 
 	if len(customData) > 0 {
 		if err := insertCustomSessionData(ctx, txn, id, s.customData, customData...); err != nil {
-			return ccc.NilUUID, err
+			return err
 		}
 	}
 
 	if err := txn.Commit(ctx); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "tx.Commit()")
+		return errors.Wrap(err, "tx.Commit()")
 	}
 
-	return id, nil
+	return nil
 }
 
 // DestroySession marks the session as expired

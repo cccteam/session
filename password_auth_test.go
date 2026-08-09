@@ -123,9 +123,9 @@ func TestPasswordAuth_Login(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "user", UserID: userID}
-						if diff := cmp.Diff(want, req); diff != "" {
+						if diff := cmp.Diff(want, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
 						}
 
@@ -1224,9 +1224,9 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 				destroy := storage.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(nil)
 				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
 					After(destroy).
-					DoAndReturn(func(_ context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonRegeneration, Username: username, UserID: userID}
-						if diff := cmp.Diff(want, req); diff != "" {
+						if diff := cmp.Diff(want, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
 						}
 
@@ -1796,9 +1796,9 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonExternalAuth, Username: "user", UserID: userID}
-						if diff := cmp.Diff(want, req); diff != "" {
+						if diff := cmp.Diff(want, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
 						}
 
@@ -1821,7 +1821,7 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				}, nil)
 				sessionID := ccc.Must(ccc.NewUUID())
 				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{
 							Reason:   sessioninfo.ReasonExternalAuth,
 							Username: "user",
@@ -1831,7 +1831,7 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 								{ColumnName: "RoleId", Value: "role-1"},
 							},
 						}
-						if diff := cmp.Diff(want, req); diff != "" {
+						if diff := cmp.Diff(want, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
 						}
 

@@ -2,10 +2,14 @@ package sessionstorage
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -21,13 +25,27 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 		expectedID ccc.UUID
 	}{
 		{
-			name:     "successful OIDC session creation",
+			name:     "successful OIDC session creation with claims in the request",
 			username: "user1",
 			oidcSID:  "oidc-12345",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
-					InsertSessionOIDC(gomock.Any(), gomock.Any()).
-					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174001")), nil).
+					InsertSessionOIDC(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+						if session.OidcSID != "oidc-12345" || session.Username != "user1" {
+							return ccc.NilUUID, errors.Newf("unexpected session %+v", session)
+						}
+						wantReq := sessioninfo.NewSessionRequest{
+							Reason:   sessioninfo.ReasonLogin,
+							Username: "user1",
+							Claims:   json.RawMessage(`{"preferred_username":"user1","oid":"abc"}`),
+						}
+						if diff := cmp.Diff(wantReq, *req); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
+						}
+
+						return ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174001")), nil
+					}).
 					Times(1)
 			},
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174001")),
@@ -38,7 +56,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 			oidcSID:  "oidc-67890",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
-					InsertSessionOIDC(gomock.Any(), gomock.Any()).
+					InsertSessionOIDC(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(ccc.NilUUID, errors.New("insert failed")).
 					Times(1)
 			},
@@ -62,7 +80,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 				tt.prepare(mockDB)
 			}
 
-			id, err := storage.NewSession(context.Background(), tt.username, tt.oidcSID)
+			id, err := storage.NewSession(context.Background(), tt.username, tt.oidcSID, json.RawMessage(`{"preferred_username":"`+tt.username+`","oid":"abc"}`))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewSession() error = %v, wantErr = %v", err, tt.wantErr)
 			}

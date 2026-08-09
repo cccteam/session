@@ -1,6 +1,10 @@
 package sessioninfo
 
-import "github.com/cccteam/ccc"
+import (
+	"encoding/json"
+
+	"github.com/cccteam/ccc"
+)
 
 // NewSessionReason identifies why a new session is being created, allowing a
 // custom session data resolver to vary its behavior by trigger.
@@ -36,4 +40,8 @@ type NewSessionRequest struct {
 	// resolver is NOT invoked for this creation (per-call data wins). It requires a
 	// custom session data configuration on the storage.
 	CustomData []*CustomData
+	// Claims holds the raw verified ID-token claims when the session is created by an
+	// OIDC login; it is nil for all other session types. Resolvers unmarshal the fields
+	// they need — the library does not curate a claims struct.
+	Claims json.RawMessage
 }

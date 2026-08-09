@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -183,18 +184,33 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		claims := &claims{}
-		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, claims)
+		// Capture the full verified claims payload so a configured custom session data
+		// resolver receives every claim, then decode the fields this handler needs.
+		var rawClaims json.RawMessage
+		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
 			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
-		// user is successfully authenticated, start a new session
-		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
-		if err != nil {
+		claims := &claims{}
+		if err := json.Unmarshal(rawClaims, claims); err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+
+			return errors.Wrap(err, "json.Unmarshal()")
+		}
+
+		// user is successfully authenticated, start a new session. A configured custom
+		// session data resolver runs inside the session-insert transaction; a resolver
+		// error aborts the login here, before any cookie is written.
+		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID, rawClaims)
+		if err != nil {
+			message := httpio.Message(err)
+			if message == "" {
+				message = "Internal Server Error"
+			}
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(message)), http.StatusFound)
 
 			return errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}
@@ -286,10 +302,13 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 	return hasRole, nil
 }
 
-// startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
+// startNewSession starts a new session for the given username and returns the session ID.
+// claims carries the raw verified ID-token claims into any configured custom session data
+// resolver, which runs inside the session-insert transaction; a resolver error aborts the
+// session creation and no cookies are written.
+func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
 	// Create new Session in database
-	id, err := o.storage.NewSession(ctx, username, oidcSID)
+	id, err := o.storage.NewSession(ctx, username, oidcSID, claims)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}

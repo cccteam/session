@@ -12,7 +12,9 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/mock/mock_cookie"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -22,6 +24,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
+		customData []*sessioninfo.CustomData
 		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler)
 		wantErr    bool
 		expectedID ccc.UUID
@@ -45,6 +48,39 @@ func TestPreauthAPI_Login(t *testing.T) {
 							Value: sessionID.String(),
 							Path:  "/",
 						})
+						return cookie.NewValues().SetString(internalcookie.SessionID, sessionID.String()), nil
+					}).
+					Times(1)
+
+				mockCookies.EXPECT().
+					CreateXSRFTokenCookie(gomock.Any(), gomock.Any()).
+					Return().
+					Times(1)
+			},
+			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+		},
+		{
+			name:     "successful session creation with caller-supplied custom data",
+			username: "test_user",
+			customData: []*sessioninfo.CustomData{
+				{ColumnName: "TenantId", Value: "tenant-1"},
+			},
+			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
+				mockStorage.EXPECT().
+					NewSession(gomock.Any(), "test_user", gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
+						want := []*sessioninfo.CustomData{{ColumnName: "TenantId", Value: "tenant-1"}}
+						if diff := cmp.Diff(want, customData); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected customData: " + diff)
+						}
+
+						return ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil
+					}).
+					Times(1)
+
+				mockCookies.EXPECT().
+					NewAuthCookie(gomock.Any(), true, gomock.Any()).
+					DoAndReturn(func(_ http.ResponseWriter, _ bool, sessionID ccc.UUID) (*cookie.Values, error) {
 						return cookie.NewValues().SetString(internalcookie.SessionID, sessionID.String()), nil
 					}).
 					Times(1)
@@ -97,7 +133,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			}
 
 			// Call Login and capture the result
-			id, err := preauth.API().Login(context.Background(), w, tt.username)
+			id, err := preauth.API().Login(context.Background(), w, tt.username, tt.customData...)
 
 			// Validate the results
 			if (err != nil) != tt.wantErr {

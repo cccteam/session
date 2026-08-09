@@ -31,7 +31,7 @@ func Test_sessionStorage_NewSession(t *testing.T) {
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					InsertSession(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+					DoAndReturn(func(_ context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						if insertSession.Username != "test_user" {
 							return ccc.NilUUID, errors.Newf("unexpected username %q", insertSession.Username)
 						}

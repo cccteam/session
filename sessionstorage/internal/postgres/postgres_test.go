@@ -238,7 +238,7 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			id, err := c.InsertSession(ctx, tt.insertSession, sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: tt.insertSession.Username})
+			id, err := c.InsertSession(ctx, tt.insertSession, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: tt.insertSession.Username})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1433,7 +1433,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			}
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			id, err := c.InsertSession(ctx, tt.insertSession, tt.req)
+			id, err := c.InsertSession(ctx, tt.insertSession, &tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return

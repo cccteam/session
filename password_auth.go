@@ -391,7 +391,7 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 func (p *PasswordAuth) startNewSession(
 	ctx context.Context, w http.ResponseWriter, reason sessioninfo.NewSessionReason, username string, userID ccc.UUID, customData ...*sessioninfo.CustomData,
 ) (ccc.UUID, error) {
-	id, err := p.storage.CreateSession(ctx, sessioninfo.NewSessionRequest{
+	id, err := p.storage.CreateSession(ctx, &sessioninfo.NewSessionRequest{
 		Reason:     reason,
 		Username:   username,
 		UserID:     userID,

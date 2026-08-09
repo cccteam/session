@@ -55,7 +55,7 @@ func NewPostgresPassword(pg postgres.Queryer, opts ...PostgresOption) *PasswordA
 // session data configuration with a resolver is attached to the storage, the resolver
 // runs inside the session-insert transaction; a resolver error aborts session creation.
 // With no resolver it is a plain insert.
-func (p *PasswordAuth) CreateSession(ctx context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (p *PasswordAuth) CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
