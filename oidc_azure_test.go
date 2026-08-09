@@ -140,31 +140,39 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to create new session",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						if err := json.Unmarshal([]byte(`{"preferred_username": ""}`), claims); err != nil {
+						if err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1"]}`), claims); err != nil {
 							t.Fatalf("failed to unmarshal claims: %v", err)
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), "", "a test SID value", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
+				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1"}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1"}).Return(map[accesstypes.Domain][]accesstypes.Role{"testDomain1": {}}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.Role("testRole1")).Return(true).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 		},
 		{
 			name: "custom session data resolver abort surfaces its client message with no cookies",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
-						if err := json.Unmarshal([]byte(`{"preferred_username": "test username"}`), claims); err != nil {
+						if err := json.Unmarshal([]byte(`{"preferred_username": "test username", "roles": ["testRole1"]}`), claims); err != nil {
 							t.Fatalf("failed to unmarshal claims: %v", err)
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
+				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1"}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1"}).Return(map[accesstypes.Domain][]accesstypes.Role{"testDomain1": {}}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.Role("testRole1")).Return(true).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.Domain("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				// No cookie-handler expectations: a resolver abort must not write cookies.
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
 					Return(ccc.NilUUID, httpio.NewBadRequestMessage("user is not provisioned")).Times(1)
@@ -174,7 +182,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to get domains",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -183,9 +191,6 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
-				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return(nil, errors.New("failed to get domains")).Times(1)
 			},
 			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
@@ -193,7 +198,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to get existing user roles",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -203,9 +208,6 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
-				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(nil, errors.New("failed to get user roles")).Times(1)
 			},
@@ -214,7 +216,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to add user roles",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -224,9 +226,6 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
-				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
@@ -240,7 +239,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to delete user roles",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -250,9 +249,6 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
-				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},
@@ -267,7 +263,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "unauthorized due to no assigned roles",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -277,9 +273,6 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						}
 						return "testReturnUrl", "a test SID value", nil
 					}).Times(1)
-				s.EXPECT().NewSession(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
-				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
-				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
 				u.EXPECT().Domains(gomock.Any()).Return([]accesstypes.Domain{"testDomain1", "test domain 2"}, nil).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Domain{"testDomain1", "test domain 2"}).Return(map[accesstypes.Domain][]accesstypes.Role{
 					"testDomain1":   {"testRole0", "testRole1", "testRole2"},

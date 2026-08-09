@@ -203,8 +203,10 @@ oidcSession, err := session.NewOIDCAzure(
 )
 ```
 
-Note: the resolver runs *before* role synchronization — token roles are available in the
-raw claims; database-synced roles are not.
+Note: role synchronization runs before session creation, so a login rejected for having
+no recognized role never creates a session or writes cookies; the resolver runs after
+role sync, inside the session-insert transaction. Token roles are also available
+directly in the raw claims.
 
 ### Reading the data in handlers
 

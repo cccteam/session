@@ -201,9 +201,25 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 			return errors.Wrap(err, "json.Unmarshal()")
 		}
 
-		// user is successfully authenticated, start a new session. A configured custom
-		// session data resolver runs inside the session-insert transaction; a resolver
-		// error aborts the login here, before any cookie is written.
+		// Reconcile roles BEFORE creating the session so a rejected login never
+		// leaves a live session or auth cookie behind.
+		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
+		if err != nil {
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+
+			return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
+		}
+		if !hasRole {
+			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+
+			return err
+		}
+
+		// user is successfully authenticated and authorized, start a new session. A
+		// configured custom session data resolver runs inside the session-insert
+		// transaction; a resolver error aborts the login here, before any cookie is
+		// written.
 		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID, rawClaims)
 		if err != nil {
 			message := httpio.Message(err)
@@ -217,19 +233,6 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 
 		// Log the association between the sessionID and Username
 		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
-
-		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
-		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
-
-			return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
-		}
-		if !hasRole {
-			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
-
-			return err
-		}
 
 		http.Redirect(w, r, returnURL, http.StatusFound)
 
