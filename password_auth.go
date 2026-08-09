@@ -13,7 +13,6 @@ import (
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -33,11 +32,10 @@ var _ PasswordAuthHandlers = &PasswordAuth{}
 
 // PasswordAuth implements the PasswordHandlers interface for handling password authentication.
 type PasswordAuth struct {
-	storage            sessionstorage.PasswordAuthStore
-	hasher             *securehash.SecureHasher
-	autoUpgrade        bool
-	baseSession        *basesession.BaseSession
-	customDataResolver NewSessionCustomDataResolver
+	storage     sessionstorage.PasswordAuthStore
+	hasher      *securehash.SecureHasher
+	autoUpgrade bool
+	baseSession *basesession.BaseSession
 }
 
 // NewPasswordAuth creates a new PasswordAuth.
@@ -143,7 +141,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	}
 
 	// user is successfully authenticated, start a new session
-	sessionID, err := p.startNewSession(ctx, w, user.Username, user.ID)
+	sessionID, err := p.startNewSession(ctx, w, sessioninfo.ReasonLogin, user.Username, user.ID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -154,7 +152,7 @@ func (p *PasswordAuth) loginAPI(ctx context.Context, w http.ResponseWriter, user
 	return nil
 }
 
-func (p *PasswordAuth) validateCredentials(ctx context.Context, user *dbtype.SessionUser, password string) error {
+func (p *PasswordAuth) validateCredentials(ctx context.Context, user *sessionstorage.SessionUser, password string) error {
 	upgrade, err := p.hasher.Compare(user.PasswordHash, password)
 	if err != nil {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
@@ -386,29 +384,17 @@ func (p *PasswordAuth) ActivateUser() http.HandlerFunc {
 	})
 }
 
-// startNewSession starts a new session for the given username and returns the session ID
-func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, username string, userID ccc.UUID) (ccc.UUID, error) {
-	// Bind userID into the resolver
-	var resolver dbtype.NewSessionCustomDataResolver
-	if p.customDataResolver != nil {
-		resolver = func(ctx context.Context, txn dbtype.ReadWriteTransaction) ([]*sessioninfo.CustomData, error) {
-			return p.customDataResolver(ctx, txn, userID)
-		}
-	}
-
-	// Create new Session in database
-	var id ccc.UUID
-	var err error
-	if resolver != nil {
-		id, err = p.storage.NewCustomSession(ctx, username, resolver)
-		if err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewCustomSession()")
-		}
-	} else {
-		id, err = p.storage.NewSession(ctx, username)
-		if err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.NewSession()")
-		}
+// startNewSession starts a new session for the given username and returns the session ID.
+// The reason is passed through to any configured custom session data resolver, which runs
+// inside the session-insert transaction.
+func (p *PasswordAuth) startNewSession(ctx context.Context, w http.ResponseWriter, reason sessioninfo.NewSessionReason, username string, userID ccc.UUID) (ccc.UUID, error) {
+	id, err := p.storage.CreateSession(ctx, sessioninfo.NewSessionRequest{
+		Reason:   reason,
+		Username: username,
+		UserID:   userID,
+	})
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateSession()")
 	}
 
 	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)
@@ -484,7 +470,7 @@ func (p *PasswordAuth) changeSessionUserPassword(ctx context.Context, w http.Res
 	// Start a new session so the caller remains authenticated under a new session ID.
 	// Custom session data is resolved fresh for the new session; values previously set
 	// via UpdateCustomSessionData do not carry over.
-	sessionID, err := p.startNewSession(ctx, w, user.Username, user.ID)
+	sessionID, err := p.startNewSession(ctx, w, sessioninfo.ReasonRegeneration, user.Username, user.ID)
 	if err != nil {
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
@@ -516,7 +502,7 @@ func (p *PasswordAuth) createSessionUser(ctx context.Context, req *CreateUserReq
 		}
 	}
 
-	insertUser := &dbtype.InsertSessionUser{
+	insertUser := &sessionstorage.InsertSessionUser{
 		Username:     req.Username,
 		PasswordHash: hash,
 		Disabled:     req.Disabled,
@@ -652,7 +638,7 @@ func (p *PasswordAuthAPI) StartAuthenticatedSession(ctx context.Context, w http.
 		return ccc.NilUUID, httpio.NewUnauthorizedMessage("Account disabled")
 	}
 
-	sessionID, err := p.passwordAuth.startNewSession(ctx, w, user.Username, user.ID)
+	sessionID, err := p.passwordAuth.startNewSession(ctx, w, sessioninfo.ReasonExternalAuth, user.Username, user.ID)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}

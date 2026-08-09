@@ -2,8 +2,6 @@ package sessionstorage
 
 import (
 	"context"
-	"fmt"
-	"regexp"
 	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
@@ -26,35 +24,48 @@ type PasswordAuth struct {
 }
 
 // NewSpannerPasswordAuth creates a new Password storage instance.
-func NewSpannerPasswordAuth(client *cloudspanner.Client) *PasswordAuth {
+func NewSpannerPasswordAuth(client *cloudspanner.Client, opts ...SpannerOption) *PasswordAuth {
+	driver := spanner.NewSessionStorageDriver(client)
+	for _, opt := range opts {
+		opt.applySpanner(driver)
+	}
+
 	return &PasswordAuth{
 		sessionStorage: sessionStorage{
-			db: spanner.NewSessionStorageDriver(client),
+			db: driver,
 		},
 	}
 }
 
 // NewPostgresPassword creates a new PostgresPassword instance.
-func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
+func NewPostgresPassword(pg postgres.Queryer, opts ...PostgresOption) *PasswordAuth {
+	driver := postgres.NewSessionStorageDriver(pg)
+	for _, opt := range opts {
+		opt.applyPostgres(driver)
+	}
+
 	return &PasswordAuth{
 		sessionStorage: sessionStorage{
-			db: postgres.NewSessionStorageDriver(pg),
+			db: driver,
 		},
 	}
 }
 
-// NewCustomSession creates a new session in the database, resolving custom session data via the resolver. The session's ID is returned.
-func (p *PasswordAuth) NewCustomSession(ctx context.Context, username string, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
+// CreateSession creates a new session for the request and returns its ID. When a custom
+// session data configuration with a resolver is attached to the storage, the resolver
+// runs inside the session-insert transaction; a resolver error aborts session creation.
+// With no resolver it is a plain insert.
+func (p *PasswordAuth) CreateSession(ctx context.Context, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	session := &dbtype.InsertSession{
-		Username:  username,
+		Username:  req.Username,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
-	id, err := p.db.InsertCustomSession(ctx, session, resolver)
+	id, err := p.db.InsertSession(ctx, session, req)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
 	}
@@ -181,35 +192,4 @@ func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	}
 
 	return nil
-}
-
-var validColumnName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
-
-// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
-func (p *PasswordAuth) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
-	if !validColumnName.MatchString(config.TableName) {
-		panic(fmt.Sprintf("invalid table name: %s. Table names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", config.TableName))
-	}
-
-	seen := make(map[string]struct{}, len(config.Columns))
-	dedupedColumns := make([]string, 0, len(config.Columns))
-	for _, name := range config.Columns {
-		if !validColumnName.MatchString(name) {
-			panic(fmt.Sprintf("invalid column name: %s. Column names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", name))
-		}
-		if dbtype.IsReservedCustomColumn(name) {
-			panic(fmt.Sprintf("invalid column name: %s. This column name is reserved and cannot be used as a custom session data column.", name))
-		}
-		if _, duplicate := seen[name]; duplicate {
-			continue
-		}
-		seen[name] = struct{}{}
-		dedupedColumns = append(dedupedColumns, name)
-	}
-
-	p.db.SetCustomSessionDataConfig(&dbtype.CustomSessionDataConfig{
-		TableName: config.TableName,
-		Columns:   dedupedColumns,
-		Decoder:   config.Decoder,
-	})
 }

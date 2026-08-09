@@ -37,7 +37,14 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string) (ccc.U
 		UpdatedAt: time.Now(),
 	}
 
-	id, err := s.db.InsertSession(ctx, session)
+	// Preauth stores cannot carry a custom-data resolver today, so the request only
+	// exists to satisfy the unified insert path (see backlog item 7 for Preauth wiring).
+	req := sessioninfo.NewSessionRequest{
+		Reason:   sessioninfo.ReasonPreauth,
+		Username: username,
+	}
+
+	id, err := s.db.InsertSession(ctx, session, req)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
 	}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
@@ -26,7 +25,7 @@ type SessionStorageDriver struct {
 	conn             Queryer
 	sessionTableName string
 	userTableName    string
-	customDataConfig *dbtype.CustomSessionDataConfig
+	customData       *CustomSessionDataConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -46,11 +45,6 @@ func (s *SessionStorageDriver) SetSessionTableName(name string) {
 // SetUserTableName sets the name of the user table.
 func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
-}
-
-// SetCustomSessionDataConfig sets the configuration for a separate custom session data table.
-func (s *SessionStorageDriver) SetCustomSessionDataConfig(config *dbtype.CustomSessionDataConfig) {
-	s.customDataConfig = config
 }
 
 // Session returns the session information from the database for given sessionID
@@ -74,8 +68,8 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	}
 
 	customColumns := []string{}
-	if s.customDataConfig != nil {
-		customColumns = s.customDataConfig.Columns
+	if s.customData != nil {
+		customColumns = s.customData.Columns
 	}
 
 	session := &dbtype.Session{}
@@ -124,8 +118,10 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 	return nil
 }
 
-// InsertSession inserts a Session into database
-func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession) (ccc.UUID, error) {
+// InsertSession inserts a Session into the database and returns its id. When a custom
+// session data configuration with a resolver is attached, the resolver runs within the
+// same transaction as the session insert; a resolver error aborts the insert.
+func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -141,21 +137,12 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 			($1, $2, $3, $4, $5)
 		`, s.sessionTableName)
 
-	if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
-	}
+	if s.customData == nil || s.customData.Resolver == nil {
+		if _, err := s.conn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "Queryer.Exec()")
+		}
 
-	return id, nil
-}
-
-// InsertCustomSession inserts a Session into the database, resolving the custom session data within the read-write transaction. The session's id is returned.
-func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSession *dbtype.InsertSession, resolver dbtype.NewSessionCustomDataResolver) (ccc.UUID, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	id, err := ccc.NewUUID()
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+		return id, nil
 	}
 
 	txn, err := s.conn.Begin(ctx)
@@ -166,27 +153,17 @@ func (s *SessionStorageDriver) InsertCustomSession(ctx context.Context, insertSe
 		_ = txn.Rollback(ctx)
 	}()
 
-	query := fmt.Sprintf(`
-		INSERT INTO "%s"
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
-		VALUES
-			($1, $2, $3, $4, $5)
-		`, s.sessionTableName)
-
 	if _, err := txn.Exec(ctx, query, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "tx.Exec()")
 	}
 
-	customData, err := resolver(ctx, &pgxReadWriteTransaction{tx: txn})
+	customData, err := s.customData.Resolver(ctx, txn, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "NewSessionCustomDataResolver()")
+		return ccc.NilUUID, errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 	}
 
 	if len(customData) > 0 {
-		if s.customDataConfig == nil {
-			return ccc.NilUUID, errors.New("resolver returned custom session data but custom session data config is not set")
-		}
-		if err := insertCustomSessionData(ctx, txn, id, s.customDataConfig, customData...); err != nil {
+		if err := insertCustomSessionData(ctx, txn, id, s.customData, customData...); err != nil {
 			return ccc.NilUUID, err
 		}
 	}
@@ -450,7 +427,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.customDataConfig == nil {
+	if s.customData == nil {
 		return errors.New("custom session data config is not set")
 	}
 
@@ -482,20 +459,15 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		ON CONFLICT (%s) DO UPDATE SET
 			%s
 	`,
-		pgx.Identifier{s.customDataConfig.TableName}.Sanitize(),
+		pgx.Identifier{s.customData.TableName}.Sanitize(),
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 		pgx.Identifier{dbtype.SessionIDColumn}.Sanitize(),
 		strings.Join(setClauses, ", "),
 	)
 
-	cmdTag, err := s.conn.Exec(ctx, query, args...)
-	if err != nil {
+	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
-	}
-
-	if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("session %q not found", sessionID)
 	}
 
 	return nil
@@ -506,11 +478,11 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
 
 	joinClause := ""
-	if s.customDataConfig != nil && len(s.customDataConfig.Columns) > 0 {
-		for _, col := range s.customDataConfig.Columns {
+	if s.customData != nil && len(s.customData.Columns) > 0 {
+		for _, col := range s.customData.Columns {
 			fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{col}.Sanitize())
 		}
-		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customDataConfig.TableName}.Sanitize(), pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customData.TableName}.Sanitize(), pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
 	}
 
 	query = fmt.Sprintf(`
@@ -538,15 +510,15 @@ func (s *SessionStorageDriver) decodeCustomData(customColumnNames []string, cust
 		rawData[col] = *val
 	}
 
-	decoded, err := s.customDataConfig.DecodeRawData(rawData)
+	decoded, err := s.customData.Decoder(rawData)
 	if err != nil {
-		return nil, errors.Wrap(err, "customDataConfig.DecodeRawData()")
+		return nil, errors.Wrap(err, "CustomSessionDataConfig.Decoder()")
 	}
 
 	return decoded, nil
 }
 
-func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, customDataConfig *dbtype.CustomSessionDataConfig, customData ...*sessioninfo.CustomData) error {
+func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, customDataConfig *CustomSessionDataConfig, customData ...*sessioninfo.CustomData) error {
 	if len(customData) == 0 {
 		return nil
 	}
@@ -575,19 +547,4 @@ func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID
 	}
 
 	return nil
-}
-
-// pgxReadWriteTransaction wraps a pgx.Tx and implements the dbtype.ReadWriteTransaction interface
-type pgxReadWriteTransaction struct {
-	tx pgx.Tx
-}
-
-// PostgresReadOnlyTransaction returns a query-only wrapper around the underlying pgx.Tx
-func (t *pgxReadWriteTransaction) PostgresReadWriteTransaction() pgx.Tx {
-	return t.tx
-}
-
-// SpannerReadOnlyTransaction panics because this is a Postgres-only adapter.
-func (t *pgxReadWriteTransaction) SpannerReadWriteTransaction() *spanner.ReadWriteTransaction {
-	panic("pgxReadWriteTransaction.SpannerReadOnlyTransaction() should never be called")
 }

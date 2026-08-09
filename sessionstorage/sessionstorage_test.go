@@ -8,7 +8,6 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -22,17 +21,26 @@ func Test_sessionStorage_NewSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		prepare    func(*mock_sessionstorage.Mockdb)
+		prepare    func(*Mockdb)
 		wantErr    bool
 		expectedID ccc.UUID
 	}{
 		{
 			name:     "successful session creation",
 			username: "test_user",
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), gomock.Any()).
-					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil).
+					InsertSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, insertSession *dbtype.InsertSession, req sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+						if insertSession.Username != "test_user" {
+							return ccc.NilUUID, errors.Newf("unexpected username %q", insertSession.Username)
+						}
+						if req.Reason != sessioninfo.ReasonPreauth || req.Username != "test_user" {
+							return ccc.NilUUID, errors.Newf("unexpected request %+v", req)
+						}
+
+						return ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil
+					}).
 					Times(1)
 			},
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
@@ -40,9 +48,9 @@ func Test_sessionStorage_NewSession(t *testing.T) {
 		{
 			name:     "failed session creation",
 			username: "test_user",
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
-					InsertSession(gomock.Any(), gomock.Any()).
+					InsertSession(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(ccc.NilUUID, errors.New("insert failed")).
 					Times(1)
 			},
@@ -55,7 +63,7 @@ func Test_sessionStorage_NewSession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &sessionStorage{
 				db: mockDB,
 			}
@@ -81,14 +89,14 @@ func Test_sessionStorage_Session(t *testing.T) {
 	tests := []struct {
 		name       string
 		sessionID  ccc.UUID
-		prepare    func(*mock_sessionstorage.Mockdb)
+		prepare    func(*Mockdb)
 		wantErr    bool
 		expectedSI *sessioninfo.SessionData
 	}{
 		{
 			name:      "successful session retrieval",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
 					Return(&dbtype.SessionData{
@@ -115,7 +123,7 @@ func Test_sessionStorage_Session(t *testing.T) {
 		{
 			name:      "successful session retrieval with custom data",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
 					Return(&dbtype.SessionData{
@@ -144,7 +152,7 @@ func Test_sessionStorage_Session(t *testing.T) {
 		{
 			name:      "successful session retrieval with decoded custom data",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
 					Return(&dbtype.SessionData{
@@ -172,7 +180,7 @@ func Test_sessionStorage_Session(t *testing.T) {
 		},
 		{
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					Session(gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("session not found")).
@@ -187,7 +195,7 @@ func Test_sessionStorage_Session(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &sessionStorage{
 				db: mockDB,
 			}
@@ -214,13 +222,13 @@ func Test_sessionStorage_UpdateSessionActivity(t *testing.T) {
 	tests := []struct {
 		name      string
 		sessionID ccc.UUID
-		prepare   func(*mock_sessionstorage.Mockdb)
+		prepare   func(*Mockdb)
 		wantErr   bool
 	}{
 		{
 			name:      "successful session activity update",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					UpdateSessionActivity(gomock.Any(), gomock.Any()).
 					Return(nil).
@@ -230,7 +238,7 @@ func Test_sessionStorage_UpdateSessionActivity(t *testing.T) {
 		{
 			name:      "failed session activity update",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					UpdateSessionActivity(gomock.Any(), gomock.Any()).
 					Return(errors.New("update failed")).
@@ -245,7 +253,7 @@ func Test_sessionStorage_UpdateSessionActivity(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &sessionStorage{
 				db: mockDB,
 			}
@@ -268,13 +276,13 @@ func Test_sessionStorage_DestroySession(t *testing.T) {
 	tests := []struct {
 		name      string
 		sessionID ccc.UUID
-		prepare   func(*mock_sessionstorage.Mockdb)
+		prepare   func(*Mockdb)
 		wantErr   bool
 	}{
 		{
 			name:      "successful session destruction",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					DestroySession(gomock.Any(), gomock.Any()).
 					Return(nil).
@@ -284,7 +292,7 @@ func Test_sessionStorage_DestroySession(t *testing.T) {
 		{
 			name:      "failed session destruction",
 			sessionID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().
 					DestroySession(gomock.Any(), gomock.Any()).
 					Return(errors.New("destroy failed")).
@@ -299,7 +307,7 @@ func Test_sessionStorage_DestroySession(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &sessionStorage{
 				db: mockDB,
 			}

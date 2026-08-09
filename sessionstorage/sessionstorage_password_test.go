@@ -9,7 +9,6 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -20,14 +19,14 @@ func TestPasswordAuth_User(t *testing.T) {
 	tests := []struct {
 		name     string
 		id       ccc.UUID
-		prepare  func(mockDB *mock_sessionstorage.Mockdb)
+		prepare  func(mockDB *Mockdb)
 		wantUser *dbtype.SessionUser
 		wantErr  bool
 	}{
 		{
 			name: "success",
 			id:   userID,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
 			},
 			wantUser: &dbtype.SessionUser{ID: userID, Username: "test"},
@@ -35,7 +34,7 @@ func TestPasswordAuth_User(t *testing.T) {
 		{
 			name: "failure",
 			id:   userID,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
@@ -45,7 +44,7 @@ func TestPasswordAuth_User(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
@@ -72,14 +71,14 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 	tests := []struct {
 		name     string
 		username string
-		prepare  func(mockDB *mock_sessionstorage.Mockdb)
+		prepare  func(mockDB *Mockdb)
 		wantUser *dbtype.SessionUser
 		wantErr  bool
 	}{
 		{
 			name:     "success",
 			username: "test",
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().UserByUserName(gomock.Any(), "test").Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
 			},
 			wantUser: &dbtype.SessionUser{ID: userID, Username: "test"},
@@ -87,7 +86,7 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 		{
 			name:     "failure",
 			username: "test",
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().UserByUserName(gomock.Any(), "test").Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
@@ -97,7 +96,7 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
@@ -129,7 +128,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		name     string
 		username string
 		hash     *securehash.Hash
-		prepare  func(mockDB *mock_sessionstorage.Mockdb)
+		prepare  func(mockDB *Mockdb)
 		wantUser *dbtype.SessionUser
 		wantErr  bool
 	}{
@@ -137,7 +136,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:     "success",
 			username: "test",
 			hash:     hash,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
 			},
 			wantUser: &dbtype.SessionUser{ID: userID, Username: "test"},
@@ -146,7 +145,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:     "failure",
 			username: "test",
 			hash:     hash,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
@@ -156,7 +155,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
@@ -185,14 +184,14 @@ func TestPasswordAuth_SetUserUsername(t *testing.T) {
 		name     string
 		id       ccc.UUID
 		username string
-		prepare  func(mockDB *mock_sessionstorage.Mockdb)
+		prepare  func(mockDB *Mockdb)
 		wantErr  bool
 	}{
 		{
 			name:     "success",
 			id:       userID,
 			username: username,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(nil)
 			},
 		},
@@ -200,7 +199,7 @@ func TestPasswordAuth_SetUserUsername(t *testing.T) {
 			name:     "failure",
 			id:       userID,
 			username: username,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().SetUserUsername(gomock.Any(), userID, username).Return(errors.New("db error"))
 			},
 			wantErr: true,
@@ -210,7 +209,7 @@ func TestPasswordAuth_SetUserUsername(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
@@ -237,14 +236,14 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 		name    string
 		id      ccc.UUID
 		hash    *securehash.Hash
-		prepare func(mockDB *mock_sessionstorage.Mockdb)
+		prepare func(mockDB *Mockdb)
 		wantErr bool
 	}{
 		{
 			name: "success",
 			id:   userID,
 			hash: hash,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(nil)
 			},
 		},
@@ -252,7 +251,7 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 			name: "failure",
 			id:   userID,
 			hash: hash,
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().SetUserPasswordHash(gomock.Any(), userID, hash).Return(errors.New("db error"))
 			},
 			wantErr: true,
@@ -262,7 +261,7 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
@@ -306,21 +305,21 @@ func TestPassword_DeactivateUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		id      ccc.UUID
-		mock    func(m *mock_sessionstorage.Mockdb)
+		mock    func(m *Mockdb)
 		wantErr bool
 		err     error
 	}{
 		{
 			name: "success",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DeactivateUser(gomock.Any(), userID).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DeactivateUser(gomock.Any(), userID).Return(someErr)
 			},
 			wantErr: true,
@@ -331,7 +330,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockdb := mock_sessionstorage.NewMockdb(ctrl)
+			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
 			p := &PasswordAuth{
@@ -359,21 +358,21 @@ func TestPassword_DeleteUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		id      ccc.UUID
-		mock    func(m *mock_sessionstorage.Mockdb)
+		mock    func(m *Mockdb)
 		wantErr bool
 		err     error
 	}{
 		{
 			name: "success",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DeleteUser(gomock.Any(), userID).Return(someErr)
 			},
 			wantErr: true,
@@ -384,7 +383,7 @@ func TestPassword_DeleteUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockdb := mock_sessionstorage.NewMockdb(ctrl)
+			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
 			p := &PasswordAuth{
@@ -412,21 +411,21 @@ func TestPassword_ActivateUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		id      ccc.UUID
-		mock    func(m *mock_sessionstorage.Mockdb)
+		mock    func(m *Mockdb)
 		wantErr bool
 		err     error
 	}{
 		{
 			name: "success",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().ActivateUser(gomock.Any(), userID).Return(nil)
 			},
 		},
 		{
 			name: "error",
 			id:   userID,
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().ActivateUser(gomock.Any(), userID).Return(someErr)
 			},
 			wantErr: true,
@@ -437,7 +436,7 @@ func TestPassword_ActivateUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockdb := mock_sessionstorage.NewMockdb(ctrl)
+			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
 			p := &PasswordAuth{
@@ -461,19 +460,19 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		mock    func(m *mock_sessionstorage.Mockdb)
+		mock    func(m *Mockdb)
 		wantErr bool
 		err     error
 	}{
 		{
 			name: "success",
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(nil)
 			},
 		},
 		{
 			name: "error",
-			mock: func(m *mock_sessionstorage.Mockdb) {
+			mock: func(m *Mockdb) {
 				m.EXPECT().DestroyAllUserSessions(gomock.Any(), username).Return(someErr)
 			},
 			wantErr: true,
@@ -484,7 +483,7 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockdb := mock_sessionstorage.NewMockdb(ctrl)
+			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
 			p := &PasswordAuth{
@@ -509,7 +508,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 		name       string
 		sessionID  ccc.UUID
 		customData []*sessioninfo.CustomData
-		prepare    func(mockDB *mock_sessionstorage.Mockdb)
+		prepare    func(mockDB *Mockdb)
 		wantErr    bool
 	}{
 		{
@@ -518,7 +517,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			customData: []*sessioninfo.CustomData{
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
@@ -532,7 +531,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			customData: []*sessioninfo.CustomData{
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(nil, errors.New("not found"))
 			},
 			wantErr: true,
@@ -543,7 +542,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			customData: []*sessioninfo.CustomData{
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: true,
@@ -557,7 +556,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			customData: []*sessioninfo.CustomData{
 				{ColumnName: "TenantId", Value: "tenant-1"},
 			},
-			prepare: func(mockDB *mock_sessionstorage.Mockdb) {
+			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
@@ -571,7 +570,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			mockDB := mock_sessionstorage.NewMockdb(ctrl)
+			mockDB := NewMockdb(ctrl)
 			storage := &PasswordAuth{
 				sessionStorage: sessionStorage{
 					db: mockDB,
