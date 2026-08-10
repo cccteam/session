@@ -17,6 +17,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/util"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
@@ -353,4 +354,20 @@ func (p *OIDCAzureAPI) ValidateSession(ctx context.Context) (context.Context, er
 // Cookie returns the underlying cookie.Client
 func (p *OIDCAzureAPI) Cookie() *cookie.Client {
 	return p.oidc.baseSession.CookieHandler.Cookie()
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session. It is
+// intended for genuine mid-session updates only (e.g. a tenant switch the caller has
+// authorized) — initial population belongs in the creation path (the configured
+// resolver), which is atomic with the session insert. See the "Custom session data"
+// section of the README for the full lifecycle.
+func (p *OIDCAzureAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := p.oidc.storage.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "sessionstorage.OIDCStore.UpdateCustomSessionData()")
+	}
+
+	return nil
 }

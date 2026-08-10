@@ -150,6 +150,21 @@ func (p *PreauthAPI) Login(ctx context.Context, w http.ResponseWriter, username 
 	return sessionID, nil
 }
 
+// UpdateCustomSessionData updates the custom session data for an active session. It is
+// intended for genuine mid-session updates only — initial population belongs in the
+// creation path (caller-supplied data on Login), which is atomic with the session
+// insert. See the "Custom session data" section of the README for the full lifecycle.
+func (p *PreauthAPI) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := p.preauth.storage.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "sessionstorage.PreauthStore.UpdateCustomSessionData()")
+	}
+
+	return nil
+}
+
 // Logout destroys the current session
 func (p *PreauthAPI) Logout(ctx context.Context) error {
 	// Destroy session in database

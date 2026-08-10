@@ -6,6 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -88,6 +89,29 @@ func (s *sessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID)
 
 	if err := s.db.DestroySession(ctx, sessionID); err != nil {
 		return errors.Wrap(err, "db.DestroySession()")
+	}
+
+	return nil
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session via a
+// per-column upsert. It is intended for genuine mid-session updates only — initial
+// population belongs in the session-creation transaction.
+func (s *sessionStorage) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session, err := s.db.Session(ctx, sessionID)
+	if err != nil {
+		return errors.Wrap(err, "db.Session()")
+	}
+
+	if session.Expired {
+		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+	}
+
+	if err := s.db.UpdateCustomSessionData(ctx, sessionID, customData...); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomSessionData()")
 	}
 
 	return nil

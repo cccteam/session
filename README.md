@@ -255,6 +255,9 @@ err := auth.API().UpdateCustomSessionData(ctx, sessionID,
 )
 ```
 
+It is available on all three session types: `PasswordAuthAPI`, `OIDCAzureAPI`, and
+`PreauthAPI`.
+
 Semantics to know:
 
 - **It is an upsert, per column.** Only the columns you pass are written; a session with
@@ -278,10 +281,6 @@ patching them (`DestroyAllUserSessions`); the next login re-resolves.
 
 Never use `UpdateCustomSessionData` for initial population — that belongs in the creation
 transaction (resolver or per-call data), which is atomic with the session insert.
-
-> Availability note: mid-session updates are currently exposed for password auth only
-> (`PasswordAuthAPI.UpdateCustomSessionData`); OIDC and Preauth sessions have no update
-> path yet.
 
 ### Session regeneration
 

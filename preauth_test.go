@@ -154,3 +154,47 @@ func TestPreauthAPI_Login(t *testing.T) {
 		})
 	}
 }
+
+func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name    string
+		prepare func(*mock_sessionstorage.MockPreauthStore)
+		wantErr bool
+	}{
+		{
+			name: "success",
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"}).Return(nil)
+			},
+		},
+		{
+			name: "fails on storage error",
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
+			preauth := &Preauth{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err := preauth.API().UpdateCustomSessionData(t.Context(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PreauthAPI.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

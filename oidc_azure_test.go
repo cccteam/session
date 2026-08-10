@@ -472,3 +472,47 @@ func createHTTPRequest(method string, body io.Reader, sessionInfo *sessioninfo.S
 
 	return req, nil
 }
+
+func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name    string
+		prepare func(*mock_sessionstorage.MockOIDCStore)
+		wantErr bool
+	}{
+		{
+			name: "success",
+			prepare: func(storage *mock_sessionstorage.MockOIDCStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"}).Return(nil)
+			},
+		},
+		{
+			name: "fails on storage error",
+			prepare: func(storage *mock_sessionstorage.MockOIDCStore) {
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockOIDCStore(ctrl)
+			a := &OIDCAzure{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			err := a.API().UpdateCustomSessionData(t.Context(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("OIDCAzureAPI.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

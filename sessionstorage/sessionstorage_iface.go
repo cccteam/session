@@ -19,6 +19,10 @@ import (
 type BaseStore interface {
 	// Session returns the session information from the database for given sessionID
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error)
+	// UpdateCustomSessionData updates the custom session data for an active session via a
+	// per-column upsert. For genuine mid-session updates only — initial population belongs
+	// in the session-creation transaction.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// UpdateSessionActivity updates the database with the current time for the session activity
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired
@@ -59,8 +63,6 @@ type PasswordAuthStore interface {
 	// resolver runs inside the session-insert transaction; a resolver error aborts
 	// session creation. With no resolver it is a plain insert.
 	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
-	// UpdateCustomSessionData updates the custom session data for an active session.
-	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username

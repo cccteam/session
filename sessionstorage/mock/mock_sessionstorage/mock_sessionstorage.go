@@ -98,6 +98,25 @@ func (mr *MockBaseStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockBaseStore)(nil).SetUserTableName), name)
 }
 
+// UpdateCustomSessionData mocks base method.
+func (m *MockBaseStore) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sessionID}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
+func (mr *MockBaseStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sessionID}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockBaseStore)(nil).UpdateCustomSessionData), varargs...)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *MockBaseStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -221,6 +240,25 @@ func (m *MockPreauthStore) SetUserTableName(name string) {
 func (mr *MockPreauthStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockPreauthStore)(nil).SetUserTableName), name)
+}
+
+// UpdateCustomSessionData mocks base method.
+func (m *MockPreauthStore) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sessionID}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
+func (mr *MockPreauthStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sessionID}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockPreauthStore)(nil).UpdateCustomSessionData), varargs...)
 }
 
 // UpdateSessionActivity mocks base method.
@@ -615,6 +653,25 @@ func (m *MockOIDCStore) SetUserTableName(name string) {
 func (mr *MockOIDCStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockOIDCStore)(nil).SetUserTableName), name)
+}
+
+// UpdateCustomSessionData mocks base method.
+func (m *MockOIDCStore) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sessionID}
+	for _, a := range customData {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
+func (mr *MockOIDCStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sessionID}, customData...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockOIDCStore)(nil).UpdateCustomSessionData), varargs...)
 }
 
 // UpdateSessionActivity mocks base method.
