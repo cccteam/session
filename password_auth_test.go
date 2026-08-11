@@ -859,6 +859,13 @@ func TestPassword_DeactivateUser(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
+			name:           "fails on self deactivate",
+			userID:         ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			sameUserID:     true,
+			wantStatusCode: http.StatusBadRequest,
+			wantMessage:    true,
+		},
+		{
 			name:   "fails on storage error",
 			userID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
@@ -950,14 +957,9 @@ func TestPassword_DeleteUser(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:       "fails on self delete",
-			userID:     ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-			sameUserID: true,
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))).Return(&dbtype.SessionUser{
-					ID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
-				}, nil)
-			},
+			name:           "fails on self delete",
+			userID:         ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
+			sameUserID:     true,
 			wantStatusCode: http.StatusBadRequest,
 			wantMessage:    true,
 		},
@@ -1509,28 +1511,16 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
-	otherUserID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
 		name    string
 		userID  ccc.UUID
-		ctx     context.Context
 		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantErr bool
 	}{
 		{
-			name:   "fails on self deactivate",
-			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: userID}),
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID}, nil)
-			},
-			wantErr: true,
-		},
-		{
 			name:   "fails on storage error",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("db error"))
 			},
@@ -1539,7 +1529,6 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 		{
 			name:   "fails on deactivate user",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeactivateUser(gomock.Any(), userID).Return(errors.New("db error"))
@@ -1549,7 +1538,6 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 		{
 			name:   "fails on destroy all sessions",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeactivateUser(gomock.Any(), userID).Return(nil)
@@ -1560,7 +1548,6 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 		{
 			name:   "success",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeactivateUser(gomock.Any(), userID).Return(nil)
@@ -1585,7 +1572,7 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err = p.deactivateSessionUser(tt.ctx, tt.userID)
+			err = p.deactivateSessionUser(t.Context(), tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeactivateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1597,28 +1584,16 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
-	otherUserID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
 		name    string
 		userID  ccc.UUID
-		ctx     context.Context
 		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore)
 		wantErr bool
 	}{
 		{
-			name:   "fails on self delete",
-			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: userID}),
-			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID}, nil)
-			},
-			wantErr: true,
-		},
-		{
 			name:   "fails on storage error",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(nil, errors.New("db error"))
 			},
@@ -1627,7 +1602,6 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 		{
 			name:   "fails on delete user",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeleteUser(gomock.Any(), userID).Return(errors.New("db error"))
@@ -1637,7 +1611,6 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 		{
 			name:   "fails on destroy all sessions",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
@@ -1648,7 +1621,6 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 		{
 			name:   "success",
 			userID: userID,
-			ctx:    context.WithValue(context.Background(), sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{ID: otherUserID}),
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
 				storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: "user"}, nil)
 				storage.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
@@ -1673,7 +1645,7 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			err = p.deleteSessionUser(tt.ctx, tt.userID)
+			err = p.deleteSessionUser(t.Context(), tt.userID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeleteSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
