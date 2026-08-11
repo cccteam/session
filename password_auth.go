@@ -347,6 +347,11 @@ func (p *PasswordAuth) DeactivateUser() http.HandlerFunc {
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+
+		if sessionUserID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot deactivate yourself")
+		}
+
 		if err := p.deactivateSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -362,6 +367,11 @@ func (p *PasswordAuth) DeleteUser() http.HandlerFunc {
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+
+		if sessionUserID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot delete yourself")
+		}
+
 		if err := p.deleteSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -517,10 +527,6 @@ func (p *PasswordAuth) deleteSessionUser(ctx context.Context, sessionUserID ccc.
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
 	}
 
-	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-		return httpio.NewBadRequestMessage("cannot delete yourself")
-	}
-
 	if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DeleteUser()")
 	}
@@ -537,10 +543,6 @@ func (p *PasswordAuth) deactivateSessionUser(ctx context.Context, sessionUserID 
 	user, err := p.storage.User(ctx, sessionUserID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
-	}
-
-	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-		return httpio.NewBadRequestMessage("cannot deactivate yourself")
 	}
 
 	if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
