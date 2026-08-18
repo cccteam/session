@@ -23,16 +23,16 @@ type PreauthOption interface {
 
 var _ PreauthHandlers = &Preauth{}
 
-// Preauth is a TypedPreauth without custom session data. It preserves the pre-generics
-// API surface; use NewTypedPreauth for typed custom session data.
-type Preauth = TypedPreauth[NoCustomData]
+// Preauth is a PreauthFor without custom session data. It preserves the pre-generics
+// API surface; use NewPreauthFor for typed custom session data.
+type Preauth = PreauthFor[NoCustomData]
 
-// PreauthAPI is a TypedPreauthAPI without custom session data.
-type PreauthAPI = TypedPreauthAPI[NoCustomData]
+// PreauthAPI is a PreauthAPIFor without custom session data.
+type PreauthAPI = PreauthAPIFor[NoCustomData]
 
-// TypedPreauth handles session management for pre-authentication scenarios, with
+// PreauthFor handles session management for pre-authentication scenarios, with
 // custom session data typed as T (caller-supplied at Login).
-type TypedPreauth[T any] struct {
+type PreauthFor[T any] struct {
 	storage     sessionstorage.PreauthStore
 	baseSession *basesession.BaseSession
 }
@@ -41,16 +41,16 @@ type TypedPreauth[T any] struct {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewPreauth(storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*Preauth, error) {
-	return NewTypedPreauth[NoCustomData](storage, cookieKey, options...)
+	return NewPreauthFor[NoCustomData](storage, cookieKey, options...)
 }
 
-// NewTypedPreauth creates a new TypedPreauth for the custom session data struct type T.
+// NewPreauthFor creates a new PreauthFor for the custom session data struct type T.
 // The storage must carry a custom session data configuration built for the same T; a
 // mismatch is a construction error. Preauth custom session data is caller-supplied at
 // Login (trust-the-caller); there is no resolver input source.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
-func NewTypedPreauth[T any](storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*TypedPreauth[T], error) {
+func NewPreauthFor[T any](storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*PreauthFor[T], error) {
 	if err := verifyCustomDataType[T](storage); err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func NewTypedPreauth[T any](storage sessionstorage.PreauthStore, cookieKey strin
 	}
 	baseSession.CookieHandler = cookieClient
 
-	return &TypedPreauth[T]{
+	return &PreauthFor[T]{
 		baseSession: baseSession,
 		storage:     storage,
 	}, nil
@@ -85,55 +85,55 @@ func NewTypedPreauth[T any](storage sessionstorage.PreauthStore, cookieKey strin
 // NewSession creates a new session for a pre-authenticated user.
 //
 // Deprecated: Use p.API().Login() instead
-func (p *TypedPreauth[T]) NewSession(ctx context.Context, w http.ResponseWriter, _ *http.Request, username string) (ccc.UUID, error) {
+func (p *PreauthFor[T]) NewSession(ctx context.Context, w http.ResponseWriter, _ *http.Request, username string) (ccc.UUID, error) {
 	return p.API().Login(ctx, w, username)
 }
 
 // Authenticated is the handler reports if the session is authenticated
-func (p *TypedPreauth[T]) Authenticated() http.HandlerFunc {
+func (p *PreauthFor[T]) Authenticated() http.HandlerFunc {
 	return p.baseSession.Authenticated()
 }
 
 // Logout destroys the current session
-func (p *TypedPreauth[T]) Logout() http.HandlerFunc {
+func (p *PreauthFor[T]) Logout() http.HandlerFunc {
 	return p.baseSession.Logout()
 }
 
 // SetXSRFToken sets the XSRF Token
-func (p *TypedPreauth[T]) SetXSRFToken(next http.Handler) http.Handler {
+func (p *PreauthFor[T]) SetXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.SetXSRFToken(next)
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
 // a new session. The session cookie is then updated and the sessionID is inserted into the context.
-func (p *TypedPreauth[T]) StartSession(next http.Handler) http.Handler {
+func (p *PreauthFor[T]) StartSession(next http.Handler) http.Handler {
 	return p.baseSession.StartSession(next)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired and
 // updates the last activity timestamp if it is still valid. StartSession handler must be called
 // before calling ValidateSession
-func (p *TypedPreauth[T]) ValidateSession(next http.Handler) http.Handler {
+func (p *PreauthFor[T]) ValidateSession(next http.Handler) http.Handler {
 	return p.baseSession.ValidateSession(next)
 }
 
 // ValidateXSRFToken validates the XSRF Token
-func (p *TypedPreauth[T]) ValidateXSRFToken(next http.Handler) http.Handler {
+func (p *PreauthFor[T]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
 }
 
 // API provides programatic access to Preauth handler internals
-func (p *TypedPreauth[T]) API() *TypedPreauthAPI[T] {
+func (p *PreauthFor[T]) API() *PreauthAPIFor[T] {
 	return newPreauthAPI(p)
 }
 
-// TypedPreauthAPI provides programatic access to TypedPreauth handler internals
-type TypedPreauthAPI[T any] struct {
-	preauth *TypedPreauth[T]
+// PreauthAPIFor provides programatic access to PreauthFor handler internals
+type PreauthAPIFor[T any] struct {
+	preauth *PreauthFor[T]
 }
 
-func newPreauthAPI[T any](preauth *TypedPreauth[T]) *TypedPreauthAPI[T] {
-	return &TypedPreauthAPI[T]{
+func newPreauthAPI[T any](preauth *PreauthFor[T]) *PreauthAPIFor[T] {
+	return &PreauthAPIFor[T]{
 		preauth: preauth,
 	}
 }
@@ -150,7 +150,7 @@ func newPreauthAPI[T any](preauth *TypedPreauth[T]) *TypedPreauthAPI[T] {
 // validate the data beyond the custom session data configuration, which must be
 // attached to the storage for customData to be accepted. See the "Custom session data"
 // section of the README for the full lifecycle.
-func (p *TypedPreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, username string, customData ...*T) (ccc.UUID, error) {
+func (p *PreauthAPIFor[T]) Login(ctx context.Context, w http.ResponseWriter, username string, customData ...*T) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -187,7 +187,7 @@ func (p *TypedPreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, u
 // belongs in the creation path (caller-supplied data on Login), which is atomic with
 // the session insert. See the "Custom session data" section of the README for the full
 // lifecycle.
-func (p *TypedPreauthAPI[T]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
+func (p *PreauthAPIFor[T]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -200,7 +200,7 @@ func (p *TypedPreauthAPI[T]) UpdateCustomSessionData(ctx context.Context, sessio
 
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
-func (p *TypedPreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
+func (p *PreauthAPIFor[T]) CustomData(ctx context.Context) (T, error) {
 	data, err := sessioninfo.CustomDataFromCtx[*T](ctx)
 	if err != nil {
 		var zero T
@@ -212,7 +212,7 @@ func (p *TypedPreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
 }
 
 // Logout destroys the current session
-func (p *TypedPreauthAPI[T]) Logout(ctx context.Context) error {
+func (p *PreauthAPIFor[T]) Logout(ctx context.Context) error {
 	// Destroy session in database
 	if err := p.preauth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
 		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
@@ -224,7 +224,7 @@ func (p *TypedPreauthAPI[T]) Logout(ctx context.Context) error {
 // StartSession initializes a session by restoring it from a cookie, or if
 // that fails, initializing a new session. The session cookie is then updated and
 // the sessionID is inserted into the context.
-func (p *TypedPreauthAPI[T]) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
+func (p *PreauthAPIFor[T]) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
 	ctx, err := p.preauth.baseSession.StartSessionAPI(ctx, w, r)
 	if err != nil {
 		return ctx, errors.Wrap(err, "basesession.BaseSession.StartSessionAPI()")
@@ -236,7 +236,7 @@ func (p *TypedPreauthAPI[T]) StartSession(ctx context.Context, w http.ResponseWr
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
-func (p *TypedPreauthAPI[T]) ValidateSession(ctx context.Context) (context.Context, error) {
+func (p *PreauthAPIFor[T]) ValidateSession(ctx context.Context) (context.Context, error) {
 	ctx, err := p.preauth.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
@@ -246,7 +246,7 @@ func (p *TypedPreauthAPI[T]) ValidateSession(ctx context.Context) (context.Conte
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user
-func (p *TypedPreauthAPI[T]) DestroyAllUserSessions(ctx context.Context, username string) error {
+func (p *PreauthAPIFor[T]) DestroyAllUserSessions(ctx context.Context, username string) error {
 	if err := p.preauth.storage.DestroyAllUserSessions(ctx, username); err != nil {
 		return errors.Wrap(err, "sessionstorage.PreauthStore.DestroyAllUserSessions()")
 	}
@@ -255,6 +255,6 @@ func (p *TypedPreauthAPI[T]) DestroyAllUserSessions(ctx context.Context, usernam
 }
 
 // Cookie returns the underlying cookie.Client
-func (p *TypedPreauthAPI[T]) Cookie() *cookie.Client {
+func (p *PreauthAPIFor[T]) Cookie() *cookie.Client {
 	return p.preauth.baseSession.CookieHandler.Cookie()
 }

@@ -86,7 +86,7 @@ func WithLoginURL(l string) OIDCOption {
 }
 
 // passwordOption defines a function signature for setting Password options. It operates
-// on the non-generic settings struct so one option applies to every TypedPasswordAuth
+// on the non-generic settings struct so one option applies to every PasswordAuthFor
 // instantiation.
 type passwordOption func(*passwordAuthSettings)
 

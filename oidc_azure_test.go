@@ -514,7 +514,7 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := mock_sessionstorage.NewMockOIDCStore(ctrl)
-			a := &TypedOIDCAzure[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			a := &OIDCAzureFor[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)

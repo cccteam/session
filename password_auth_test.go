@@ -1746,9 +1746,9 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 
 			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
-			p, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+			p, err := NewPasswordAuthFor[testData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewTypedPasswordAuth() error=%v", err)
+				t.Fatalf("NewPasswordAuthFor() error=%v", err)
 			}
 
 			if tt.prepare != nil {
@@ -1767,7 +1767,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 	}
 }
 
-func TestNewTypedPasswordAuth_CustomDataTypeLink(t *testing.T) {
+func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1782,7 +1782,7 @@ func TestNewTypedPasswordAuth_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
 
 				return err
 			},
@@ -1793,7 +1793,7 @@ func TestNewTypedPasswordAuth_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[otherTestData]())
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
 
 				return err
 			},
@@ -1805,7 +1805,7 @@ func TestNewTypedPasswordAuth_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(nil)
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
 
 				return err
 			},
@@ -1929,9 +1929,9 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 			cookieHandler := mock_cookie.NewMockHandler(ctrl)
 
 			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
-			p, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+			p, err := NewPasswordAuthFor[testData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewTypedPasswordAuth() error=%v", err)
+				t.Fatalf("NewPasswordAuthFor() error=%v", err)
 			}
 			p.baseSession.CookieHandler = cookieHandler
 

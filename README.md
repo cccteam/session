@@ -62,7 +62,7 @@ with the table name in one validated config unit (`NewSpannerCustomSessionData[T
 `NewPostgresCustomSessionData[T]`), attached to any storage constructor — password auth,
 OIDC, or Preauth — via a typed option (`WithSpannerCustomSessionData` /
 `WithPostgresCustomSessionData`). The session type is built for the same `T`
-(`NewTypedPasswordAuth[T]`, `NewTypedOIDCAzure[T]`, `NewTypedPreauth[T]`); at
+(`NewPasswordAuthFor[T]`, `NewOIDCAzureFor[T]`, `NewPreauthFor[T]`); at
 construction the library verifies the storage's config was built for that `T`, so a
 mismatch fails at startup, not at request time. Attaching a config built for one backend
 to the other backend's storage does not compile.
@@ -148,7 +148,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 )
 if err != nil { /* non-struct T, no persistable fields, invalid identifier, reserved SessionId, ... */ }
 
-auth, err := session.NewTypedPasswordAuth[MyData](
+auth, err := session.NewPasswordAuthFor[MyData](
     sessionstorage.NewSpannerPasswordAuth(client,
         sessionstorage.WithSpannerCustomSessionData(customCfg)),
     cookieKey,
@@ -194,7 +194,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
     },
 )
 
-oidcSession, err := session.NewTypedOIDCAzure[SessionClaims](
+oidcSession, err := session.NewOIDCAzureFor[SessionClaims](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
     userRoleManager, cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
@@ -255,8 +255,8 @@ err := auth.API().UpdateCustomSessionData(ctx, sessionID, func(data *MyData) err
 })
 ```
 
-It is available on all three session types: `TypedPasswordAuthAPI`, `TypedOIDCAzureAPI`,
-and `TypedPreauthAPI`.
+It is available on all three session types: `PasswordAuthAPIFor`, `OIDCAzureAPIFor`,
+and `PreauthAPIFor`.
 
 Semantics to know:
 
