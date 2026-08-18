@@ -92,22 +92,46 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	sessData := &dbtype.SessionData{Session: session}
 
-	if s.customData != nil && len(s.customData.Columns) > 0 {
-		rawCustomData := make(map[string]any, len(s.customData.Columns))
-		for _, col := range s.customData.Columns {
+	if s.customData != nil {
+		// The query selects c.SessionId ahead of the custom columns as a row-presence
+		// marker: a LEFT JOIN with no custom row yields NULL here.
+		var marker spanner.NullString
+		if err := row.Column(idx, &marker); err != nil {
+			return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, dbtype.SessionIDColumn)
+		}
+		idx++
+
+		if !marker.Valid {
+			// No custom data row: zero-value *T.
+			sessData.CustomData = s.customData.Codec.NewStruct()
+
+			return sessData, nil
+		}
+
+		columns := s.customData.Codec.Columns()
+		values := make([]any, len(columns))
+		for i, col := range columns {
 			var val spanner.GenericColumnValue
 			if err := row.Column(idx, &val); err != nil {
 				return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, col)
 			}
-			rawCustomData[col] = val.Value.AsInterface()
+			values[i] = val
 			idx++
 		}
 
-		decoded, err := s.customData.Decoder(rawCustomData)
+		// Rebuild a row containing only the custom columns (names are unique within
+		// the custom set) so the client's tag-based ToStruct can decode into T —
+		// the JOIN row itself may contain duplicate column names.
+		synthetic, err := spanner.NewRow(columns, values)
 		if err != nil {
-			return nil, errors.Wrap(err, "CustomSessionDataConfig.Decoder()")
+			return nil, errors.Wrap(err, "spanner.NewRow()")
 		}
-		sessData.CustomData = decoded
+
+		data := s.customData.Codec.NewStruct()
+		if err := synthetic.ToStruct(data); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.ToStruct()")
+		}
+		sessData.CustomData = data
 	}
 
 	return sessData, nil
@@ -182,19 +206,17 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // resolver runs within a read-write transaction; otherwise the session mutation is
 // applied alone.
 func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UUID, sessionMutation *spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
-	if len(req.CustomData) > 0 {
+	if req.CustomData != nil {
 		if s.customData == nil {
 			return errors.New("custom session data provided but no custom session data config is attached")
 		}
 
-		row := map[string]any{
-			dbtype.SessionIDColumn: id,
-		}
-		for _, c := range req.CustomData {
-			row[c.ColumnName] = c.Value
+		customMutation, err := s.customDataMutation(id, req.CustomData, spanner.InsertMap)
+		if err != nil {
+			return err
 		}
 
-		mutations := []*spanner.Mutation{sessionMutation, spanner.InsertMap(s.customData.TableName, row)}
+		mutations := []*spanner.Mutation{sessionMutation, customMutation}
 		if _, err := s.spanner.Apply(ctx, mutations); err != nil {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
@@ -216,20 +238,16 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		customData, err := s.customData.Resolver(ctx, txn, *req)
+		data, err := s.customData.Resolver(ctx, txn, *req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}
 
-		if len(customData) > 0 {
-			row := map[string]any{
-				dbtype.SessionIDColumn: id,
+		if data != nil {
+			m, err := s.customDataMutation(id, data, spanner.InsertMap)
+			if err != nil {
+				return err
 			}
-			for _, c := range customData {
-				row[c.ColumnName] = c.Value
-			}
-
-			m := spanner.InsertMap(s.customData.TableName, row)
 			if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
 				return errors.Wrap(err, "txn.BufferWrite()")
 			}
@@ -242,6 +260,24 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 	}
 
 	return nil
+}
+
+// customDataMutation builds a full-row mutation for the custom session data table from
+// data (*T), using the given mutation constructor (InsertMap or InsertOrUpdateMap).
+func (s *SessionStorageDriver) customDataMutation(id ccc.UUID, data any, newMutation func(string, map[string]any) *spanner.Mutation) (*spanner.Mutation, error) {
+	values, err := s.customData.Codec.Values(data)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.CustomDataCodec.Values()")
+	}
+
+	columns := s.customData.Codec.Columns()
+	row := make(map[string]any, len(columns)+1)
+	row[dbtype.SessionIDColumn] = id
+	for i, col := range columns {
+		row[col] = values[i]
+	}
+
+	return newMutation(s.customData.TableName, row), nil
 }
 
 // DestroySession marks the session as expired
@@ -571,8 +607,11 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	return nil
 }
 
-// UpdateCustomSessionData updates the custom session data for the given session via an upsert on the custom session data table.
-func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+// UpdateCustomSessionData updates the custom session data for the given session via a
+// transactional read-modify-write: the current row is read (zero-value struct when no
+// row exists), mutate is applied, and the full row is written back. A mutate error
+// aborts the transaction with nothing written.
+func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -580,21 +619,38 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.New("custom session data config is not set")
 	}
 
-	if len(customData) == 0 {
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		data := s.customData.Codec.NewStruct()
+
+		row, err := txn.ReadRow(ctx, s.customData.TableName, spanner.Key{sessionID}, s.customData.Codec.Columns())
+		switch {
+		case err == nil:
+			if err := row.ToStruct(data); err != nil {
+				return errors.Wrap(err, "spanner.Row.ToStruct()")
+			}
+		case spanner.ErrCode(err) == codes.NotFound:
+			// No custom data row yet: mutate receives the zero value and the write
+			// below creates the row.
+		default:
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+
+		if err := mutate(data); err != nil {
+			return errors.Wrap(err, "custom session data mutate func")
+		}
+
+		m, err := s.customDataMutation(sessionID, data, spanner.InsertOrUpdateMap)
+		if err != nil {
+			return err
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
 		return nil
-	}
-
-	row := map[string]any{
-		dbtype.SessionIDColumn: sessionID,
-	}
-	for _, c := range customData {
-		row[c.ColumnName] = c.Value
-	}
-
-	m := spanner.InsertOrUpdateMap(s.customData.TableName, row)
-
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
-		return errors.Wrap(err, "spanner.Client.Apply()")
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil
@@ -605,8 +661,12 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statemen
 	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
 
 	joinClause := ""
-	if s.customData != nil && len(s.customData.Columns) > 0 {
-		for _, col := range s.customData.Columns {
+	if s.customData != nil {
+		// c.SessionId is selected ahead of the custom columns as a row-presence
+		// marker for the LEFT JOIN (read positionally; the name never collides
+		// because access is by index).
+		fmt.Fprintf(&columns, ", c.%s", dbtype.SessionIDColumn)
+		for _, col := range s.customData.Codec.Columns() {
 			fmt.Fprintf(&columns, ", c.`%s`", col)
 		}
 		joinClause = fmt.Sprintf("LEFT JOIN `%s` c ON s.Id = c.%s", s.customData.TableName, dbtype.SessionIDColumn)

@@ -16,35 +16,35 @@ type PostgresOption interface {
 }
 
 type spannerCustomSessionDataOption struct {
-	config *SpannerCustomSessionData
+	config *spanner.CustomSessionDataConfig
 }
 
 func (o spannerCustomSessionDataOption) applySpanner(driver *spanner.SessionStorageDriver) {
-	driver.SetCustomSessionData(o.config.driverConfig())
+	driver.SetCustomSessionData(o.config)
 }
 
 // WithSpannerCustomSessionData attaches a custom session data configuration
 // (see NewSpannerCustomSessionData) to Spanner-backed storage. The configuration's
 // resolver runs inside the session-insert transaction once per session creation, and
-// a resolver error aborts the session creation; the decoder runs on every
-// authenticated request and must tolerate all-nil raw maps (LEFT JOIN, no custom row).
-func WithSpannerCustomSessionData(config *SpannerCustomSessionData) SpannerOption {
-	return spannerCustomSessionDataOption{config: config}
+// a resolver error aborts the session creation; rows are scanned into T on every
+// authenticated request (a session with no custom data row yields a zero-value T).
+func WithSpannerCustomSessionData[T any](config *SpannerCustomSessionData[T]) SpannerOption {
+	return spannerCustomSessionDataOption{config: config.driverConfig()}
 }
 
 type postgresCustomSessionDataOption struct {
-	config *PostgresCustomSessionData
+	config *postgres.CustomSessionDataConfig
 }
 
 func (o postgresCustomSessionDataOption) applyPostgres(driver *postgres.SessionStorageDriver) {
-	driver.SetCustomSessionData(o.config.driverConfig())
+	driver.SetCustomSessionData(o.config)
 }
 
 // WithPostgresCustomSessionData attaches a custom session data configuration
 // (see NewPostgresCustomSessionData) to PostgreSQL-backed storage. The configuration's
 // resolver runs inside the session-insert transaction once per session creation, and
-// a resolver error aborts the session creation; the decoder runs on every
-// authenticated request and must tolerate all-nil raw maps (LEFT JOIN, no custom row).
-func WithPostgresCustomSessionData(config *PostgresCustomSessionData) PostgresOption {
-	return postgresCustomSessionDataOption{config: config}
+// a resolver error aborts the session creation; rows are scanned into T on every
+// authenticated request (a session with no custom data row yields a zero-value T).
+func WithPostgresCustomSessionData[T any](config *PostgresCustomSessionData[T]) PostgresOption {
+	return postgresCustomSessionDataOption{config: config.driverConfig()}
 }

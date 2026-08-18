@@ -1707,30 +1707,34 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
-		name       string
-		sessionID  ccc.UUID
-		customData []*sessioninfo.CustomData
-		prepare    func(storage *mock_sessionstorage.MockPasswordAuthStore)
-		wantErr    bool
+		name      string
+		sessionID ccc.UUID
+		prepare   func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		wantErr   bool
 	}{
 		{
-			name:      "success",
+			name:      "success mutating through the erased callback",
 			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ ccc.UUID, mutate func(data any) error) error {
+						data := &testData{Tenant: "tenant-1"}
+						if err := mutate(data); err != nil {
+							return err
+						}
+						if data.Tenant != "tenant-2" {
+							return errors.New("typed mutate callback did not apply: " + data.Tenant)
+						}
+
+						return nil
+					})
 			},
 		},
 		{
 			name:      "fails on storage error",
 			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -1741,18 +1745,93 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
+			p, err := NewTypedPasswordAuth[testData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewPasswordAuth() error=%v", err)
+				t.Fatalf("NewTypedPasswordAuth() error=%v", err)
 			}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
 			}
 
-			err = p.updateCustomSessionData(t.Context(), tt.sessionID, tt.customData...)
+			err = p.updateCustomSessionData(t.Context(), tt.sessionID, func(data *testData) error {
+				data.Tenant = "tenant-2"
+
+				return nil
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.updateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewTypedPasswordAuth_CustomDataTypeLink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		prepare func(storage *mock_sessionstorage.MockPasswordAuthStore)
+		build   func(storage *mock_sessionstorage.MockPasswordAuthStore) error
+		wantErr bool
+	}{
+		{
+			name: "matching storage config type",
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
+			},
+			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
+				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+
+				return err
+			},
+		},
+		{
+			name: "mismatched storage config type",
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[otherTestData]())
+			},
+			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
+				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "no storage config",
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().CustomDataType().Return(nil)
+			},
+			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
+				_, err := NewTypedPasswordAuth[testData](storage, cookieKey)
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "NoCustomData constructor skips the check",
+			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
+				_, err := NewPasswordAuth(storage, cookieKey)
+
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			if tt.prepare != nil {
+				tt.prepare(storage)
+			}
+
+			if err := tt.build(storage); (err != nil) != tt.wantErr {
+				t.Errorf("constructor error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -1765,7 +1844,7 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		customData []*sessioninfo.CustomData
+		customData []*testData
 		prepare    func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler)
 		wantErr    bool
 	}{
@@ -1809,11 +1888,8 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 			},
 		},
 		{
-			name: "success with per-call custom data in the request",
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "PartnerId", Value: "partner-1"},
-				{ColumnName: "RoleId", Value: "role-1"},
-			},
+			name:       "success with per-call custom data in the request",
+			customData: []*testData{{Tenant: "tenant-1"}},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().UserByUserName(gomock.Any(), "user").Return(&dbtype.SessionUser{
 					ID:       userID,
@@ -1823,13 +1899,10 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				storage.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{
-							Reason:   sessioninfo.ReasonExternalAuth,
-							Username: "user",
-							UserID:   userID,
-							CustomData: []*sessioninfo.CustomData{
-								{ColumnName: "PartnerId", Value: "partner-1"},
-								{ColumnName: "RoleId", Value: "role-1"},
-							},
+							Reason:     sessioninfo.ReasonExternalAuth,
+							Username:   "user",
+							UserID:     userID,
+							CustomData: &testData{Tenant: "tenant-1"},
 						}
 						if diff := cmp.Diff(want, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
@@ -1841,6 +1914,11 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
 		},
+		{
+			name:       "fails when more than one customData value is provided",
+			customData: []*testData{{Tenant: "tenant-1"}, {Tenant: "tenant-2"}},
+			wantErr:    true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1850,9 +1928,10 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
 			cookieHandler := mock_cookie.NewMockHandler(ctrl)
 
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
+			p, err := NewTypedPasswordAuth[testData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewPasswordAuth() error=%v", err)
+				t.Fatalf("NewTypedPasswordAuth() error=%v", err)
 			}
 			p.baseSession.CookieHandler = cookieHandler
 

@@ -72,7 +72,7 @@ func Test_sessionStorage_NewSession(t *testing.T) {
 				tt.prepare(mockDB)
 			}
 
-			id, err := storage.NewSession(context.Background(), tt.username)
+			id, err := storage.NewSession(context.Background(), tt.username, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewSession() error = %v, wantErr = %v", err, tt.wantErr)
 			}

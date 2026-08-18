@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,12 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
+// oidcCustomData matches the oidc_custom_columns_schema custom data table.
+type oidcCustomData struct {
+	CustomString string `spanner:"CustomString"`
+	CustomInt    int64  `spanner:"CustomInt"`
+}
+
 func Test_client_InsertSessionOIDC(t *testing.T) {
 	t.Parallel()
 
@@ -24,7 +31,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 		name           string
 		insertSession  *dbtype.InsertOIDCSession
 		req            sessioninfo.NewSessionRequest
-		resolver       func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error)
+		resolver       func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error)
 		withConfig     bool
 		sourceURL      []string
 		wantErr        bool
@@ -87,7 +94,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "claims user", Claims: rawClaims},
-			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error) {
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error) {
 				if !bytes.Equal(req.Claims, rawClaims) {
 					return nil, errors.Newf("unexpected claims: %s", string(req.Claims))
 				}
@@ -98,7 +105,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 					return nil, errors.Wrap(err, "json.Unmarshal()")
 				}
 
-				return []*sessioninfo.CustomData{{ColumnName: "CustomString", Value: c.Oid}}, nil
+				return &oidcCustomData{CustomString: c.Oid}, nil
 			},
 			withConfig: true,
 			sourceURL:  []string{"file://testdata/sessions_test/oidc_custom_columns_schema"},
@@ -121,7 +128,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "abort user", Claims: rawClaims},
-			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error) {
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
 				return nil, errors.New("resolver failure")
 			},
 			withConfig: true,
@@ -149,8 +156,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			if tt.withConfig {
 				c.SetCustomSessionData(&CustomSessionDataConfig{
 					TableName: "SessionCustomData",
-					Columns:   []string{"CustomString", "CustomInt"},
-					Decoder:   rawDecoder,
+					Codec:     mustCodec(reflect.TypeFor[oidcCustomData]()),
 					Resolver:  tt.resolver,
 				})
 			}

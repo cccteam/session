@@ -67,32 +67,53 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		return nil, httpio.NewNotFoundMessagef("session %q not found", sessionID)
 	}
 
-	customColumns := []string{}
-	if s.customData != nil {
-		customColumns = s.customData.Columns
-	}
-
 	session := &dbtype.Session{}
-	scanDests := make([]any, 0, 5+len(customColumns))
-	scanDests = append(scanDests, &session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired)
+	baseDests := []any{&session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired}
 
-	customValues := make([]any, len(customColumns))
-	for i := range customColumns {
-		customValues[i] = new(any)
+	if s.customData == nil {
+		if err := rows.Scan(baseDests...); err != nil {
+			return nil, errors.Wrap(err, "rows.Scan()")
+		}
+
+		return &dbtype.SessionData{Session: session}, nil
 	}
-	scanDests = append(scanDests, customValues...)
 
+	// Phase 1: scan base columns plus the c.SessionId row-presence marker, with
+	// NULL-safe throwaway destinations for the custom columns.
+	columns := s.customData.Codec.Columns()
+	var marker any
+	scanDests := make([]any, 0, len(baseDests)+1+len(columns))
+	scanDests = append(scanDests, baseDests...)
+	scanDests = append(scanDests, &marker)
+	for range columns {
+		scanDests = append(scanDests, new(any))
+	}
 	if err := rows.Scan(scanDests...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
 
 	sessData := &dbtype.SessionData{Session: session}
 
-	customData, err := s.decodeCustomData(customColumns, customValues)
-	if err != nil {
-		return nil, err
+	if marker == nil {
+		// LEFT JOIN found no custom data row: zero-value *T.
+		sessData.CustomData = s.customData.Codec.NewStruct()
+
+		return sessData, nil
 	}
-	sessData.CustomData = customData
+
+	// Phase 2: re-scan the same buffered row, this time into T's fields (pgx
+	// re-plans per destination, converting NULL-free values into the typed fields).
+	data := s.customData.Codec.NewStruct()
+	fieldAddrs, err := s.customData.Codec.FieldAddrs(data)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+	}
+	scanDests = scanDests[:len(baseDests)+1]
+	scanDests = append(scanDests, fieldAddrs...)
+	if err := rows.Scan(scanDests...); err != nil {
+		return nil, errors.Wrap(err, "rows.Scan()")
+	}
+	sessData.CustomData = data
 
 	return sessData, nil
 }
@@ -152,7 +173,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // one transaction (the configured resolver is not invoked); otherwise a configured
 // resolver runs within the same transaction; otherwise the insert executes alone.
 func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
-	perCallData := len(req.CustomData) > 0
+	perCallData := req.CustomData != nil
 	if perCallData && s.customData == nil {
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
@@ -177,16 +198,16 @@ func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUI
 		return errors.Wrap(err, "tx.Exec()")
 	}
 
-	customData := req.CustomData
+	data := req.CustomData
 	if !perCallData {
-		customData, err = s.customData.Resolver(ctx, txn, *req)
+		data, err = s.customData.Resolver(ctx, txn, *req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}
 	}
 
-	if len(customData) > 0 {
-		if err := insertCustomSessionData(ctx, txn, id, s.customData, customData...); err != nil {
+	if data != nil {
+		if err := s.insertCustomSessionData(ctx, txn, id, data, false); err != nil {
 			return err
 		}
 	}
@@ -445,8 +466,11 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	return nil
 }
 
-// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
-func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+// UpdateCustomSessionData updates the custom session data for an active session via a
+// transactional read-modify-write: the current row is read FOR UPDATE (zero-value
+// struct when no row exists), mutate is applied, and the full row is written back. A
+// mutate error aborts the transaction with nothing written.
+func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -454,43 +478,59 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 		return errors.New("custom session data config is not set")
 	}
 
-	if len(customData) == 0 {
-		return nil
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
 	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
 
-	columns := []string{pgx.Identifier{dbtype.SessionIDColumn}.Sanitize()}
-	args := []any{sessionID}
-	setClauses := make([]string, 0, len(customData))
-
-	for _, c := range customData {
-		col := pgx.Identifier{c.ColumnName}.Sanitize()
-		columns = append(columns, col)
-		args = append(args, c.Value)
-		setClauses = append(setClauses, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
+	columns := s.customData.Codec.Columns()
+	selectCols := make([]string, len(columns))
+	for i, col := range columns {
+		selectCols[i] = pgx.Identifier{col}.Sanitize()
 	}
-
-	placeholders := make([]string, len(args))
-	for i := range args {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-	}
-
-	query := fmt.Sprintf(`
-		INSERT INTO %s
-			(%s)
-		VALUES
-			(%s)
-		ON CONFLICT (%s) DO UPDATE SET
-			%s
-	`,
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s = $1 FOR UPDATE`,
+		strings.Join(selectCols, ", "),
 		pgx.Identifier{s.customData.TableName}.Sanitize(),
-		strings.Join(columns, ", "),
-		strings.Join(placeholders, ", "),
 		pgx.Identifier{dbtype.SessionIDColumn}.Sanitize(),
-		strings.Join(setClauses, ", "),
 	)
 
-	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	data := s.customData.Codec.NewStruct()
+
+	rows, err := txn.Query(ctx, query, sessionID)
+	if err != nil {
+		return errors.Wrap(err, "pgx.Tx.Query()")
+	}
+	if rows.Next() {
+		fieldAddrs, err := s.customData.Codec.FieldAddrs(data)
+		if err != nil {
+			rows.Close()
+
+			return errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+		}
+		if err := rows.Scan(fieldAddrs...); err != nil {
+			rows.Close()
+
+			return errors.Wrap(err, "pgx.Rows.Scan()")
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return errors.Wrap(err, "pgx.Rows.Err()")
+	}
+
+	if err := mutate(data); err != nil {
+		return errors.Wrap(err, "custom session data mutate func")
+	}
+
+	if err := s.insertCustomSessionData(ctx, txn, sessionID, data, true); err != nil {
+		return err
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "tx.Commit()")
 	}
 
 	return nil
@@ -501,56 +541,42 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
 
 	joinClause := ""
-	if s.customData != nil && len(s.customData.Columns) > 0 {
-		for _, col := range s.customData.Columns {
+	if s.customData != nil {
+		// c.SessionId is selected ahead of the custom columns as a row-presence
+		// marker for the LEFT JOIN (read positionally).
+		fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+		for _, col := range s.customData.Codec.Columns() {
 			fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{col}.Sanitize())
 		}
 		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customData.TableName}.Sanitize(), pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
 	}
 
 	query = fmt.Sprintf(`
-			SELECT %s 
-			FROM "%s" s 
-			%s 
+			SELECT %s
+			FROM "%s" s
+			%s
 			WHERE s."Id" = $1`,
 		columns.String(), s.sessionTableName, joinClause)
 
 	return query, []any{sessionID}
 }
 
-// decodeCustomData converts scanned custom column values into a raw map and decodes them using the custom data config's decoder (if configured).
-func (s *SessionStorageDriver) decodeCustomData(customColumnNames []string, customValues []any) (any, error) {
-	if len(customColumnNames) == 0 {
-		return nil, nil
-	}
-
-	rawData := make(map[string]any, len(customColumnNames))
-	for i, col := range customColumnNames {
-		val, ok := customValues[i].(*any)
-		if !ok {
-			return nil, errors.Newf("unexpected type for custom column %q", col)
-		}
-		rawData[col] = *val
-	}
-
-	decoded, err := s.customData.Decoder(rawData)
+// insertCustomSessionData writes a full custom data row for data (*T) inside txn.
+// When upsert is true an existing row is overwritten (ON CONFLICT DO UPDATE).
+func (s *SessionStorageDriver) insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, data any, upsert bool) error {
+	values, err := s.customData.Codec.Values(data)
 	if err != nil {
-		return nil, errors.Wrap(err, "CustomSessionDataConfig.Decoder()")
+		return errors.Wrap(err, "dbtype.CustomDataCodec.Values()")
 	}
 
-	return decoded, nil
-}
-
-func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, customDataConfig *CustomSessionDataConfig, customData ...*sessioninfo.CustomData) error {
-	if len(customData) == 0 {
-		return nil
-	}
-
-	columns := []string{pgx.Identifier{dbtype.SessionIDColumn}.Sanitize()}
-	args := []any{sessionID}
-	for _, c := range customData {
-		columns = append(columns, pgx.Identifier{c.ColumnName}.Sanitize())
-		args = append(args, c.Value)
+	codecColumns := s.customData.Codec.Columns()
+	columns := make([]string, 0, len(codecColumns)+1)
+	columns = append(columns, pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+	args := make([]any, 0, len(values)+1)
+	args = append(args, sessionID)
+	for i, col := range codecColumns {
+		columns = append(columns, pgx.Identifier{col}.Sanitize())
+		args = append(args, values[i])
 	}
 
 	placeholders := make([]string, len(args))
@@ -558,12 +584,23 @@ func insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 	}
 
+	conflictClause := ""
+	if upsert {
+		setClauses := make([]string, 0, len(codecColumns))
+		for _, col := range columns[1:] {
+			setClauses = append(setClauses, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
+		}
+		conflictClause = fmt.Sprintf("ON CONFLICT (%s) DO UPDATE SET %s",
+			pgx.Identifier{dbtype.SessionIDColumn}.Sanitize(), strings.Join(setClauses, ", "))
+	}
+
 	q := fmt.Sprintf(`
 		INSERT INTO %s
 			(%s)
 		VALUES
 			(%s)
-	`, pgx.Identifier{customDataConfig.TableName}.Sanitize(), strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+		%s
+	`, pgx.Identifier{s.customData.TableName}.Sanitize(), strings.Join(columns, ", "), strings.Join(placeholders, ", "), conflictClause)
 
 	if _, err := txn.Exec(ctx, q, args...); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")

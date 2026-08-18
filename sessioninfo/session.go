@@ -68,14 +68,17 @@ func UserFromCtx(ctx context.Context) *UserInfo {
 }
 
 // CustomDataFromRequest returns the strongly typed custom session data from the request context.
-// T must match the type parameter used when the custom session data configuration was built.
+// The stored dynamic type is a pointer to the configuration's struct type, so instantiate
+// with the pointer type: CustomDataFromRequest[*MySessionData](r).
 func CustomDataFromRequest[T any](r *http.Request) (T, error) {
 	return CustomDataFromCtx[T](r.Context())
 }
 
 // CustomDataFromCtx returns the strongly typed custom session data from the context.
-// T must match the type parameter used when the custom session data configuration was
-// built (NewSpannerCustomSessionData / NewPostgresCustomSessionData). See the
+// The stored dynamic type is a POINTER to the struct type the custom session data
+// configuration was built for (NewSpannerCustomSessionData / NewPostgresCustomSessionData),
+// so instantiate with the pointer type: CustomDataFromCtx[*MySessionData](ctx). The typed
+// session APIs' CustomData(ctx) method wraps this and returns the value directly. See the
 // "Custom session data" section of the README for the full lifecycle.
 func CustomDataFromCtx[T any](ctx context.Context) (T, error) {
 	var zeroVal T

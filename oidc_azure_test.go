@@ -484,9 +484,20 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "success",
+			name: "success mutating through the erased callback",
 			prepare: func(storage *mock_sessionstorage.MockOIDCStore) {
-				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"}).Return(nil)
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ ccc.UUID, mutate func(data any) error) error {
+						data := &testData{Tenant: "tenant-1"}
+						if err := mutate(data); err != nil {
+							return err
+						}
+						if data.Tenant != "tenant-2" {
+							return errors.New("typed mutate callback did not apply: " + data.Tenant)
+						}
+
+						return nil
+					})
 			},
 		},
 		{
@@ -503,13 +514,17 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := mock_sessionstorage.NewMockOIDCStore(ctrl)
-			a := &OIDCAzure{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			a := &TypedOIDCAzure[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
 			}
 
-			err := a.API().UpdateCustomSessionData(t.Context(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"})
+			err := a.API().UpdateCustomSessionData(t.Context(), sessionID, func(data *testData) error {
+				data.Tenant = "tenant-2"
+
+				return nil
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("OIDCAzureAPI.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
 			}

@@ -24,7 +24,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 	tests := []struct {
 		name       string
 		username   string
-		customData []*sessioninfo.CustomData
+		customData []*testData
 		prepare    func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler)
 		wantErr    bool
 		expectedID ccc.UUID
@@ -35,7 +35,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
 				// Mock the session creation
 				mockStorage.EXPECT().
-					NewSession(gomock.Any(), "test_user").
+					NewSession(gomock.Any(), "test_user", gomock.Nil()).
 					Return(ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")), nil).
 					Times(1)
 
@@ -60,17 +60,14 @@ func TestPreauthAPI_Login(t *testing.T) {
 			expectedID: ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000")),
 		},
 		{
-			name:     "successful session creation with caller-supplied custom data",
-			username: "test_user",
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
+			name:       "successful session creation with caller-supplied custom data",
+			username:   "test_user",
+			customData: []*testData{{Tenant: "tenant-1"}},
 			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, mockCookies *mock_cookie.MockHandler) {
 				mockStorage.EXPECT().
 					NewSession(gomock.Any(), "test_user", gomock.Any()).
-					DoAndReturn(func(_ context.Context, _ string, customData ...*sessioninfo.CustomData) (ccc.UUID, error) {
-						want := []*sessioninfo.CustomData{{ColumnName: "TenantId", Value: "tenant-1"}}
-						if diff := cmp.Diff(want, customData); diff != "" {
+					DoAndReturn(func(_ context.Context, _ string, customData any) (ccc.UUID, error) {
+						if diff := cmp.Diff(&testData{Tenant: "tenant-1"}, customData); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected customData: " + diff)
 						}
 
@@ -98,11 +95,17 @@ func TestPreauthAPI_Login(t *testing.T) {
 			prepare: func(mockStorage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
 				// Simulate a failure in session creation
 				mockStorage.EXPECT().
-					NewSession(gomock.Any(), "test_user").
+					NewSession(gomock.Any(), "test_user", gomock.Nil()).
 					Return(ccc.NilUUID, errors.New("storage error")).
 					Times(1)
 			},
 			wantErr: true,
+		},
+		{
+			name:       "fails when more than one customData value is provided",
+			username:   "test_user",
+			customData: []*testData{{Tenant: "tenant-1"}, {Tenant: "tenant-2"}},
+			wantErr:    true,
 		},
 	}
 
@@ -124,7 +127,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			// Create the PreauthSession instance with mocked dependencies
-			preauth := &Preauth{
+			preauth := &TypedPreauth[testData]{
 				storage: mockStorage,
 				baseSession: &basesession.BaseSession{
 					CookieHandler: mockCookies,
@@ -166,9 +169,20 @@ func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "success",
+			name: "success mutating through the erased callback",
 			prepare: func(storage *mock_sessionstorage.MockPreauthStore) {
-				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"}).Return(nil)
+				storage.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ ccc.UUID, mutate func(data any) error) error {
+						data := &testData{Tenant: "tenant-1"}
+						if err := mutate(data); err != nil {
+							return err
+						}
+						if data.Tenant != "tenant-2" {
+							return errors.New("typed mutate callback did not apply: " + data.Tenant)
+						}
+
+						return nil
+					})
 			},
 		},
 		{
@@ -185,15 +199,66 @@ func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
-			preauth := &Preauth{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			preauth := &TypedPreauth[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
 			}
 
-			err := preauth.API().UpdateCustomSessionData(t.Context(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-2"})
+			err := preauth.API().UpdateCustomSessionData(t.Context(), sessionID, func(data *testData) error {
+				data.Tenant = "tenant-2"
+
+				return nil
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PreauthAPI.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPreauthAPI_CustomData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		customData any
+		wantErr    bool
+		want       testData
+	}{
+		{
+			name:       "returns the typed custom session data",
+			customData: &testData{Tenant: "tenant-1"},
+			want:       testData{Tenant: "tenant-1"},
+		},
+		{
+			name:    "errors when the session has no custom data",
+			wantErr: true,
+		},
+		{
+			name:       "errors on a type mismatch",
+			customData: &otherTestData{Partner: "partner-1"},
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			preauth := &TypedPreauth[testData]{baseSession: &basesession.BaseSession{}}
+			ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+				SessionInfo: &sessioninfo.SessionInfo{},
+				CustomData:  tt.customData,
+			})
+
+			got, err := preauth.API().CustomData(ctx)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("PreauthAPI.CustomData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if diff := cmp.Diff(tt.want, got); diff != "" {
+					t.Errorf("PreauthAPI.CustomData() mismatch (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

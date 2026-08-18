@@ -35,11 +35,12 @@ type NewSessionRequest struct {
 	// UserID is the user record's ID. It is the zero UUID for session types that do
 	// not track user records (e.g. preauth).
 	UserID ccc.UUID
-	// CustomData is caller-supplied custom session data for this creation. When
-	// non-empty it is written atomically with the session insert and the configured
-	// resolver is NOT invoked for this creation (per-call data wins). It requires a
-	// custom session data configuration on the storage.
-	CustomData []*CustomData
+	// CustomData is caller-supplied custom session data for this creation: nil, or a
+	// pointer to the struct type the storage's custom session data configuration was
+	// built for. When non-nil it is written atomically with the session insert and the
+	// configured resolver is NOT invoked for this creation (per-call data wins). It
+	// requires a custom session data configuration on the storage.
+	CustomData any
 	// Claims holds the raw verified ID-token claims when the session is created by an
 	// OIDC login; it is nil for all other session types. Resolvers unmarshal the fields
 	// they need — the library does not curate a claims struct.

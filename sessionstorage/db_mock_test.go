@@ -73,6 +73,20 @@ func (mr *MockdbMockRecorder) CreateUser(ctx, insertSessionUser any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, insertSessionUser)
 }
 
+// CustomDataType mocks base method.
+func (m *Mockdb) CustomDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomDataType indicates an expected call of CustomDataType.
+func (mr *MockdbMockRecorder) CustomDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*Mockdb)(nil).CustomDataType))
+}
+
 // DeactivateUser mocks base method.
 func (m *Mockdb) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -241,22 +255,17 @@ func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.
 }
 
 // UpdateCustomSessionData mocks base method.
-func (m *Mockdb) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error {
+func (m *Mockdb) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(any) error) error {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, sessionID}
-	for _, a := range customData {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "UpdateCustomSessionData", varargs...)
+	ret := m.ctrl.Call(m, "UpdateCustomSessionData", ctx, sessionID, mutate)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
-func (mr *MockdbMockRecorder) UpdateCustomSessionData(ctx, sessionID any, customData ...any) *gomock.Call {
+func (mr *MockdbMockRecorder) UpdateCustomSessionData(ctx, sessionID, mutate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, sessionID}, customData...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*Mockdb)(nil).UpdateCustomSessionData), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*Mockdb)(nil).UpdateCustomSessionData), ctx, sessionID, mutate)
 }
 
 // UpdateSessionActivity mocks base method.

@@ -6,6 +6,7 @@ package sessionstorage
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
@@ -19,10 +20,15 @@ import (
 type BaseStore interface {
 	// Session returns the session information from the database for given sessionID
 	Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error)
-	// UpdateCustomSessionData updates the custom session data for an active session via a
-	// per-column upsert. For genuine mid-session updates only — initial population belongs
-	// in the session-creation transaction.
-	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
+	// UpdateCustomSessionData updates the custom session data for an active session via
+	// a transactional read-modify-write: mutate receives the current row as *T for the
+	// configured struct type (zero-value when no row exists) and the full row is written
+	// back; a mutate error aborts with nothing written. For genuine mid-session updates
+	// only — initial population belongs in the session-creation transaction.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error
+	// CustomDataType returns the struct type the attached custom session data
+	// configuration was built for, or nil when no configuration is attached.
+	CustomDataType() reflect.Type
 	// UpdateSessionActivity updates the database with the current time for the session activity
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired
@@ -37,10 +43,11 @@ var _ PreauthStore = (*Preauth)(nil)
 
 // PreauthStore defines an interface for managing pre-authenticated session storage.
 type PreauthStore interface {
-	// NewSession creates a new session in the database, returning its id. Optional
-	// caller-supplied customData is written atomically with the session insert and
-	// requires a custom session data configuration on the storage.
-	NewSession(ctx context.Context, username string, customData ...*sessioninfo.CustomData) (ccc.UUID, error)
+	// NewSession creates a new session in the database, returning its id. customData
+	// is nil or *T for the configured custom session data struct type; when non-nil it
+	// is written atomically with the session insert and requires a custom session data
+	// configuration on the storage.
+	NewSession(ctx context.Context, username string, customData any) (ccc.UUID, error)
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
@@ -114,8 +121,11 @@ type db interface {
 	// session data configuration with a resolver is attached, the resolver runs within the
 	// same transaction as the session insert; a resolver error aborts the insert.
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
-	// UpdateCustomSessionData updates the custom session data for an active session via an upsert on the custom session data table.
-	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, customData ...*sessioninfo.CustomData) error
+	// UpdateCustomSessionData updates the custom session data for an active session via a
+	// transactional read-modify-write of the full row.
+	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error
+	// CustomDataType returns the struct type of the attached custom session data configuration, or nil.
+	CustomDataType() reflect.Type
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.

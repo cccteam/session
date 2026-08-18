@@ -2,28 +2,39 @@ package postgres
 
 import (
 	"context"
+	"reflect"
 
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/jackc/pgx/v5"
 )
 
-// CustomSessionDataConfig configures the custom session data table for the PostgreSQL driver.
-// It is populated by the public sessionstorage package from a validated
-// PostgresCustomSessionData unit; the driver performs no validation of its own.
+// CustomSessionDataConfig configures the custom session data table for the PostgreSQL
+// driver. It is populated by the public sessionstorage package from a validated typed
+// unit; the driver performs no validation of its own.
 type CustomSessionDataConfig struct {
 	// TableName is the name of the custom session data table.
 	TableName string
-	// Columns is the validated, deduplicated list of custom column names (excluding "SessionId").
-	Columns []string
-	// Decoder converts the raw column-value map read from the database into the
-	// consumer's typed value. It is always non-nil.
-	Decoder func(rawCustomData map[string]any) (any, error)
-	// Resolver resolves custom session data inside the session-insert transaction.
-	// When nil, session creation performs a plain insert with no custom data row.
-	Resolver func(ctx context.Context, txn pgx.Tx, req sessioninfo.NewSessionRequest) ([]*sessioninfo.CustomData, error)
+	// Codec maps the consumer's struct type T to its columns and provides the erased
+	// value/scan operations. It is always non-nil.
+	Codec *dbtype.CustomDataCodec
+	// Resolver resolves custom session data inside the session-insert transaction,
+	// returning *T (or nil for no row). When the Resolver field is nil, session
+	// creation performs a plain insert with no custom data row.
+	Resolver func(ctx context.Context, txn pgx.Tx, req sessioninfo.NewSessionRequest) (any, error)
 }
 
 // SetCustomSessionData attaches the custom session data configuration to the driver.
 func (s *SessionStorageDriver) SetCustomSessionData(config *CustomSessionDataConfig) {
 	s.customData = config
+}
+
+// CustomDataType returns the struct type the attached configuration was built for, or
+// nil when no configuration is attached.
+func (s *SessionStorageDriver) CustomDataType() reflect.Type {
+	if s.customData == nil {
+		return nil
+	}
+
+	return s.customData.Codec.StructType()
 }

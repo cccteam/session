@@ -8,7 +8,6 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
-	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -505,43 +504,41 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
-		name       string
-		sessionID  ccc.UUID
-		customData []*sessioninfo.CustomData
-		prepare    func(mockDB *Mockdb)
-		wantErr    bool
+		name    string
+		prepare func(mockDB *Mockdb)
+		wantErr bool
 	}{
 		{
-			name:      "success",
-			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
+			name: "success passes the erased mutate through",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
 				}}, nil)
-				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(nil)
+				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ ccc.UUID, mutate func(any) error) error {
+						// The storage layer must pass the callback through unchanged.
+						data := &testCustomData{}
+						if err := mutate(data); err != nil {
+							return err
+						}
+						if data.Role != "mutated" {
+							return errors.New("mutate did not run")
+						}
+
+						return nil
+					})
 			},
 		},
 		{
-			name:      "fails when session not found",
-			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
+			name: "fails when session not found",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(nil, errors.New("not found"))
 			},
 			wantErr: true,
 		},
 		{
-			name:      "fails when session is expired",
-			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
+			name: "fails when session is expired",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
@@ -551,17 +548,13 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "fails on db update error",
-			sessionID: sessionID,
-			customData: []*sessioninfo.CustomData{
-				{ColumnName: "TenantId", Value: "tenant-1"},
-			},
+			name: "fails on db update error",
 			prepare: func(mockDB *Mockdb) {
 				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
 					ID:      sessionID,
 					Expired: false,
 				}}, nil)
-				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, &sessioninfo.CustomData{ColumnName: "TenantId", Value: "tenant-1"}).Return(errors.New("db error"))
+				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -579,7 +572,16 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			if err := storage.UpdateCustomSessionData(context.Background(), tt.sessionID, tt.customData...); (err != nil) != tt.wantErr {
+			err := storage.UpdateCustomSessionData(context.Background(), sessionID, func(data any) error {
+				typed, ok := data.(*testCustomData)
+				if !ok {
+					return errors.New("unexpected data type")
+				}
+				typed.Role = "mutated"
+
+				return nil
+			})
+			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
