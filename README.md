@@ -23,69 +23,45 @@ snapshot, an impersonation context. The values live in a table you own (one row 
 session), are written when the session is created, and are available to every request for
 the life of the session.
 
-You define one struct type `T` and, usually, one function:
+How it works:
 
-- **The struct declares the columns.** Each exported field maps to a column in your table
-  via its `spanner:"..."` / `db:"..."` tag. The library reflects over `T` once at startup
-  to derive the column list, writes rows from `T`'s field values, and scans rows straight
-  back into `T` on every request — there is no hand-written decoder.
+- **One struct declares your data.** Each tagged field of your struct `T` maps to a
+  column in your table (`spanner:"TenantId"` / `db:"TenantId"`). The library reflects
+  over `T` once at startup to derive the columns — there is no hand-written decoder
+  and no column list to maintain.
 
-  ```go
-  type MyData struct {
-      TenantID string `spanner:"TenantId"`
-      RoleID   string `spanner:"RoleId"`
-  }
-  ```
+- **A resolver writes it — once, at creation.** Your resolver runs **inside the same
+  transaction that inserts the session row** (login, external auth, session
+  regeneration) and returns the `*T` to store, committed atomically with the session.
+  If it returns an error, the login fails: no session, no cookies.
 
-- **The resolver writes. It runs once, when the session is created.**
-  A resolver is your function that produces the row to store:
+- **Every request reads it — automatically.** Session validation fetches the custom
+  row together with the session (a single `LEFT JOIN` query) and your handlers get a
+  typed `T` back with `auth.API().CustomData(ctx)`. No second round-trip, no manual
+  decoding.
 
-  ```go
-  func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (*MyData, error)
-  ```
+- **Mid-session changes are deliberate.** `UpdateCustomSessionData` is a transactional
+  read-modify-write: a typed callback mutates the current row and the full row is
+  written back. It exists for *changing* state mid-flight (a tenant switcher) — never
+  for initial population.
 
-  It executes **inside the same database transaction that inserts the session row** —
-  at login, external authentication, or session regeneration — with the transaction
-  available for consistent reads. The returned `*T` becomes the session's custom data
-  row, committed atomically with the session (`nil, nil` means no row). If it returns an
-  error, the whole login fails: no session, no cookies.
+- **Everything is checked at startup.** The session type is generic over the same
+  struct (`PasswordAuthFor[MyData]`), and construction verifies the storage's custom
+  data config was built for it. Misconfiguration is a boot failure, not a request-time
+  surprise.
 
-- **Reads are automatic, on every authenticated request.**
-  Session validation fetches the custom row together with the session (one query) and
-  scans it into a `*T`; handlers retrieve it with `auth.API().CustomData(ctx)` (returns
-  `T`) or `sessioninfo.CustomDataFromCtx[*MyData](ctx)`.
+- **Cleanup is the database's job.** Sessions are marked expired in place; your
+  `ON DELETE CASCADE` foreign key removes the custom row whenever a session row is
+  deleted. Regeneration (e.g. a password change) re-resolves fresh — updates don't
+  carry over.
 
-**Declare the columns on the struct; resolve once at creation; read typed on every
-request; update deliberately when mid-session state changes.** That is the whole mental
-model — everything below is detail. The struct type and resolver are declared together
-with the table name in one validated config unit (`NewSpannerCustomSessionData[T]` /
-`NewPostgresCustomSessionData[T]`), attached to any storage constructor — password auth,
-OIDC, or Preauth — via a typed option (`WithSpannerCustomSessionData` /
-`WithPostgresCustomSessionData`). The session type is built for the same `T`
-(`NewPasswordAuthFor[T]`, `NewOIDCAzureFor[T]`, `NewPreauthFor[T]`); at
-construction the library verifies the storage's config was built for that `T`, so a
-mismatch fails at startup, not at request time. Attaching a config built for one backend
-to the other backend's storage does not compile.
+That is the whole model: **declare with tags, resolve once, read typed, update
+deliberately.** Everything below is reference detail.
 
 One boundary before the details: this is **session data** — born with the session, reset
 when the session is regenerated, gone when the session dies. Durable facts about the
 *person* (profile fields, provisioning state) belong in a user table, not here — see
 [docs/data-storage-guidance.md](docs/data-storage-guidance.md).
-
-### The lifecycle at 1,000 feet
-
-| Phase | What happens |
-|---|---|
-| **App start** | The config unit reflects over `T` and validates: `T` must be a struct with at least one exported persistable field, tags must pass identifier rules, `SessionId` is rejected as reserved, duplicate columns are an error. The session-type constructor verifies the storage config was built for the same `T`. Invalid config is a constructor **error** — nothing reaches runtime. |
-| **Session creation** (login, external auth, regeneration, preauth) | The **resolver runs exactly once, inside the transaction that inserts the session row**. Its returned `*T` is written as the full custom data row with the implied `SessionId`. A resolver error aborts the transaction: **no session, no cookies, login fails**. Caller-supplied per-call data (where supported) is written the same way — atomically — and skips the resolver. No resolver and no per-call data ⇒ plain insert, no custom row. |
-| **Every authenticated request** | Session validation runs **one query**: the session row `LEFT JOIN` your table. The columns are scanned into a fresh `*T` stored in the request context; a session with no custom row yields a zero-value `*T`. No second round-trip. |
-| **Mid-session update** | `UpdateCustomSessionData(ctx, sessionID, func(data *T) error)` performs a transactional read-modify-write: your callback mutates the current row and the full row is written back. This is for *changing* session state mid-flight — never for initial population, which belongs in the creation transaction. |
-| **Logout / expiry / cleanup** | Sessions are marked expired in place; your `ON DELETE CASCADE` foreign key removes the custom row whenever a session row is deleted. The library never deletes custom rows itself. |
-
-Four questions this table answers: the resolver runs **at creation, once, in the insert
-transaction**; reads are **typed and automatic, on every request**; a password change
-**re-resolves fresh** (see Regeneration below); and misconfiguration fails **at
-construction**, resolver failures **abort the login**, scan failures **fail the request**.
 
 ### Schema requirements
 
@@ -127,6 +103,10 @@ a mismatch surfaces as a query error.
 
 ### Configuration — username/password with a resolver
 
+The struct and resolver are declared together with the table name in one validated
+config unit, attached to the storage via a typed option, and the session type is built
+for the same `T`:
+
 ```go
 type MyData struct {
     TenantID string `spanner:"TenantId"`
@@ -161,7 +141,8 @@ explicitly: `NewSpannerCustomSessionData[MyData]("SessionCustomData", nil)`. A `
 resolver means session creation performs a plain insert, and custom data comes only from
 per-call values (below) or `UpdateCustomSessionData`. The Postgres mirror
 (`NewPostgresCustomSessionData`, resolver over `pgx.Tx`, `db:"..."` tags,
-`WithPostgresCustomSessionData`) is identical in shape.
+`WithPostgresCustomSessionData`) is identical in shape; configs are backend-typed, so
+attaching a Spanner config to a Postgres storage does not compile.
 
 The released constructors (`NewPasswordAuth`, `NewOIDCAzure`, `NewPreauth`) are the
 `NoCustomData` instantiations of the typed constructors — use them when the app has no
