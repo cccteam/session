@@ -17,13 +17,7 @@ var container *initiator.SpannerContainer
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	// Disable multiplexed sessions for Read/Write transactions when running tests in the emulator
-	// FIXME(jwatson): Reevaluate this periodically. Not sure if this is a bug in the emulator, libruary, or if this makes sense.
-	if err := os.Setenv("GOOGLE_CLOUD_SPANNER_MULTIPLEXED_SESSIONS_FOR_RW", "false"); err != nil {
-		log.Fatal(err)
-	}
-
-	c, err := initiator.NewSpannerContainer(ctx, "1.5.45")
+	c, err := initiator.NewSpannerContainer(ctx, "1.5.56")
 	if err != nil {
 		log.Fatal(err)
 	}

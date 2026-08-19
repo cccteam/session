@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/util"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
@@ -27,7 +29,15 @@ type OIDCAzureOption interface {
 
 var _ OIDCAzureHandlers = &OIDCAzure{}
 
-// OIDCAzure implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure.
+// OIDCAzure is a OIDCAzureFor without custom session data. It preserves the
+// pre-generics API surface; use NewOIDCAzureFor for typed custom session data.
+type OIDCAzure = OIDCAzureFor[NoCustomData]
+
+// OIDCAzureAPI is a OIDCAzureAPIFor without custom session data.
+type OIDCAzureAPI = OIDCAzureAPIFor[NoCustomData]
+
+// OIDCAzureFor implements the OIDCAzureHandlers interface for handling OIDC authentication with Azure,
+// with custom session data typed as T (populated by a resolver from the verified claims).
 //
 // Role synchronization: the OIDC callback provides an integrated authentication and
 // role-synchronization flow designed for organizations that manage users and roles
@@ -61,7 +71,7 @@ var _ OIDCAzureHandlers = &OIDCAzure{}
 // roles are written or removed), but the login gate above still requires at least one
 // role claim in the token. A configuration option to fully disable role maintenance
 // during login (for application-managed roles) is planned but not yet implemented.
-type OIDCAzure struct {
+type OIDCAzureFor[T any] struct {
 	userRoleManager UserRoleManager
 	oidc            azureoidc.Authenticator
 	storage         sessionstorage.OIDCStore
@@ -77,6 +87,24 @@ func NewOIDCAzure(
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) (*OIDCAzure, error) {
+	return NewOIDCAzureFor[NoCustomData](storage, userRoleManager, cookieKey, issuerURL, clientID, clientSecret, redirectURL, options...)
+}
+
+// NewOIDCAzureFor creates a new OIDCAzureFor for the custom session data struct
+// type T. The storage must carry a custom session data configuration built for the
+// same T; a mismatch is a construction error. The configuration's resolver receives
+// the raw verified ID-token claims via req.Claims.
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
+func NewOIDCAzureFor[T any](
+	storage sessionstorage.OIDCStore, userRoleManager UserRoleManager,
+	cookieKey string,
+	issuerURL, clientID, clientSecret, redirectURL string,
+	options ...OIDCAzureOption,
+) (*OIDCAzureFor[T], error) {
+	if err := verifyCustomDataType[T](storage); err != nil {
+		return nil, err
+	}
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		if o, ok := opt.(CookieOption); ok {
@@ -106,7 +134,7 @@ func NewOIDCAzure(
 		}
 	}
 
-	return &OIDCAzure{
+	return &OIDCAzureFor[T]{
 		userRoleManager: userRoleManager,
 		oidc:            oidc,
 		baseSession:     baseSession,
@@ -115,40 +143,40 @@ func NewOIDCAzure(
 }
 
 // Authenticated is the handler reports if the session is authenticated
-func (o *OIDCAzure) Authenticated() http.HandlerFunc {
+func (o *OIDCAzureFor[T]) Authenticated() http.HandlerFunc {
 	return o.baseSession.Authenticated()
 }
 
 // Logout destroys the current session
-func (o *OIDCAzure) Logout() http.HandlerFunc {
+func (o *OIDCAzureFor[T]) Logout() http.HandlerFunc {
 	return o.baseSession.Logout()
 }
 
 // SetXSRFToken sets the XSRF Token
-func (o *OIDCAzure) SetXSRFToken(next http.Handler) http.Handler {
+func (o *OIDCAzureFor[T]) SetXSRFToken(next http.Handler) http.Handler {
 	return o.baseSession.SetXSRFToken(next)
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
 // a new session. The session cookie is then updated and the sessionID is inserted into the context.
-func (o *OIDCAzure) StartSession(next http.Handler) http.Handler {
+func (o *OIDCAzureFor[T]) StartSession(next http.Handler) http.Handler {
 	return o.baseSession.StartSession(next)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired and updates
 // the last activity timestamp if it is still valid. StartSession handler must be called before
 // calling ValidateSession
-func (o *OIDCAzure) ValidateSession(next http.Handler) http.Handler {
+func (o *OIDCAzureFor[T]) ValidateSession(next http.Handler) http.Handler {
 	return o.baseSession.ValidateSession(next)
 }
 
 // ValidateXSRFToken validates the XSRF Token
-func (o *OIDCAzure) ValidateXSRFToken(next http.Handler) http.Handler {
+func (o *OIDCAzureFor[T]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return o.baseSession.ValidateXSRFToken(next)
 }
 
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
-func (o *OIDCAzure) Login() http.HandlerFunc {
+func (o *OIDCAzureFor[T]) Login() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -173,7 +201,7 @@ func (o *OIDCAzure) Login() http.HandlerFunc {
 // role claims and rejects logins that yield no recognized role — see the OIDCAzure
 // type documentation for the role-synchronization semantics and their multi-tenancy
 // limitations.
-func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
+func (o *OIDCAzureFor[T]) CallbackOIDC() http.HandlerFunc {
 	type claims struct {
 		Username string   `json:"preferred_username"`
 		Roles    []string `json:"roles"`
@@ -183,25 +211,25 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		claims := &claims{}
-		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, claims)
+		// Capture the full verified claims payload so a configured custom session data
+		// resolver receives every claim, then decode the fields this handler needs.
+		var rawClaims json.RawMessage
+		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
 			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
-		// user is successfully authenticated, start a new session
-		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID)
-		if err != nil {
+		claims := &claims{}
+		if err := json.Unmarshal(rawClaims, claims); err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzure.startNewSession()")
+			return errors.Wrap(err, "json.Unmarshal()")
 		}
 
-		// Log the association between the sessionID and Username
-		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
-
+		// Reconcile roles BEFORE creating the session so a rejected login never
+		// leaves a live session or auth cookie behind.
 		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
 		if err != nil {
 			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
@@ -215,6 +243,24 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 			return err
 		}
 
+		// user is successfully authenticated and authorized, start a new session. A
+		// configured custom session data resolver runs inside the session-insert
+		// transaction; a resolver error aborts the login here, before any cookie is
+		// written.
+		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID, rawClaims)
+		if err != nil {
+			message := httpio.Message(err)
+			if message == "" {
+				message = "Internal Server Error"
+			}
+			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(message)), http.StatusFound)
+
+			return errors.Wrap(err, "OIDCAzure.startNewSession()")
+		}
+
+		// Log the association between the sessionID and Username
+		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+
 		http.Redirect(w, r, returnURL, http.StatusFound)
 
 		return nil
@@ -222,7 +268,7 @@ func (o *OIDCAzure) CallbackOIDC() http.HandlerFunc {
 }
 
 // FrontChannelLogout is a handler which destroys the current session for a logout request initiated by the OIDC provider
-func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
+func (o *OIDCAzureFor[T]) FrontChannelLogout() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -242,7 +288,7 @@ func (o *OIDCAzure) FrontChannelLogout() http.HandlerFunc {
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
 // returns true if the user has at least one assigned role (after the operation is complete)
-func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
+func (o *OIDCAzureFor[T]) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -286,10 +332,13 @@ func (o *OIDCAzure) assignUserRoles(ctx context.Context, username accesstypes.Us
 	return hasRole, nil
 }
 
-// startNewSession starts a new session for the given username and returns the session ID
-func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string) (ccc.UUID, error) {
+// startNewSession starts a new session for the given username and returns the session ID.
+// claims carries the raw verified ID-token claims into any configured custom session data
+// resolver, which runs inside the session-insert transaction; a resolver error aborts the
+// session creation and no cookies are written.
+func (o *OIDCAzureFor[T]) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
 	// Create new Session in database
-	id, err := o.storage.NewSession(ctx, username, oidcSID)
+	id, err := o.storage.NewSession(ctx, username, oidcSID, claims)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
 	}
@@ -303,23 +352,23 @@ func (o *OIDCAzure) startNewSession(ctx context.Context, w http.ResponseWriter, 
 }
 
 // API provides programatic access to OIDCAzure
-func (o *OIDCAzure) API() *OIDCAzureAPI {
+func (o *OIDCAzureFor[T]) API() *OIDCAzureAPIFor[T] {
 	return newOIDCAzureAPI(o)
 }
 
-// OIDCAzureAPI provides programatic access to OIDCAzure
-type OIDCAzureAPI struct {
-	oidc *OIDCAzure
+// OIDCAzureAPIFor provides programatic access to OIDCAzureFor handler internals
+type OIDCAzureAPIFor[T any] struct {
+	oidc *OIDCAzureFor[T]
 }
 
-func newOIDCAzureAPI(oidc *OIDCAzure) *OIDCAzureAPI {
-	return &OIDCAzureAPI{
+func newOIDCAzureAPI[T any](oidc *OIDCAzureFor[T]) *OIDCAzureAPIFor[T] {
+	return &OIDCAzureAPIFor[T]{
 		oidc: oidc,
 	}
 }
 
 // ValidateSession checks the session cookie and if it is valid, stores the session data into the context
-func (p *OIDCAzureAPI) ValidateSession(ctx context.Context) (context.Context, error) {
+func (p *OIDCAzureAPIFor[T]) ValidateSession(ctx context.Context) (context.Context, error) {
 	ctx, err := p.oidc.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
@@ -329,6 +378,37 @@ func (p *OIDCAzureAPI) ValidateSession(ctx context.Context) (context.Context, er
 }
 
 // Cookie returns the underlying cookie.Client
-func (p *OIDCAzureAPI) Cookie() *cookie.Client {
+func (p *OIDCAzureAPIFor[T]) Cookie() *cookie.Client {
 	return p.oidc.baseSession.CookieHandler.Cookie()
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session via a
+// transactional read-modify-write: mutate receives the current row (zero-value T when
+// no row exists), and the full row is written back; a mutate error aborts with nothing
+// written. It is intended for genuine mid-session updates only (e.g. a tenant switch
+// the caller has authorized) — initial population belongs in the creation path (the
+// configured resolver), which is atomic with the session insert. See the "Custom
+// session data" section of the README for the full lifecycle.
+func (p *OIDCAzureAPIFor[T]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := p.oidc.storage.UpdateCustomSessionData(ctx, sessionID, eraseMutate(mutate)); err != nil {
+		return errors.Wrap(err, "sessionstorage.OIDCStore.UpdateCustomSessionData()")
+	}
+
+	return nil
+}
+
+// CustomData returns the strongly typed custom session data for the current session
+// from the context. A session with no custom data row yields a zero-value T.
+func (p *OIDCAzureAPIFor[T]) CustomData(ctx context.Context) (T, error) {
+	data, err := sessioninfo.CustomDataFromCtx[*T](ctx)
+	if err != nil {
+		var zero T
+
+		return zero, errors.Wrap(err, "sessioninfo.CustomDataFromCtx()")
+	}
+
+	return *data, nil
 }

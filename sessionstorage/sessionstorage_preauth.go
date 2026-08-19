@@ -14,19 +14,29 @@ type Preauth struct {
 }
 
 // NewSpannerPreauth is the function that you use to create the session manager that handles the session creation and updates
-func NewSpannerPreauth(db *cloudspanner.Client) *Preauth {
+func NewSpannerPreauth(db *cloudspanner.Client, opts ...SpannerOption) *Preauth {
+	driver := spanner.NewSessionStorageDriver(db)
+	for _, opt := range opts {
+		opt.applySpanner(driver)
+	}
+
 	return &Preauth{
 		sessionStorage: sessionStorage{
-			db: spanner.NewSessionStorageDriver(db),
+			db: driver,
 		},
 	}
 }
 
 // NewPostgresPreauth is the function that you use to create the session manager that handles the session creation and updates
-func NewPostgresPreauth(db postgres.Queryer) *Preauth {
+func NewPostgresPreauth(db postgres.Queryer, opts ...PostgresOption) *Preauth {
+	driver := postgres.NewSessionStorageDriver(db)
+	for _, opt := range opts {
+		opt.applyPostgres(driver)
+	}
+
 	return &Preauth{
 		sessionStorage: sessionStorage{
-			db: postgres.NewSessionStorageDriver(db),
+			db: driver,
 		},
 	}
 }
