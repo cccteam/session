@@ -115,7 +115,7 @@ type MyData struct {
 
 customCfg, err := sessionstorage.NewSpannerCustomSessionData(
     "SessionCustomData",
-    func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (*MyData, error) {
+    func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*MyData, error) {
         // resolver: runs ONCE per session creation, inside the insert transaction.
         // req carries Reason (Login | ExternalAuth | Regeneration | Preauth),
         // Username, UserID, and Claims (OIDC).
@@ -164,7 +164,7 @@ type SessionClaims struct {
 
 customCfg, err := sessionstorage.NewSpannerCustomSessionData(
     "SessionClaimsData",
-    func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (*SessionClaims, error) {
+    func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*SessionClaims, error) {
         c := &SessionClaims{}
         if err := json.Unmarshal(req.Claims, c); err != nil {
             return nil, err

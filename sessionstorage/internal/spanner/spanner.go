@@ -238,7 +238,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		data, err := s.customData.Resolver(ctx, txn, *req)
+		data, err := s.customData.Resolver(ctx, txn, req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}

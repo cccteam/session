@@ -20,7 +20,7 @@ import (
 // creation (login, external authentication, and session regeneration each create a
 // session and re-resolve fresh). Returning an error aborts the transaction: no session
 // is created and the login/session start fails.
-type SpannerNewSessionResolver[T any] func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (*T, error)
+type SpannerNewSessionResolver[T any] func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*T, error)
 
 // PostgresNewSessionResolver resolves custom session data for a session being created in
 // PostgreSQL-backed storage, returning the row to store (or nil for no row). It runs
@@ -28,7 +28,7 @@ type SpannerNewSessionResolver[T any] func(ctx context.Context, txn *cloudspanne
 // creation (login, external authentication, and session regeneration each create a
 // session and re-resolve fresh). Returning an error aborts the transaction: no session
 // is created and the login/session start fails.
-type PostgresNewSessionResolver[T any] func(ctx context.Context, txn pgx.Tx, req sessioninfo.NewSessionRequest) (*T, error)
+type PostgresNewSessionResolver[T any] func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (*T, error)
 
 // SpannerCustomSessionData is the validated custom session data configuration for
 // Spanner-backed storage. The table's columns derive from T's `spanner:` struct tags,
@@ -90,7 +90,7 @@ func (c *SpannerCustomSessionData[T]) driverConfig() *spanner.CustomSessionDataC
 	}
 	if c.resolver != nil {
 		resolver := c.resolver
-		cfg.Resolver = func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error) {
+		cfg.Resolver = func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (any, error) {
 			data, err := resolver(ctx, txn, req)
 			if err != nil {
 				return nil, err
@@ -167,7 +167,7 @@ func (c *PostgresCustomSessionData[T]) driverConfig() *postgres.CustomSessionDat
 	}
 	if c.resolver != nil {
 		resolver := c.resolver
-		cfg.Resolver = func(ctx context.Context, txn pgx.Tx, req sessioninfo.NewSessionRequest) (any, error) {
+		cfg.Resolver = func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (any, error) {
 			data, err := resolver(ctx, txn, req)
 			if err != nil {
 				return nil, err

@@ -1181,7 +1181,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return &customStringData{CustomString: "editor"}, nil
 				},
 			},
@@ -1206,7 +1206,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customTestData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return &customTestData{
 						CustomString:    "manager",
 						CustomInt:       42,
@@ -1247,7 +1247,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (any, error) {
 					if req.Reason != sessioninfo.ReasonRegeneration || req.Username != "reason_user" || req.UserID != ccc.Must(ccc.UUIDFromString("88888888-8888-8888-8888-888888888888")) {
 						return nil, errors.Newf("unexpected request %+v", req)
 					}
@@ -1276,7 +1276,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "NonExistentCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return &customStringData{CustomString: "x"}, nil
 				},
 			},
@@ -1301,7 +1301,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return nil, errors.New("resolver failure")
 				},
 			},
@@ -1349,7 +1349,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return nil, nil //nolint:nilnil // nil data means no custom data row
 				},
 			},
@@ -1379,7 +1379,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return nil, errors.New("resolver must not run when per-call data is provided")
 				},
 			},
@@ -1478,7 +1478,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 			config: &CustomSessionDataConfig{
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customCollisionData]()),
-				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 					return &customCollisionData{CustomExpired: "custom_value"}, nil
 				},
 			},

@@ -200,7 +200,7 @@ func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUI
 
 	data := req.CustomData
 	if !perCallData {
-		data, err = s.customData.Resolver(ctx, txn, *req)
+		data, err = s.customData.Resolver(ctx, txn, req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
 		}

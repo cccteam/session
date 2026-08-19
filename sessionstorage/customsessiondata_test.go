@@ -174,7 +174,7 @@ func TestCustomSessionData_DriverConfig(t *testing.T) {
 				t.Helper()
 
 				cfg, err := NewSpannerCustomSessionData("SessionCustomData",
-					func(_ context.Context, _ *cloudspanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (*testTypedData, error) {
+					func(_ context.Context, _ *cloudspanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (*testTypedData, error) {
 						return nil, nil //nolint:nilnil // typed-nil crossing is the behavior under test
 					})
 				if err != nil {
@@ -191,7 +191,7 @@ func TestCustomSessionData_DriverConfig(t *testing.T) {
 				t.Helper()
 
 				cfg, err := NewPostgresCustomSessionData("SessionCustomData",
-					func(_ context.Context, _ pgx.Tx, _ sessioninfo.NewSessionRequest) (*testTypedData, error) {
+					func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (*testTypedData, error) {
 						return &testTypedData{Role: "admin", Tenant: "t1"}, nil
 					})
 				if err != nil {
@@ -259,7 +259,7 @@ func resolveFunc(cfg *spanner.CustomSessionDataConfig) (func(ctx context.Context
 	}
 
 	return func(ctx context.Context) (any, error) {
-		return cfg.Resolver(ctx, nil, sessioninfo.NewSessionRequest{})
+		return cfg.Resolver(ctx, nil, &sessioninfo.NewSessionRequest{})
 	}, cfg.Codec
 }
 
@@ -270,6 +270,6 @@ func resolvePostgresFunc(cfg *postgres.CustomSessionDataConfig) (func(ctx contex
 	}
 
 	return func(ctx context.Context) (any, error) {
-		return cfg.Resolver(ctx, nil, sessioninfo.NewSessionRequest{})
+		return cfg.Resolver(ctx, nil, &sessioninfo.NewSessionRequest{})
 	}, cfg.Codec
 }

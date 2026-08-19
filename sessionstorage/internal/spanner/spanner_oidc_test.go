@@ -31,7 +31,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 		name           string
 		insertSession  *dbtype.InsertOIDCSession
 		req            sessioninfo.NewSessionRequest
-		resolver       func(ctx context.Context, txn *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error)
+		resolver       func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (any, error)
 		withConfig     bool
 		sourceURL      []string
 		wantErr        bool
@@ -94,7 +94,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "claims user", Claims: rawClaims},
-			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req sessioninfo.NewSessionRequest) (any, error) {
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (any, error) {
 				if !bytes.Equal(req.Claims, rawClaims) {
 					return nil, errors.Newf("unexpected claims: %s", string(req.Claims))
 				}
@@ -128,7 +128,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "abort user", Claims: rawClaims},
-			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ sessioninfo.NewSessionRequest) (any, error) {
+			resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
 				return nil, errors.New("resolver failure")
 			},
 			withConfig: true,

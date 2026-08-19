@@ -21,7 +21,7 @@ type CustomSessionDataConfig struct {
 	// Resolver resolves custom session data inside the session-insert transaction,
 	// returning *T (or nil for no row). When the Resolver field is nil, session
 	// creation performs a plain insert with no custom data row.
-	Resolver func(ctx context.Context, txn pgx.Tx, req sessioninfo.NewSessionRequest) (any, error)
+	Resolver func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (any, error)
 }
 
 // SetCustomSessionData attaches the custom session data configuration to the driver.
