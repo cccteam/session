@@ -14,7 +14,7 @@ require (
 	cloud.google.com/go/spanner v1.94.0
 	github.com/cccteam/ccc v0.3.2
 	github.com/cccteam/ccc/accesstypes v0.5.8
-	github.com/cccteam/ccc/resource v0.10.3
+	github.com/cccteam/ccc/resource v0.10.2
 	github.com/cccteam/ccc/securehash v0.0.13
 	github.com/cccteam/ccc/tracer v0.1.6
 	github.com/cccteam/db-initiator v0.3.13
