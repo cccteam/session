@@ -17,6 +17,12 @@ type Session struct {
 	Expired   bool      `spanner:"Expired"   db:"Expired"`
 }
 
+// SessionData pairs a Session with optional custom session data.
+type SessionData struct {
+	*Session
+	CustomData any
+}
+
 // InsertSession defines the structure for inserting new session data into the database.
 type InsertSession struct {
 	Username  string    `spanner:"Username"`
@@ -44,4 +50,20 @@ type InsertSessionUser struct {
 	Username     string           `spanner:"Username"     db:"Username"`
 	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
 	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
+}
+
+// SessionIDColumn is the primary-key column of the custom session data table, referencing the session table's primary key.
+const SessionIDColumn = "SessionId"
+
+// IsReservedCustomColumn checks if a given column name is reserved and therefore cannot be used as a custom session data column name.
+func IsReservedCustomColumn(name string) bool {
+	_, reserved := reservedCustomColumnNames()[name]
+
+	return reserved
+}
+
+func reservedCustomColumnNames() map[string]struct{} {
+	return map[string]struct{}{
+		SessionIDColumn: {},
+	}
 }

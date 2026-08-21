@@ -85,21 +85,23 @@ func WithLoginURL(l string) OIDCOption {
 	})
 }
 
-// passwordOption defines a function signature for setting Password options.
-type passwordOption func(*PasswordAuth)
+// passwordOption defines a function signature for setting Password options. It operates
+// on the non-generic settings struct so one option applies to every PasswordAuthFor
+// instantiation.
+type passwordOption func(*passwordAuthSettings)
 
 func (passwordOption) isPasswordOption() {}
 
 // AutoUpgradeHashes controls if password hashes will be auto upgraded (default: true)
 func AutoUpgradeHashes(a bool) PasswordOption {
-	return passwordOption(func(p *PasswordAuth) {
-		p.autoUpgrade = a
+	return passwordOption(func(s *passwordAuthSettings) {
+		s.autoUpgrade = a
 	})
 }
 
 // HashAlgorithm controls hashing algrorithm (default: securehash.Argon2())
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
-	return passwordOption(func(p *PasswordAuth) {
-		p.hasher = securehash.New(hasher)
+	return passwordOption(func(s *passwordAuthSettings) {
+		s.hasher = securehash.New(hasher)
 	})
 }

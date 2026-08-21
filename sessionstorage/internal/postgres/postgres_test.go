@@ -1,7 +1,9 @@
 package postgres
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -9,6 +11,10 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
+	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestClient_FullMigration(t *testing.T) {
@@ -75,18 +81,18 @@ func TestSessionStorageDriver_Session(t *testing.T) {
 		name        string
 		sessionID   ccc.UUID
 		sourceURL   []string
-		wantSession *dbtype.Session
+		wantSession *dbtype.SessionData
 		wantErr     bool
 	}{
 		{
 			name:      "success",
 			sessionID: ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 			sourceURL: []string{"file://../../../schema/postgresql/oidc/migrations", "file://testdata/sessions_test/oidc_valid_sessions"},
-			wantSession: &dbtype.Session{
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
 				ID:       ccc.Must(ccc.UUIDFromString("eb0c72a4-1f32-469e-b51b-7baa589a944c")),
 				Username: "test user 2",
 				Expired:  true,
-			},
+			}},
 		},
 		{
 			name:      "not found",
@@ -233,7 +239,7 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Pool)
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			id, err := c.InsertSession(ctx, tt.insertSession)
+			id, err := c.InsertSession(ctx, tt.insertSession, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: tt.insertSession.Username})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -905,6 +911,761 @@ func TestSessionStorageDriver_DestroyAllSessionsForUser(t *testing.T) {
 				t.Errorf("SessionStorageDriver.DestroyAllSessionsForUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
+// mustCodec builds a codec for the given struct type, panicking on error so test
+// tables can construct configs inline; codec validation is covered by the dbtype
+// unit tests.
+func mustCodec(structType reflect.Type) *dbtype.CustomDataCodec {
+	codec, err := dbtype.NewCustomDataCodec(structType, dbtype.PostgresTagKey)
+	if err != nil {
+		panic(err)
+	}
+
+	return codec
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// customTestData covers each supported PostgreSQL column type in the test schema.
+type customTestData struct {
+	CustomString    string    `db:"CustomString"`
+	CustomInt       int64     `db:"CustomInt"`
+	CustomBool      bool      `db:"CustomBool"`
+	CustomFloat     float64   `db:"CustomFloat"`
+	CustomTimestamp time.Time `db:"CustomTimestamp"`
+}
+
+// customNullableTestData mirrors customTestData with nullable (pointer) field types,
+// per the contract that columns holding NULL must map to nullable Go types.
+type customNullableTestData struct {
+	CustomString    *string    `db:"CustomString"`
+	CustomInt       *int64     `db:"CustomInt"`
+	CustomBool      *bool      `db:"CustomBool"`
+	CustomFloat     *float64   `db:"CustomFloat"`
+	CustomTimestamp *time.Time `db:"CustomTimestamp"`
+}
+
+type customStringData struct {
+	CustomString string `db:"CustomString"`
+}
+
+// customCollisionData maps a column whose name collides with the base session
+// table's Expired column.
+type customCollisionData struct {
+	CustomExpired string `db:"Expired"`
+}
+
+// customBadColumnData maps a column that does not exist in the test schema.
+type customBadColumnData struct {
+	Value string `db:"DoesNotExist"`
+}
+
+func TestSessionStorageDriver_Session_CustomSessionColumns(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Codec:     mustCodec(reflect.TypeFor[customTestData]()),
+	}
+
+	tests := []struct {
+		name           string
+		sessionID      ccc.UUID
+		customData     *CustomSessionDataConfig
+		sourceURL      []string
+		wantSession    *dbtype.SessionData
+		wantCustomData any
+		wantErr        bool
+	}{
+		{
+			name:      "success with custom column",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customData: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: &customStringData{CustomString: "admin"},
+		},
+		{
+			name:       "success with multiple custom column types",
+			sessionID:  ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customData: customDataConfig,
+			sourceURL:  []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: &customTestData{
+				CustomString:    "admin",
+				CustomInt:       10,
+				CustomBool:      true,
+				CustomFloat:     99.5,
+				CustomTimestamp: time.Date(2024, 6, 15, 8, 30, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:       "success with custom column expired session",
+			sessionID:  ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+			customData: customDataConfig,
+			sourceURL:  []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+				Username: "custom_user_2",
+				Expired:  true,
+			}},
+			wantCustomData: &customTestData{
+				CustomString:    "viewer",
+				CustomInt:       5,
+				CustomBool:      false,
+				CustomFloat:     42.0,
+				CustomTimestamp: time.Date(2024, 3, 20, 14, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:       "session without custom row yields zero-value struct",
+			sessionID:  ccc.Must(ccc.UUIDFromString("33333333-3333-3333-3333-333333333333")),
+			customData: customDataConfig,
+			sourceURL:  []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("33333333-3333-3333-3333-333333333333")),
+				Username: "custom_user_3",
+				Expired:  false,
+			}},
+			wantCustomData: &customTestData{},
+		},
+		{
+			name:      "session not found with custom columns",
+			sessionID: ccc.Must(ccc.NewUUID()),
+			customData: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+		},
+		{
+			name:      "success without custom data config",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "custom_user_1",
+				Expired:  false,
+			}},
+		},
+		{
+			name:      "success with custom column name matching base session column",
+			sessionID: ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+			customData: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customCollisionData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("11111111-1111-1111-1111-111111111111")),
+				Username: "collision_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: &customCollisionData{CustomExpired: "custom_not_expired"},
+		},
+		{
+			name:      "success with custom column name matching base session column expired session",
+			sessionID: ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+			customData: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customCollisionData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("22222222-2222-2222-2222-222222222222")),
+				Username: "collision_user_2",
+				Expired:  true,
+			}},
+			wantCustomData: &customCollisionData{CustomExpired: "custom_expired"},
+		},
+		{
+			name:      "NULL columns decode into nullable-typed struct",
+			sessionID: ccc.Must(ccc.UUIDFromString("44444444-4444-4444-4444-444444444444")),
+			customData: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customNullableTestData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_null_schema"},
+			wantSession: &dbtype.SessionData{Session: &dbtype.Session{
+				ID:       ccc.Must(ccc.UUIDFromString("44444444-4444-4444-4444-444444444444")),
+				Username: "null_user_1",
+				Expired:  false,
+			}},
+			wantCustomData: &customNullableTestData{
+				CustomString: ptr("partial"),
+			},
+		},
+		{
+			name:       "NULL column into non-nullable field errors",
+			sessionID:  ccc.Must(ccc.UUIDFromString("44444444-4444-4444-4444-444444444444")),
+			customData: customDataConfig,
+			sourceURL:  []string{"file://testdata/sessions_test/custom_columns_null_schema"},
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+			if tt.customData != nil {
+				c.SetCustomSessionData(tt.customData)
+			}
+
+			gotSession, err := c.Session(ctx, tt.sessionID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.Session() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantSession != nil {
+				if gotSession.ID != tt.wantSession.ID {
+					t.Errorf("SessionStorageDriver.Session() gotSession.ID = %v, want %v", gotSession.ID, tt.wantSession.ID)
+				}
+				if gotSession.Username != tt.wantSession.Username {
+					t.Errorf("SessionStorageDriver.Session() gotSession.Username = %v, want %v", gotSession.Username, tt.wantSession.Username)
+				}
+				if gotSession.Expired != tt.wantSession.Expired {
+					t.Errorf("SessionStorageDriver.Session() gotSession.Expired = %v, want %v", gotSession.Expired, tt.wantSession.Expired)
+				}
+			}
+			if tt.wantCustomData != nil {
+				if diff := cmp.Diff(tt.wantCustomData, gotSession.CustomData); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomData mismatch (-want +got):\n%s", diff)
+				}
+			} else if !tt.wantErr && gotSession != nil && gotSession.CustomData != nil {
+				t.Errorf("SessionStorageDriver.Session() gotSession.CustomData = %v, want nil", gotSession.CustomData)
+			}
+		})
+	}
+}
+
+func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
+	t.Parallel()
+
+	newSessionRequest := sessioninfo.NewSessionRequest{
+		Reason:   sessioninfo.ReasonLogin,
+		Username: "newuser",
+		UserID:   ccc.Must(ccc.UUIDFromString("99999999-9999-9999-9999-999999999999")),
+	}
+
+	tests := []struct {
+		name           string
+		insertSession  *dbtype.InsertSession
+		req            sessioninfo.NewSessionRequest
+		config         *CustomSessionDataConfig
+		sourceURL      []string
+		wantErr        bool
+		preAssertions  []string
+		postAssertions []string
+		wantCustomData any
+	}{
+		{
+			name: "success inserting session with custom data",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return &customStringData{CustomString: "editor"}, nil
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+			},
+			wantCustomData: &customStringData{CustomString: "editor"},
+		},
+		{
+			name: "success inserting session with multiple custom data types",
+			insertSession: &dbtype.InsertSession{
+				Username:  "newuser_multi",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customTestData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return &customTestData{
+						CustomString:    "manager",
+						CustomInt:       42,
+						CustomBool:      true,
+						CustomFloat:     88.3,
+						CustomTimestamp: time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC),
+					}, nil
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+			},
+			wantCustomData: &customTestData{
+				CustomString:    "manager",
+				CustomInt:       42,
+				CustomBool:      true,
+				CustomFloat:     88.3,
+				CustomTimestamp: time.Date(2025, 1, 10, 12, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name: "resolver receives the new session request",
+			insertSession: &dbtype.InsertSession{
+				Username:  "reason_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:   sessioninfo.ReasonRegeneration,
+				Username: "reason_user",
+				UserID:   ccc.Must(ccc.UUIDFromString("88888888-8888-8888-8888-888888888888")),
+			},
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, req *sessioninfo.NewSessionRequest) (any, error) {
+					if req.Reason != sessioninfo.ReasonRegeneration || req.Username != "reason_user" || req.UserID != ccc.Must(ccc.UUIDFromString("88888888-8888-8888-8888-888888888888")) {
+						return nil, errors.Newf("unexpected request %+v", req)
+					}
+
+					return &customStringData{CustomString: string(req.Reason)}, nil
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+			},
+			wantCustomData: &customStringData{CustomString: "Regeneration"},
+		},
+		{
+			name: "atomicity: custom data insert failure rolls back session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "atomic_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "NonExistentCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return &customStringData{CustomString: "x"}, nil
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "atomicity: resolver error aborts session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "resolver_err_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return nil, errors.New("resolver failure")
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "nil resolver degrades to plain insert without custom data row",
+			insertSession: &dbtype.InsertSession{
+				Username:  "plain_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+				`SELECT COUNT(*) = 2 FROM "SessionCustomData"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+				`SELECT COUNT(*) = 2 FROM "SessionCustomData"`,
+			},
+		},
+		{
+			name: "resolver returning nil writes no custom data row",
+			insertSession: &dbtype.InsertSession{
+				Username:  "nilresolve_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return nil, nil //nolint:nilnil // nil data means no custom data row
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+				`SELECT COUNT(*) = 2 FROM "SessionCustomData"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+				`SELECT COUNT(*) = 2 FROM "SessionCustomData"`,
+			},
+		},
+		{
+			name: "per-call custom data written atomically and resolver skipped",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:     sessioninfo.ReasonExternalAuth,
+				Username:   "percall_user",
+				CustomData: &customStringData{CustomString: "per_call_value"},
+			},
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return nil, errors.New("resolver must not run when per-call data is provided")
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 4 FROM "Sessions"`,
+			},
+			wantCustomData: &customStringData{CustomString: "per_call_value"},
+		},
+		{
+			name: "per-call custom data without config errors before insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_noconfig_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:     sessioninfo.ReasonExternalAuth,
+				Username:   "percall_noconfig_user",
+				CustomData: &customStringData{CustomString: "x"},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "per-call custom data of the wrong type errors before insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_wrongtype_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:     sessioninfo.ReasonExternalAuth,
+				Username:   "percall_wrongtype_user",
+				CustomData: &customTestData{CustomString: "x"},
+			},
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "atomicity: per-call custom data with bad column rolls back session insert",
+			insertSession: &dbtype.InsertSession{
+				Username:  "percall_atomic_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: sessioninfo.NewSessionRequest{
+				Reason:     sessioninfo.ReasonExternalAuth,
+				Username:   "percall_atomic_user",
+				CustomData: &customBadColumnData{Value: "x"},
+			},
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customBadColumnData]()),
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			preAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+		},
+		{
+			name: "success inserting session with custom column name matching base session column",
+			insertSession: &dbtype.InsertSession{
+				Username:  "collision_insert_user",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Expired:   false,
+			},
+			req: newSessionRequest,
+			config: &CustomSessionDataConfig{
+				TableName: "SessionCustomData",
+				Codec:     mustCodec(reflect.TypeFor[customCollisionData]()),
+				Resolver: func(_ context.Context, _ pgx.Tx, _ *sessioninfo.NewSessionRequest) (any, error) {
+					return &customCollisionData{CustomExpired: "custom_value"}, nil
+				},
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_collision_schema"},
+			preAssertions: []string{
+				`SELECT COUNT(*) = 2 FROM "Sessions"`,
+			},
+			postAssertions: []string{
+				`SELECT COUNT(*) = 3 FROM "Sessions"`,
+			},
+			wantCustomData: &customCollisionData{CustomExpired: "custom_value"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v, wantErr %v", err, false)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+			if tt.config != nil {
+				c.SetCustomSessionData(tt.config)
+			}
+
+			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
+			id, err := c.InsertSession(ctx, tt.insertSession, &tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.InsertSession() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+				return
+			}
+
+			if id == ccc.NilUUID {
+				t.Error("SessionStorageDriver.InsertSession() id is nil, want valid UUID")
+			}
+			runAssertions(ctx, t, conn.Pool, []string{fmt.Sprintf(`SELECT COUNT(*) = 1 FROM "Sessions" WHERE "Id" = '%s'`, id)})
+
+			// Read back the session and verify custom data
+			if tt.wantCustomData != nil {
+				gotSession, err := c.Session(ctx, id)
+				if err != nil {
+					t.Fatalf("SessionStorageDriver.Session() error = %v", err)
+				}
+				if diff := cmp.Diff(tt.wantCustomData, gotSession.CustomData); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomData mismatch (-want +got):\n%s", diff)
+				}
+			}
+
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+		})
+	}
+}
+
+func TestSessionStorageDriver_UpdateCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	customDataConfig := &CustomSessionDataConfig{
+		TableName: "SessionCustomData",
+		Codec:     mustCodec(reflect.TypeFor[customTestData]()),
+	}
+
+	tests := []struct {
+		name           string
+		sessionID      string
+		config         *CustomSessionDataConfig
+		mutate         func(data any) error
+		sourceURL      []string
+		wantErr        bool
+		wantCustomData any
+		postAssertions []string
+	}{
+		{
+			name:      "partial mutate preserves untouched fields",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			config:    customDataConfig,
+			mutate: func(data any) error {
+				d, ok := data.(*customTestData)
+				if !ok {
+					return errors.Newf("mutate received %T, want *customTestData", data)
+				}
+				d.CustomString = "updated_role"
+
+				return nil
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: &customTestData{
+				CustomString:    "updated_role",
+				CustomInt:       10,
+				CustomBool:      true,
+				CustomFloat:     99.5,
+				CustomTimestamp: time.Date(2024, 6, 15, 8, 30, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:      "creates row from zero value when none exists",
+			sessionID: "33333333-3333-3333-3333-333333333333",
+			config:    customDataConfig,
+			mutate: func(data any) error {
+				d, ok := data.(*customTestData)
+				if !ok {
+					return errors.Newf("mutate received %T, want *customTestData", data)
+				}
+				if *d != (customTestData{}) {
+					return errors.Newf("mutate received %+v, want zero value", *d)
+				}
+				d.CustomString = "new_role"
+				d.CustomInt = 42
+
+				return nil
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantCustomData: &customTestData{
+				CustomString: "new_role",
+				CustomInt:    42,
+			},
+		},
+		{
+			name:      "mutate error writes nothing",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			config:    customDataConfig,
+			mutate: func(_ any) error {
+				return errors.New("mutate failure")
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+			postAssertions: []string{
+				`SELECT COUNT(*) = 1 FROM "SessionCustomData" WHERE "SessionId" = '11111111-1111-1111-1111-111111111111' AND "CustomString" = 'admin'`,
+			},
+		},
+		{
+			name:      "error when custom data config not set",
+			sessionID: "11111111-1111-1111-1111-111111111111",
+			mutate: func(_ any) error {
+				return nil
+			},
+			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, tt.sourceURL...)
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v", err)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+			if tt.config != nil {
+				c.SetCustomSessionData(tt.config)
+			}
+
+			sessionID := ccc.Must(ccc.UUIDFromString(tt.sessionID))
+			err = c.UpdateCustomSessionData(ctx, sessionID, tt.mutate)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SessionStorageDriver.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			runAssertions(ctx, t, conn.Pool, tt.postAssertions)
+			if tt.wantErr {
+				return
+			}
+
+			// Read back the session and verify custom data
+			if tt.wantCustomData != nil {
+				gotSession, err := c.Session(ctx, sessionID)
+				if err != nil {
+					t.Fatalf("SessionStorageDriver.Session() error = %v", err)
+				}
+				if diff := cmp.Diff(tt.wantCustomData, gotSession.CustomData); diff != "" {
+					t.Errorf("SessionStorageDriver.Session() CustomData mismatch (-want +got):\n%s", diff)
+				}
+			}
 		})
 	}
 }

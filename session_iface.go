@@ -3,6 +3,12 @@
 // 1) Azure OIDC Authorization Code Flow with PKCE
 // 2) Preauth: Allows you to implement your own authentication, but still use session handlers
 // 3) Username/Password: Implements user storage and password management
+//
+// All three support custom session data: an app-defined table whose row is resolved
+// atomically inside the session-insert transaction (or supplied per call), decoded on
+// every authenticated request, reset on session regeneration, and cleaned up with the
+// session via the table's ON DELETE CASCADE. See the "Custom session data" section of
+// the README for the full lifecycle, schema contract, and failure semantics.
 package session
 
 import (

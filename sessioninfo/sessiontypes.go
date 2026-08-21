@@ -16,6 +16,18 @@ type SessionInfo struct {
 	Expired   bool
 }
 
+// SessionData pairs a SessionInfo with optional custom session data.
+// This is stored in the request context internally; consumers should use FromCtx/FromRequest to get the SessionInfo and
+// CustomDataFromCtx[T]/CustomDataFromRequest[T] to get the strongly typed custom data.
+//
+// CustomData is nil when no custom session data configuration is attached to the
+// storage. When one is attached, it holds a *T (the configuration's struct type); a
+// session without a custom data row yields a zero-value *T.
+type SessionData struct {
+	*SessionInfo
+	CustomData any
+}
+
 // UserInfo struct contains information about a user
 type UserInfo struct {
 	ID       ccc.UUID `spanner:"Id"           db:"Id"`

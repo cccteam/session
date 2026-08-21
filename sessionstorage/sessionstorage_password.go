@@ -2,12 +2,14 @@ package sessionstorage
 
 import (
 	"context"
+	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 	"github.com/go-playground/errors/v5"
@@ -21,21 +23,53 @@ type PasswordAuth struct {
 }
 
 // NewSpannerPasswordAuth creates a new Password storage instance.
-func NewSpannerPasswordAuth(client *cloudspanner.Client) *PasswordAuth {
+func NewSpannerPasswordAuth(client *cloudspanner.Client, opts ...SpannerOption) *PasswordAuth {
+	driver := spanner.NewSessionStorageDriver(client)
+	for _, opt := range opts {
+		opt.applySpanner(driver)
+	}
+
 	return &PasswordAuth{
 		sessionStorage: sessionStorage{
-			db: spanner.NewSessionStorageDriver(client),
+			db: driver,
 		},
 	}
 }
 
 // NewPostgresPassword creates a new PostgresPassword instance.
-func NewPostgresPassword(pg postgres.Queryer) *PasswordAuth {
+func NewPostgresPassword(pg postgres.Queryer, opts ...PostgresOption) *PasswordAuth {
+	driver := postgres.NewSessionStorageDriver(pg)
+	for _, opt := range opts {
+		opt.applyPostgres(driver)
+	}
+
 	return &PasswordAuth{
 		sessionStorage: sessionStorage{
-			db: postgres.NewSessionStorageDriver(pg),
+			db: driver,
 		},
 	}
+}
+
+// CreateSession creates a new session for the request and returns its ID. When a custom
+// session data configuration with a resolver is attached to the storage, the resolver
+// runs inside the session-insert transaction; a resolver error aborts session creation.
+// With no resolver it is a plain insert.
+func (p *PasswordAuth) CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session := &dbtype.InsertSession{
+		Username:  req.Username,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	id, err := p.db.InsertSession(ctx, session, req)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
+	}
+
+	return id, nil
 }
 
 // User returns the user record associated with the username

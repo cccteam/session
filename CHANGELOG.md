@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.10.0](https://github.com/cccteam/session/compare/v0.9.1...v0.10.0) (2026-08-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add support for custom session data ([#231](https://github.com/cccteam/session/issues/231))
+* Regenerate the session on password change ([#225](https://github.com/cccteam/session/issues/225))
+
+### Features
+
+* Add support for custom session data ([#231](https://github.com/cccteam/session/issues/231)) ([6cbf375](https://github.com/cccteam/session/commit/6cbf375d5eb9c8e7bdc5c8cd656c55d6c9adec7c))
+* Regenerate the session on password change ([#225](https://github.com/cccteam/session/issues/225)) ([aa976b8](https://github.com/cccteam/session/commit/aa976b805da1d4a2c93eb6c87affab5a9416cb13))
+
+
+### Bug Fixes
+
+* Bump grpc to v1.82.1 to patch GO-2026-6061 ([#226](https://github.com/cccteam/session/issues/226)) ([c2f1283](https://github.com/cccteam/session/commit/c2f1283813459c7c5361d08d2f0869f688ae70e9))
+
+
+### Documentation
+
+* Provide detailed documentation for OIDCAzure and how it manages roles ([#229](https://github.com/cccteam/session/issues/229)) ([67228f9](https://github.com/cccteam/session/commit/67228f9eff862a70931b63c09e28b79b56a41782))
+
 ## [0.9.1](https://github.com/cccteam/session/compare/v0.9.0...v0.9.1) (2026-07-24)
 
 
