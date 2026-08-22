@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/cccteam/session/compare/v0.10.0...v0.10.1) (2026-08-22)
+
+
+### Bug Fixes
+
+* Move session context checks for DeactivateUser & DeleteUser to handlers ([#232](https://github.com/cccteam/session/issues/232)) ([7b4cd27](https://github.com/cccteam/session/commit/7b4cd279f2c4efa411c3bbe318e1c83a90c2ed93))
+
 ## [0.10.0](https://github.com/cccteam/session/compare/v0.9.1...v0.10.0) (2026-08-19)
 
 
