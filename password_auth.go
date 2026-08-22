@@ -372,13 +372,20 @@ func (p *PasswordAuthFor[T]) CreateUser() http.HandlerFunc {
 	})
 }
 
-// DeactivateUser handles deactivating a user account.
+// DeactivateUser handles deactivating a user account. The request is rejected with
+// 400 Bad Request when the target is the session's own user, so a user cannot
+// deactivate themselves.
 func (p *PasswordAuthFor[T]) DeactivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+
+		if sessionUserID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot deactivate yourself")
+		}
+
 		if err := p.deactivateSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -387,13 +394,20 @@ func (p *PasswordAuthFor[T]) DeactivateUser() http.HandlerFunc {
 	})
 }
 
-// DeleteUser handles deleting a user account.
+// DeleteUser handles deleting a user account. The request is rejected with
+// 400 Bad Request when the target is the session's own user, so a user cannot
+// delete themselves.
 func (p *PasswordAuthFor[T]) DeleteUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
+
+		if sessionUserID == sessioninfo.UserFromCtx(ctx).ID {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "cannot delete yourself")
+		}
+
 		if err := p.deleteSessionUser(ctx, sessionUserID); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -557,15 +571,12 @@ func (p *PasswordAuthFor[T]) createSessionUser(ctx context.Context, req *CreateU
 	return user.ID, nil
 }
 
-// deleteSessionUser handles deleting a user account.
+// deleteSessionUser handles deleting a user account. Performs no self-deletion
+// check; that is the caller's responsibility.
 func (p *PasswordAuthFor[T]) deleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
-	}
-
-	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-		return httpio.NewBadRequestMessage("cannot delete yourself")
 	}
 
 	if err := p.storage.DeleteUser(ctx, user.ID); err != nil {
@@ -579,15 +590,12 @@ func (p *PasswordAuthFor[T]) deleteSessionUser(ctx context.Context, sessionUserI
 	return nil
 }
 
-// deactivateSessionUser handles deactivating a user account.
+// deactivateSessionUser handles deactivating a user account. Performs no
+// self-deactivation check; that is the caller's responsibility.
 func (p *PasswordAuthFor[T]) deactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
-	}
-
-	if user.ID == sessioninfo.UserFromCtx(ctx).ID {
-		return httpio.NewBadRequestMessage("cannot deactivate yourself")
 	}
 
 	if err := p.storage.DeactivateUser(ctx, user.ID); err != nil {
@@ -768,12 +776,22 @@ func (p *PasswordAuthAPIFor[T]) CreateSessionUser(ctx context.Context, req *Crea
 	return p.passwordAuth.createSessionUser(ctx, req)
 }
 
-// DeleteSessionUser handles deleting a user account
+// DeleteSessionUser handles deleting a user account. The user record is deleted
+// and all of the user's active sessions are destroyed.
+//
+// No self-deletion guard is applied here: this method does not read the acting
+// user from the context, so callers that need to prevent a user from deleting
+// themselves must enforce that check. The HTTP handler DeleteUser() applies it.
 func (p *PasswordAuthAPIFor[T]) DeleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	return p.passwordAuth.deleteSessionUser(ctx, sessionUserID)
 }
 
-// DeactivateSessionUser handles deactivating a user account
+// DeactivateSessionUser handles deactivating a user account. The user record is
+// deactivated and all of the user's active sessions are destroyed.
+//
+// No self-deactivation guard is applied here: this method does not read the acting
+// user from the context, so callers that need to prevent a user from deactivating
+// themselves must enforce that check. The HTTP handler DeactivateUser() applies it.
 func (p *PasswordAuthAPIFor[T]) DeactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	return p.passwordAuth.deactivateSessionUser(ctx, sessionUserID)
 }
