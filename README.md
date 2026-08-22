@@ -16,6 +16,55 @@ The Session repository is designed to handle the management of user sessions, in
   - Preauth (trust-the-caller stepping-stone sessions)
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the next section.
 
+## OIDC role synchronization
+
+Role synchronization reconciles a user's application roles to their ID token's role
+claims on every OIDC login: roles named in the token are assigned (where a role of that
+name exists), roles the user holds that are NOT in the token are removed, and the login
+is rejected unless the token yields at least one recognized role. It is designed for
+organizations that manage roles centrally through Active Directory group/app-role
+assignments. See the `OIDCAzureFor` godoc for the full semantics and their
+multi-tenancy limitations.
+
+The `NewOIDCAzure` / `NewOIDCAzureFor` constructors take a required role-sync slot that
+configures the feature as one unit — the role store together with the domain sweep
+list:
+
+```go
+// Enabled: reconcile against the global domain plus the app's tenant domains.
+// The domains provider is called at every login, so tenants created between
+// logins are included. Global-only apps pass a nil provider.
+oidcSession, err := session.NewOIDCAzure(
+    storage,
+    session.RoleSync(userRoleManager, func(ctx context.Context) ([]accesstypes.Domain, error) {
+        return app.TenantDomains(ctx) // the app owns the tenant table
+    }),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+)
+
+// Disabled (application-managed roles, or no roles at all): no roles are read,
+// written, or removed at login, and the at-least-one-role gate does not apply.
+oidcSession, err := session.NewOIDCAzure(
+    storage, session.DisableRoleSync(),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+)
+```
+
+The sweep list is deliberately a required, explicit input rather than an option with a
+default: there is no safe universal default for a multi-tenant application — a
+global-only default would compile and log users in while silently never assigning (or
+sweeping) their tenant-domain roles. `accesstypes.GlobalDomain` is always included
+implicitly; the provider returns tenant domains only.
+
+Migrating from the previous two-parameter shape (`NewOIDCAzure(storage,
+userRoleManager, ...)`): wrap the manager in `session.RoleSync(manager, domainsFn)` —
+the manager no longer supplies the domain list (`Domains` left the `UserRoleManager`
+interface, and `RoleExists` now returns `(bool, error)`; its errors abort the sync
+rather than being flattened to "role missing", which would delete valid memberships on
+a transient store error). Replace `session.DisableUserRoleManagement()` with
+`session.DisableRoleSync()` — note that unlike the old disabled manager, it also
+disables the at-least-one-role login gate.
+
 ## Custom session data
 
 Custom session data attaches app-specific values to a session — a selected tenant, a role
@@ -177,7 +226,8 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 
 oidcSession, err := session.NewOIDCAzureFor[SessionClaims](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
-    userRoleManager, cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+    session.RoleSync(userRoleManager, tenantDomains), // see "OIDC role synchronization"
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 ```
 
