@@ -16,10 +16,10 @@ import (
 type DomainsProvider func(ctx context.Context) ([]accesstypes.Domain, error)
 
 // RoleSyncConfig is the required role-synchronization slot on NewOIDCAzure and
-// NewOIDCAzureFor. Role synchronization and its domain sweep list are one
+// NewOIDCAzure. Role synchronization and its domain sweep list are one
 // capability: construct the slot with RoleSync to enable it, or with
 // DisableRoleSync to run the OIDC flow with role management left entirely to
-// the application. There is no default — see the OIDCAzureFor documentation for
+// the application. There is no default — see the OIDCAzure documentation for
 // the semantics of each choice.
 type RoleSyncConfig interface {
 	// config returns the enabled configuration, or nil when synchronization is
@@ -71,7 +71,7 @@ func (disabledRoleSync) config() *roleSyncConfig { return nil }
 // application would log users in while silently never assigning (or sweeping)
 // their tenant-domain roles. Global-only applications pass a nil provider.
 //
-// See the OIDCAzureFor documentation for the full synchronization semantics and
+// See the OIDCAzure documentation for the full synchronization semantics and
 // their multi-tenancy limitations.
 func RoleSync(manager UserRoleManager, domains DomainsProvider) RoleSyncConfig {
 	return &roleSyncConfig{manager: manager, domains: domains}

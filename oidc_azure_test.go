@@ -68,7 +68,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			if err != nil {
 				t.Errorf("cookie.NewCookieClient() error = %v", err)
 			}
-			a := &OIDCAzure{
+			a := &OIDCAzure[NoCustomData, NoCustomData]{
 				baseSession: &basesession.BaseSession{
 					CookieHandler: cookieClient,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
@@ -327,7 +327,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 
 			user := mock_session.NewMockUserRoleManager(ctrl)
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
-			sessionStorage := mock_sessionstorage.NewMockOIDCStore(ctrl)
+			sessionStorage := newOIDCStoreMock(ctrl)
 			c := mock_cookie.NewMockHandler(ctrl)
 			var rs *roleSyncConfig
 			if !tt.disableRoleSync {
@@ -338,7 +338,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 					},
 				}
 			}
-			a := &OIDCAzure{
+			a := &OIDCAzure[NoCustomData, NoCustomData]{
 				roleSync: rs,
 				storage:  sessionStorage,
 				baseSession: &basesession.BaseSession{
@@ -411,10 +411,10 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 
 			ctrl := gomock.NewController(t)
 			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
-			sessionStorage := mock_sessionstorage.NewMockOIDCStore(ctrl)
+			sessionStorage := newOIDCStoreMock(ctrl)
 
 			c := mock_cookie.NewMockHandler(ctrl)
-			a := &OIDCAzure{
+			a := &OIDCAzure[NoCustomData, NoCustomData]{
 				storage: sessionStorage,
 				baseSession: &basesession.BaseSession{
 					SessionTimeout: time.Minute,
@@ -527,8 +527,8 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockOIDCStore(ctrl)
-			a := &OIDCAzureFor[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			storage := newOIDCStoreMock(ctrl)
+			a := &OIDCAzure[testData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)

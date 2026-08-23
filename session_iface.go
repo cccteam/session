@@ -9,6 +9,12 @@
 // every authenticated request, reset on session regeneration, and cleaned up with the
 // session via the table's ON DELETE CASCADE. See the "Custom session data" section of
 // the README for the full lifecycle, schema contract, and failure semantics.
+//
+// Password auth and OIDC additionally support custom user data: an app-defined table
+// keyed by the durable user record (SessionUsers, or the library-managed OIDCUsers
+// anchor for OIDC), written atomically with user creation or login and read on demand —
+// it survives logout, expiry, and regeneration, and dies with the user. See the
+// "Custom user data" and "OIDC user anchor" sections of the README.
 package session
 
 import (

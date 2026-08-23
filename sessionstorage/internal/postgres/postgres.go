@@ -22,18 +22,22 @@ import (
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
-	conn             Queryer
-	sessionTableName string
-	userTableName    string
-	customData       *CustomSessionDataConfig
+	conn              Queryer
+	sessionTableName  string
+	userTableName     string
+	oidcUserTableName string
+	oidcUsersEnabled  bool
+	customData        *CustomSessionDataConfig
+	customUserData    *CustomUserDataConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		conn:             conn,
-		sessionTableName: "Sessions",
-		userTableName:    "SessionUsers",
+		conn:              conn,
+		sessionTableName:  "Sessions",
+		userTableName:     "SessionUsers",
+		oidcUserTableName: "OIDCUsers",
 	}
 }
 
@@ -292,10 +296,16 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
-// CreateUser creates a new user
-func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+// CreateUser creates a new user. When customData (*U, may be nil) is provided it is
+// written to the custom user data table in the same transaction as the user insert; it
+// requires a custom user data configuration on the driver.
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if customData != nil && s.customUserData == nil {
+		return nil, errors.New("custom user data provided but no custom user data config is attached")
+	}
 
 	id, err := ccc.NewUUID()
 	if err != nil {
@@ -308,17 +318,52 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 		VALUES
 			($1, $2, $3, $4)
 		`, s.userTableName)
+	args := []any{id, user.Username, user.PasswordHash, user.Disabled}
 
-	if _, err := s.conn.Exec(ctx, query, id, user.Username, user.PasswordHash, user.Disabled); err != nil {
+	if err := s.execUserInsert(ctx, id, query, args, customData); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
-		return nil, errors.Wrap(err, "Queryer.Exec()")
+		return nil, err
 	}
 
 	return s.User(ctx, id)
+}
+
+// execUserInsert executes a user-insert statement; when customData is non-nil the
+// custom user data row is written in the same transaction.
+func (s *SessionStorageDriver) execUserInsert(ctx context.Context, id ccc.UUID, query string, args []any, customData any) error {
+	if customData == nil {
+		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	if _, err := txn.Exec(ctx, query, args...); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := insertCustomRow(ctx, txn, s.customUserData.TableName, s.customUserData.Codec, dbtype.UserIDColumn, id, customData, false); err != nil {
+		return err
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "tx.Commit()")
+	}
+
+	return nil
 }
 
 // SetUserUsername updates the user record and every active session row
@@ -468,8 +513,9 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 
 // UpdateCustomSessionData updates the custom session data for an active session via a
 // transactional read-modify-write: the current row is read FOR UPDATE (zero-value
-// struct when no row exists), mutate is applied, and the full row is written back. A
-// mutate error aborts the transaction with nothing written.
+// struct when no row exists), mutate is applied, and the full row is written back. The
+// session's existence and non-expiry are verified inside the same transaction; a mutate
+// error aborts the transaction with nothing written.
 func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -485,6 +531,19 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 	defer func() {
 		_ = txn.Rollback(ctx)
 	}()
+
+	sessionQuery := fmt.Sprintf(`SELECT "Expired" FROM %s WHERE "Id" = $1 FOR UPDATE`, pgx.Identifier{s.sessionTableName}.Sanitize())
+	var expired bool
+	if err := txn.QueryRow(ctx, sessionQuery, sessionID).Scan(&expired); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+		}
+
+		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+	if expired {
+		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+	}
 
 	columns := s.customData.Codec.Columns()
 	selectCols := make([]string, len(columns))
@@ -564,16 +623,22 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 // insertCustomSessionData writes a full custom data row for data (*T) inside txn.
 // When upsert is true an existing row is overwritten (ON CONFLICT DO UPDATE).
 func (s *SessionStorageDriver) insertCustomSessionData(ctx context.Context, txn pgx.Tx, sessionID ccc.UUID, data any, upsert bool) error {
-	values, err := s.customData.Codec.Values(data)
+	return insertCustomRow(ctx, txn, s.customData.TableName, s.customData.Codec, dbtype.SessionIDColumn, sessionID, data, upsert)
+}
+
+// insertCustomRow writes a full custom data row for data (*T) inside txn, keyed by
+// keyColumn. When upsert is true an existing row is overwritten (ON CONFLICT DO UPDATE).
+func insertCustomRow(ctx context.Context, txn pgx.Tx, tableName string, codec *dbtype.CustomDataCodec, keyColumn string, key ccc.UUID, data any, upsert bool) error {
+	values, err := codec.Values(data)
 	if err != nil {
 		return errors.Wrap(err, "dbtype.CustomDataCodec.Values()")
 	}
 
-	codecColumns := s.customData.Codec.Columns()
+	codecColumns := codec.Columns()
 	columns := make([]string, 0, len(codecColumns)+1)
-	columns = append(columns, pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+	columns = append(columns, pgx.Identifier{keyColumn}.Sanitize())
 	args := make([]any, 0, len(values)+1)
-	args = append(args, sessionID)
+	args = append(args, key)
 	for i, col := range codecColumns {
 		columns = append(columns, pgx.Identifier{col}.Sanitize())
 		args = append(args, values[i])
@@ -591,7 +656,7 @@ func (s *SessionStorageDriver) insertCustomSessionData(ctx context.Context, txn 
 			setClauses = append(setClauses, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		}
 		conflictClause = fmt.Sprintf("ON CONFLICT (%s) DO UPDATE SET %s",
-			pgx.Identifier{dbtype.SessionIDColumn}.Sanitize(), strings.Join(setClauses, ", "))
+			pgx.Identifier{keyColumn}.Sanitize(), strings.Join(setClauses, ", "))
 	}
 
 	q := fmt.Sprintf(`
@@ -600,7 +665,7 @@ func (s *SessionStorageDriver) insertCustomSessionData(ctx context.Context, txn 
 		VALUES
 			(%s)
 		%s
-	`, pgx.Identifier{s.customData.TableName}.Sanitize(), strings.Join(columns, ", "), strings.Join(placeholders, ", "), conflictClause)
+	`, pgx.Identifier{tableName}.Sanitize(), strings.Join(columns, ", "), strings.Join(placeholders, ", "), conflictClause)
 
 	if _, err := txn.Exec(ctx, q, args...); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")

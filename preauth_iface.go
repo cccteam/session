@@ -8,7 +8,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ PreauthHandlers = &Preauth{}
+var _ PreauthHandlers = &Preauth[NoCustomData]{}
 
 // PreauthHandlers defines the interface for pre-authentication session handlers.
 type PreauthHandlers interface {

@@ -6,7 +6,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ OIDCAzureHandlers = &OIDCAzure{}
+var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 
 // OIDCAzureHandlers defines the interface for OIDC Azure session handlers.
 type OIDCAzureHandlers interface {

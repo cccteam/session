@@ -7,7 +7,6 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
-	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
@@ -99,21 +98,13 @@ func (s *sessionStorage) DestroySession(ctx context.Context, sessionID ccc.UUID)
 // UpdateCustomSessionData updates the custom session data for an active session via a
 // transactional read-modify-write: mutate receives the current row as *T for the
 // configured struct type (zero-value when no row exists) and the full row is written
-// back; a mutate error aborts with nothing written. It is intended for genuine
+// back; a mutate error aborts with nothing written. The session's existence and
+// non-expiry are verified inside the same transaction. It is intended for genuine
 // mid-session updates only — initial population belongs in the session-creation
 // transaction.
 func (s *sessionStorage) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
-
-	session, err := s.db.Session(ctx, sessionID)
-	if err != nil {
-		return errors.Wrap(err, "db.Session()")
-	}
-
-	if session.Expired {
-		return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
-	}
 
 	if err := s.db.UpdateCustomSessionData(ctx, sessionID, mutate); err != nil {
 		return errors.Wrap(err, "db.UpdateCustomSessionData()")
@@ -126,6 +117,58 @@ func (s *sessionStorage) UpdateCustomSessionData(ctx context.Context, sessionID 
 // configuration was built for, or nil when no configuration is attached.
 func (s *sessionStorage) CustomDataType() reflect.Type {
 	return s.db.CustomDataType()
+}
+
+// CustomUserDataType returns the struct type the attached custom user data
+// configuration was built for, or nil when no configuration is attached.
+func (s *sessionStorage) CustomUserDataType() reflect.Type {
+	return s.db.CustomUserDataType()
+}
+
+// UserDataLoginHookConfigured reports whether the attached custom user data
+// configuration carries an OIDC login hook.
+func (s *sessionStorage) UserDataLoginHookConfigured() bool {
+	return s.db.UserDataLoginHookConfigured()
+}
+
+// OIDCUsersEnabled reports whether the library-managed OIDC user anchor is enabled.
+func (s *sessionStorage) OIDCUsersEnabled() bool {
+	return s.db.OIDCUsersEnabled()
+}
+
+// SetOIDCUserTableName sets the name of the OIDC user anchor table.
+func (s *sessionStorage) SetOIDCUserTableName(name string) {
+	s.db.SetOIDCUserTableName(name)
+}
+
+// CustomUserData returns the custom user data row for the given user ID as *U for the
+// configured struct type. A user with no custom data row yields a zero-value *U.
+func (s *sessionStorage) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	data, err := s.db.CustomUserData(ctx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.CustomUserData()")
+	}
+
+	return data, nil
+}
+
+// UpdateCustomUserData updates the custom user data for an existing user via a
+// transactional read-modify-write: mutate receives the current row as *U for the
+// configured struct type (zero-value when no row exists) and the full row is written
+// back; a mutate error aborts with nothing written. The user's existence is verified
+// inside the same transaction.
+func (s *sessionStorage) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.UpdateCustomUserData(ctx, userID, mutate); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomUserData()")
+	}
+
+	return nil
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user

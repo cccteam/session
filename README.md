@@ -14,7 +14,14 @@ The Session repository is designed to handle the management of user sessions, in
   - Azure OIDC
   - Username/Password
   - Preauth (trust-the-caller stepping-stone sessions)
-- `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the next section.
+- `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
+- `Custom User Data`: App-defined durable data attached to the user record — it survives logout, expiry, and regeneration, and dies with the user. See the "Custom user data" section.
+- `OIDC User Anchor`: An optional library-managed durable user record for OIDC logins, keyed by the immutable `(tid, oid)` claim pair. See the "OIDC user anchor" section.
+
+All three session types are generic over two data axes: `PasswordAuth[SessionData, UserData]`,
+`OIDCAzure[SessionData, UserData]`, and `Preauth[SessionData]` (Preauth has no user record,
+so no user-data axis). An application that uses neither instantiates with the
+`NoCustomData` sentinel: `session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
 
 ## OIDC role synchronization
 
@@ -23,10 +30,10 @@ claims on every OIDC login: roles named in the token are assigned (where a role 
 name exists), roles the user holds that are NOT in the token are removed, and the login
 is rejected unless the token yields at least one recognized role. It is designed for
 organizations that manage roles centrally through Active Directory group/app-role
-assignments. See the `OIDCAzureFor` godoc for the full semantics and their
+assignments. See the `OIDCAzure` godoc for the full semantics and their
 multi-tenancy limitations.
 
-The `NewOIDCAzure` / `NewOIDCAzureFor` constructors take a required role-sync slot that
+The `NewOIDCAzure` constructor takes a required role-sync slot that
 configures the feature as one unit — the role store together with the domain sweep
 list:
 
@@ -34,7 +41,7 @@ list:
 // Enabled: reconcile against the global domain plus the app's tenant domains.
 // The domains provider is called at every login, so tenants created between
 // logins are included. Global-only apps pass a nil provider.
-oidcSession, err := session.NewOIDCAzure(
+oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
     storage,
     session.RoleSync(userRoleManager, func(ctx context.Context) ([]accesstypes.Domain, error) {
         return app.TenantDomains(ctx) // the app owns the tenant table
@@ -44,7 +51,7 @@ oidcSession, err := session.NewOIDCAzure(
 
 // Disabled (application-managed roles, or no roles at all): no roles are read,
 // written, or removed at login, and the at-least-one-role gate does not apply.
-oidcSession, err := session.NewOIDCAzure(
+oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
     storage, session.DisableRoleSync(),
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
@@ -95,7 +102,7 @@ How it works:
   for initial population.
 
 - **Everything is checked at startup.** The session type is generic over the same
-  struct (`PasswordAuthFor[MyData]`), and construction verifies the storage's custom
+  struct (`PasswordAuth[MyData, ...]`), and construction verifies the storage's custom
   data config was built for it. Misconfiguration is a boot failure, not a request-time
   surprise.
 
@@ -109,7 +116,8 @@ deliberately.** Everything below is reference detail.
 
 One boundary before the details: this is **session data** — born with the session, reset
 when the session is regenerated, gone when the session dies. Durable facts about the
-*person* (profile fields, provisioning state) belong in a user table, not here — see
+*person* (profile fields, provisioning state) belong with the user record — see the
+"Custom user data" section below and
 [docs/data-storage-guidance.md](docs/data-storage-guidance.md).
 
 ### Schema requirements
@@ -177,7 +185,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 )
 if err != nil { /* non-struct T, no persistable fields, invalid identifier, reserved SessionId, ... */ }
 
-auth, err := session.NewPasswordAuthFor[MyData](
+auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
     sessionstorage.NewSpannerPasswordAuth(client,
         sessionstorage.WithSpannerCustomSessionData(customCfg)),
     cookieKey,
@@ -193,9 +201,8 @@ per-call values (below) or `UpdateCustomSessionData`. The Postgres mirror
 `WithPostgresCustomSessionData`) is identical in shape; configs are backend-typed, so
 attaching a Spanner config to a Postgres storage does not compile.
 
-The released constructors (`NewPasswordAuth`, `NewOIDCAzure`, `NewPreauth`) are the
-`NoCustomData` instantiations of the typed constructors — use them when the app has no
-custom session data.
+The second type parameter is the custom **user** data struct (see "Custom user data");
+apps that use neither axis instantiate both with `session.NoCustomData`.
 
 ### Configuration — Azure OIDC from verified claims
 
@@ -218,13 +225,14 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
         if err := json.Unmarshal(req.Claims, c); err != nil {
             return nil, err
         }
-        // Optionally JIT-provision an app user record here, keyed on the immutable oid,
-        // using txn so provisioning commits atomically with the session.
+        // With the OIDC user anchor enabled, req.UserID already holds the durable
+        // OIDCUsers record's ID — copy it into a column here to reach the user
+        // record from any request without a lookup (see "OIDC user anchor").
         return c, nil
     },
 )
 
-oidcSession, err := session.NewOIDCAzureFor[SessionClaims](
+oidcSession, err := session.NewOIDCAzure[SessionClaims, session.NoCustomData](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
     session.RoleSync(userRoleManager, tenantDomains), // see "OIDC role synchronization"
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
@@ -286,8 +294,8 @@ err := auth.API().UpdateCustomSessionData(ctx, sessionID, func(data *MyData) err
 })
 ```
 
-It is available on all three session types: `PasswordAuthAPIFor`, `OIDCAzureAPIFor`,
-and `PreauthAPIFor`.
+It is available on all three session types: `PasswordAuthAPI`, `OIDCAzureAPI`,
+and `PreauthAPI`.
 
 Semantics to know:
 
@@ -337,5 +345,194 @@ on regeneration feels like data loss, it was user data, not session data — see
 | `UpdateCustomSessionData` callback returns an error | Transaction aborts; nothing written |
 | `UpdateCustomSessionData` on an expired session | Rejected (bad request); the row is not written |
 | Session has no custom row | Not a failure: reads yield a zero-value `T` (LEFT JOIN) |
+
+## OIDC user anchor
+
+The OIDC user anchor is an optional, library-managed **durable user record for OIDC
+logins** — the OIDC counterpart of password auth's `SessionUsers` table. Password auth
+always has a stable, rename-safe user key (`SessionUsers.Id`); OIDC historically had
+none, which pushed apps toward keying durable data on the username — a mutable,
+recyclable identifier (see AP-1 in
+[docs/data-storage-guidance.md](docs/data-storage-guidance.md)). The anchor closes that
+gap.
+
+How it works:
+
+- **One row per directory identity.** The `OIDCUsers` table (ship the
+  `schema/*/oidc/migrations` migration) keys each user by the immutable
+  `(tid, oid)` claim pair — the only rename-proof, recycle-proof identity Azure gives
+  you — under a surrogate UUID primary key. `Username` (`preferred_username`) is a
+  mutable *attribute* on the row, never part of the key.
+- **Maintained just-in-time, atomically with login.** Enable it with
+  `sessionstorage.WithOIDCUsers()` on the OIDC storage constructor. Inside every
+  session-insert transaction the library upserts the row: first login provisions it; a
+  login after an IdP rename updates `Username` in place (continuity preserved — no
+  orphaned record, no data inherited by a future holder of the old name); every login
+  touches `UpdatedAt`. A missing `tid`/`oid` claim aborts the login before any row or
+  cookie exists.
+- **The durable key flows into your hooks.** `NewSessionRequest.UserID` carries the
+  anchor record's ID into the custom session data resolver (copy it into a session
+  column to reach the user record from any request without a lookup) and into the
+  custom user data hook (below).
+- **Read it when you need it.** `oidcSession.API().OIDCUser(ctx, id)` and
+  `OIDCUserByKey(ctx, tid, oid)` return the record. Identity comparison in OIDC is
+  always `(tid, oid)` — never the username.
+
+```go
+storage := sessionstorage.NewSpannerOIDC(client,
+    sessionstorage.WithOIDCUsers(),
+    /* custom data options */
+)
+```
+
+The table name defaults to `OIDCUsers` (`session.WithOIDCUserTableName` overrides it).
+The anchor is OIDC-only: enabling it on password-auth or preauth storage is a
+construction error. It is required for custom user data on OIDC storage.
+
+## Custom user data
+
+Custom user data is the durable counterpart of custom session data: app-defined values
+attached to the **user record** — a locale, provisioning state, profile fields synced
+from the IdP. Where session data is born and dies with one login, user data **survives
+logout, session expiry, and regeneration, and dies with the user** (your
+`ON DELETE CASCADE` FK removes it when the user row is deleted).
+
+The mechanism mirrors custom session data deliberately — declare with tags, one
+validated config unit per backend, typed reads, transactional RMW updates — with two
+differences that follow from durability:
+
+- **Reads are on demand, never per-request.** User data is *not* joined into the
+  session read and never appears in the request context; fetch it when you need it with
+  `API().CustomUserData(ctx, userID)`. A user with no row yields a zero-value `U`.
+- **The write path depends on the auth mode**, because the two modes learn about users
+  differently:
+  - **Password auth**: users are created explicitly, so initial data is **per-call on
+    `CreateSessionUser`**, written atomically with the user insert. There is no
+    login-time hook — password logins carry no claims.
+  - **Azure OIDC**: users just *arrive*, known only by their verified claims, so the
+    config carries a **login hook** that runs inside every OIDC session-insert
+    transaction, after the anchor upsert (requires the OIDC user anchor).
+  - **Preauth**: unsupported — there is no user record to anchor durable data to
+    (construction error if configured).
+
+### Schema requirements
+
+Identical to the session-data contract with one substitution: the primary-key column is
+named `UserId` and is a **foreign key with `ON DELETE CASCADE`** to `SessionUsers(Id)`
+(password auth) or `OIDCUsers(Id)` (OIDC). Never tag a field `UserId` — it is implied
+and reserved. Nullable columns must map to nullable Go types.
+
+```sql
+-- Spanner, password auth
+CREATE TABLE UserCustomData (
+    UserId  STRING(36) NOT NULL,
+    Locale  STRING(MAX),
+    Theme   STRING(MAX),
+    CONSTRAINT FK_UserCustomData_SessionUsers FOREIGN KEY (UserId)
+        REFERENCES SessionUsers(Id) ON DELETE CASCADE,
+) PRIMARY KEY (UserId);
+```
+
+### Configuration — password auth
+
+```go
+type UserData struct {
+    Locale string `spanner:"Locale"`
+    Theme  string `spanner:"Theme"`
+}
+
+userCfg, err := sessionstorage.NewSpannerCustomUserData[UserData]("UserCustomData", nil)
+
+auth, err := session.NewPasswordAuth[MyData, UserData](
+    sessionstorage.NewSpannerPasswordAuth(client,
+        sessionstorage.WithSpannerCustomSessionData(sessCfg),
+        sessionstorage.WithSpannerCustomUserData(userCfg)),
+    cookieKey,
+)
+
+// Create: initial data lands atomically with the user insert (at most one value —
+// it is the complete row). Omit it for a plain insert (reads yield zero-value U).
+id, err := auth.API().CreateSessionUser(ctx, req, &UserData{Locale: "en-AU"})
+
+// Read: on demand, by user ID — never from the session context.
+u, err := auth.API().CustomUserData(ctx, userID)
+
+// Update: transactional read-modify-write, same contract as session data —
+// mutate the current row (zero-value U when none) and the full row is written back.
+err = auth.API().UpdateCustomUserData(ctx, userID, func(d *UserData) error {
+    d.Theme = "dark"
+
+    return nil
+})
+```
+
+### Configuration — Azure OIDC with a login hook
+
+The hook is how OIDC user data tracks the directory. It runs inside every OIDC
+session-insert transaction — after the `OIDCUsers` anchor upsert, before the session
+data resolver — and receives the user's **current row** (`nil` on their first login):
+
+```go
+type UserProfile struct {
+    // IdP-owned: sourced from claims, refreshed by the hook
+    Email       spanner.NullString `spanner:"Email"`
+    DisplayName spanner.NullString `spanner:"DisplayName"`
+    // App-owned: written via UpdateCustomUserData, untouched by the hook
+    Theme       spanner.NullString `spanner:"Theme"`
+}
+
+userCfg, err := sessionstorage.NewSpannerCustomUserData("OIDCUserData",
+    func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest, current *UserProfile) (*UserProfile, error) {
+        var c struct {
+            Email string `json:"email"`
+            Name  string `json:"name"`
+        }
+        if err := json.Unmarshal(req.Claims, &c); err != nil {
+            return nil, err // aborts the login: no anchor change, no row, no session
+        }
+        if current == nil { // first login: provision row one
+            return &UserProfile{Email: ns(c.Email), DisplayName: ns(c.Name)}, nil
+        }
+        if current.Email.StringVal == c.Email && current.DisplayName.StringVal == c.Name {
+            return nil, nil // directory unchanged: zero writes this login
+        }
+        // Refresh ONLY the IdP-owned fields. Theme survives because we start
+        // from current — returning a fresh &UserProfile{} would zero it.
+        current.Email, current.DisplayName = ns(c.Email), ns(c.Name)
+
+        return current, nil // full-row upsert, atomic with the login
+    })
+
+oidcSession, err := session.NewOIDCAzure[SessionClaims, UserProfile](
+    sessionstorage.NewSpannerOIDC(client,
+        sessionstorage.WithOIDCUsers(), // the anchor is required for OIDC user data
+        sessionstorage.WithSpannerCustomSessionData(sessCfg),
+        sessionstorage.WithSpannerCustomUserData(userCfg)),
+    session.RoleSync(userRoleManager, tenantDomains),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+)
+```
+
+Hook contract, precisely: `current` is the existing row read in the same transaction
+(`nil` when none); returning `nil, nil` leaves the row untouched; returning a `*U`
+upserts it as the **full row** — start from `current` when refreshing individual
+fields, or app-written fields are zeroed (the same footgun contract as the RMW update);
+returning an error aborts the whole login atomically. The hook never runs outside OIDC
+session creation, and a `nil` hook is valid (write-API-only user data).
+
+### Where failures surface
+
+| Misconfiguration / failure | Surfaces as |
+|---|---|
+| Non-struct `U`, invalid tag identifier, reserved `UserId`, duplicate columns | Error from the config constructor, at startup |
+| Session type's `U` doesn't match the storage config's `U` (or no config attached) | Error from the session-type constructor, at startup |
+| Custom user data on OIDC storage without `WithOIDCUsers()` | Error from `NewOIDCAzure`, at startup |
+| Login hook on password-auth storage, or any user data config on preauth storage | Error from the session-type constructor, at startup |
+| `WithOIDCUsers()` on password-auth or preauth storage | Error from the session-type constructor, at startup |
+| Missing `tid`/`oid` claim with the anchor enabled | Login aborts: no anchor row, no user data, no session, no cookies |
+| Login hook returns an error | Login aborts atomically (anchor upsert included) |
+| Per-call data on `CreateSessionUser` with no config attached, or more than one value | Error before any insert |
+| `UpdateCustomUserData` for a user ID that doesn't exist | Not-found error; nothing written |
+| User has no custom row | Not a failure: reads and RMW yield a zero-value `U` |
 
 ##### Created and maintained by the CCC team.

@@ -98,12 +98,14 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 	return u, nil
 }
 
-// CreateUser creates a new user
-func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+// CreateUser creates a new user. customData is nil or *U for the configured custom
+// user data struct type; when non-nil it is written atomically with the user insert
+// and requires a custom user data configuration on the storage.
+func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	u, err := p.db.CreateUser(ctx, user)
+	u, err := p.db.CreateUser(ctx, user, customData)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.CreateUser()")
 	}

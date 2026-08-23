@@ -45,4 +45,10 @@ type NewSessionRequest struct {
 	// OIDC login; it is nil for all other session types. Resolvers unmarshal the fields
 	// they need — the library does not curate a claims struct.
 	Claims json.RawMessage
+	// Tid and Oid are the verified tenant and directory-object GUID claims when the
+	// session is created by an OIDC login; they are empty for all other session types.
+	// When the OIDC user anchor is enabled they key the OIDCUsers upsert, and UserID is
+	// populated with the anchor record's ID before any resolver or hook runs.
+	Tid string
+	Oid string
 }

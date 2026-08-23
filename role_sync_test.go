@@ -6,7 +6,7 @@ import (
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/mock/mock_session"
-	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -106,10 +106,10 @@ func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockOIDCStore(ctrl)
+			storage := newOIDCStoreMock(ctrl)
 			manager := mock_session.NewMockUserRoleManager(ctrl)
 
-			_, err := NewOIDCAzure(storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+			_, err := NewOIDCAzure[NoCustomData, NoCustomData](storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewOIDCAzure() error = %v, wantErr %v", err, tt.wantErr)
 			}
