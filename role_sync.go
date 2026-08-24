@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
@@ -10,9 +11,12 @@ import (
 // DomainsProvider returns the set of domains (tenant partitions) that role
 // synchronization reconciles a user's IdP roles across on every login. It is
 // called at each login so tenants created between logins are included.
-// accesstypes.GlobalDomain is always swept implicitly and does not need to be
-// returned; multi-tenant applications return their tenant domains, and
-// global-only applications may use a nil provider.
+//
+// The provider's output is a tenant-only position: accesstypes.GlobalDomain is
+// always swept implicitly and must not be returned — ':' is reserved for
+// access-defined markers, and any ':'-bearing value (the global marker
+// included) fails the sync. Multi-tenant applications return their tenant
+// domains; global-only applications use a nil provider.
 type DomainsProvider func(ctx context.Context) ([]accesstypes.Domain, error)
 
 // RoleSyncConfig is the required role-synchronization slot on NewOIDCAzure and
@@ -36,7 +40,7 @@ type roleSyncConfig struct {
 func (r *roleSyncConfig) config() *roleSyncConfig { return r }
 
 // syncDomains returns the full sweep list for one login: accesstypes.GlobalDomain
-// followed by the provider's domains (GlobalDomain deduplicated if returned).
+// followed by the provider's tenant domains.
 func (r *roleSyncConfig) syncDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	domains := []accesstypes.Domain{accesstypes.GlobalDomain}
 	if r.domains == nil {
@@ -48,8 +52,14 @@ func (r *roleSyncConfig) syncDomains(ctx context.Context) ([]accesstypes.Domain,
 		return nil, errors.Wrap(err, "session.DomainsProvider")
 	}
 	for _, d := range appDomains {
-		if d == accesstypes.GlobalDomain {
-			continue
+		// The provider's output is a tenant-only position: the global domain
+		// is swept implicitly, so no ':'-bearing value is legitimate here —
+		// including the global marker itself. Rejecting it closes the case
+		// where a provider bug returns the marker and a tenant's reconcile
+		// silently lands in the global partition.
+		if strings.ContainsRune(string(d), ':') {
+			return nil, errors.Newf(
+				"invalid tenant domain %q from session.DomainsProvider: ':' is reserved for access-defined markers, and the global domain is swept automatically — return tenant domains only", d)
 		}
 		domains = append(domains, d)
 	}
