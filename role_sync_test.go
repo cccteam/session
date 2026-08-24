@@ -34,11 +34,21 @@ func TestRoleSyncConfig_syncDomains(t *testing.T) {
 			want: []accesstypes.Domain{accesstypes.GlobalDomain, "tenant1", "tenant2"},
 		},
 		{
-			name: "global domain returned by the provider is deduplicated",
+			name: "marker-shaped domain from the provider is rejected",
 			provider: func(context.Context) ([]accesstypes.Domain, error) {
-				return []accesstypes.Domain{accesstypes.GlobalDomain, "tenant1"}, nil
+				return []accesstypes.Domain{"tenant1", "acme:west"}, nil
 			},
-			want: []accesstypes.Domain{accesstypes.GlobalDomain, "tenant1"},
+			wantErr: true,
+		},
+		{
+			// Stable across the accesstypes marker flip: pre-flip "access:global"
+			// is an ordinary ':'-value; post-flip it is the marker itself — both
+			// are illegitimate in a tenant-only position.
+			name: "global marker rejected in the tenant-only position",
+			provider: func(context.Context) ([]accesstypes.Domain, error) {
+				return []accesstypes.Domain{"access:global"}, nil
+			},
+			wantErr: true,
 		},
 		{
 			name: "provider error is returned",
