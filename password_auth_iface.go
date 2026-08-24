@@ -6,7 +6,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ PasswordAuthHandlers = &PasswordAuth{}
+var _ PasswordAuthHandlers = &PasswordAuth[NoCustomData, NoCustomData]{}
 
 // PasswordAuthHandlers defines the interface for password authentication handlers.
 type PasswordAuthHandlers interface {

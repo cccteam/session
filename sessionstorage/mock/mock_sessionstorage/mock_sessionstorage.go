@@ -59,6 +59,20 @@ func (mr *MockBaseStoreMockRecorder) CustomDataType() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*MockBaseStore)(nil).CustomDataType))
 }
 
+// CustomUserDataType mocks base method.
+func (m *MockBaseStore) CustomUserDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomUserDataType indicates an expected call of CustomUserDataType.
+func (mr *MockBaseStoreMockRecorder) CustomUserDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockBaseStore)(nil).CustomUserDataType))
+}
+
 // DestroySession mocks base method.
 func (m *MockBaseStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -71,6 +85,20 @@ func (m *MockBaseStore) DestroySession(ctx context.Context, sessionID ccc.UUID) 
 func (mr *MockBaseStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockBaseStore)(nil).DestroySession), ctx, sessionID)
+}
+
+// OIDCUsersEnabled mocks base method.
+func (m *MockBaseStore) OIDCUsersEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
+func (mr *MockBaseStoreMockRecorder) OIDCUsersEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockBaseStore)(nil).OIDCUsersEnabled))
 }
 
 // Session mocks base method.
@@ -86,6 +114,18 @@ func (m *MockBaseStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessi
 func (mr *MockBaseStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockBaseStore)(nil).Session), ctx, sessionID)
+}
+
+// SetOIDCUserTableName mocks base method.
+func (m *MockBaseStore) SetOIDCUserTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+}
+
+// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
+func (mr *MockBaseStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockBaseStore)(nil).SetOIDCUserTableName), name)
 }
 
 // SetSessionTableName mocks base method.
@@ -140,6 +180,20 @@ func (mr *MockBaseStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockBaseStore)(nil).UpdateSessionActivity), ctx, sessionID)
 }
 
+// UserDataLoginHookConfigured mocks base method.
+func (m *MockBaseStore) UserDataLoginHookConfigured() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
+func (mr *MockBaseStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockBaseStore)(nil).UserDataLoginHookConfigured))
+}
+
 // MockPreauthStore is a mock of PreauthStore interface.
 type MockPreauthStore struct {
 	ctrl     *gomock.Controller
@@ -176,6 +230,20 @@ func (m *MockPreauthStore) CustomDataType() reflect.Type {
 func (mr *MockPreauthStoreMockRecorder) CustomDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*MockPreauthStore)(nil).CustomDataType))
+}
+
+// CustomUserDataType mocks base method.
+func (m *MockPreauthStore) CustomUserDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomUserDataType indicates an expected call of CustomUserDataType.
+func (mr *MockPreauthStoreMockRecorder) CustomUserDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockPreauthStore)(nil).CustomUserDataType))
 }
 
 // DestroyAllUserSessions mocks base method.
@@ -221,6 +289,20 @@ func (mr *MockPreauthStoreMockRecorder) NewSession(ctx, username, customData any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPreauthStore)(nil).NewSession), ctx, username, customData)
 }
 
+// OIDCUsersEnabled mocks base method.
+func (m *MockPreauthStore) OIDCUsersEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
+func (mr *MockPreauthStoreMockRecorder) OIDCUsersEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockPreauthStore)(nil).OIDCUsersEnabled))
+}
+
 // Session mocks base method.
 func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -234,6 +316,18 @@ func (m *MockPreauthStore) Session(ctx context.Context, sessionID ccc.UUID) (*se
 func (mr *MockPreauthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPreauthStore)(nil).Session), ctx, sessionID)
+}
+
+// SetOIDCUserTableName mocks base method.
+func (m *MockPreauthStore) SetOIDCUserTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+}
+
+// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
+func (mr *MockPreauthStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockPreauthStore)(nil).SetOIDCUserTableName), name)
 }
 
 // SetSessionTableName mocks base method.
@@ -286,6 +380,20 @@ func (m *MockPreauthStore) UpdateSessionActivity(ctx context.Context, sessionID 
 func (mr *MockPreauthStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockPreauthStore)(nil).UpdateSessionActivity), ctx, sessionID)
+}
+
+// UserDataLoginHookConfigured mocks base method.
+func (m *MockPreauthStore) UserDataLoginHookConfigured() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
+func (mr *MockPreauthStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockPreauthStore)(nil).UserDataLoginHookConfigured))
 }
 
 // MockPasswordAuthStore is a mock of PasswordAuthStore interface.
@@ -342,18 +450,18 @@ func (mr *MockPasswordAuthStoreMockRecorder) CreateSession(ctx, req any) *gomock
 }
 
 // CreateUser mocks base method.
-func (m *MockPasswordAuthStore) CreateUser(ctx context.Context, user *sessionstorage.InsertSessionUser) (*sessionstorage.SessionUser, error) {
+func (m *MockPasswordAuthStore) CreateUser(ctx context.Context, user *sessionstorage.InsertSessionUser, customData any) (*sessionstorage.SessionUser, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateUser", ctx, user)
+	ret := m.ctrl.Call(m, "CreateUser", ctx, user, customData)
 	ret0, _ := ret[0].(*sessionstorage.SessionUser)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateUser indicates an expected call of CreateUser.
-func (mr *MockPasswordAuthStoreMockRecorder) CreateUser(ctx, user any) *gomock.Call {
+func (mr *MockPasswordAuthStoreMockRecorder) CreateUser(ctx, user, customData any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateUser), ctx, user)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateUser), ctx, user, customData)
 }
 
 // CustomDataType mocks base method.
@@ -368,6 +476,35 @@ func (m *MockPasswordAuthStore) CustomDataType() reflect.Type {
 func (mr *MockPasswordAuthStoreMockRecorder) CustomDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*MockPasswordAuthStore)(nil).CustomDataType))
+}
+
+// CustomUserData mocks base method.
+func (m *MockPasswordAuthStore) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserData", ctx, userID)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CustomUserData indicates an expected call of CustomUserData.
+func (mr *MockPasswordAuthStoreMockRecorder) CustomUserData(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserData", reflect.TypeOf((*MockPasswordAuthStore)(nil).CustomUserData), ctx, userID)
+}
+
+// CustomUserDataType mocks base method.
+func (m *MockPasswordAuthStore) CustomUserDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomUserDataType indicates an expected call of CustomUserDataType.
+func (mr *MockPasswordAuthStoreMockRecorder) CustomUserDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockPasswordAuthStore)(nil).CustomUserDataType))
 }
 
 // DeactivateUser mocks base method.
@@ -441,6 +578,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) NewSession(ctx, username, customDat
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).NewSession), ctx, username, customData)
 }
 
+// OIDCUsersEnabled mocks base method.
+func (m *MockPasswordAuthStore) OIDCUsersEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
+func (mr *MockPasswordAuthStoreMockRecorder) OIDCUsersEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockPasswordAuthStore)(nil).OIDCUsersEnabled))
+}
+
 // Session mocks base method.
 func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -454,6 +605,18 @@ func (m *MockPasswordAuthStore) Session(ctx context.Context, sessionID ccc.UUID)
 func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockPasswordAuthStore)(nil).Session), ctx, sessionID)
+}
+
+// SetOIDCUserTableName mocks base method.
+func (m *MockPasswordAuthStore) SetOIDCUserTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+}
+
+// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
+func (mr *MockPasswordAuthStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockPasswordAuthStore)(nil).SetOIDCUserTableName), name)
 }
 
 // SetSessionTableName mocks base method.
@@ -522,6 +685,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) UpdateCustomSessionData(ctx, sessio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateCustomSessionData), ctx, sessionID, mutate)
 }
 
+// UpdateCustomUserData mocks base method.
+func (m *MockPasswordAuthStore) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(any) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCustomUserData", ctx, userID, mutate)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomUserData indicates an expected call of UpdateCustomUserData.
+func (mr *MockPasswordAuthStoreMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*MockPasswordAuthStore)(nil).UpdateCustomUserData), ctx, userID, mutate)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *MockPasswordAuthStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -566,6 +743,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) UserByUserName(ctx, username any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockPasswordAuthStore)(nil).UserByUserName), ctx, username)
 }
 
+// UserDataLoginHookConfigured mocks base method.
+func (m *MockPasswordAuthStore) UserDataLoginHookConfigured() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
+func (mr *MockPasswordAuthStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockPasswordAuthStore)(nil).UserDataLoginHookConfigured))
+}
+
 // MockOIDCStore is a mock of OIDCStore interface.
 type MockOIDCStore struct {
 	ctrl     *gomock.Controller
@@ -602,6 +793,35 @@ func (m *MockOIDCStore) CustomDataType() reflect.Type {
 func (mr *MockOIDCStoreMockRecorder) CustomDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*MockOIDCStore)(nil).CustomDataType))
+}
+
+// CustomUserData mocks base method.
+func (m *MockOIDCStore) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserData", ctx, userID)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CustomUserData indicates an expected call of CustomUserData.
+func (mr *MockOIDCStoreMockRecorder) CustomUserData(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserData", reflect.TypeOf((*MockOIDCStore)(nil).CustomUserData), ctx, userID)
+}
+
+// CustomUserDataType mocks base method.
+func (m *MockOIDCStore) CustomUserDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomUserDataType indicates an expected call of CustomUserDataType.
+func (mr *MockOIDCStoreMockRecorder) CustomUserDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockOIDCStore)(nil).CustomUserDataType))
 }
 
 // DestroySession mocks base method.
@@ -647,6 +867,50 @@ func (mr *MockOIDCStoreMockRecorder) NewSession(ctx, username, oidcSID, claims a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockOIDCStore)(nil).NewSession), ctx, username, oidcSID, claims)
 }
 
+// OIDCUser mocks base method.
+func (m *MockOIDCStore) OIDCUser(ctx context.Context, id ccc.UUID) (*sessionstorage.OIDCUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUser", ctx, id)
+	ret0, _ := ret[0].(*sessionstorage.OIDCUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OIDCUser indicates an expected call of OIDCUser.
+func (mr *MockOIDCStoreMockRecorder) OIDCUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUser", reflect.TypeOf((*MockOIDCStore)(nil).OIDCUser), ctx, id)
+}
+
+// OIDCUserByKey mocks base method.
+func (m *MockOIDCStore) OIDCUserByKey(ctx context.Context, tid, oid string) (*sessionstorage.OIDCUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUserByKey", ctx, tid, oid)
+	ret0, _ := ret[0].(*sessionstorage.OIDCUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OIDCUserByKey indicates an expected call of OIDCUserByKey.
+func (mr *MockOIDCStoreMockRecorder) OIDCUserByKey(ctx, tid, oid any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUserByKey", reflect.TypeOf((*MockOIDCStore)(nil).OIDCUserByKey), ctx, tid, oid)
+}
+
+// OIDCUsersEnabled mocks base method.
+func (m *MockOIDCStore) OIDCUsersEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
+func (mr *MockOIDCStoreMockRecorder) OIDCUsersEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockOIDCStore)(nil).OIDCUsersEnabled))
+}
+
 // Session mocks base method.
 func (m *MockOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -660,6 +924,18 @@ func (m *MockOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessi
 func (mr *MockOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockOIDCStore)(nil).Session), ctx, sessionID)
+}
+
+// SetOIDCUserTableName mocks base method.
+func (m *MockOIDCStore) SetOIDCUserTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+}
+
+// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
+func (mr *MockOIDCStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockOIDCStore)(nil).SetOIDCUserTableName), name)
 }
 
 // SetSessionTableName mocks base method.
@@ -700,6 +976,20 @@ func (mr *MockOIDCStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID, mut
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockOIDCStore)(nil).UpdateCustomSessionData), ctx, sessionID, mutate)
 }
 
+// UpdateCustomUserData mocks base method.
+func (m *MockOIDCStore) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(any) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCustomUserData", ctx, userID, mutate)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomUserData indicates an expected call of UpdateCustomUserData.
+func (mr *MockOIDCStoreMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*MockOIDCStore)(nil).UpdateCustomUserData), ctx, userID, mutate)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *MockOIDCStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -712,4 +1002,18 @@ func (m *MockOIDCStore) UpdateSessionActivity(ctx context.Context, sessionID ccc
 func (mr *MockOIDCStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockOIDCStore)(nil).UpdateSessionActivity), ctx, sessionID)
+}
+
+// UserDataLoginHookConfigured mocks base method.
+func (m *MockOIDCStore) UserDataLoginHookConfigured() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
+func (mr *MockOIDCStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockOIDCStore)(nil).UserDataLoginHookConfigured))
 }

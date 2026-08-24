@@ -52,18 +52,31 @@ type InsertSessionUser struct {
 	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
 }
 
+// OIDCUser is a library-managed durable user record for OIDC logins, keyed by the
+// immutable (Tid, Oid) claim pair with a surrogate UUID primary key. Username is a
+// mutable attribute, updated in place at login when the IdP reports a new value.
+type OIDCUser struct {
+	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
+	Tid       string    `spanner:"Tid"       db:"Tid"`
+	Oid       string    `spanner:"Oid"       db:"Oid"`
+	Username  string    `spanner:"Username"  db:"Username"`
+	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
+	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
+}
+
 // SessionIDColumn is the primary-key column of the custom session data table, referencing the session table's primary key.
 const SessionIDColumn = "SessionId"
 
+// UserIDColumn is the primary-key column of the custom user data table, referencing the
+// user table's primary key (SessionUsers.Id or OIDCUsers.Id).
+const UserIDColumn = "UserId"
+
 // IsReservedCustomColumn checks if a given column name is reserved and therefore cannot be used as a custom session data column name.
 func IsReservedCustomColumn(name string) bool {
-	_, reserved := reservedCustomColumnNames()[name]
-
-	return reserved
+	return name == SessionIDColumn
 }
 
-func reservedCustomColumnNames() map[string]struct{} {
-	return map[string]struct{}{
-		SessionIDColumn: {},
-	}
+// IsReservedCustomUserColumn checks if a given column name is reserved and therefore cannot be used as a custom user data column name.
+func IsReservedCustomUserColumn(name string) bool {
+	return name == UserIDColumn
 }

@@ -32,11 +32,67 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 		`, s.sessionTableName)
 	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	if err := s.execSessionInsert(ctx, id, query, args, req); err != nil {
+	if err := s.execSessionInsertOIDC(ctx, id, query, args, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
 	return id, nil
+}
+
+// execSessionInsertOIDC executes an OIDC session-insert statement. When the OIDCUsers
+// anchor is enabled, one transaction upserts the anchor row (populating req.UserID),
+// runs the custom user data login hook, and executes the session insert with its custom
+// session data semantics (per-call data wins; otherwise a configured resolver runs;
+// otherwise the session is inserted alone). Any error aborts the whole transaction: no
+// anchor change, no user data, no session. Without the anchor it behaves exactly like
+// execSessionInsert.
+func (s *SessionStorageDriver) execSessionInsertOIDC(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
+	if !s.oidcUsersEnabled {
+		return s.execSessionInsert(ctx, id, query, args, req)
+	}
+
+	if req.CustomData != nil && s.customData == nil {
+		return errors.New("custom session data provided but no custom session data config is attached")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	if err := s.upsertOIDCUser(ctx, txn, req); err != nil {
+		return err
+	}
+
+	if err := s.applyOIDCUserDataHook(ctx, txn, req); err != nil {
+		return err
+	}
+
+	if _, err := txn.Exec(ctx, query, args...); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	data := req.CustomData
+	if data == nil && s.customData != nil && s.customData.Resolver != nil {
+		data, err = s.customData.Resolver(ctx, txn, req)
+		if err != nil {
+			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
+		}
+	}
+	if data != nil {
+		if err := s.insertCustomSessionData(ctx, txn, id, data, false); err != nil {
+			return err
+		}
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "tx.Commit()")
+	}
+
+	return nil
 }
 
 // DestroySessionOIDC marks the session as expired using the oidcSID

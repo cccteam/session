@@ -23,10 +23,13 @@ import (
 
 // SessionStorageDriver represents the session storage implementation for Spanner.
 type SessionStorageDriver struct {
-	spanner          *spanner.Client
-	sessionTableName string
-	userTableName    string
-	customData       *CustomSessionDataConfig
+	spanner           *spanner.Client
+	sessionTableName  string
+	userTableName     string
+	oidcUserTableName string
+	oidcUsersEnabled  bool
+	customData        *CustomSessionDataConfig
+	customUserData    *CustomUserDataConfig
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -35,9 +38,10 @@ const expiredColumnName = "Expired"
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		spanner:          client,
-		sessionTableName: "Sessions",
-		userTableName:    "SessionUsers",
+		spanner:           client,
+		sessionTableName:  "Sessions",
+		userTableName:     "SessionUsers",
+		oidcUserTableName: "OIDCUsers",
 	}
 }
 
@@ -265,19 +269,27 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 // customDataMutation builds a full-row mutation for the custom session data table from
 // data (*T), using the given mutation constructor (InsertMap or InsertOrUpdateMap).
 func (s *SessionStorageDriver) customDataMutation(id ccc.UUID, data any, newMutation func(string, map[string]any) *spanner.Mutation) (*spanner.Mutation, error) {
-	values, err := s.customData.Codec.Values(data)
+	return customRowMutation(s.customData.TableName, s.customData.Codec, dbtype.SessionIDColumn, id, data, newMutation)
+}
+
+// customRowMutation builds a full-row mutation for a custom data table from data (*T),
+// keyed by keyColumn, using the given mutation constructor (InsertMap or InsertOrUpdateMap).
+func customRowMutation(
+	tableName string, codec *dbtype.CustomDataCodec, keyColumn string, key ccc.UUID, data any, newMutation func(string, map[string]any) *spanner.Mutation,
+) (*spanner.Mutation, error) {
+	values, err := codec.Values(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "dbtype.CustomDataCodec.Values()")
 	}
 
-	columns := s.customData.Codec.Columns()
+	columns := codec.Columns()
 	row := make(map[string]any, len(columns)+1)
-	row[dbtype.SessionIDColumn] = id
+	row[keyColumn] = key
 	for i, col := range columns {
 		row[col] = values[i]
 	}
 
-	return newMutation(s.customData.TableName, row), nil
+	return newMutation(tableName, row), nil
 }
 
 // DestroySession marks the session as expired
@@ -368,8 +380,10 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
-// CreateUser creates a new user
-func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+// CreateUser creates a new user. When customData (*U, may be nil) is provided it is
+// written to the custom user data table in the same commit as the user insert; it
+// requires a custom user data configuration on the driver.
+func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -390,7 +404,20 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}
 
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	mutations := []*spanner.Mutation{mutation}
+	if customData != nil {
+		if s.customUserData == nil {
+			return nil, errors.New("custom user data provided but no custom user data config is attached")
+		}
+
+		customMutation, err := customRowMutation(s.customUserData.TableName, s.customUserData.Codec, dbtype.UserIDColumn, id, customData, spanner.InsertMap)
+		if err != nil {
+			return nil, err
+		}
+		mutations = append(mutations, customMutation)
+	}
+
+	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
@@ -609,7 +636,8 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 
 // UpdateCustomSessionData updates the custom session data for the given session via a
 // transactional read-modify-write: the current row is read (zero-value struct when no
-// row exists), mutate is applied, and the full row is written back. A mutate error
+// row exists), mutate is applied, and the full row is written back. The session's
+// existence and non-expiry are verified inside the same transaction; a mutate error
 // aborts the transaction with nothing written.
 func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error {
 	ctx, span := tracer.Start(ctx)
@@ -620,6 +648,22 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 	}
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		sessionRow, err := txn.ReadRow(ctx, s.sessionTableName, spanner.Key{sessionID}, []string{expiredColumnName})
+		if err != nil {
+			if spanner.ErrCode(err) == codes.NotFound {
+				return httpio.NewNotFoundMessagef("session %q not found", sessionID)
+			}
+
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+		var expired bool
+		if err := sessionRow.Column(0, &expired); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+		if expired {
+			return httpio.NewBadRequestMessage("cannot update custom session data for an expired session")
+		}
+
 		data := s.customData.Codec.NewStruct()
 
 		row, err := txn.ReadRow(ctx, s.customData.TableName, spanner.Key{sessionID}, s.customData.Codec.Columns())

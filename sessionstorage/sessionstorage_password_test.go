@@ -136,7 +136,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			username: "test",
 			hash:     hash,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
+				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}, gomock.Nil()).Return(&dbtype.SessionUser{ID: userID, Username: "test"}, nil)
 			},
 			wantUser: &dbtype.SessionUser{ID: userID, Username: "test"},
 		},
@@ -145,7 +145,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			username: "test",
 			hash:     hash,
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}).Return(nil, errors.New("db error"))
+				mockDB.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "test", PasswordHash: hash}, gomock.Nil()).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -163,7 +163,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
-			gotUser, err := storage.CreateUser(t.Context(), &dbtype.InsertSessionUser{Username: tt.username, PasswordHash: tt.hash})
+			gotUser, err := storage.CreateUser(t.Context(), &dbtype.InsertSessionUser{Username: tt.username, PasswordHash: tt.hash}, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -511,10 +511,8 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 		{
 			name: "success passes the erased mutate through",
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
-					ID:      sessionID,
-					Expired: false,
-				}}, nil)
+				// The session-exists / not-expired check lives inside the driver's
+				// read-modify-write transaction, so the storage layer only delegates.
 				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).
 					DoAndReturn(func(_ context.Context, _ ccc.UUID, mutate func(any) error) error {
 						// The storage layer must pass the callback through unchanged.
@@ -531,29 +529,8 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			},
 		},
 		{
-			name: "fails when session not found",
-			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(nil, errors.New("not found"))
-			},
-			wantErr: true,
-		},
-		{
-			name: "fails when session is expired",
-			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
-					ID:      sessionID,
-					Expired: true,
-				}}, nil)
-			},
-			wantErr: true,
-		},
-		{
 			name: "fails on db update error",
 			prepare: func(mockDB *Mockdb) {
-				mockDB.EXPECT().Session(gomock.Any(), sessionID).Return(&dbtype.SessionData{Session: &dbtype.Session{
-					ID:      sessionID,
-					Expired: false,
-				}}, nil)
 				mockDB.EXPECT().UpdateCustomSessionData(gomock.Any(), sessionID, gomock.Any()).Return(errors.New("db error"))
 			},
 			wantErr: true,
