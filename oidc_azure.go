@@ -45,8 +45,10 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // is removed. The login is rejected as Unauthorized unless the token yields at least
 // one recognized role.
 //
-// DESIGN LIMITATION — role synchronization is domain-blind (global): the token's
-// roles are applied identically in every domain/tenant where the role name exists.
+// DESIGN LIMITATION — role synchronization is domain-blind: the token's roles are
+// applied identically in every swept domain where the role name exists (the sweep
+// covers accesstypes.GlobalDomain plus the domains from the configured
+// DomainsProvider — see RoleSync).
 //
 // Use this flow when:
 //   - the application is single-tenant, or
@@ -64,15 +66,17 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // silently reverted at the user's next login. Role management must be either
 // IdP-driven (this flow) or application-driven, never both for the same app.
 //
-// DisabledUserRoleManager disables the persistence half of the synchronization (no
-// roles are written or removed), but the login gate above still requires at least one
-// role claim in the token. A configuration option to fully disable role maintenance
-// during login (for application-managed roles) is planned but not yet implemented.
+// Role synchronization is configured through the required RoleSyncConfig
+// constructor slot: RoleSync(manager, domains) enables the flow above, sweeping
+// accesstypes.GlobalDomain plus the domains returned by the application's
+// DomainsProvider; DisableRoleSync() disables role maintenance during login
+// entirely — no roles are read, written, or removed, and the at-least-one-role
+// login gate does not apply (application-managed roles, or no roles at all).
 type OIDCAzure[SessionData, UserData any] struct {
-	userRoleManager UserRoleManager
-	oidc            azureoidc.Authenticator
-	storage         sessionstorage.OIDCStore
-	baseSession     *basesession.BaseSession
+	roleSync    *roleSyncConfig
+	oidc        azureoidc.Authenticator
+	storage     sessionstorage.OIDCStore
+	baseSession *basesession.BaseSession
 }
 
 // NewOIDCAzure creates a new OIDCAzure for the custom session data struct type
@@ -83,14 +87,23 @@ type OIDCAzure[SessionData, UserData any] struct {
 // mismatch is a construction error. Custom user data on OIDC storage requires the OIDC
 // user anchor (sessionstorage.WithOIDCUsers) — without it there is no durable user
 // record to attach the data to.
+// roleSync: role-synchronization configuration — session.RoleSync(manager, domains)
+// to enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewOIDCAzure[SessionData, UserData any](
-	storage sessionstorage.OIDCStore, userRoleManager UserRoleManager,
+	storage sessionstorage.OIDCStore, roleSync RoleSyncConfig,
 	cookieKey string,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) (*OIDCAzure[SessionData, UserData], error) {
+	if roleSync == nil {
+		return nil, errors.New("roleSync is required: pass session.RoleSync(manager, domains) or session.DisableRoleSync()")
+	}
+	roleSyncCfg := roleSync.config()
+	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
+		return nil, errors.New("session.RoleSync() requires a non-nil UserRoleManager")
+	}
 	if err := verifyCustomDataType[SessionData](storage); err != nil {
 		return nil, err
 	}
@@ -130,10 +143,10 @@ func NewOIDCAzure[SessionData, UserData any](
 	}
 
 	return &OIDCAzure[SessionData, UserData]{
-		userRoleManager: userRoleManager,
-		oidc:            oidc,
-		baseSession:     baseSession,
-		storage:         storage,
+		roleSync:    roleSyncCfg,
+		oidc:        oidc,
+		baseSession: baseSession,
+		storage:     storage,
 	}, nil
 }
 
@@ -224,18 +237,21 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		}
 
 		// Reconcile roles BEFORE creating the session so a rejected login never
-		// leaves a live session or auth cookie behind.
-		hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
-		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+		// leaves a live session or auth cookie behind. With role sync disabled the
+		// reconciliation and its at-least-one-role gate are skipped entirely.
+		if o.roleSync != nil {
+			hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
+			if err != nil {
+				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-			return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
-		}
-		if !hasRole {
-			err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+				return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
+			}
+			if !hasRole {
+				err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
+				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
 
-			return err
+				return err
+			}
 		}
 
 		// user is successfully authenticated and authorized, start a new session. A
@@ -282,17 +298,19 @@ func (o *OIDCAzure[T, U]) FrontChannelLogout() http.HandlerFunc {
 }
 
 // assignUserRoles ensures that the user is assigned to the specified roles ONLY
-// returns true if the user has at least one assigned role (after the operation is complete)
+// returns true if the user has at least one assigned role (after the operation is complete).
+// A RoleExists error aborts the sync: flattening it to false would land an existing
+// valid role in removeRoles and delete the user's membership on a transient store blip.
 func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	domains, err := o.userRoleManager.Domains(ctx)
+	domains, err := o.roleSync.syncDomains(ctx)
 	if err != nil {
-		return false, errors.Wrap(err, "UserRoleManager.Domains()")
+		return false, err
 	}
 
-	existingRoles, err := o.userRoleManager.UserRoles(ctx, username, domains...)
+	existingRoles, err := o.roleSync.manager.UserRoles(ctx, username, domains...)
 	if err != nil {
 		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
@@ -300,14 +318,18 @@ func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accessty
 	for _, domain := range domains {
 		var rolesToAssign []accesstypes.Role
 		for _, r := range roles {
-			if o.userRoleManager.RoleExists(ctx, domain, accesstypes.Role(r)) {
+			exists, err := o.roleSync.manager.RoleExists(ctx, domain, accesstypes.Role(r))
+			if err != nil {
+				return false, errors.Wrap(err, "UserRoleManager.RoleExists()")
+			}
+			if exists {
 				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
 			}
 		}
 
 		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
 		if len(newRoles) > 0 {
-			if err := o.userRoleManager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
+			if err := o.roleSync.manager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
@@ -315,7 +337,7 @@ func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accessty
 
 		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
 		if len(removeRoles) > 0 {
-			if err := o.userRoleManager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
+			if err := o.roleSync.manager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
