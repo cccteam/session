@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/cccteam/session/compare/v0.10.1...v0.11.0) (2026-08-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add custom user data and a library-managed OIDC user anchor ([#240](https://github.com/cccteam/session/issues/240))
+
+### Features
+
+* Add custom user data and a library-managed OIDC user anchor ([#240](https://github.com/cccteam/session/issues/240)) ([8276209](https://github.com/cccteam/session/commit/827620969356a9548fc46f822c02a7a7acc699ec))
+
 ## [0.10.1](https://github.com/cccteam/session/compare/v0.10.0...v0.10.1) (2026-08-22)
 
 
