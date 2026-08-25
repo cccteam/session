@@ -64,6 +64,13 @@ func WithUserTableName(name string) BaseSessionOption {
 	})
 }
 
+// WithOIDCUserTableName sets the name of the OIDC user anchor table. (default: OIDCUsers)
+func WithOIDCUserTableName(name string) BaseSessionOption {
+	return BaseSessionOption(func(b *basesession.BaseSession) {
+		b.Storage.SetOIDCUserTableName(name)
+	})
+}
+
 var defaultSessionTimeout = time.Minute * 10
 
 // WithSessionTimeout sets the session timeout. (default: 10m)
@@ -86,7 +93,7 @@ func WithLoginURL(l string) OIDCOption {
 }
 
 // passwordOption defines a function signature for setting Password options. It operates
-// on the non-generic settings struct so one option applies to every PasswordAuthFor
+// on the non-generic settings struct so one option applies to every PasswordAuth
 // instantiation.
 type passwordOption func(*passwordAuthSettings)
 

@@ -115,7 +115,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 
 			// Setup the mock controller
 			ctrl := gomock.NewController(t)
-			mockStorage := mock_sessionstorage.NewMockPreauthStore(ctrl)
+			mockStorage := newPreauthStoreMock(ctrl)
 			mockCookies := mock_cookie.NewMockHandler(ctrl)
 
 			// Prepare the mock expectations
@@ -127,7 +127,7 @@ func TestPreauthAPI_Login(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			// Create the PreauthSession instance with mocked dependencies
-			preauth := &PreauthFor[testData]{
+			preauth := &Preauth[testData]{
 				storage: mockStorage,
 				baseSession: &basesession.BaseSession{
 					CookieHandler: mockCookies,
@@ -198,8 +198,8 @@ func TestPreauthAPI_UpdateCustomSessionData(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
-			preauth := &PreauthFor[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			storage := newPreauthStoreMock(ctrl)
+			preauth := &Preauth[testData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
@@ -245,7 +245,7 @@ func TestPreauthAPI_CustomData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			preauth := &PreauthFor[testData]{baseSession: &basesession.BaseSession{}}
+			preauth := &Preauth[testData]{baseSession: &basesession.BaseSession{}}
 			ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
 				SessionInfo: &sessioninfo.SessionInfo{},
 				CustomData:  tt.customData,

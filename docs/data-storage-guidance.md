@@ -32,11 +32,12 @@ data have different *destinations*.
 
 | | Username/Password | Azure OIDC | Preauth |
 |---|---|---|---|
-| Library user table | `SessionUsers` (UUID PK, username unique) | none | none |
-| Stable identity anchor | `SessionUsers.Id` (UUID) | `oid` claim (available to the resolver via raw claims) | caller-defined |
-| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, **untracked** (rename looks like a new user) | caller-defined |
-| Custom session data | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) | caller-supplied per-call (`Preauth.API().Login()`) |
-| Session regeneration | on password change (custom data re-resolved with `ReasonRegeneration`) | n/a today | n/a |
+| Library user table | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | none |
+| Stable identity anchor | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
+| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
+| Custom session data | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
+| Custom user data | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
+| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
 
 ## Patterns
 
@@ -44,14 +45,20 @@ data have different *destinations*.
 
 - **Username/Password:** key app user-data tables by `SessionUsers.Id`. A
   username change updates one column in one table; everything downstream holds.
-- **Azure OIDC:** key the app user table by `oid` (single-tenant) or the
-  composite `(tid, oid)` (multi-tenant). `oid` is immutable per user per
+  For small extensions, the library now ships this pattern: custom user data
+  (FK → `SessionUsers.Id`, per-call on `CreateSessionUser`, RMW updates).
+- **Azure OIDC:** enable the library-managed anchor (`WithOIDCUsers()`) and key
+  by `OIDCUsers.Id` — a surrogate UUID over the immutable `(tid, oid)` pair.
+  Apps that manage their own user table instead key it by `oid` (single-tenant)
+  or the composite `(tid, oid)` (multi-tenant). `oid` is immutable per user per
   tenant; it is the only rename-proof, recycle-proof anchor Azure gives us.
-  Username (`preferred_username` / UPN) is a mutable *attribute* on that row.
+  Username (`preferred_username` / UPN) is a mutable *attribute* on that row —
+  which is exactly how `OIDCUsers` treats it.
 - **Preauth:** the library never sees claims or credentials, so the caller owns
   identity. Whatever string is passed as `username` becomes the identity for
   the session's lifetime — pass a stable identifier, or maintain the mapping
-  yourself.
+  yourself. Durable custom user data is deliberately unsupported here: keying
+  it on a caller-supplied username string is AP-1.
 
 #### OIDC key choice: `oid` alone vs `(tid, oid)` composite
 
@@ -88,8 +95,15 @@ must be the composite `(tid, oid)`. Two reasons:
 
 ### P-2: JIT-provision user data inside the resolver transaction
 
-The session-creation resolver runs inside the same database transaction as the
-session insert. Use it to upsert the app user table:
+**Library-managed (OIDC):** with `WithOIDCUsers()` this pattern ships in the
+box — every OIDC login upserts the `OIDCUsers` anchor inside the session-insert
+transaction (provision on first login, rename-in-place, touch `UpdatedAt`), and
+the custom user data login hook runs in the same transaction with the claims
+and the user's current row in hand. A hook failure aborts the login atomically.
+
+For app-owned tables, the same steps hand-rolled in the session-creation
+resolver (which runs inside the same database transaction as the session
+insert):
 
 1. Look up the user row by stable key (`oid` for OIDC, `SessionUsers.Id` for
    password auth).
@@ -104,10 +118,12 @@ provisioning having succeeded.
 
 ### P-3: Carry the durable key as session data
 
-Return the stable user key (`oid`, or the app user-table PK) from the resolver
+Return the stable user key (`oid`, or the user-table PK) from the resolver
 as a custom session data column. Every subsequent request can then reach the
 durable user record straight from the request context — no per-request
 username→key lookup, and no temptation to key anything else by username.
+With the OIDC anchor enabled this is one field copy: the resolver receives
+`req.UserID` already populated with the `OIDCUsers` record's ID.
 
 ### P-4: Namespace usernames when multiple authorities mint them
 
@@ -132,8 +148,8 @@ Two failure modes, both silent:
   failure.
 
 With password auth this is unforced error (the UUID exists; use it). With OIDC
-it has historically been the path of least resistance because the library
-offers no user table — which is exactly why P-1/P-2 need to be documented. Note
+it was historically the path of least resistance because the library offered no
+user table — the OIDC user anchor (`WithOIDCUsers()`) now removes the excuse. Note
 what stays fine: username as *session plumbing* (session rows, role sync,
 log attribution) is unaffected — sessions are per-login and roles re-derive
 from the token on every login.
@@ -178,13 +194,14 @@ see AP-2.
 
 ## Open questions
 
-- **OQ-1:** Should the library ever offer an optional, library-managed user
-  table for OIDC (migrations and all), or does that stay app territory
-  forever?
-  **Direction (jwatson):** parity principle — if the username/password
-  variant (`SessionUsers`) is nice to work with, OIDC deserves the
-  equivalent, keyed per the "OIDC key choice" section. Evaluation tracked as
-  backlog item 8.
+- **OQ-1:** ~~Should the library ever offer an optional, library-managed user
+  table for OIDC?~~ **Resolved — implemented:** the OIDC user anchor
+  (`WithOIDCUsers()`): an opt-in `OIDCUsers` table keyed per the "OIDC key
+  choice" section (surrogate UUID PK, unique `(Tid, Oid)`), maintained
+  just-in-time inside every login transaction, with `Username` as a mutable
+  attribute. Custom user data attaches to it (FK → `OIDCUsers.Id`) with a
+  claims-fed login hook. See the "OIDC user anchor" and "Custom user data"
+  sections of the README.
 - **OQ-2:** ~~Should the resolver be regeneration-aware?~~ **Resolved —
   implemented:** the resolver receives `NewSessionRequest.Reason`
   (`Login` / `ExternalAuth` / `Regeneration` / `Preauth`); default behavior is

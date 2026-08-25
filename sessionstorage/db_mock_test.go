@@ -59,18 +59,18 @@ func (mr *MockdbMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 }
 
 // CreateUser mocks base method.
-func (m *Mockdb) CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, error) {
+func (m *Mockdb) CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateUser", ctx, insertSessionUser)
+	ret := m.ctrl.Call(m, "CreateUser", ctx, insertSessionUser, customData)
 	ret0, _ := ret[0].(*dbtype.SessionUser)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateUser indicates an expected call of CreateUser.
-func (mr *MockdbMockRecorder) CreateUser(ctx, insertSessionUser any) *gomock.Call {
+func (mr *MockdbMockRecorder) CreateUser(ctx, insertSessionUser, customData any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, insertSessionUser)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*Mockdb)(nil).CreateUser), ctx, insertSessionUser, customData)
 }
 
 // CustomDataType mocks base method.
@@ -85,6 +85,35 @@ func (m *Mockdb) CustomDataType() reflect.Type {
 func (mr *MockdbMockRecorder) CustomDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*Mockdb)(nil).CustomDataType))
+}
+
+// CustomUserData mocks base method.
+func (m *Mockdb) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserData", ctx, userID)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CustomUserData indicates an expected call of CustomUserData.
+func (mr *MockdbMockRecorder) CustomUserData(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserData", reflect.TypeOf((*Mockdb)(nil).CustomUserData), ctx, userID)
+}
+
+// CustomUserDataType mocks base method.
+func (m *Mockdb) CustomUserDataType() reflect.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserDataType")
+	ret0, _ := ret[0].(reflect.Type)
+	return ret0
+}
+
+// CustomUserDataType indicates an expected call of CustomUserDataType.
+func (mr *MockdbMockRecorder) CustomUserDataType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*Mockdb)(nil).CustomUserDataType))
 }
 
 // DeactivateUser mocks base method.
@@ -187,6 +216,50 @@ func (mr *MockdbMockRecorder) InsertSessionOIDC(ctx, session, req any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertSessionOIDC), ctx, session, req)
 }
 
+// OIDCUser mocks base method.
+func (m *Mockdb) OIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.OIDCUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUser", ctx, id)
+	ret0, _ := ret[0].(*dbtype.OIDCUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OIDCUser indicates an expected call of OIDCUser.
+func (mr *MockdbMockRecorder) OIDCUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUser", reflect.TypeOf((*Mockdb)(nil).OIDCUser), ctx, id)
+}
+
+// OIDCUserByKey mocks base method.
+func (m *Mockdb) OIDCUserByKey(ctx context.Context, tid, oid string) (*dbtype.OIDCUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUserByKey", ctx, tid, oid)
+	ret0, _ := ret[0].(*dbtype.OIDCUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OIDCUserByKey indicates an expected call of OIDCUserByKey.
+func (mr *MockdbMockRecorder) OIDCUserByKey(ctx, tid, oid any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUserByKey", reflect.TypeOf((*Mockdb)(nil).OIDCUserByKey), ctx, tid, oid)
+}
+
+// OIDCUsersEnabled mocks base method.
+func (m *Mockdb) OIDCUsersEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
+func (mr *MockdbMockRecorder) OIDCUsersEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*Mockdb)(nil).OIDCUsersEnabled))
+}
+
 // Session mocks base method.
 func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -200,6 +273,18 @@ func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.Sessi
 func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*Mockdb)(nil).Session), ctx, sessionID)
+}
+
+// SetOIDCUserTableName mocks base method.
+func (m *Mockdb) SetOIDCUserTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+}
+
+// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
+func (mr *MockdbMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*Mockdb)(nil).SetOIDCUserTableName), name)
 }
 
 // SetSessionTableName mocks base method.
@@ -268,6 +353,20 @@ func (mr *MockdbMockRecorder) UpdateCustomSessionData(ctx, sessionID, mutate any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*Mockdb)(nil).UpdateCustomSessionData), ctx, sessionID, mutate)
 }
 
+// UpdateCustomUserData mocks base method.
+func (m *Mockdb) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(any) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCustomUserData", ctx, userID, mutate)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomUserData indicates an expected call of UpdateCustomUserData.
+func (mr *MockdbMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*Mockdb)(nil).UpdateCustomUserData), ctx, userID, mutate)
+}
+
 // UpdateSessionActivity mocks base method.
 func (m *Mockdb) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -310,4 +409,18 @@ func (m *Mockdb) UserByUserName(ctx context.Context, username string) (*dbtype.S
 func (mr *MockdbMockRecorder) UserByUserName(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*Mockdb)(nil).UserByUserName), ctx, username)
+}
+
+// UserDataLoginHookConfigured mocks base method.
+func (m *Mockdb) UserDataLoginHookConfigured() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
+func (mr *MockdbMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*Mockdb)(nil).UserDataLoginHookConfigured))
 }

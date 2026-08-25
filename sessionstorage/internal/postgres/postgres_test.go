@@ -520,7 +520,7 @@ func TestSessionStorageDriver_CreateUser(t *testing.T) {
 			}
 
 			runAssertions(ctx, t, conn.Pool, tt.preAssertions)
-			_, err = c.CreateUser(ctx, user)
+			_, err = c.CreateUser(ctx, user, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.CreateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}

@@ -1,0 +1,7 @@
+BEGIN;
+
+DROP INDEX "OIDCUsers_Tid_Oid_idx";
+
+DROP TABLE "OIDCUsers";
+
+COMMIT;

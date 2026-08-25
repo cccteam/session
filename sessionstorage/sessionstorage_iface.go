@@ -29,6 +29,14 @@ type BaseStore interface {
 	// CustomDataType returns the struct type the attached custom session data
 	// configuration was built for, or nil when no configuration is attached.
 	CustomDataType() reflect.Type
+	// CustomUserDataType returns the struct type the attached custom user data
+	// configuration was built for, or nil when no configuration is attached.
+	CustomUserDataType() reflect.Type
+	// UserDataLoginHookConfigured reports whether the attached custom user data
+	// configuration carries an OIDC login hook.
+	UserDataLoginHookConfigured() bool
+	// OIDCUsersEnabled reports whether the library-managed OIDC user anchor is enabled.
+	OIDCUsersEnabled() bool
 	// UpdateSessionActivity updates the database with the current time for the session activity
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired
@@ -37,6 +45,8 @@ type BaseStore interface {
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
 	SetUserTableName(name string)
+	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
+	SetOIDCUserTableName(name string)
 }
 
 var _ PreauthStore = (*Preauth)(nil)
@@ -81,14 +91,24 @@ type PasswordAuthStore interface {
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
-	// CreateUser creates a new user
-	CreateUser(ctx context.Context, user *InsertSessionUser) (*SessionUser, error)
+	// CreateUser creates a new user. customData is nil or *U for the configured custom
+	// user data struct type; when non-nil it is written atomically with the user insert
+	// and requires a custom user data configuration on the storage.
+	CreateUser(ctx context.Context, user *InsertSessionUser, customData any) (*SessionUser, error)
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id ccc.UUID) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
+	// CustomUserData returns the custom user data row for the given user ID as *U for
+	// the configured struct type. A user with no custom data row yields a zero-value *U.
+	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
+	// UpdateCustomUserData updates the custom user data for an existing user via a
+	// transactional read-modify-write: mutate receives the current row as *U (zero-value
+	// when no row exists) and the full row is written back; a mutate error aborts with
+	// nothing written.
+	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
 
 	// shared storage methods
 	PreauthStore
@@ -96,13 +116,31 @@ type PasswordAuthStore interface {
 
 var _ OIDCStore = (*OIDC)(nil)
 
+// OIDCUser is a library-managed durable user record for OIDC logins, keyed by the
+// immutable (Tid, Oid) claim pair with a surrogate UUID primary key.
+type OIDCUser = dbtype.OIDCUser
+
 // OIDCStore defines an interface for managing OIDC session storage.
 type OIDCStore interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	// NewSession creates a new OIDC session. claims carries the raw verified ID-token
 	// claims into any configured custom session data resolver, which runs inside the
-	// session-insert transaction; a resolver error aborts session creation.
+	// session-insert transaction; a resolver error aborts session creation. When the
+	// OIDC user anchor is enabled the same transaction upserts the OIDCUsers record for
+	// the claims' (tid, oid) and runs any configured custom user data hook.
 	NewSession(ctx context.Context, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error)
+	// OIDCUser returns the OIDC user anchor record for the given ID.
+	OIDCUser(ctx context.Context, id ccc.UUID) (*OIDCUser, error)
+	// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
+	OIDCUserByKey(ctx context.Context, tid, oid string) (*OIDCUser, error)
+	// CustomUserData returns the custom user data row for the given user ID as *U for
+	// the configured struct type. A user with no custom data row yields a zero-value *U.
+	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
+	// UpdateCustomUserData updates the custom user data for an existing user via a
+	// transactional read-modify-write: mutate receives the current row as *U (zero-value
+	// when no row exists) and the full row is written back; a mutate error aborts with
+	// nothing written.
+	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
 
 	// shared storage methods
 	BaseStore
@@ -126,6 +164,18 @@ type db interface {
 	UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data any) error) error
 	// CustomDataType returns the struct type of the attached custom session data configuration, or nil.
 	CustomDataType() reflect.Type
+	// CustomUserDataType returns the struct type of the attached custom user data configuration, or nil.
+	CustomUserDataType() reflect.Type
+	// UserDataLoginHookConfigured reports whether the attached custom user data configuration carries an OIDC login hook.
+	UserDataLoginHookConfigured() bool
+	// OIDCUsersEnabled reports whether the library-managed OIDC user anchor is enabled.
+	OIDCUsersEnabled() bool
+	// CustomUserData returns the custom user data row for the given user ID as *U
+	// (zero-value *U when no row exists).
+	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
+	// UpdateCustomUserData updates the custom user data for an existing user via a
+	// transactional read-modify-write of the full row.
+	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
 	// UpdateSessionActivity updates the session activity column with the current time.
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired.
@@ -134,6 +184,8 @@ type db interface {
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
 	SetUserTableName(name string)
+	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
+	SetOIDCUserTableName(name string)
 
 	//
 	// Password specific methods
@@ -150,8 +202,8 @@ type db interface {
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
-	// CreateUser creates a new user
-	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, error)
+	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
+	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
@@ -165,7 +217,12 @@ type db interface {
 
 	// InsertSessionOIDC creates a new OIDC session in the database and returns its session ID.
 	// It honors the request's custom session data semantics (per-call data or configured resolver, atomic with the insert).
+	// When the OIDC user anchor is enabled the same transaction upserts the anchor row and runs any configured custom user data hook.
 	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// DestroySessionOIDC marks the OIDC session as expired by oidcSID.
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
+	// OIDCUser returns the OIDC user anchor record for the given ID.
+	OIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.OIDCUser, error)
+	// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
+	OIDCUserByKey(ctx context.Context, tid, oid string) (*dbtype.OIDCUser, error)
 }

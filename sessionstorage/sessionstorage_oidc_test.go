@@ -39,6 +39,7 @@ func TestSpannerOIDCSessionStorage_NewSession(t *testing.T) {
 							Reason:   sessioninfo.ReasonLogin,
 							Username: "user1",
 							Claims:   json.RawMessage(`{"preferred_username":"user1","oid":"abc"}`),
+							Oid:      "abc",
 						}
 						if diff := cmp.Diff(wantReq, *req); diff != "" {
 							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)

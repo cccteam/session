@@ -52,7 +52,9 @@ func NewPostgresOIDC(pg postgres.Queryer, opts ...PostgresOption) *OIDC {
 
 // NewSession creates a new OIDC session and returns its ID. claims carries the raw
 // verified ID-token claims into any configured custom session data resolver, which runs
-// inside the session-insert transaction; a resolver error aborts session creation.
+// inside the session-insert transaction; a resolver error aborts session creation. When
+// the OIDC user anchor is enabled, the same transaction upserts the OIDCUsers record
+// for the claims' (tid, oid) and runs any configured custom user data hook.
 func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -72,12 +74,51 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string, claims 
 		Claims:   claims,
 	}
 
+	// The drivers never parse JSON: the anchor key claims are extracted here and ride
+	// the request. The driver enforces their presence when the anchor is enabled.
+	if len(claims) > 0 {
+		var key struct {
+			Tid string `json:"tid"`
+			Oid string `json:"oid"`
+		}
+		if err := json.Unmarshal(claims, &key); err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "json.Unmarshal()")
+		}
+		req.Tid, req.Oid = key.Tid, key.Oid
+	}
+
 	id, err := s.db.InsertSessionOIDC(ctx, session, req)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertSessionOIDC()")
 	}
 
 	return id, nil
+}
+
+// OIDCUser returns the OIDC user anchor record for the given ID.
+func (s *OIDC) OIDCUser(ctx context.Context, id ccc.UUID) (*OIDCUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	u, err := s.db.OIDCUser(ctx, id)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.OIDCUser()")
+	}
+
+	return u, nil
+}
+
+// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
+func (s *OIDC) OIDCUserByKey(ctx context.Context, tid, oid string) (*OIDCUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	u, err := s.db.OIDCUserByKey(ctx, tid, oid)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.OIDCUserByKey()")
+	}
+
+	return u, nil
 }
 
 // DestroySessionOIDC marks the session as expired

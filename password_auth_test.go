@@ -202,10 +202,10 @@ func TestPasswordAuth_Login(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 			cookieHandler := mock_cookie.NewMockHandler(ctrl)
 
-			p, err := NewPasswordAuth(storage, cookieKey)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -329,9 +329,9 @@ func TestPasswordAuth_ValidateSession(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 
-			p, err := NewPasswordAuth(storage, cookieKey)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -472,9 +472,9 @@ func TestPasswordAuth_Authenticated(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 
-			p, err := NewPasswordAuth(storage, cookieKey)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -554,8 +554,8 @@ func TestPassword_ChangeUsername(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -708,8 +708,8 @@ func TestPasswordAuth_ChangeUserPassword(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -778,7 +778,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "fails on create user",
 			reqBody: `{"username": "user", "password": "password"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db error"))
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any(), gomock.Nil()).Return(nil, errors.New("db error"))
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -786,7 +786,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "success",
 			reqBody: `{"username": "user", "password": "password"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any(), gomock.Nil()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 				}, nil)
@@ -798,7 +798,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			name:    "success with empty password",
 			reqBody: `{"username": "user"}`,
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}, gomock.Nil()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 				}, nil)
@@ -812,8 +812,8 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -916,8 +916,8 @@ func TestPassword_DeactivateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1005,8 +1005,8 @@ func TestPassword_DeleteUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1077,8 +1077,8 @@ func TestPassword_ActivateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1243,8 +1243,8 @@ func TestPasswordAuth_ChangeSessionUserPassword(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1321,8 +1321,8 @@ func TestPasswordAuth_API_ChangeSessionUserUsername(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1380,8 +1380,8 @@ func TestPasswordAuth_ChangeSessionUserHash(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1419,7 +1419,7 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 				Password: &password,
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(nil, errors.New("db error"))
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any(), gomock.Nil()).Return(nil, errors.New("db error"))
 			},
 			wantErr: true,
 		},
@@ -1430,7 +1430,7 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 				Password: &password,
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), gomock.Any(), gomock.Nil()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 				}, nil)
@@ -1443,7 +1443,7 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 				Username: "user",
 			},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
-				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}).Return(&dbtype.SessionUser{
+				storage.EXPECT().CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}, gomock.Nil()).Return(&dbtype.SessionUser{
 					ID:       userID,
 					Username: "user",
 				}, nil)
@@ -1456,8 +1456,8 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1468,7 +1468,7 @@ func TestPasswordAuth_CreateSessionUser(t *testing.T) {
 				tt.prepare(storage)
 			}
 
-			_, err = p.createSessionUser(t.Context(), tt.req)
+			_, err = p.createSessionUser(t.Context(), tt.req, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.CreateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1509,8 +1509,8 @@ func TestPasswordAuth_ActivateSessionUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1581,8 +1581,8 @@ func TestPasswordAuth_DeactivateSessionUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1654,8 +1654,8 @@ func TestPasswordAuth_DeleteSessionUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
-			p, err := NewPasswordAuth(storage, cookieKey)
+			storage := newPasswordStoreMock(ctrl)
+			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
@@ -1716,11 +1716,11 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
-			p, err := NewPasswordAuthFor[testData](storage, cookieKey)
+			p, err := NewPasswordAuth[testData, NoCustomData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewPasswordAuthFor() error=%v", err)
+				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
 
 			if tt.prepare != nil {
@@ -1739,7 +1739,7 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 	}
 }
 
-func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
+func TestNewPasswordAuth_CustomDataTypeLink(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1754,7 +1754,7 @@ func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
+				_, err := NewPasswordAuth[testData, NoCustomData](storage, cookieKey)
 
 				return err
 			},
@@ -1765,7 +1765,7 @@ func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(reflect.TypeFor[otherTestData]())
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
+				_, err := NewPasswordAuth[testData, NoCustomData](storage, cookieKey)
 
 				return err
 			},
@@ -1777,7 +1777,7 @@ func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 				storage.EXPECT().CustomDataType().Return(nil)
 			},
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewPasswordAuthFor[testData](storage, cookieKey)
+				_, err := NewPasswordAuth[testData, NoCustomData](storage, cookieKey)
 
 				return err
 			},
@@ -1786,7 +1786,7 @@ func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 		{
 			name: "NoCustomData constructor skips the check",
 			build: func(storage *mock_sessionstorage.MockPasswordAuthStore) error {
-				_, err := NewPasswordAuth(storage, cookieKey)
+				_, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
 
 				return err
 			},
@@ -1797,7 +1797,7 @@ func TestNewPasswordAuthFor_CustomDataTypeLink(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 			if tt.prepare != nil {
 				tt.prepare(storage)
 			}
@@ -1897,13 +1897,13 @@ func TestPasswordAuthAPI_StartAuthenticatedSession(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			storage := mock_sessionstorage.NewMockPasswordAuthStore(ctrl)
+			storage := newPasswordStoreMock(ctrl)
 			cookieHandler := mock_cookie.NewMockHandler(ctrl)
 
 			storage.EXPECT().CustomDataType().Return(reflect.TypeFor[testData]())
-			p, err := NewPasswordAuthFor[testData](storage, cookieKey)
+			p, err := NewPasswordAuth[testData, NoCustomData](storage, cookieKey)
 			if err != nil {
-				t.Fatalf("NewPasswordAuthFor() error=%v", err)
+				t.Fatalf("NewPasswordAuth() error=%v", err)
 			}
 			p.baseSession.CookieHandler = cookieHandler
 

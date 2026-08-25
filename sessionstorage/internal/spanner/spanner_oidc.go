@@ -38,11 +38,70 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
 
-	if err := s.applySessionInsert(ctx, id, mutation, req); err != nil {
+	if err := s.applySessionInsertOIDC(ctx, id, mutation, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
 	return id, nil
+}
+
+// applySessionInsertOIDC commits an OIDC session-insert mutation. When the OIDCUsers
+// anchor is enabled, one read-write transaction upserts the anchor row (populating
+// req.UserID), runs the custom user data login hook, and applies the session insert
+// with its custom session data semantics (per-call data wins; otherwise a configured
+// resolver runs; otherwise the session is inserted alone). Any error aborts the whole
+// transaction: no anchor change, no user data, no session. Without the anchor it
+// behaves exactly like applySessionInsert.
+func (s *SessionStorageDriver) applySessionInsertOIDC(ctx context.Context, id ccc.UUID, sessionMutation *spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
+	if !s.oidcUsersEnabled {
+		return s.applySessionInsert(ctx, id, sessionMutation, req)
+	}
+
+	if req.CustomData != nil && s.customData == nil {
+		return errors.New("custom session data provided but no custom session data config is attached")
+	}
+
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if err := s.upsertOIDCUser(ctx, txn, req); err != nil {
+			return err
+		}
+
+		if err := s.applyOIDCUserDataHook(ctx, txn, req); err != nil {
+			return err
+		}
+
+		if err := txn.BufferWrite([]*spanner.Mutation{sessionMutation}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+
+		var data any
+		switch {
+		case req.CustomData != nil:
+			data = req.CustomData
+		case s.customData != nil && s.customData.Resolver != nil:
+			resolved, err := s.customData.Resolver(ctx, txn, req)
+			if err != nil {
+				return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
+			}
+			data = resolved
+		}
+		if data != nil {
+			m, err := s.customDataMutation(id, data, spanner.InsertMap)
+			if err != nil {
+				return err
+			}
+			if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+				return errors.Wrap(err, "txn.BufferWrite()")
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
 }
 
 // DestroySessionOIDC marks the session as expired using the oidcSID
