@@ -12,18 +12,18 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 require (
 	aidanwoods.dev/go-paseto v1.6.0
 	cloud.google.com/go/spanner v1.94.0
-	github.com/cccteam/ccc v0.3.2
-	github.com/cccteam/ccc/accesstypes v0.5.8
-	github.com/cccteam/ccc/resource v0.10.2
-	github.com/cccteam/ccc/securehash v0.0.13
-	github.com/cccteam/ccc/tracer v0.1.6
+	github.com/cccteam/ccc v0.3.3
+	github.com/cccteam/ccc/accesstypes v0.5.9
+	github.com/cccteam/ccc/resource v0.10.6
+	github.com/cccteam/ccc/securehash v0.0.14
+	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.3.13
 	github.com/cccteam/httpio v0.7.17
 	github.com/cccteam/logger v0.1.27
 	github.com/cccteam/spxscan v0.0.14
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/georgysavva/scany/v2 v2.1.4
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
@@ -33,7 +33,7 @@ require (
 	golang.org/x/crypto v0.55.0
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.293.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 )
 
 require (
