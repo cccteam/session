@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/go-playground/errors/v5"
@@ -12,11 +11,10 @@ import (
 // synchronization reconciles a user's IdP roles across on every login. It is
 // called at each login so tenants created between logins are included.
 //
-// The provider's output is a tenant-only position: accesstypes.GlobalDomain is
-// always swept implicitly and must not be returned — ':' is reserved for
-// access-defined markers, and any ':'-bearing value (the global marker
-// included) fails the sync. Multi-tenant applications return their tenant
-// domains; global-only applications use a nil provider.
+// The provider returns tenant domains only: the global scope is always swept
+// implicitly (it is structural — no domain value can address it, so any
+// returned string is just a tenant name). Multi-tenant applications return
+// their tenant domains; global-only applications use a nil provider.
 type DomainsProvider func(ctx context.Context) ([]accesstypes.Domain, error)
 
 // RoleSyncConfig is the required role-synchronization slot on NewOIDCAzure and
@@ -39,12 +37,14 @@ type roleSyncConfig struct {
 
 func (r *roleSyncConfig) config() *roleSyncConfig { return r }
 
-// syncDomains returns the full sweep list for one login: accesstypes.GlobalDomain
-// followed by the provider's tenant domains.
-func (r *roleSyncConfig) syncDomains(ctx context.Context) ([]accesstypes.Domain, error) {
-	domains := []accesstypes.Domain{accesstypes.GlobalDomain}
+// syncScopes returns the full sweep list for one login: the global scope
+// followed by a tenant scope for each of the provider's domains. Tenant names
+// are pure data — no value can address the global partition, so no rejection
+// is needed.
+func (r *roleSyncConfig) syncScopes(ctx context.Context) ([]accesstypes.Scope, error) {
+	scopes := []accesstypes.Scope{accesstypes.GlobalScope()}
 	if r.domains == nil {
-		return domains, nil
+		return scopes, nil
 	}
 
 	appDomains, err := r.domains(ctx)
@@ -52,19 +52,10 @@ func (r *roleSyncConfig) syncDomains(ctx context.Context) ([]accesstypes.Domain,
 		return nil, errors.Wrap(err, "session.DomainsProvider")
 	}
 	for _, d := range appDomains {
-		// The provider's output is a tenant-only position: the global domain
-		// is swept implicitly, so no ':'-bearing value is legitimate here —
-		// including the global marker itself. Rejecting it closes the case
-		// where a provider bug returns the marker and a tenant's reconcile
-		// silently lands in the global partition.
-		if strings.ContainsRune(string(d), ':') {
-			return nil, errors.Newf(
-				"invalid tenant domain %q from session.DomainsProvider: ':' is reserved for access-defined markers, and the global domain is swept automatically — return tenant domains only", d)
-		}
-		domains = append(domains, d)
+		scopes = append(scopes, accesstypes.DomainScope(d))
 	}
 
-	return domains, nil
+	return scopes, nil
 }
 
 type disabledRoleSync struct{}
@@ -73,8 +64,9 @@ func (disabledRoleSync) config() *roleSyncConfig { return nil }
 
 // RoleSync enables IdP-driven role synchronization for the OIDC Azure flow: on
 // every login the user's roles are reconciled to the token's role claims across
-// accesstypes.GlobalDomain plus the domains returned by the provider, and the
-// login is rejected unless the token yields at least one recognized role.
+// the global scope plus a tenant scope for every domain returned by the
+// provider, and the login is rejected unless the token yields at least one
+// recognized role.
 //
 // The provider is required alongside the manager because there is no safe
 // universal default for the sweep list: a global-only default in a multi-tenant

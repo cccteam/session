@@ -33,10 +33,10 @@ import (
 // reconcile-with-delete, and a swallowed store error would silently remove a
 // user's valid role membership at login.
 type UserRoleManager interface {
-	UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error)
-	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) (bool, error)
-	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
-	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error)
+	RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
+	AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
+	DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 }
 
 // LogHandler defines the handler signature required for handling logs.

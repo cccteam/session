@@ -47,7 +47,7 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 //
 // DESIGN LIMITATION — role synchronization is domain-blind: the token's roles are
 // applied identically in every swept domain where the role name exists (the sweep
-// covers accesstypes.GlobalDomain plus the domains from the configured
+// covers the global scope plus the domains from the configured
 // DomainsProvider — see RoleSync).
 //
 // Use this flow when:
@@ -68,7 +68,7 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 //
 // Role synchronization is configured through the required RoleSyncConfig
 // constructor slot: RoleSync(manager, domains) enables the flow above, sweeping
-// accesstypes.GlobalDomain plus the domains returned by the application's
+// the global scope plus the domains returned by the application's
 // DomainsProvider; DisableRoleSync() disables role maintenance during login
 // entirely — no roles are read, written, or removed, and the at-least-one-role
 // login gate does not apply (application-managed roles, or no roles at all).
@@ -305,20 +305,20 @@ func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accessty
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	domains, err := o.roleSync.syncDomains(ctx)
+	scopes, err := o.roleSync.syncScopes(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	existingRoles, err := o.roleSync.manager.UserRoles(ctx, username, domains...)
+	existingRoles, err := o.roleSync.manager.UserRoles(ctx, username, scopes...)
 	if err != nil {
 		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
 
-	for _, domain := range domains {
+	for _, scope := range scopes {
 		var rolesToAssign []accesstypes.Role
 		for _, r := range roles {
-			exists, err := o.roleSync.manager.RoleExists(ctx, domain, accesstypes.Role(r))
+			exists, err := o.roleSync.manager.RoleExists(ctx, scope, accesstypes.Role(r))
 			if err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.RoleExists()")
 			}
@@ -327,20 +327,20 @@ func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accessty
 			}
 		}
 
-		newRoles := util.Exclude(rolesToAssign, existingRoles[domain])
+		newRoles := util.Exclude(rolesToAssign, existingRoles[scope])
 		if len(newRoles) > 0 {
-			if err := o.roleSync.manager.AddUserRoles(ctx, domain, username, newRoles...); err != nil {
+			if err := o.roleSync.manager.AddUserRoles(ctx, scope, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
 			}
-			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in domain %s", username, newRoles, domain)
+			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in scope %s", username, newRoles, scope)
 		}
 
-		removeRoles := util.Exclude(existingRoles[domain], rolesToAssign)
+		removeRoles := util.Exclude(existingRoles[scope], rolesToAssign)
 		if len(removeRoles) > 0 {
-			if err := o.roleSync.manager.DeleteUserRoles(ctx, domain, username, removeRoles...); err != nil {
+			if err := o.roleSync.manager.DeleteUserRoles(ctx, scope, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
 			}
-			logger.FromCtx(ctx).Infof("User %s removed from roles %v in domain %s", username, removeRoles, domain)
+			logger.FromCtx(ctx).Infof("User %s removed from roles %v in scope %s", username, removeRoles, scope)
 		}
 
 		hasRole = hasRole || len(rolesToAssign) > 0
