@@ -9,46 +9,40 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestRoleSyncConfig_syncDomains(t *testing.T) {
+func TestRoleSyncConfig_syncScopes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
 		provider DomainsProvider
-		want     []accesstypes.Domain
+		want     []accesstypes.Scope
 		wantErr  bool
 	}{
 		{
-			name:     "nil provider sweeps the global domain only",
+			name:     "nil provider sweeps the global scope only",
 			provider: nil,
-			want:     []accesstypes.Domain{accesstypes.GlobalDomain},
+			want:     []accesstypes.Scope{accesstypes.GlobalScope()},
 		},
 		{
-			name: "provider domains are appended after the implicit global domain",
+			name: "provider domains are appended as tenant scopes after the implicit global scope",
 			provider: func(context.Context) ([]accesstypes.Domain, error) {
 				return []accesstypes.Domain{"tenant1", "tenant2"}, nil
 			},
-			want: []accesstypes.Domain{accesstypes.GlobalDomain, "tenant1", "tenant2"},
+			want: []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("tenant1"), accesstypes.DomainScope("tenant2")},
 		},
 		{
-			name: "marker-shaped domain from the provider is rejected",
+			// Tenant names are pure data: a provider returning the retired
+			// sentinel spelling gets an ordinary tenant scope, never the
+			// global partition.
+			name: "sentinel-shaped names are ordinary tenant scopes",
 			provider: func(context.Context) ([]accesstypes.Domain, error) {
-				return []accesstypes.Domain{"tenant1", "acme:west"}, nil
+				return []accesstypes.Domain{"global", "access:global"}, nil
 			},
-			wantErr: true,
-		},
-		{
-			// Stable across the accesstypes marker flip: pre-flip "access:global"
-			// is an ordinary ':'-value; post-flip it is the marker itself — both
-			// are illegitimate in a tenant-only position.
-			name: "global marker rejected in the tenant-only position",
-			provider: func(context.Context) ([]accesstypes.Domain, error) {
-				return []accesstypes.Domain{"access:global"}, nil
-			},
-			wantErr: true,
+			want: []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("global"), accesstypes.DomainScope("access:global")},
 		},
 		{
 			name: "provider error is returned",
@@ -63,12 +57,12 @@ func TestRoleSyncConfig_syncDomains(t *testing.T) {
 			t.Parallel()
 
 			r := &roleSyncConfig{domains: tt.provider}
-			got, err := r.syncDomains(t.Context())
+			got, err := r.syncScopes(t.Context())
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("roleSyncConfig.syncDomains() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("roleSyncConfig.syncScopes() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("roleSyncConfig.syncDomains() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateComparable(accesstypes.Scope{})); diff != "" {
+				t.Errorf("roleSyncConfig.syncScopes() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
