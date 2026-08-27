@@ -10,8 +10,9 @@ import (
 
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
-	"github.com/cccteam/session/internal/azureoidc/loader"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/oidcloader"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 	"golang.org/x/oauth2"
@@ -22,14 +23,14 @@ var _ Authenticator = &OIDC{}
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
 	cookieClient *internalcookie.Client
-	loader.Loader
+	oidcloader.Loader
 }
 
 // New returns a new OIDC Authenticator
 func New(cookieClient *internalcookie.Client, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
 	return &OIDC{
 		cookieClient: cookieClient,
-		Loader:       loader.New(issuerURL, clientID, clientSecret, redirectURL),
+		Loader:       oidcloader.New(issuerURL, clientID, clientSecret, redirectURL, []string{oidc.ScopeOpenID, "profile"}),
 	}
 }
 
