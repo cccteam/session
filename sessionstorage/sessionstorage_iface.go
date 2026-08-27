@@ -146,6 +146,36 @@ type OIDCStore interface {
 	BaseStore
 }
 
+// GoogleOIDCUser is a library-managed durable user record for Google OIDC logins, keyed
+// by the immutable, globally unique Sub claim with a surrogate UUID primary key.
+type GoogleOIDCUser = dbtype.GoogleOIDCUser
+
+// GoogleOIDCStore defines an interface for managing Google OIDC session storage.
+type GoogleOIDCStore interface {
+	// NewSession creates a new Google OIDC session. claims carries the raw verified
+	// ID-token claims into any configured custom session data resolver, which runs
+	// inside the session-insert transaction; a resolver error aborts session creation.
+	// When the OIDC user anchor is enabled the same transaction upserts the
+	// GoogleOIDCUsers record for the claims' sub and runs any configured custom user
+	// data hook.
+	NewSession(ctx context.Context, username string, claims json.RawMessage) (ccc.UUID, error)
+	// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
+	GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*GoogleOIDCUser, error)
+	// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
+	GoogleOIDCUserBySub(ctx context.Context, sub string) (*GoogleOIDCUser, error)
+	// CustomUserData returns the custom user data row for the given user ID as *U for
+	// the configured struct type. A user with no custom data row yields a zero-value *U.
+	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
+	// UpdateCustomUserData updates the custom user data for an existing user via a
+	// transactional read-modify-write: mutate receives the current row as *U (zero-value
+	// when no row exists) and the full row is written back; a mutate error aborts with
+	// nothing written.
+	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
+
+	// shared storage methods
+	BaseStore
+}
+
 var (
 	_ db = (*spanner.SessionStorageDriver)(nil)
 	_ db = (*postgres.SessionStorageDriver)(nil)
@@ -225,4 +255,17 @@ type db interface {
 	OIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.OIDCUser, error)
 	// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
 	OIDCUserByKey(ctx context.Context, tid, oid string) (*dbtype.OIDCUser, error)
+
+	//
+	// Google OIDC specific methods
+	//
+
+	// InsertSessionGoogleOIDC creates a new Google OIDC session in the database and returns its session ID.
+	// Google issues no sid claim, so the session row carries no OidcSid; the custom data semantics match InsertSessionOIDC.
+	// When the OIDC user anchor is enabled the same transaction upserts the Sub-keyed anchor row and runs any configured custom user data hook.
+	InsertSessionGoogleOIDC(ctx context.Context, session *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+	// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
+	GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.GoogleOIDCUser, error)
+	// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
+	GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.GoogleOIDCUser, error)
 }
