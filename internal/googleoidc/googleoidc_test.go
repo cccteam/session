@@ -24,9 +24,9 @@ const (
 	testHostedDomain = "example.com"
 )
 
-// fakeIdP is a minimal OIDC provider: discovery, JWKS, and a token endpoint that
+// fakeIDP is a minimal OIDC provider: discovery, JWKS, and a token endpoint that
 // returns an ID token built per request by the test case.
-type fakeIdP struct {
+type fakeIDP struct {
 	server *httptest.Server
 	key    *rsa.PrivateKey
 
@@ -37,7 +37,7 @@ type fakeIdP struct {
 	tokenStatus int
 }
 
-func newFakeIdP(t *testing.T) *fakeIdP {
+func newFakeIDP(t *testing.T) *fakeIDP {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -45,7 +45,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		t.Fatalf("rsa.GenerateKey() error = %v", err)
 	}
 
-	f := &fakeIdP{key: key}
+	f := &fakeIDP{key: key}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -95,7 +95,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	return f
 }
 
-func (f *fakeIdP) signToken(claims map[string]any) string {
+func (f *fakeIDP) signToken(claims map[string]any) string {
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		panic(err)
@@ -149,7 +149,7 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 		t.Fatalf("url.Parse() error = %v", err)
 	}
 
-	callback = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/callback?code=test-code&state=%s", url.QueryEscape(authURL.Query().Get("state"))), http.NoBody)
+	callback = httptest.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/callback?code=test-code&state=%s", url.QueryEscape(authURL.Query().Get("state"))), http.NoBody)
 	for _, c := range rec.Result().Cookies() {
 		callback.AddCookie(c)
 	}
@@ -160,7 +160,7 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
-	idp := newFakeIdP(t)
+	idp := newFakeIDP(t)
 	o := newWithIssuer(newTestCookieClient(t), idp.server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 	authURL, _ := startLogin(t, o)
@@ -295,7 +295,7 @@ func TestOIDC_Verify(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			idp := newFakeIdP(t)
+			idp := newFakeIDP(t)
 			idp.tokenClaims = tt.tokenClaims
 			idp.tokenStatus = tt.tokenStatus
 

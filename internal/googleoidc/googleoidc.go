@@ -143,7 +143,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	// trusted; a consumer account has no hd claim and fails closed.
 	var gClaims struct {
 		Hd            string `json:"hd"`
-		EmailVerified bool   `json:"email_verified"`
+		EmailVerified bool   `json:"email_verified"` //nolint:tagliatelle // Google's claim name
 	}
 	if err := idToken.Claims(&gClaims); err != nil {
 		return "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims")

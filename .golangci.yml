@@ -64,6 +64,7 @@ linters:
             - github.com/coreos/go-oidc/v3
             - github.com/georgysavva/scany/v2
             - github.com/go-chi/chi/v5
+            - github.com/go-jose/go-jose/v4
             - github.com/go-playground/errors/v5
             - github.com/gofrs/uuid
             - github.com/google/go-cmp
@@ -73,7 +74,9 @@ linters:
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
+            - google.golang.org/api/admin/directory/v1
             - google.golang.org/api/iterator
+            - google.golang.org/api/option
             - google.golang.org/grpc/codes
             - $gostd
     dupl:
