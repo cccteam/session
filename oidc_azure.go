@@ -16,7 +16,6 @@ import (
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/util"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -240,11 +239,11 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		// leaves a live session or auth cookie behind. With role sync disabled the
 		// reconciliation and its at-least-one-role gate are skipped entirely.
 		if o.roleSync != nil {
-			hasRole, err := o.assignUserRoles(ctx, accesstypes.User(claims.Username), claims.Roles)
+			hasRole, err := o.roleSync.reconcile(ctx, accesstypes.User(claims.Username), claims.Roles)
 			if err != nil {
 				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
 
-				return errors.Wrap(err, "OIDCAzure.assignUserRoles()")
+				return errors.Wrap(err, "roleSyncConfig.reconcile()")
 			}
 			if !hasRole {
 				err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
@@ -295,58 +294,6 @@ func (o *OIDCAzure[T, U]) FrontChannelLogout() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
-}
-
-// assignUserRoles ensures that the user is assigned to the specified roles ONLY
-// returns true if the user has at least one assigned role (after the operation is complete).
-// A RoleExists error aborts the sync: flattening it to false would land an existing
-// valid role in removeRoles and delete the user's membership on a transient store blip.
-func (o *OIDCAzure[T, U]) assignUserRoles(ctx context.Context, username accesstypes.User, roles []string) (hasRole bool, err error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	scopes, err := o.roleSync.syncScopes(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	existingRoles, err := o.roleSync.manager.UserRoles(ctx, username, scopes...)
-	if err != nil {
-		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
-	}
-
-	for _, scope := range scopes {
-		var rolesToAssign []accesstypes.Role
-		for _, r := range roles {
-			exists, err := o.roleSync.manager.RoleExists(ctx, scope, accesstypes.Role(r))
-			if err != nil {
-				return false, errors.Wrap(err, "UserRoleManager.RoleExists()")
-			}
-			if exists {
-				rolesToAssign = append(rolesToAssign, accesstypes.Role(r))
-			}
-		}
-
-		newRoles := util.Exclude(rolesToAssign, existingRoles[scope])
-		if len(newRoles) > 0 {
-			if err := o.roleSync.manager.AddUserRoles(ctx, scope, username, newRoles...); err != nil {
-				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
-			}
-			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in scope %s", username, newRoles, scope)
-		}
-
-		removeRoles := util.Exclude(existingRoles[scope], rolesToAssign)
-		if len(removeRoles) > 0 {
-			if err := o.roleSync.manager.DeleteUserRoles(ctx, scope, username, removeRoles...); err != nil {
-				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
-			}
-			logger.FromCtx(ctx).Infof("User %s removed from roles %v in scope %s", username, removeRoles, scope)
-		}
-
-		hasRole = hasRole || len(rolesToAssign) > 0
-	}
-
-	return hasRole, nil
 }
 
 // startNewSession starts a new session for the given username and returns the session ID.

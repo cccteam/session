@@ -4,6 +4,9 @@ import (
 	"context"
 
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/logger"
+	"github.com/cccteam/session/internal/util"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -56,6 +59,59 @@ func (r *roleSyncConfig) syncScopes(ctx context.Context) ([]accesstypes.Scope, e
 	}
 
 	return scopes, nil
+}
+
+// reconcile ensures that the user is assigned to the specified roles ONLY, sweeping
+// every scope from syncScopes. It returns true if the user has at least one assigned
+// role (after the operation is complete).
+// A RoleExists error aborts the sync: flattening it to false would land an existing
+// valid role in removeRoles and delete the user's membership on a transient store blip.
+func (r *roleSyncConfig) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	scopes, err := r.syncScopes(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	existingRoles, err := r.manager.UserRoles(ctx, username, scopes...)
+	if err != nil {
+		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
+	}
+
+	for _, scope := range scopes {
+		var rolesToAssign []accesstypes.Role
+		for _, name := range roleNames {
+			exists, err := r.manager.RoleExists(ctx, scope, accesstypes.Role(name))
+			if err != nil {
+				return false, errors.Wrap(err, "UserRoleManager.RoleExists()")
+			}
+			if exists {
+				rolesToAssign = append(rolesToAssign, accesstypes.Role(name))
+			}
+		}
+
+		newRoles := util.Exclude(rolesToAssign, existingRoles[scope])
+		if len(newRoles) > 0 {
+			if err := r.manager.AddUserRoles(ctx, scope, username, newRoles...); err != nil {
+				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
+			}
+			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in scope %s", username, newRoles, scope)
+		}
+
+		removeRoles := util.Exclude(existingRoles[scope], rolesToAssign)
+		if len(removeRoles) > 0 {
+			if err := r.manager.DeleteUserRoles(ctx, scope, username, removeRoles...); err != nil {
+				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
+			}
+			logger.FromCtx(ctx).Infof("User %s removed from roles %v in scope %s", username, removeRoles, scope)
+		}
+
+		hasRole = hasRole || len(rolesToAssign) > 0
+	}
+
+	return hasRole, nil
 }
 
 type disabledRoleSync struct{}
