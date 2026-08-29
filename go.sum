@@ -50,8 +50,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/cccteam/ccc v0.3.2 h1:scPc3gv/AnTsrc21et8Ak3lFZrH6I9G2j2fjGEgP/pQ=
 github.com/cccteam/ccc v0.3.2/go.mod h1:21wWddh6x5UEJ1FrF23gqZhhxRpDUchGjZjNBmrGgmM=
-github.com/cccteam/ccc/accesstypes v0.5.8 h1:LwuwO613VnfFj1pHCZWNwIpizrfIdg53K+AB5yLpBtU=
-github.com/cccteam/ccc/accesstypes v0.5.8/go.mod h1:UaxQPRO2pZrhXPgu7LxyVNJfjHC7cyM9/W2sXuuGhnY=
+github.com/cccteam/ccc/accesstypes v0.5.10-0.20260827183033-01978b9890e0 h1:bOi6qVi0kF3qlNi3h3sxLZ60xtaT4yIpcoI1oTdjHvI=
+github.com/cccteam/ccc/accesstypes v0.5.10-0.20260827183033-01978b9890e0/go.mod h1:4wFtH4BXGYEbr5KGRXaU9H7G08B+rZKTNX3bVQO4wlU=
 github.com/cccteam/ccc/resource v0.10.2 h1:11SqwSUT6TbRXwAEL90+Qf3xAYhELFoV0/cEqY5SvH0=
 github.com/cccteam/ccc/resource v0.10.2/go.mod h1:tKzoTTcAztbRPCsnKGG5Mqtlx+sX4YPtkv3BDcHxyLo=
 github.com/cccteam/ccc/securehash v0.0.13 h1:UhoslRb/VKE+OFRcUBuF7SSn+1g0quaKqrWwxujYIUY=
