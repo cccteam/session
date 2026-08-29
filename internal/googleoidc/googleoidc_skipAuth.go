@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
@@ -96,9 +95,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	o.cookieClient.DeleteOidcCookie(w)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
-	if strings.TrimSpace(returnURL) == "" {
-		returnURL = "/"
-	}
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 
 	return returnURL, nil
 }

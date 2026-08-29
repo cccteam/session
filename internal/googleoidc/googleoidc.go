@@ -106,9 +106,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	o.cookieClient.DeleteOidcCookie(w)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
-	if strings.TrimSpace(returnURL) == "" {
-		returnURL = "/"
-	}
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 
 	state, err := cval.GetString(internalcookie.OIDCState)
 	if err != nil {
@@ -143,7 +141,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	// trusted; a consumer account has no hd claim and fails closed.
 	var gClaims struct {
 		Hd            string `json:"hd"`
-		EmailVerified bool   `json:"email_verified"` //nolint:tagliatelle // Google's claim name
+		EmailVerified bool   `json:"email_verified"`
 	}
 	if err := idToken.Claims(&gClaims); err != nil {
 		return "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims")

@@ -96,8 +96,8 @@ func (c *Client) Delete(w http.ResponseWriter, cookieName, domain string) {
 		Path:     "/",
 		Domain:   domain,
 		Secure:   SecureCookie(),
-		HttpOnly: false,
-		SameSite: http.SameSiteDefaultMode,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
 	})
 }
 

@@ -6,7 +6,6 @@ package azureoidc
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
@@ -80,9 +79,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 	o.cookieClient.DeleteOidcCookie(w)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
-	if strings.TrimSpace(returnURL) == "" {
-		returnURL = "/"
-	}
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 
 	state, err := cval.GetString(internalcookie.OIDCState)
 	if err != nil {
