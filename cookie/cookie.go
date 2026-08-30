@@ -85,14 +85,16 @@ func (c *Client) WritePersistentCookie(w http.ResponseWriter, cookieName, domain
 	})
 }
 
-// Delete deletes a cookie from the response
-func (c *Client) Delete(w http.ResponseWriter, cookieName string) {
+// Delete deletes a cookie from the response. domain must match the Domain
+// attribute the cookie was written with; browsers key cookies by
+// (name, domain, path), so a mismatched tombstone deletes nothing.
+func (c *Client) Delete(w http.ResponseWriter, cookieName, domain string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Expires:  time.Unix(0, 0),
 		Value:    "",
 		Path:     "/",
-		Domain:   "",
+		Domain:   domain,
 		Secure:   SecureCookie(),
 		HttpOnly: false,
 		SameSite: http.SameSiteDefaultMode,

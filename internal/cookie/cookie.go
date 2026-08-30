@@ -160,7 +160,7 @@ func (c *Client) ReadOidcCookie(r *http.Request) (values *cookie.Values, found b
 
 // DeleteOidcCookie deletes the OIDC cookie from the response
 func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
-	c.cookie.Delete(w, OIDCCookieName)
+	c.cookie.Delete(w, OIDCCookieName, c.Domain)
 }
 
 // Cookie returns the underlying cookie.Client
