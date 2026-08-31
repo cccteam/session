@@ -11,19 +11,19 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 
 require (
 	aidanwoods.dev/go-paseto v1.6.0
-	cloud.google.com/go/spanner v1.94.0
-	github.com/cccteam/ccc v0.3.2
-	github.com/cccteam/ccc/accesstypes v0.5.8
-	github.com/cccteam/ccc/resource v0.10.2
-	github.com/cccteam/ccc/securehash v0.0.13
-	github.com/cccteam/ccc/tracer v0.1.6
-	github.com/cccteam/db-initiator v0.3.13
+	cloud.google.com/go/spanner v1.95.0
+	github.com/cccteam/ccc v0.3.3
+	github.com/cccteam/ccc/accesstypes v0.5.9
+	github.com/cccteam/ccc/resource v0.10.6
+	github.com/cccteam/ccc/securehash v0.0.14
+	github.com/cccteam/ccc/tracer v0.1.7
+	github.com/cccteam/db-initiator v0.3.14
 	github.com/cccteam/httpio v0.7.17
 	github.com/cccteam/logger v0.1.27
 	github.com/cccteam/spxscan v0.0.14
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/georgysavva/scany/v2 v2.1.4
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-playground/errors/v5 v5.4.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/go-cmp v0.7.0
@@ -32,15 +32,15 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/oauth2 v0.36.0
-	google.golang.org/api v0.293.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/api v0.294.0
+	google.golang.org/grpc v1.83.2
 )
 
 require (
 	aidanwoods.dev/go-result v0.3.1 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.23.1 // indirect
+	cloud.google.com/go/auth v0.23.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.13.0 // indirect
@@ -81,7 +81,7 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.21 // indirect
-	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.24.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e // indirect
@@ -129,7 +129,7 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto v0.0.0-20260818201246-1b0934165a6f // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260818201246-1b0934165a6f // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260818201246-1b0934165a6f // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
