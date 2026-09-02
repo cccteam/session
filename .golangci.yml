@@ -141,7 +141,7 @@ linters:
         path: _test\.go
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth.go
+        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
         text: preferred_username
       - linters:
           - gomoddirectives
