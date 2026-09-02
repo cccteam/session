@@ -113,3 +113,42 @@ func (mr *MockUserRoleManagerMockRecorder) UserRoles(ctx, user any, scopes ...an
 	varargs := append([]any{ctx, user}, scopes...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserRoleManager)(nil).UserRoles), varargs...)
 }
+
+// MockGroupsProvider is a mock of GroupsProvider interface.
+type MockGroupsProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockGroupsProviderMockRecorder
+	isgomock struct{}
+}
+
+// MockGroupsProviderMockRecorder is the mock recorder for MockGroupsProvider.
+type MockGroupsProviderMockRecorder struct {
+	mock *MockGroupsProvider
+}
+
+// NewMockGroupsProvider creates a new mock instance.
+func NewMockGroupsProvider(ctrl *gomock.Controller) *MockGroupsProvider {
+	mock := &MockGroupsProvider{ctrl: ctrl}
+	mock.recorder = &MockGroupsProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockGroupsProvider) EXPECT() *MockGroupsProviderMockRecorder {
+	return m.recorder
+}
+
+// UserGroups mocks base method.
+func (m *MockGroupsProvider) UserGroups(ctx context.Context, email string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserGroups", ctx, email)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserGroups indicates an expected call of UserGroups.
+func (mr *MockGroupsProviderMockRecorder) UserGroups(ctx, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGroups", reflect.TypeOf((*MockGroupsProvider)(nil).UserGroups), ctx, email)
+}

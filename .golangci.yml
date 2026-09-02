@@ -64,6 +64,7 @@ linters:
             - github.com/coreos/go-oidc/v3
             - github.com/georgysavva/scany/v2
             - github.com/go-chi/chi/v5
+            - github.com/go-jose/go-jose/v4
             - github.com/go-playground/errors/v5
             - github.com/gofrs/uuid
             - github.com/google/go-cmp
@@ -73,7 +74,9 @@ linters:
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
+            - google.golang.org/api/admin/directory/v1
             - google.golang.org/api/iterator
+            - google.golang.org/api/option
             - google.golang.org/grpc/codes
             - $gostd
     dupl:
@@ -143,6 +146,24 @@ linters:
           - tagliatelle
         path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
         text: preferred_username
+      - linters:
+          - tagliatelle
+        path: internal/googleoidc/googleoidc\.go|internal/googleoidc/googleoidc_skipAuth\.go
+        text: email_verified
+      # G124 only accepts literal secure attribute values. These cookie writers take
+      # HttpOnly/SameSite from the caller by design, and Secure is switched by the
+      # insecurecookie build tag via SecureCookie().
+      - linters:
+          - gosec
+        path: cookie/cookie\.go
+        text: G124
+      # gosec's taint analysis cannot see that every redirect target here is either
+      # constrained to a local path by internalcookie.SanitizeReturnURL or is the
+      # OIDC provider's authorization URL built from server-side configuration.
+      - linters:
+          - gosec
+        path: oidc_azure\.go|oidc_google\.go|internal/basesession/basesession\.go
+        text: G710
       - linters:
           - gomoddirectives
         path: go\.mod
