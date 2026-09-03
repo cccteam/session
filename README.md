@@ -786,6 +786,40 @@ kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forget
 mask fails *open*, so prefer a shared implementation over hand-rolling it per
 application.
 
+### Choosing the principal
+
+By default a session's principal is its user, or the impersonation record's principal.
+Some applications want a session to act as something else without impersonating anyone
+— a partner portal whose every session acts as the role it was minted with, carried in
+custom session data. `WithPrincipalResolver` is that seam: the resolver runs inside
+session validation, with the session, its custom data and its impersonation record in
+the context, and returns the principal `PrincipalFromCtx` reports for the request.
+
+```go
+auth, err := session.NewPreauth[PortalData](storage, cookieKey,
+    session.WithPrincipalResolver(func(ctx context.Context) (accesstypes.Principal, error) {
+        data, err := sessioninfo.CustomDataFromCtx[*PortalData](ctx)
+        if err != nil {
+            return accesstypes.Principal{}, err
+        }
+
+        return accesstypes.RolePrincipal(accesstypes.Role(data.RoleID)), nil
+    }),
+)
+```
+
+- The choice is made per request at validation and never stored; nothing changes in the
+  schema and no impersonation record is written.
+- The resolver runs for ordinary sessions and for user-principal impersonations — an
+  impersonated user's session acts as that user's session would. A role-principal
+  impersonation already names its subject and skips the resolver.
+- Returning the zero `Principal` keeps the default. An error fails the request as a
+  server error, not an unauthorized one: the session is valid; the application could not
+  decide what it acts as.
+- When the resolver changes the principal, the request's log entry carries
+  `principal.kind` and `principal` (`sessioninfo.AttrPrincipalKind`,
+  `sessioninfo.AttrPrincipal`); unchanged requests carry nothing extra.
+
 ### Evidence
 
 Everything an impersonated session touches names the actor and the principal:
@@ -794,6 +828,7 @@ Everything an impersonated session touches names the actor and the principal:
 | --- | --- |
 | The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
 | `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
+| `principal.kind`, `principal` — when a `WithPrincipalResolver` changed the request's subject | The request-level log entry and every line logged within the request |
 | `Started` / `Ended` / `IdentityOperationBlocked` events | Structured log lines, plus the `WithImpersonationAudit` hook |
 | The establishing call's own log entry | The source application's request log |
 | `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |

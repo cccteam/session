@@ -844,3 +844,28 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 		}
 	})
 }
+
+func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+
+	resolver := func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil }
+	opt := WithPrincipalResolver(resolver)
+
+	password, err := NewPasswordAuth[NoCustomData, NoCustomData](newPasswordStoreMock(ctrl), cookieKey, opt)
+	if err != nil {
+		t.Fatalf("NewPasswordAuth() error = %v", err)
+	}
+	preauth, err := NewPreauth[NoCustomData](newPreauthStoreMock(ctrl), cookieKey, opt)
+	if err != nil {
+		t.Fatalf("NewPreauth() error = %v", err)
+	}
+	for name, base := range map[string]*basesession.BaseSession{"PasswordAuth": password.baseSession, "Preauth": preauth.baseSession} {
+		if base.PrincipalResolver == nil {
+			t.Errorf("%s: PrincipalResolver not installed", name)
+		}
+	}
+
+	var _ OIDCAzureOption = opt
+	var _ OIDCGoogleOption = opt
+}

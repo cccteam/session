@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
@@ -29,9 +30,14 @@ type BaseSession struct {
 	// ImpersonationAudit, when set, receives every lifecycle event of an impersonated
 	// session (see sessioninfo.ImpersonationEvent).
 	ImpersonationAudit func(ctx context.Context, event sessioninfo.ImpersonationEvent) error
-	Handle             LogHandler
-	Storage            sessionstorage.BaseStore
-	CookieHandler      internalcookie.Handler
+	// PrincipalResolver, when set, chooses the request's authorization subject at
+	// validation (see session.WithPrincipalResolver). It runs with the validated
+	// session in ctx for ordinary sessions and user-principal impersonations; a
+	// role-principal impersonation already names its subject and skips it.
+	PrincipalResolver func(ctx context.Context) (accesstypes.Principal, error)
+	Handle            LogHandler
+	Storage           sessionstorage.BaseStore
+	CookieHandler     internalcookie.Handler
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
@@ -144,8 +150,13 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 	// Store session info in context
 	ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessInfo)
 
+	if err := s.resolvePrincipal(ctx, sessInfo); err != nil {
+		return ctx, err
+	}
+
 	// Add user to logging context — and, for an impersonated session, the evidence
-	// attributes on the request entry and every line logged within it.
+	// attributes on the request entry and every line logged within it; likewise the
+	// principal when a resolver changed it.
 	l := logger.FromCtx(ctx).AddRequestAttribute("username", sessInfo.Username)
 	attrs := l.WithAttributes().AddAttribute("username", sessInfo.Username)
 	if imp := sessInfo.Impersonation; imp != nil {
@@ -154,8 +165,48 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 			attrs = attrs.AddAttribute(a.Key, a.Value)
 		}
 	}
+	if p := sessInfo.Principal; p != (accesstypes.Principal{}) {
+		kind, name := principalKindName(p)
+		l.AddRequestAttribute(sessioninfo.AttrPrincipalKind, kind).AddRequestAttribute(sessioninfo.AttrPrincipal, name)
+		attrs = attrs.AddAttribute(sessioninfo.AttrPrincipalKind, kind).AddAttribute(sessioninfo.AttrPrincipal, name)
+	}
 
 	return logger.NewCtx(ctx, attrs.Logger()), nil
+}
+
+// resolvePrincipal runs the configured PrincipalResolver for the validated session in
+// ctx and records its choice on sessData.Principal when it differs from the default
+// subject. A role-principal impersonation is skipped: the record already names the
+// subject. A resolver error is a server error, never an unauthorized one — the session
+// is valid; the application could not decide what it acts as.
+func (s *BaseSession) resolvePrincipal(ctx context.Context, sessData *sessioninfo.SessionData) error {
+	if s.PrincipalResolver == nil {
+		return nil
+	}
+	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
+		return nil
+	}
+
+	principal, err := s.PrincipalResolver(ctx)
+	if err != nil {
+		return errors.Wrap(err, "PrincipalResolver()")
+	}
+	if principal == (accesstypes.Principal{}) || principal == sessioninfo.PrincipalFromCtx(ctx) {
+		return nil
+	}
+	sessData.Principal = principal
+
+	return nil
+}
+
+// principalKindName renders a principal as its evidence attributes.
+func principalKindName(p accesstypes.Principal) (kind, name string) {
+	if role, ok := p.Role(); ok {
+		return "Role", string(role)
+	}
+	user, _ := p.User()
+
+	return "User", string(user)
 }
 
 // Authenticated is the handler reports if the session is authenticated

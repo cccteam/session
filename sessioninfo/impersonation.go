@@ -83,6 +83,13 @@ const (
 	AttrImpersonationSessionID = "impersonation.session_id"
 	// AttrImpersonationSourceSessionID is the actor's session in the source application, when known.
 	AttrImpersonationSourceSessionID = "impersonation.source_session_id"
+
+	// AttrPrincipalKind is "User" or "Role": the kind of the principal a configured
+	// resolver chose for the request, stamped only when it differs from the default.
+	AttrPrincipalKind = "principal.kind"
+	// AttrPrincipal is the name of the principal a configured resolver chose for the
+	// request, stamped only when it differs from the default.
+	AttrPrincipal = "principal"
 )
 
 // Principal kinds as rendered for evidence and storage.
@@ -188,15 +195,25 @@ func ImpersonationFromCtx(ctx context.Context) (*Impersonation, bool) {
 }
 
 // PrincipalFromCtx returns the authorization subject of the session in the
-// context: the impersonation record's principal for an impersonated session,
-// otherwise the session user's own principal. Callers never branch on whether
-// the session is impersonated to obtain the subject.
+// context: the principal a configured resolver chose for this request when it
+// did; otherwise the impersonation record's principal for an impersonated
+// session; otherwise the session user's own principal. Callers never branch on
+// whether the session is impersonated, or on whether a resolver is configured,
+// to obtain the subject. It panics when no session is in the context, like
+// FromCtx.
 func PrincipalFromCtx(ctx context.Context) accesstypes.Principal {
-	if imp, ok := ImpersonationFromCtx(ctx); ok {
-		return imp.Principal
+	sess, ok := ctx.Value(CtxSessionInfo).(*SessionData)
+	if !ok {
+		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
+	}
+	if sess.Principal != (accesstypes.Principal{}) {
+		return sess.Principal
+	}
+	if sess.Impersonation != nil {
+		return sess.Impersonation.Principal
 	}
 
-	return accesstypes.UserPrincipal(accesstypes.User(FromCtx(ctx).Username))
+	return accesstypes.UserPrincipal(accesstypes.User(sess.Username))
 }
 
 // ActorFromCtx returns the real user behind the session in the context: the

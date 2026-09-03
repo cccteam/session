@@ -57,6 +57,36 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantActor:     "alice@example.com",
 		},
 		{
+			name: "a resolver's choice wins over the username",
+			ctx: context.WithValue(context.Background(), CtxSessionInfo, &SessionData{
+				SessionInfo: &SessionInfo{ID: sessionID, Username: "alice@example.com"},
+				Principal:   accesstypes.RolePrincipal("Editor"),
+			}),
+			wantPrincipal: accesstypes.RolePrincipal("Editor"),
+			wantActor:     "alice@example.com",
+		},
+		{
+			name: "a resolver's choice wins over a user-principal impersonation",
+			ctx: context.WithValue(context.Background(), CtxSessionInfo, &SessionData{
+				SessionInfo:   &SessionInfo{ID: sessionID, Username: "bob@partner.org"},
+				Impersonation: userImp,
+				Principal:     accesstypes.RolePrincipal("Editor"),
+			}),
+			wantImp:       userImp,
+			wantPrincipal: accesstypes.RolePrincipal("Editor"),
+			wantActor:     "alice@example.com",
+			wantMask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+			wantKind:      "User",
+			wantName:      "bob@partner.org",
+			wantAttrs: []Attribute{
+				{Key: AttrImpersonationActor, Value: "alice@example.com"},
+				{Key: AttrImpersonationPrincipalKind, Value: "User"},
+				{Key: AttrImpersonationPrincipal, Value: "bob@partner.org"},
+				{Key: AttrImpersonationMask, Value: "List,Read"},
+				{Key: AttrImpersonationSessionID, Value: sessionID.String()},
+			},
+		},
+		{
 			name:          "impersonated user, read-only",
 			ctx:           ctxWithSession("bob@partner.org", userImp),
 			wantImp:       userImp,
