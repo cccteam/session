@@ -25,6 +25,30 @@ All session types are generic over two data axes: `PasswordAuth[SessionData, Use
 application that uses neither instantiates with the `NoCustomData` sentinel:
 `session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
 
+## Schema
+
+The DDL for every table the library owns ships as golang-migrate files under
+`schema/spanner/` and `schema/postgresql/`: `migrations` (sessions and password-auth
+users), `oidc` (Azure OIDC), `oidc-google` (Google Workspace OIDC), and `impersonation`.
+
+**PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
+values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
+Earlier revisions of the DDL declared `timestamp without time zone`, which keeps the wall
+clock and drops the zone: a deployment on that type stays correct as long as every process
+writing to it runs in UTC, and such a deployment does not need to migrate. To migrate
+anyway, convert the columns and restart the application in the same window — pgx caches
+the parameter types of its prepared statements, so a live pool keeps writing wall-clock
+values (and fails one cached read per connection) until its connections are recycled:
+
+```sql
+-- Repeat for every time column created from the DDL (OIDCUsers/GoogleOIDCUsers
+-- CreatedAt and UpdatedAt, the impersonation table's StartedAt/ExpiresAt/EndedAt).
+-- 'UTC' names the zone the writing processes ran in.
+ALTER TABLE "Sessions"
+    ALTER COLUMN "CreatedAt" TYPE timestamptz USING "CreatedAt" AT TIME ZONE 'UTC',
+    ALTER COLUMN "UpdatedAt" TYPE timestamptz USING "UpdatedAt" AT TIME ZONE 'UTC';
+```
+
 ## OIDC role synchronization
 
 Role synchronization reconciles a user's application roles to the identity provider's

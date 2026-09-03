@@ -598,7 +598,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	}()
 
 	now := time.Now()
-	if _, err := txn.Exec(ctx, endRecords, username, now.UTC(), string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, endRecords, username, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if _, err := txn.Exec(ctx, query, username, now); err != nil {

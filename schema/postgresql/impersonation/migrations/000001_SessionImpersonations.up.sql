@@ -17,9 +17,9 @@ CREATE TABLE "SessionImpersonations"
     "PrincipalRole" character varying,
     "Mask" character varying,
     "Reason" character varying,
-    "StartedAt" timestamp without time zone NOT NULL,
-    "ExpiresAt" timestamp without time zone NOT NULL,
-    "EndedAt" timestamp without time zone,
+    "StartedAt" timestamp with time zone NOT NULL,
+    "ExpiresAt" timestamp with time zone NOT NULL,
+    "EndedAt" timestamp with time zone,
     "EndReason" character varying(16),
     CONSTRAINT "SessionImpersonations_pkey" PRIMARY KEY ("SessionId"),
     CONSTRAINT "SessionImpersonations_PrincipalKind_check" CHECK ("PrincipalKind" IN ('User', 'Role'))

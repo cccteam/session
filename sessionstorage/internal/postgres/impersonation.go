@@ -149,11 +149,9 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
-	// timestamp without time zone keeps the wall clock and drops the location, so
-	// every instant is written as UTC to read back as the same instant.
 	args := []any{
 		id, imp.ActorUsername, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUser, imp.PrincipalRole,
-		imp.Mask, imp.Reason, time.Now().UTC(), imp.ExpiresAt.UTC(),
+		imp.Mask, imp.Reason, time.Now(), imp.ExpiresAt,
 	}
 
 	if _, err := txn.Exec(ctx, query, args...); err != nil {
@@ -178,7 +176,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID c
 		SET "EndedAt" = $2, "EndReason" = $3
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 
-	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now().UTC(), reason); err != nil {
+	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now(), reason); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 
@@ -219,7 +217,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	if _, err := txn.Exec(ctx, expireSessions, actor, now); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecords, actor, now.UTC(), string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, endRecords, actor, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
