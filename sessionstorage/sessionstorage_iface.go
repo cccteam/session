@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
@@ -63,6 +64,11 @@ type BaseStore interface {
 	// by actor and ends their records with reason Revoked. It errors when no
 	// impersonation table is configured.
 	DestroyImpersonatedSessions(ctx context.Context, actor string) error
+	// ActiveImpersonations lists the impersonated sessions that are live, newest first:
+	// record not ended, hard cap not passed, session row not expired, and session
+	// activity after activeSince. q narrows the listing by actor and/or principal. It
+	// errors when no impersonation table is configured.
+	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error)
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
@@ -243,6 +249,10 @@ type db interface {
 	// DestroyImpersonatedSessions expires every live impersonated session established by actor
 	// and ends their records with reason Revoked.
 	DestroyImpersonatedSessions(ctx context.Context, actor string) error
+	// ActiveImpersonations lists live impersonation records joined to their session rows, newest first:
+	// record not ended, hard cap not passed, session not expired, session UpdatedAt after activeSince,
+	// narrowed by q's actor and/or principal.
+	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error)
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.

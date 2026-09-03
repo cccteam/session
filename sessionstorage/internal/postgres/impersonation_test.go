@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/google/go-cmp/cmp"
@@ -531,5 +532,87 @@ func TestSessionStorageDriver_DestroyAllUserSessions_EndsImpersonation(t *testin
 	_, otherReason := impersonationEnd(ctx, t, conn.Pool, impersonatedCarol)
 	if otherReason != nil {
 		t.Errorf("another user's record was ended: %q", *otherReason)
+	}
+}
+
+func TestSessionStorageDriver_ActiveImpersonations(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	conn, err := prepareDatabase(ctx, t, impersonationSchema)
+	if err != nil {
+		t.Fatalf("prepareDatabase() error = %v", err)
+	}
+	c := NewSessionStorageDriver(conn.Pool)
+	c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
+
+	now := time.Now()
+	insert := func(actor string, principal accesstypes.Principal, expiresAt, updatedAt time.Time) ccc.UUID {
+		t.Helper()
+		username := actor
+		if user, ok := principal.User(); ok {
+			username = string(user)
+		}
+		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, ExpiresAt: expiresAt})
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: username}
+		id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: username, CreatedAt: updatedAt, UpdatedAt: updatedAt}, req, imp)
+		if err != nil {
+			t.Fatalf("InsertImpersonatedSession() error = %v", err)
+		}
+		time.Sleep(2 * time.Millisecond) // StartedAt is the driver's clock; keep the order observable
+
+		return id
+	}
+
+	// The seeded records are all past their hard cap (2026-08-27) and never appear.
+	liveUser := insert("alice@example.com", accesstypes.UserPrincipal("bob@partner.org"), now.Add(time.Hour), now)
+	liveRole := insert("dave@example.com", accesstypes.RolePrincipal("Editor"), now.Add(time.Hour), now)
+	ended := insert("alice@example.com", accesstypes.UserPrincipal("carol@partner.org"), now.Add(time.Hour), now)
+	if err := c.EndImpersonation(ctx, ended, "Logout"); err != nil {
+		t.Fatalf("EndImpersonation() error = %v", err)
+	}
+	_ = insert("alice@example.com", accesstypes.UserPrincipal("erin@partner.org"), now.Add(-time.Minute), now) // hard cap passed
+	idle := insert("alice@example.com", accesstypes.RolePrincipal("Viewer"), now.Add(time.Hour), now.Add(-time.Hour))
+	expiredSession := insert("alice@example.com", accesstypes.UserPrincipal("frank@partner.org"), now.Add(time.Hour), now)
+	if _, err := conn.Exec(ctx, `UPDATE "Sessions" SET "Expired" = TRUE WHERE "Id" = $1`, expiredSession); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		activeSince time.Time
+		q           *sessioninfo.ImpersonationQuery
+		want        []ccc.UUID
+	}{
+		{name: "every live record, newest first; ended, capped, expired and idle excluded", activeSince: now.Add(-10 * time.Minute), want: []ccc.UUID{liveRole, liveUser}},
+		{name: "an idle session counts when activeSince reaches back far enough", activeSince: time.Time{}, want: []ccc.UUID{idle, liveRole, liveUser}},
+		{name: "narrowed by actor", activeSince: now.Add(-10 * time.Minute), q: &sessioninfo.ImpersonationQuery{Actor: "alice@example.com"}, want: []ccc.UUID{liveUser}},
+		{name: "narrowed by user principal", activeSince: now.Add(-10 * time.Minute), q: &sessioninfo.ImpersonationQuery{Principal: accesstypes.UserPrincipal("bob@partner.org")}, want: []ccc.UUID{liveUser}},
+		{name: "narrowed by role principal", activeSince: now.Add(-10 * time.Minute), q: &sessioninfo.ImpersonationQuery{Principal: accesstypes.RolePrincipal("Editor")}, want: []ccc.UUID{liveRole}},
+		{name: "actor and principal together", activeSince: now.Add(-10 * time.Minute), q: &sessioninfo.ImpersonationQuery{Actor: "dave@example.com", Principal: accesstypes.UserPrincipal("bob@partner.org")}, want: []ccc.UUID{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := c.ActiveImpersonations(ctx, tt.activeSince, tt.q)
+			if err != nil {
+				t.Fatalf("ActiveImpersonations() error = %v", err)
+			}
+			ids := make([]ccc.UUID, len(got))
+			for i, imp := range got {
+				ids[i] = imp.SessionID
+				if imp.ActorUsername == "" || imp.PrincipalKind == "" || imp.ExpiresAt.IsZero() {
+					t.Errorf("record %v not fully read: %+v", imp.SessionID, imp)
+				}
+			}
+			if diff := cmp.Diff(tt.want, ids); diff != "" {
+				t.Errorf("ActiveImpersonations() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	unconfigured := NewSessionStorageDriver(conn.Pool)
+	if _, err := unconfigured.ActiveImpersonations(ctx, now, nil); err == nil {
+		t.Error("ActiveImpersonations() without the configuration error = nil, want error")
 	}
 }

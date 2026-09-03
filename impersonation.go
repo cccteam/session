@@ -44,6 +44,10 @@ type ImpersonationRequest struct {
 	MaxDuration time.Duration
 }
 
+// ImpersonationQuery narrows an ActiveImpersonations listing; see
+// sessioninfo.ImpersonationQuery. The zero query lists every active impersonation.
+type ImpersonationQuery = sessioninfo.ImpersonationQuery
+
 // ImpersonationAuditHook receives every lifecycle event of an impersonated session.
 // For the Started event a returned error fails the establishment — the session is
 // destroyed and the caller sees the error — so an application that must persist
@@ -103,6 +107,21 @@ func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context,
 	return nil
 }
 
+// ActiveImpersonations lists the impersonated sessions that are live right now, newest
+// first — the admin surface's view of who is acting as whom. A session is active while
+// its record has not ended, its hard cap has not passed, its session row is not
+// expired, and it has seen activity within the idle session timeout. q narrows the
+// listing by actor and/or principal; nil lists every active impersonation. It errors
+// when the storage has no impersonation table.
+func (p *PasswordAuthAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	imps, err := p.passwordAuth.baseSession.ActiveImpersonations(ctx, q)
+	if err != nil {
+		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
+	}
+
+	return imps, nil
+}
+
 // StartImpersonatedSession establishes a session that operates as req.Principal on
 // behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model.
 //
@@ -126,6 +145,21 @@ func (p *PreauthAPI[T]) DestroyImpersonatedSessions(ctx context.Context, actor s
 	}
 
 	return nil
+}
+
+// ActiveImpersonations lists the impersonated sessions that are live right now, newest
+// first — the admin surface's view of who is acting as whom. A session is active while
+// its record has not ended, its hard cap has not passed, its session row is not
+// expired, and it has seen activity within the idle session timeout. q narrows the
+// listing by actor and/or principal; nil lists every active impersonation. It errors
+// when the storage has no impersonation table.
+func (p *PreauthAPI[T]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	imps, err := p.preauth.baseSession.ActiveImpersonations(ctx, q)
+	if err != nil {
+		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
+	}
+
+	return imps, nil
 }
 
 // StartImpersonatedSession establishes a session that operates as req.Principal on
@@ -157,6 +191,21 @@ func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, ac
 	return nil
 }
 
+// ActiveImpersonations lists the impersonated sessions that are live right now, newest
+// first — the admin surface's view of who is acting as whom. A session is active while
+// its record has not ended, its hard cap has not passed, its session row is not
+// expired, and it has seen activity within the idle session timeout. q narrows the
+// listing by actor and/or principal; nil lists every active impersonation. It errors
+// when the storage has no impersonation table.
+func (p *OIDCAzureAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	imps, err := p.oidc.baseSession.ActiveImpersonations(ctx, q)
+	if err != nil {
+		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
+	}
+
+	return imps, nil
+}
+
 // StartImpersonatedSession establishes a session that operates as req.Principal on
 // behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model and
 // OIDCAzureAPI.StartImpersonatedSession for what an impersonated OIDC session does not
@@ -180,6 +229,21 @@ func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, a
 	}
 
 	return nil
+}
+
+// ActiveImpersonations lists the impersonated sessions that are live right now, newest
+// first — the admin surface's view of who is acting as whom. A session is active while
+// its record has not ended, its hard cap has not passed, its session row is not
+// expired, and it has seen activity within the idle session timeout. q narrows the
+// listing by actor and/or principal; nil lists every active impersonation. It errors
+// when the storage has no impersonation table.
+func (p *OIDCGoogleAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	imps, err := p.oidc.baseSession.ActiveImpersonations(ctx, q)
+	if err != nil {
+		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
+	}
+
+	return imps, nil
 }
 
 // userIdentityResolver resolves the effective identity an impersonated session is

@@ -299,3 +299,70 @@ var (
 )
 
 func strPtr(s string) *string { return &s }
+
+func Test_sessionStorage_ActiveImpersonations(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
+	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	activeSince := started.Add(-10 * time.Minute)
+	q := &sessioninfo.ImpersonationQuery{Actor: "alice"}
+
+	tests := []struct {
+		name    string
+		prepare func(*Mockdb)
+		want    []*sessioninfo.Impersonation
+		wantErr bool
+	}{
+		{
+			name: "maps every row and passes the cutoff and query through",
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().ActiveImpersonations(gomock.Any(), activeSince, q).Return([]*dbtype.Impersonation{{
+					SessionID:     sessionID,
+					ActorUsername: "alice",
+					PrincipalKind: dbtype.PrincipalKindRole,
+					PrincipalRole: strPtr("Editor"),
+					StartedAt:     started,
+					ExpiresAt:     started.Add(time.Hour),
+				}}, nil)
+			},
+			want: []*sessioninfo.Impersonation{{
+				SessionID: sessionID,
+				Actor:     "alice",
+				Principal: accesstypes.RolePrincipal("Editor"),
+				StartedAt: started,
+				ExpiresAt: started.Add(time.Hour),
+			}},
+		},
+		{
+			name: "no rows is an empty listing",
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().ActiveImpersonations(gomock.Any(), activeSince, q).Return([]*dbtype.Impersonation{}, nil)
+			},
+			want: []*sessioninfo.Impersonation{},
+		},
+		{
+			name: "propagates the driver error",
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().ActiveImpersonations(gomock.Any(), activeSince, q).Return(nil, errors.New("not configured"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := NewMockdb(ctrl)
+			tt.prepare(mockDB)
+
+			got, err := (&sessionStorage{db: mockDB}).ActiveImpersonations(context.Background(), activeSince, q)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ActiveImpersonations() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if diff := cmp.Diff(tt.want, got, principalComparer, maskComparer); diff != "" {
+				t.Errorf("ActiveImpersonations() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

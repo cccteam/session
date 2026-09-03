@@ -851,6 +851,16 @@ Everything an impersonated session touches names the actor and the principal:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
   when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+- **Listing.** `API().ActiveImpersonations(ctx, q)`, on every session type, lists the
+  impersonated sessions that are live right now, newest first — the admin surface's view
+  of who is acting as whom. *Active* means: the record has not ended, the hard cap has
+  not passed, the session row is not expired, and the session has seen activity within
+  the idle session timeout. `q` (`*session.ImpersonationQuery`) narrows by `Actor`
+  and/or `Principal`; `nil` lists everything.
+
+  ```go
+  imps, err := auth.API().ActiveImpersonations(ctx, &session.ImpersonationQuery{Actor: "alice@example.com"})
+  ```
 - **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
   TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing

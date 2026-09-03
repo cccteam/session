@@ -869,3 +869,91 @@ func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
 	var _ OIDCAzureOption = opt
 	var _ OIDCGoogleOption = opt
 }
+
+func TestSessionAPIs_ActiveImpersonations(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+	listed := []*sessioninfo.Impersonation{{SessionID: sessionID, Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")}}
+	q := &ImpersonationQuery{Actor: "alice"}
+
+	// expectListing arms the storage: the cutoff is now minus the idle session timeout,
+	// and the query (nil normalized to the zero query) passes through.
+	expectListing := func(enabled, active *gomock.Call, timeout time.Duration, wantQuery *ImpersonationQuery) {
+		enabled.Return(true)
+		active.DoAndReturn(func(_ context.Context, activeSince time.Time, gotQuery *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+			if drift := time.Since(activeSince.Add(timeout)); drift < 0 || drift > time.Minute {
+				return nil, errors.Newf("activeSince = %v, want about now - %v", activeSince, timeout)
+			}
+			if gotQuery == nil || *gotQuery != *wantQuery {
+				return nil, errors.Newf("query = %+v, want %+v", gotQuery, wantQuery)
+			}
+
+			return listed, nil
+		})
+	}
+
+	t.Run("Preauth refuses when not configured, normalizes a nil query and lists", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newPreauthStoreMock(ctrl)
+		storage.EXPECT().ImpersonationEnabled().Return(false)
+		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), 15*time.Minute, &ImpersonationQuery{})
+
+		p, err := NewPreauth[NoCustomData](storage, cookieKey, WithSessionTimeout(15*time.Minute))
+		if err != nil {
+			t.Fatalf("NewPreauth() error = %v", err)
+		}
+		if _, err := p.API().ActiveImpersonations(context.Background(), nil); err == nil {
+			t.Error("ActiveImpersonations() error = nil, want not configured")
+		}
+		got, err := p.API().ActiveImpersonations(context.Background(), nil)
+		if err != nil {
+			t.Fatalf("ActiveImpersonations() error = %v", err)
+		}
+		principals := cmp.Comparer(func(a, b accesstypes.Principal) bool { return a == b })
+		masks := cmp.Comparer(func(a, b accesstypes.PermissionMask) bool { return a.String() == b.String() })
+		if diff := cmp.Diff(listed, got, principals, masks); diff != "" {
+			t.Errorf("ActiveImpersonations() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("PasswordAuth passes the query through", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newPasswordStoreMock(ctrl)
+		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), defaultSessionTimeout, q)
+
+		p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
+		if err != nil {
+			t.Fatalf("NewPasswordAuth() error = %v", err)
+		}
+		if _, err := p.API().ActiveImpersonations(context.Background(), q); err != nil {
+			t.Errorf("ActiveImpersonations() error = %v", err)
+		}
+	})
+
+	t.Run("OIDC Azure delegates", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newOIDCStoreMock(ctrl)
+		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), time.Minute, q)
+
+		a := &OIDCAzure[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage, SessionTimeout: time.Minute}}
+		if _, err := a.API().ActiveImpersonations(context.Background(), q); err != nil {
+			t.Errorf("ActiveImpersonations() error = %v", err)
+		}
+	})
+
+	t.Run("OIDC Google delegates", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newGoogleOIDCStoreMock(ctrl)
+		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), time.Minute, q)
+
+		a := &OIDCGoogle[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage, SessionTimeout: time.Minute}}
+		if _, err := a.API().ActiveImpersonations(context.Background(), q); err != nil {
+			t.Errorf("ActiveImpersonations() error = %v", err)
+		}
+	})
+}

@@ -278,3 +278,70 @@ func (s *SessionStorageDriver) endImpersonationIfConfigured(ctx context.Context,
 
 	return s.EndImpersonation(ctx, sessionID, string(reason))
 }
+
+// ActiveImpersonations lists live impersonation records joined to their session
+// rows, newest first: record not ended, hard cap not passed, session not expired,
+// and session UpdatedAt after activeSince; q narrows by actor and/or principal.
+func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.impersonation == nil {
+		return nil, errors.New("impersonation is not configured on the storage")
+	}
+	if q == nil {
+		q = &sessioninfo.ImpersonationQuery{}
+	}
+
+	var columns strings.Builder
+	fmt.Fprintf(&columns, `i.%s`, pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+	for _, col := range impersonationColumns {
+		fmt.Fprintf(&columns, `, i.%s`, pgx.Identifier{col}.Sanitize())
+	}
+
+	args := []any{time.Now(), activeSince}
+	var filters strings.Builder
+	if q.Actor != "" {
+		args = append(args, q.Actor)
+		fmt.Fprintf(&filters, ` AND i."ActorUsername" = $%d`, len(args))
+	}
+	if role, ok := q.Principal.Role(); ok {
+		args = append(args, dbtype.PrincipalKindRole, string(role))
+		fmt.Fprintf(&filters, ` AND i."PrincipalKind" = $%d AND i."PrincipalRole" = $%d`, len(args)-1, len(args))
+	} else if user, _ := q.Principal.User(); user != "" {
+		args = append(args, dbtype.PrincipalKindUser, string(user))
+		fmt.Fprintf(&filters, ` AND i."PrincipalKind" = $%d AND i."PrincipalUser" = $%d`, len(args)-1, len(args))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM %s i
+		JOIN "%s" s ON s."Id" = i."SessionId"
+		WHERE i."EndedAt" IS NULL AND i."ExpiresAt" > $1 AND s."Expired" = FALSE AND s."UpdatedAt" > $2%s
+		ORDER BY i."StartedAt" DESC`, columns.String(), pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName, filters.String())
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "Queryer.Query()")
+	}
+	defer rows.Close()
+
+	imps := []*dbtype.Impersonation{}
+	for rows.Next() {
+		scan := newImpersonationScan(ccc.NilUUID)
+		dests := append([]any{&scan.imp.SessionID}, scan.dests()...)
+		if err := rows.Scan(dests...); err != nil {
+			return nil, errors.Wrap(err, "rows.Scan()")
+		}
+		imp, err := scan.row()
+		if err != nil {
+			return nil, err
+		}
+		imps = append(imps, imp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "rows.Err()")
+	}
+
+	return imps, nil
+}

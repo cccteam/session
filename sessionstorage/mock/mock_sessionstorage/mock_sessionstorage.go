@@ -13,6 +13,7 @@ import (
 	context "context"
 	json "encoding/json"
 	reflect "reflect"
+	time "time"
 
 	ccc "github.com/cccteam/ccc"
 	securehash "github.com/cccteam/ccc/securehash"
@@ -43,6 +44,21 @@ func NewMockBaseStore(ctrl *gomock.Controller) *MockBaseStore {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockBaseStore) EXPECT() *MockBaseStoreMockRecorder {
 	return m.recorder
+}
+
+// ActiveImpersonations mocks base method.
+func (m *MockBaseStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockBaseStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockBaseStore)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateImpersonatedSession mocks base method.
@@ -273,6 +289,21 @@ func NewMockPreauthStore(ctrl *gomock.Controller) *MockPreauthStore {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockPreauthStore) EXPECT() *MockPreauthStoreMockRecorder {
 	return m.recorder
+}
+
+// ActiveImpersonations mocks base method.
+func (m *MockPreauthStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockPreauthStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockPreauthStore)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateImpersonatedSession mocks base method.
@@ -546,6 +577,21 @@ func (m *MockPasswordAuthStore) ActivateUser(ctx context.Context, id ccc.UUID) e
 func (mr *MockPasswordAuthStoreMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).ActivateUser), ctx, id)
+}
+
+// ActiveImpersonations mocks base method.
+func (m *MockPasswordAuthStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockPasswordAuthStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockPasswordAuthStore)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateImpersonatedSession mocks base method.
@@ -952,6 +998,21 @@ func (m *MockOIDCStore) EXPECT() *MockOIDCStoreMockRecorder {
 	return m.recorder
 }
 
+// ActiveImpersonations mocks base method.
+func (m *MockOIDCStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockOIDCStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockOIDCStore)(nil).ActiveImpersonations), ctx, activeSince, q)
+}
+
 // CreateImpersonatedSession mocks base method.
 func (m *MockOIDCStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -1268,6 +1329,21 @@ func NewMockGoogleOIDCStore(ctrl *gomock.Controller) *MockGoogleOIDCStore {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockGoogleOIDCStore) EXPECT() *MockGoogleOIDCStoreMockRecorder {
 	return m.recorder
+}
+
+// ActiveImpersonations mocks base method.
+func (m *MockGoogleOIDCStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockGoogleOIDCStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockGoogleOIDCStore)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateImpersonatedSession mocks base method.

@@ -328,3 +328,71 @@ func nullStringPtr(s spanner.NullString) *string {
 
 	return &v
 }
+
+// ActiveImpersonations lists live impersonation records joined to their session
+// rows, newest first: record not ended, hard cap not passed, session not expired,
+// and session UpdatedAt after activeSince; q narrows by actor and/or principal.
+func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.impersonation == nil {
+		return nil, errors.New("impersonation is not configured on the storage")
+	}
+	if q == nil {
+		q = &sessioninfo.ImpersonationQuery{}
+	}
+
+	var columns strings.Builder
+	fmt.Fprintf(&columns, "i.%s", dbtype.SessionIDColumn)
+	for _, col := range impersonationColumns {
+		fmt.Fprintf(&columns, ", i.%s", col)
+	}
+
+	params := map[string]any{"now": time.Now(), "activeSince": activeSince}
+	var filters strings.Builder
+	if q.Actor != "" {
+		params["actor"] = q.Actor
+		filters.WriteString(" AND i.ActorUsername = @actor")
+	}
+	if role, ok := q.Principal.Role(); ok {
+		params["kind"], params["principal"] = dbtype.PrincipalKindRole, string(role)
+		filters.WriteString(" AND i.PrincipalKind = @kind AND i.PrincipalRole = @principal")
+	} else if user, _ := q.Principal.User(); user != "" {
+		params["kind"], params["principal"] = dbtype.PrincipalKindUser, string(user)
+		filters.WriteString(" AND i.PrincipalKind = @kind AND i.PrincipalUser = @principal")
+	}
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+			SELECT %s
+			FROM %s i
+			JOIN %s s ON s.Id = i.SessionId
+			WHERE i.EndedAt IS NULL AND i.ExpiresAt > @now AND s.Expired = FALSE AND s.UpdatedAt > @activeSince%s
+			ORDER BY i.StartedAt DESC
+	`, columns.String(), s.impersonation.TableName, s.sessionTableName, filters.String()))
+	stmt.Params = params
+
+	imps := []*dbtype.Impersonation{}
+	err := s.spanner.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var sessionID string
+		if err := row.Column(0, &sessionID); err != nil {
+			return errors.Wrapf(err, "row.Column(0/%s)", dbtype.SessionIDColumn)
+		}
+		id, err := ccc.UUIDFromString(sessionID)
+		if err != nil {
+			return errors.Wrap(err, "ccc.UUIDFromString()")
+		}
+		imp, err := readImpersonation(row, 0, id)
+		if err != nil {
+			return err
+		}
+		imps = append(imps, imp)
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return imps, nil
+}

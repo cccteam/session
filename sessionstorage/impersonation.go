@@ -141,3 +141,23 @@ func (s *sessionStorage) DestroyImpersonatedSessions(ctx context.Context, actor 
 
 	return nil
 }
+
+// ActiveImpersonations lists the impersonated sessions that are live, newest first:
+// record not ended, hard cap not passed, session row not expired, and session activity
+// after activeSince; q narrows the listing by actor and/or principal.
+func (s *sessionStorage) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	rows, err := s.db.ActiveImpersonations(ctx, activeSince, q)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.ActiveImpersonations()")
+	}
+
+	imps := make([]*sessioninfo.Impersonation, len(rows))
+	for i, row := range rows {
+		imps[i] = row.ToSessionInfo()
+	}
+
+	return imps, nil
+}

@@ -242,3 +242,13 @@ func MaskFromCtx(ctx context.Context) accesstypes.PermissionMask {
 
 	return accesstypes.PermissionMask{}
 }
+
+// ImpersonationQuery narrows an active-impersonation listing. The zero query lists
+// every active impersonated session; each set field is a required match.
+type ImpersonationQuery struct {
+	// Actor limits the listing to sessions established by this actor.
+	Actor string
+	// Principal limits the listing to sessions operating as this principal (a user or
+	// a role). The zero Principal matches any.
+	Principal accesstypes.Principal
+}

@@ -166,6 +166,30 @@ func (s *BaseSession) EmitImpersonationEvent(ctx context.Context, kind sessionin
 	return nil
 }
 
+// ActiveImpersonations lists the impersonated sessions that are live right now,
+// newest first: their record has not ended, their hard cap has not passed, their
+// session row is not expired, and the session has seen activity within the idle
+// session timeout. q narrows the listing; nil lists every active impersonation. It
+// errors when the storage has no impersonation table.
+func (s *BaseSession) ActiveImpersonations(ctx context.Context, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.Storage.ImpersonationEnabled() {
+		return nil, ErrImpersonationNotConfigured
+	}
+	if q == nil {
+		q = &sessioninfo.ImpersonationQuery{}
+	}
+
+	imps, err := s.Storage.ActiveImpersonations(ctx, time.Now().Add(-s.SessionTimeout), q)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.BaseStore.ActiveImpersonations()")
+	}
+
+	return imps, nil
+}
+
 // EnforceReadOnlyMask refuses non-safe requests (anything but GET, HEAD, OPTIONS and
 // TRACE) from an impersonated session whose mask is read-only — a mask allowing nothing
 // beyond List and Read — with 403 Forbidden, evidenced as a WriteBlocked event. Every

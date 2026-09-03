@@ -12,6 +12,7 @@ package sessionstorage
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	ccc "github.com/cccteam/ccc"
 	securehash "github.com/cccteam/ccc/securehash"
@@ -56,6 +57,21 @@ func (m *Mockdb) ActivateUser(ctx context.Context, id ccc.UUID) error {
 func (mr *MockdbMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*Mockdb)(nil).ActivateUser), ctx, id)
+}
+
+// ActiveImpersonations mocks base method.
+func (m *Mockdb) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*dbtype.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockdbMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*Mockdb)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateUser mocks base method.
