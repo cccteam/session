@@ -23,9 +23,15 @@ type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error)
 // BaseSession implements the shared features for all session implementations
 type BaseSession struct {
 	SessionTimeout time.Duration
-	Handle         LogHandler
-	Storage        sessionstorage.BaseStore
-	CookieHandler  internalcookie.Handler
+	// ImpersonationTimeout is the hard cap on an impersonated session's lifetime,
+	// fixed when the session is established; zero selects the library default.
+	ImpersonationTimeout time.Duration
+	// ImpersonationAudit, when set, receives every lifecycle event of an impersonated
+	// session (see sessioninfo.ImpersonationEvent).
+	ImpersonationAudit func(ctx context.Context, event sessioninfo.ImpersonationEvent) error
+	Handle             LogHandler
+	Storage            sessionstorage.BaseStore
+	CookieHandler      internalcookie.Handler
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
@@ -121,8 +127,10 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 		return ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 	}
 
-	// Check for expiration
-	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.SessionTimeout {
+	// Check for expiration: the idle timeout, and an impersonated session's hard cap.
+	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.SessionTimeout || impersonationExpired(sessInfo) {
+		s.endImpersonation(ctx, sessInfo, sessioninfo.ImpersonationEndedByExpiry)
+
 		return ctx, httpio.NewUnauthorizedMessage("session expired")
 	}
 
@@ -136,19 +144,26 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 	// Store session info in context
 	ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessInfo)
 
-	// Add user to logging context
-	l := logger.FromCtx(ctx).
-		AddRequestAttribute("username", sessInfo.Username).
-		WithAttributes().AddAttribute("username", sessInfo.Username).Logger()
+	// Add user to logging context — and, for an impersonated session, the evidence
+	// attributes on the request entry and every line logged within it.
+	l := logger.FromCtx(ctx).AddRequestAttribute("username", sessInfo.Username)
+	attrs := l.WithAttributes().AddAttribute("username", sessInfo.Username)
+	if imp := sessInfo.Impersonation; imp != nil {
+		for _, a := range imp.Attributes() {
+			l = l.AddRequestAttribute(a.Key, a.Value)
+			attrs = attrs.AddAttribute(a.Key, a.Value)
+		}
+	}
 
-	return logger.NewCtx(ctx, l), nil
+	return logger.NewCtx(ctx, attrs.Logger()), nil
 }
 
 // Authenticated is the handler reports if the session is authenticated
 func (s *BaseSession) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool   `json:"authenticated"`
-		Username      string `json:"username"`
+		Authenticated bool                   `json:"authenticated"`
+		Username      string                 `json:"username"`
+		Impersonation *ImpersonationResponse `json:"impersonation,omitempty"`
 	}
 
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -165,11 +180,13 @@ func (s *BaseSession) Authenticated() http.HandlerFunc {
 		}
 
 		sessInfo := sessioninfo.FromCtx(ctx)
+		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 
 		// set response values
 		res := response{
 			Authenticated: true,
 			Username:      sessInfo.Username,
+			Impersonation: NewImpersonationResponse(imp),
 		}
 
 		return httpio.NewEncoder(w).Ok(res)
@@ -182,8 +199,7 @@ func (s *BaseSession) Logout() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		// Destroy session in database
-		if err := s.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
+		if err := s.LogoutAPI(ctx); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 

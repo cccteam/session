@@ -646,4 +646,128 @@ session creation, and a `nil` hook is valid (write-API-only user data).
 | `UpdateCustomUserData` for a user ID that doesn't exist | Not-found error; nothing written |
 | User has no custom row | Not a failure: reads and RMW yield a zero-value `U` |
 
+## Impersonated sessions
+
+An impersonated session operates as a principal other than the person who
+authenticated: as another **user** (support staff seeing the application exactly as
+that user does, usually read-only) or as a **role** (an administrator working under a
+role chosen for the session). Password auth supports both.
+
+The model rests on two identities that are never conflated:
+
+- **Actor** — who authenticated. Constant for the session's life; the identity audit
+  and attribution always name.
+- **Principal** — what permission checks evaluate against
+  (`accesstypes.UserPrincipal` or `accesstypes.RolePrincipal`).
+
+**A session is a session.** Once established, an impersonated session flows through
+`ValidateSession`, `sessioninfo`, custom session data and every handler exactly as an
+ordinary session does. The session's `Username` is its *effective identity*: the
+impersonated user for a user principal (so every consumer sees precisely what that user
+would see), or the actor for a role principal (nobody's identity is borrowed). The
+**impersonation record** — not the username — is what marks the session as
+impersonated, and only the way the session is *established* is new.
+
+### Enabling
+
+Create the record table from the shipped DDL
+(`schema/{spanner,postgresql}/impersonation/migrations`) and attach it to the storage.
+The table deliberately has **no foreign key to the session table**: the record is
+evidence and outlives the session; retention is the application's policy.
+
+```go
+imp, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
+
+auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
+    sessionstorage.NewSpannerPasswordAuth(client,
+        sessionstorage.WithSpannerCustomSessionData(sessCfg),
+        sessionstorage.WithImpersonation(imp)),
+    cookieKey,
+    session.WithImpersonationTimeout(time.Hour),        // hard cap; default one hour
+    session.WithImpersonationAudit(func(ctx context.Context, e sessioninfo.ImpersonationEvent) error {
+        return auditTrail.Record(ctx, e)                 // Started, Ended, IdentityOperationBlocked
+    }),
+)
+```
+
+Without `WithImpersonation` nothing changes: no session is ever impersonated and the
+impersonation APIs return a configuration error.
+
+### Establishing a session
+
+The establishing call runs in the *target* application's session API, typically from a
+server-to-server handoff (an admin application minting a session in a partner portal):
+
+```go
+// Support views bob's portal, read-only, for an hour at most.
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:      "alice@example.com",
+    ActorRealm: "admin-portal",
+    Principal:  accesstypes.UserPrincipal("bob@partner.org"),
+    Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+    Reason:     "ticket JRN-123",
+})
+
+// An administrator works the partner portal under a role.
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:     "alice@example.com",
+    Principal: accesstypes.RolePrincipal("PartnerViewer"),
+}, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
+```
+
+The session row and the record are written in one transaction; the cookie is set only
+after the `Started` event has been delivered (a failing audit hook destroys the session
+and fails the call). Refused: a missing actor or principal, a caller that is itself an
+impersonated session (no chaining), and a user principal naming a missing or disabled
+user. *Who may impersonate whom* is the application's guard — the library records what
+happened.
+
+### What the session carries
+
+Every validated request exposes the record without branching on whether the session is
+impersonated:
+
+```go
+principal := sessioninfo.PrincipalFromCtx(ctx) // UserPrincipal(username) for an ordinary session
+actor     := sessioninfo.ActorFromCtx(ctx)     // == Username unless impersonated
+mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonated
+imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
+```
+
+A permission check honors the mask by asking it before asking policy —
+`sessioninfo.MaskFromCtx(ctx).Allows(perm)` — and picks the check by the principal's
+kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forgetting the
+mask fails *open*, so prefer a shared implementation over hand-rolling it per
+application.
+
+### Evidence
+
+Everything an impersonated session touches names the actor and the principal:
+
+| Evidence | Where |
+| --- | --- |
+| The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
+| `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
+| `Started` / `Ended` / `IdentityOperationBlocked` events | Structured log lines, plus the `WithImpersonationAudit` hook |
+| The establishing call's own log entry | The source application's request log |
+| `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
+
+### Lifecycle and guards
+
+- **Hard cap.** `ExpiresAt` is fixed at establishment (`WithImpersonationTimeout`,
+  default one hour, shortened per call by `MaxDuration`); idle renewal never extends past
+  it. The idle session timeout applies independently.
+- **Ending.** Logout, the hard cap, idle expiry, and `DestroyAllUserSessions` all end
+  the record with a reason (`Logout`, `Expired`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`
+  is the offboarding and incident tool: it expires every live impersonated session an
+  actor established.
+- **Validation.** A user principal's record is looked up like any session's — a disabled
+  impersonated user ends the session. A role principal has no local user: no record is
+  looked up and `UserFromCtx` carries the actor's username with the zero ID, so
+  self-referential checks (cannot delete yourself) go inert, correctly.
+- **Identity operations.** The library's own handlers refuse under impersonation:
+  `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
+  user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
+  when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+
 ##### Created and maintained by the CCC team.

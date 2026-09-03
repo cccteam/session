@@ -23,9 +23,14 @@ type SessionInfo struct {
 // CustomData is nil when no custom session data configuration is attached to the
 // storage. When one is attached, it holds a *T (the configuration's struct type); a
 // session without a custom data row yields a zero-value *T.
+//
+// Impersonation is nil for a session that is not impersonated (including every
+// session when the storage has no impersonation configuration); consumers read it
+// through ImpersonationFromCtx, PrincipalFromCtx, ActorFromCtx and MaskFromCtx.
 type SessionData struct {
 	*SessionInfo
-	CustomData any
+	CustomData    any
+	Impersonation *Impersonation
 }
 
 // UserInfo struct contains information about a user

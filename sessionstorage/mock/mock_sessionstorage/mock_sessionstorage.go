@@ -87,6 +87,34 @@ func (mr *MockBaseStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockBaseStore)(nil).DestroySession), ctx, sessionID)
 }
 
+// EndImpersonation mocks base method.
+func (m *MockBaseStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockBaseStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockBaseStore)(nil).EndImpersonation), ctx, sessionID, reason)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *MockBaseStore) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockBaseStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockBaseStore)(nil).ImpersonationEnabled))
+}
+
 // OIDCUsersEnabled mocks base method.
 func (m *MockBaseStore) OIDCUsersEnabled() bool {
 	m.ctrl.T.Helper()
@@ -274,6 +302,34 @@ func (mr *MockPreauthStoreMockRecorder) DestroySession(ctx, sessionID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPreauthStore)(nil).DestroySession), ctx, sessionID)
 }
 
+// EndImpersonation mocks base method.
+func (m *MockPreauthStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockPreauthStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockPreauthStore)(nil).EndImpersonation), ctx, sessionID, reason)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *MockPreauthStore) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockPreauthStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockPreauthStore)(nil).ImpersonationEnabled))
+}
+
 // NewSession mocks base method.
 func (m *MockPreauthStore) NewSession(ctx context.Context, username string, customData any) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -434,6 +490,21 @@ func (mr *MockPasswordAuthStoreMockRecorder) ActivateUser(ctx, id any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockPasswordAuthStore)(nil).ActivateUser), ctx, id)
 }
 
+// CreateImpersonatedSession mocks base method.
+func (m *MockPasswordAuthStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
+func (mr *MockPasswordAuthStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockPasswordAuthStore)(nil).CreateImpersonatedSession), ctx, req, imp)
+}
+
 // CreateSession mocks base method.
 func (m *MockPasswordAuthStore) CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -549,6 +620,20 @@ func (mr *MockPasswordAuthStoreMockRecorder) DestroyAllUserSessions(ctx, usernam
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroyAllUserSessions), ctx, username)
 }
 
+// DestroyImpersonatedSessions mocks base method.
+func (m *MockPasswordAuthStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockPasswordAuthStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroyImpersonatedSessions), ctx, actor)
+}
+
 // DestroySession mocks base method.
 func (m *MockPasswordAuthStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -561,6 +646,34 @@ func (m *MockPasswordAuthStore) DestroySession(ctx context.Context, sessionID cc
 func (mr *MockPasswordAuthStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockPasswordAuthStore)(nil).DestroySession), ctx, sessionID)
+}
+
+// EndImpersonation mocks base method.
+func (m *MockPasswordAuthStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockPasswordAuthStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockPasswordAuthStore)(nil).EndImpersonation), ctx, sessionID, reason)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *MockPasswordAuthStore) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockPasswordAuthStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockPasswordAuthStore)(nil).ImpersonationEnabled))
 }
 
 // NewSession mocks base method.
@@ -852,6 +965,34 @@ func (mr *MockOIDCStoreMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*MockOIDCStore)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
+// EndImpersonation mocks base method.
+func (m *MockOIDCStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockOIDCStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockOIDCStore)(nil).EndImpersonation), ctx, sessionID, reason)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *MockOIDCStore) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockOIDCStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockOIDCStore)(nil).ImpersonationEnabled))
+}
+
 // NewSession mocks base method.
 func (m *MockOIDCStore) NewSession(ctx context.Context, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -1099,6 +1240,20 @@ func (mr *MockGoogleOIDCStoreMockRecorder) DestroySession(ctx, sessionID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).DestroySession), ctx, sessionID)
 }
 
+// EndImpersonation mocks base method.
+func (m *MockGoogleOIDCStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockGoogleOIDCStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockGoogleOIDCStore)(nil).EndImpersonation), ctx, sessionID, reason)
+}
+
 // GoogleOIDCUser mocks base method.
 func (m *MockGoogleOIDCStore) GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*sessionstorage.GoogleOIDCUser, error) {
 	m.ctrl.T.Helper()
@@ -1127,6 +1282,20 @@ func (m *MockGoogleOIDCStore) GoogleOIDCUserBySub(ctx context.Context, sub strin
 func (mr *MockGoogleOIDCStoreMockRecorder) GoogleOIDCUserBySub(ctx, sub any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoogleOIDCUserBySub", reflect.TypeOf((*MockGoogleOIDCStore)(nil).GoogleOIDCUserBySub), ctx, sub)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *MockGoogleOIDCStore) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockGoogleOIDCStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockGoogleOIDCStore)(nil).ImpersonationEnabled))
 }
 
 // NewSession mocks base method.

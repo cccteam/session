@@ -33,6 +33,7 @@ type SessionStorageDriver struct {
 	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
+	impersonation     *ImpersonationConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -91,7 +92,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	session := &dbtype.Session{}
 	baseDests := []any{&session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired}
 
-	if s.customData == nil {
+	if s.customData == nil && s.impersonation == nil {
 		if err := rows.Scan(baseDests...); err != nil {
 			return nil, errors.Wrap(err, "rows.Scan()")
 		}
@@ -99,44 +100,86 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		return &dbtype.SessionData{Session: session}, nil
 	}
 
-	// Phase 1: scan base columns plus the c.SessionId row-presence marker, with
-	// NULL-safe throwaway destinations for the custom columns.
-	columns := s.customData.Codec.Columns()
-	var marker any
-	scanDests := make([]any, 0, len(baseDests)+1+len(columns))
-	scanDests = append(scanDests, baseDests...)
-	scanDests = append(scanDests, &marker)
-	for range columns {
-		scanDests = append(scanDests, new(any))
-	}
-	if err := rows.Scan(scanDests...); err != nil {
+	// Phase 1: scan base columns plus each joined row's SessionId row-presence
+	// marker, with NULL-safe throwaway destinations for the joined columns.
+	var customMarker, impMarker any
+	if err := rows.Scan(s.markerScanDests(baseDests, &customMarker, &impMarker)...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
 
+	// Phase 2: re-scan the same buffered row, this time into typed destinations for
+	// the joined rows that exist (pgx re-plans per destination, converting NULL-free
+	// values into the typed fields); absent rows keep their throwaways.
 	sessData := &dbtype.SessionData{Session: session}
-
-	if marker == nil {
-		// LEFT JOIN found no custom data row: zero-value *T.
-		sessData.CustomData = s.customData.Codec.NewStruct()
-
-		return sessData, nil
-	}
-
-	// Phase 2: re-scan the same buffered row, this time into T's fields (pgx
-	// re-plans per destination, converting NULL-free values into the typed fields).
-	data := s.customData.Codec.NewStruct()
-	fieldAddrs, err := s.customData.Codec.FieldAddrs(data)
+	scanDests, impScan, err := s.typedScanDests(baseDests, sessData, customMarker, impMarker)
 	if err != nil {
-		return nil, errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+		return nil, err
 	}
-	scanDests = scanDests[:len(baseDests)+1]
-	scanDests = append(scanDests, fieldAddrs...)
 	if err := rows.Scan(scanDests...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
-	sessData.CustomData = data
+
+	if impScan != nil {
+		imp, err := impScan.row()
+		if err != nil {
+			return nil, err
+		}
+		sessData.Impersonation = imp
+	}
 
 	return sessData, nil
+}
+
+// markerScanDests returns the phase-one scan destinations: the base columns, then
+// for each configured join its SessionId marker followed by throwaways.
+func (s *SessionStorageDriver) markerScanDests(baseDests []any, customMarker, impMarker *any) []any {
+	dests := make([]any, 0, len(baseDests)+2+len(impersonationColumns))
+	dests = append(dests, baseDests...)
+	if s.customData != nil {
+		dests = append(dests, customMarker)
+		dests = append(dests, throwaways(len(s.customData.Codec.Columns()))...)
+	}
+	if s.impersonation != nil {
+		dests = append(dests, impMarker)
+		dests = append(dests, throwaways(len(impersonationColumns))...)
+	}
+
+	return dests
+}
+
+// typedScanDests returns the phase-two scan destinations. It populates
+// sessData.CustomData with the *T to scan into (zero-value when the join found no
+// row, which then keeps throwaways) and returns the impersonation scan when the
+// record's row exists.
+func (s *SessionStorageDriver) typedScanDests(baseDests []any, sessData *dbtype.SessionData, customMarker, impMarker any) ([]any, *impersonationScan, error) {
+	dests := make([]any, 0, len(baseDests)+2+len(impersonationColumns))
+	dests = append(dests, baseDests...)
+	if s.customData != nil {
+		sessData.CustomData = s.customData.Codec.NewStruct()
+		dests = append(dests, &customMarker)
+		if customMarker == nil {
+			dests = append(dests, throwaways(len(s.customData.Codec.Columns()))...)
+		} else {
+			fieldAddrs, err := s.customData.Codec.FieldAddrs(sessData.CustomData)
+			if err != nil {
+				return nil, nil, errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+			}
+			dests = append(dests, fieldAddrs...)
+		}
+	}
+
+	var impScan *impersonationScan
+	if s.impersonation != nil {
+		dests = append(dests, &impMarker)
+		if impMarker == nil {
+			dests = append(dests, throwaways(len(impersonationColumns))...)
+		} else {
+			impScan = newImpersonationScan(sessData.ID)
+			dests = append(dests, impScan.dests()...)
+		}
+	}
+
+	return dests, impScan, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
@@ -182,7 +225,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		`, s.sessionTableName)
 	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	if err := s.execSessionInsert(ctx, id, query, args, req); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, nil); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -193,13 +236,17 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // session data semantics: per-call data wins and is written with the session insert in
 // one transaction (the configured resolver is not invoked); otherwise a configured
 // resolver runs within the same transaction; otherwise the insert executes alone.
-func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
+// A non-nil companion runs inside the same transaction right after the session insert,
+// for rows that must land with the session (an impersonation record).
+func (s *SessionStorageDriver) execSessionInsert(
+	ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest, companion func(ctx context.Context, txn pgx.Tx) error,
+) error {
 	perCallData := req.CustomData != nil
 	if perCallData && s.customData == nil {
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
-	if !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
+	if companion == nil && !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
 		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
@@ -219,8 +266,14 @@ func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUI
 		return errors.Wrap(err, "tx.Exec()")
 	}
 
+	if companion != nil {
+		if err := companion(ctx, txn); err != nil {
+			return err
+		}
+	}
+
 	data := req.CustomData
-	if !perCallData {
+	if !perCallData && s.customData != nil && s.customData.Resolver != nil {
 		data, err = s.customData.Resolver(ctx, txn, req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
@@ -256,7 +309,7 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 
-	return nil
+	return s.endImpersonationIfConfigured(ctx, sessionID, sessioninfo.ImpersonationEndedByLogout)
 }
 
 // User returns the user record associated with the user id
@@ -517,12 +570,43 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE "%s" 
+		UPDATE "%s"
 		SET "Expired" = TRUE, "UpdatedAt" = $2
 		WHERE "Username" = $1`, s.sessionTableName)
 
-	if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	if s.impersonation == nil {
+		if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
+	}
+
+	// The user's live impersonation records end with the sessions, as Revoked.
+	endRecords := fmt.Sprintf(`
+		UPDATE %s i
+		SET "EndedAt" = $2, "EndReason" = $3
+		FROM "%s" s
+		WHERE s."Id" = i."SessionId" AND s."Username" = $1 AND i."EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName)
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	now := time.Now()
+	if _, err := txn.Exec(ctx, endRecords, username, now.UTC(), string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if _, err := txn.Exec(ctx, query, username, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil
@@ -625,6 +709,12 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 			fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{col}.Sanitize())
 		}
 		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customData.TableName}.Sanitize(), pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+	}
+	if s.impersonation != nil {
+		// The impersonation record follows the custom columns, with its own
+		// i.SessionId row-presence marker.
+		columns.WriteString(impersonationSelect())
+		joinClause += " " + s.impersonationJoin()
 	}
 
 	query = fmt.Sprintf(`

@@ -83,7 +83,7 @@ func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, inse
 // execSessionInsert.
 func (s *SessionStorageDriver) execSessionInsertOIDC(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
 	if !s.oidcUsersEnabled {
-		return s.execSessionInsert(ctx, id, query, args, req)
+		return s.execSessionInsert(ctx, id, query, args, req, nil)
 	}
 
 	if req.CustomData != nil && s.customData == nil {
