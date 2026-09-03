@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/cccteam/session/compare/v0.11.0...v0.11.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* Delete cookies with the Domain they were written with ([#244](https://github.com/cccteam/session/issues/244)) ([8941fa1](https://github.com/cccteam/session/commit/8941fa1d416afcccdfac63c2feb2b9dc111e1d7a))
+* Derive deterministic tid/oid claims for skipAuth logins ([#248](https://github.com/cccteam/session/issues/248)) ([e310105](https://github.com/cccteam/session/commit/e310105e753c307f9acd28d0cf5f8e51e6be6034))
+
 ## [0.11.0](https://github.com/cccteam/session/compare/v0.10.1...v0.11.0) (2026-08-25)
 
 
