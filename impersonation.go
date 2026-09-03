@@ -11,14 +11,9 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/basesession"
-	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
-
-// defaultImpersonationTimeout is the hard cap on an impersonated session's lifetime
-// when WithImpersonationTimeout is not set.
-var defaultImpersonationTimeout = time.Hour
 
 // ImpersonationRequest describes the impersonated session to establish. It is a
 // struct so future fields can be added without breaking callers.
@@ -32,8 +27,9 @@ type ImpersonationRequest struct {
 	// cross-application correlation. Optional.
 	SourceSessionID ccc.NullUUID
 	// Principal is the authorization subject the session evaluates against:
-	// accesstypes.UserPrincipal for an impersonated user (who must exist and not be
-	// disabled), or accesstypes.RolePrincipal for a role. Required.
+	// accesstypes.UserPrincipal for an impersonated user, or accesstypes.RolePrincipal
+	// for a role. Required. How a user principal becomes the session's identity depends
+	// on the session type — see StartImpersonatedSession on each API.
 	Principal accesstypes.Principal
 	// Mask attenuates the session to the listed permissions; the zero mask leaves it
 	// unrestricted. accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read) is
@@ -82,6 +78,9 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // atomically with the session, is joined into every subsequent session read, and its
 // evidence is stamped on every request's log entry.
 //
+// Password auth resolves a user principal against SessionUsers: the session carries the
+// record's username and ID, and a missing or disabled user is refused.
+//
 // Establishment is refused when the storage has no impersonation table
 // (sessionstorage.WithImpersonation), when the calling context is itself an
 // impersonated session (no chaining), and when a user principal names a missing or
@@ -90,40 +89,125 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // StartAuthenticatedSession's semantics; the configured resolver receives
 // ReasonImpersonation.
 func (p *PasswordAuthAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	if len(customData) > 1 {
-		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom session data row")
-	}
-	var data *T
-	if len(customData) == 1 {
-		data = customData[0]
-	}
-
-	return p.passwordAuth.startImpersonatedSession(ctx, w, req, data)
+	return startImpersonatedSession(ctx, w, p.passwordAuth.baseSession, req, customData, p.passwordAuth.impersonatedUser)
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
 // actor and ends their records with reason Revoked — the offboarding and incident
 // tool. It errors when the storage has no impersonation table.
 func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	if !p.passwordAuth.storage.ImpersonationEnabled() {
-		return errImpersonationNotConfigured
-	}
-
-	if err := p.passwordAuth.storage.DestroyImpersonatedSessions(ctx, actor); err != nil {
-		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.DestroyImpersonatedSessions()")
+	if err := p.passwordAuth.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
 	}
 
 	return nil
 }
 
-var errImpersonationNotConfigured = errors.New("impersonation is not configured on the storage: attach sessionstorage.WithImpersonation")
+// StartImpersonatedSession establishes a session that operates as req.Principal on
+// behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model.
+//
+// Preauth has no user record, so a user principal is taken as given: the session's
+// username is the principal's name and its user ID is zero, exactly as Login trusts
+// the caller's username. Whether that user exists is the application's guard.
+//
+// Establishment is refused when the storage has no impersonation table and when the
+// calling context is itself an impersonated session (no chaining). Optional customData
+// (at most one *T) follows Login's semantics.
+func (p *PreauthAPI[T]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
+	return startImpersonatedSession(ctx, w, p.preauth.baseSession, req, customData, identityAsGiven)
+}
 
-func (p *PasswordAuth[T, U]) startImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData *T) (ccc.UUID, error) {
+// DestroyImpersonatedSessions expires every live impersonated session established by
+// actor and ends their records with reason Revoked — the offboarding and incident
+// tool. It errors when the storage has no impersonation table.
+func (p *PreauthAPI[T]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	if err := p.preauth.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
+	}
+
+	return nil
+}
+
+// StartImpersonatedSession establishes a session that operates as req.Principal on
+// behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model.
+//
+// An impersonated OIDC session authenticates no ID token, so a user principal is taken
+// as given — the session's username is the principal's name (the same value a login
+// would derive from the token) and its user ID is zero. No OIDC user anchor is upserted
+// and no roles are synchronized. The session row carries no identity provider session
+// ID, so FrontChannelLogout never ends it: it ends by its hard cap, idle expiry, Logout,
+// or DestroyImpersonatedSessions. The configured custom session data resolver receives
+// ReasonImpersonation with no claims.
+//
+// Establishment is refused when the storage has no impersonation table and when the
+// calling context is itself an impersonated session (no chaining). Optional customData
+// (at most one *T) is written atomically with the session, overriding the resolver.
+func (p *OIDCAzureAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
+	return startImpersonatedSession(ctx, w, p.oidc.baseSession, req, customData, identityAsGiven)
+}
+
+// DestroyImpersonatedSessions expires every live impersonated session established by
+// actor and ends their records with reason Revoked — the offboarding and incident
+// tool. It errors when the storage has no impersonation table.
+func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	if err := p.oidc.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
+	}
+
+	return nil
+}
+
+// StartImpersonatedSession establishes a session that operates as req.Principal on
+// behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model and
+// OIDCAzureAPI.StartImpersonatedSession for what an impersonated OIDC session does not
+// do (no anchor upsert, no role synchronization, no identity provider session). A user
+// principal is taken as given: the session's username is the principal's name (the
+// email a login would take from the token) and its user ID is zero.
+//
+// Establishment is refused when the storage has no impersonation table and when the
+// calling context is itself an impersonated session (no chaining). Optional customData
+// (at most one *T) is written atomically with the session, overriding the resolver.
+func (p *OIDCGoogleAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
+	return startImpersonatedSession(ctx, w, p.oidc.baseSession, req, customData, identityAsGiven)
+}
+
+// DestroyImpersonatedSessions expires every live impersonated session established by
+// actor and ends their records with reason Revoked — the offboarding and incident
+// tool. It errors when the storage has no impersonation table.
+func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	if err := p.oidc.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
+	}
+
+	return nil
+}
+
+// userIdentityResolver resolves the effective identity an impersonated session is
+// established under for a user principal: the session's username and user record ID.
+// Role principals never reach it — their session is the actor's.
+type userIdentityResolver func(ctx context.Context, user accesstypes.User) (username string, userID ccc.UUID, err error)
+
+// identityAsGiven is the resolver for session types with no username-keyed local user
+// record (Preauth, OIDC): the principal's name is the username and the user ID is zero.
+func identityAsGiven(_ context.Context, user accesstypes.User) (string, ccc.UUID, error) {
+	return string(user), ccc.NilUUID, nil
+}
+
+// startImpersonatedSession is the establishing flow shared by every session type: the
+// type-independent refusals, identity resolution through resolveUser, the record, and
+// the BaseSession step that writes, evidences and sets cookies.
+func startImpersonatedSession[T any](
+	ctx context.Context, w http.ResponseWriter, base *basesession.BaseSession, req *ImpersonationRequest, customData []*T, resolveUser userIdentityResolver,
+) (ccc.UUID, error) {
+	if len(customData) > 1 {
+		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom session data row")
+	}
+
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if !p.storage.ImpersonationEnabled() {
-		return ccc.NilUUID, errImpersonationNotConfigured
+	if !base.Storage.ImpersonationEnabled() {
+		return ccc.NilUUID, basesession.ErrImpersonationNotConfigured
 	}
 	if req == nil || req.Actor == "" {
 		return ccc.NilUUID, httpio.NewBadRequestMessage("impersonation requires an actor")
@@ -132,7 +216,7 @@ func (p *PasswordAuth[T, U]) startImpersonatedSession(ctx context.Context, w htt
 		return ccc.NilUUID, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
 	}
 
-	username, userID, err := p.impersonatedIdentity(ctx, req)
+	username, userID, err := impersonatedIdentity(ctx, req, resolveUser)
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -146,7 +230,7 @@ func (p *PasswordAuth[T, U]) startImpersonatedSession(ctx context.Context, w htt
 		Mask:            req.Mask,
 		Reason:          req.Reason,
 		StartedAt:       now,
-		ExpiresAt:       now.Add(p.impersonationTTL(req.MaxDuration)),
+		ExpiresAt:       now.Add(base.ImpersonationTTL(req.MaxDuration)),
 	}
 
 	newSessionReq := &sessioninfo.NewSessionRequest{
@@ -154,43 +238,21 @@ func (p *PasswordAuth[T, U]) startImpersonatedSession(ctx context.Context, w htt
 		Username: username,
 		UserID:   userID,
 	}
-	if customData != nil {
-		newSessionReq.CustomData = customData
+	if len(customData) == 1 && customData[0] != nil {
+		newSessionReq.CustomData = customData[0]
 	}
 
-	id, err := p.storage.CreateImpersonatedSession(ctx, newSessionReq, imp)
+	id, err := base.StartImpersonatedSession(ctx, w, newSessionReq, imp)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateImpersonatedSession()")
-	}
-	imp.SessionID = id
-
-	if err := p.baseSession.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationStarted, imp, ""); err != nil {
-		// A failed audit fails the establishment: the session is destroyed before the
-		// caller sees the error, so no unevidenced impersonated session ever lives.
-		if derr := p.storage.DestroySession(ctx, id); derr != nil {
-			logger.FromCtx(ctx).Error(errors.Wrap(derr, "sessionstorage.PasswordAuthStore.DestroySession()"))
-		}
-
-		return ccc.NilUUID, errors.Wrap(err, "basesession.BaseSession.EmitImpersonationEvent()")
-	}
-
-	p.baseSession.CookieHandler.NewAuthCookie(w, true, id)
-	// write new XSRF Token Cookie to match the new SessionID
-	p.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
-
-	// Evidence on the establishing request's own log entry (the source side).
-	l := logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), id)
-	for _, a := range imp.Attributes() {
-		l = l.AddRequestAttribute(a.Key, a.Value)
+		return ccc.NilUUID, errors.Wrap(err, "basesession.BaseSession.StartImpersonatedSession()")
 	}
 
 	return id, nil
 }
 
-// impersonatedIdentity resolves the session's effective identity for req: the
-// impersonated user's username and record ID for a user principal (who must exist and
-// not be disabled), or the actor with the zero UUID for a role principal.
-func (p *PasswordAuth[T, U]) impersonatedIdentity(ctx context.Context, req *ImpersonationRequest) (username string, userID ccc.UUID, err error) {
+// impersonatedIdentity resolves the session's effective identity for req: the actor
+// with the zero UUID for a role principal, or resolveUser's answer for a user principal.
+func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolveUser userIdentityResolver) (username string, userID ccc.UUID, err error) {
 	if role, ok := req.Principal.Role(); ok {
 		if role == "" {
 			return "", ccc.NilUUID, httpio.NewBadRequestMessage("impersonation requires a role name for a role principal")
@@ -204,6 +266,12 @@ func (p *PasswordAuth[T, U]) impersonatedIdentity(ctx context.Context, req *Impe
 		return "", ccc.NilUUID, httpio.NewBadRequestMessage("impersonation requires a user or role principal")
 	}
 
+	return resolveUser(ctx, user)
+}
+
+// impersonatedUser resolves a user principal against SessionUsers: the record's username
+// and ID; a missing user is an error and a disabled one is refused.
+func (p *PasswordAuth[T, U]) impersonatedUser(ctx context.Context, user accesstypes.User) (string, ccc.UUID, error) {
 	record, err := p.storage.UserByUserName(ctx, string(user))
 	if err != nil {
 		return "", ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.UserByUserName()")
@@ -213,20 +281,6 @@ func (p *PasswordAuth[T, U]) impersonatedIdentity(ctx context.Context, req *Impe
 	}
 
 	return record.Username, record.ID, nil
-}
-
-// impersonationTTL returns the hard cap for a new impersonated session: the configured
-// impersonation timeout (or the default), shortened by a positive maxDuration.
-func (p *PasswordAuth[T, U]) impersonationTTL(maxDuration time.Duration) time.Duration {
-	ttl := p.baseSession.ImpersonationTimeout
-	if ttl <= 0 {
-		ttl = defaultImpersonationTimeout
-	}
-	if maxDuration > 0 && maxDuration < ttl {
-		ttl = maxDuration
-	}
-
-	return ttl
 }
 
 // sessionUserInfo resolves the validated session's user record for the request

@@ -2,12 +2,92 @@ package basesession
 
 import (
 	"context"
+	"net/http"
 	"time"
 
+	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/logger"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
+
+// DefaultImpersonationTimeout is the hard cap on an impersonated session's lifetime
+// when BaseSession.ImpersonationTimeout is zero.
+var DefaultImpersonationTimeout = time.Hour
+
+// ErrImpersonationNotConfigured is returned by every impersonation API when the storage
+// has no impersonation record table.
+var ErrImpersonationNotConfigured = errors.New("impersonation is not configured on the storage: attach sessionstorage.WithImpersonation")
+
+// ImpersonationTTL returns the hard cap for a new impersonated session: the configured
+// impersonation timeout (or the default), shortened by a positive maxDuration.
+func (s *BaseSession) ImpersonationTTL(maxDuration time.Duration) time.Duration {
+	ttl := s.ImpersonationTimeout
+	if ttl <= 0 {
+		ttl = DefaultImpersonationTimeout
+	}
+	if maxDuration > 0 && maxDuration < ttl {
+		ttl = maxDuration
+	}
+
+	return ttl
+}
+
+// StartImpersonatedSession is the establishing step shared by every session type once
+// the effective identity is resolved: it writes the session row and its record
+// atomically, delivers the Started event (a failing audit hook destroys the session and
+// fails the call, so no unevidenced impersonated session ever lives), writes the auth
+// and XSRF cookies, and stamps the evidence on the establishing request's log entry.
+// req.Username is the session's effective identity; imp.SessionID is set on return.
+func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := s.Storage.CreateImpersonatedSession(ctx, req, imp)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
+	}
+	imp.SessionID = id
+
+	if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationStarted, imp, ""); err != nil {
+		if derr := s.Storage.DestroySession(ctx, id); derr != nil {
+			logger.FromCtx(ctx).Error(errors.Wrap(derr, "sessionstorage.BaseStore.DestroySession()"))
+		}
+
+		return ccc.NilUUID, errors.Wrap(err, "basesession.BaseSession.EmitImpersonationEvent()")
+	}
+
+	// The establishing call is a same-site handoff, never an OAuth redirect, so the
+	// cookie is SameSite=Strict for every session type.
+	s.CookieHandler.NewAuthCookie(w, true, id)
+	// write new XSRF Token Cookie to match the new SessionID
+	s.CookieHandler.CreateXSRFTokenCookie(w, id)
+
+	// Evidence on the establishing request's own log entry (the source side).
+	l := logger.FromCtx(ctx).AddRequestAttribute("Username", req.Username).AddRequestAttribute(string(internalcookie.SessionID), id)
+	for _, a := range imp.Attributes() {
+		l = l.AddRequestAttribute(a.Key, a.Value)
+	}
+
+	return id, nil
+}
+
+// DestroyImpersonatedSessions expires every live impersonated session established by
+// actor and ends their records with reason Revoked. It errors when the storage has no
+// impersonation table.
+func (s *BaseSession) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	if !s.Storage.ImpersonationEnabled() {
+		return ErrImpersonationNotConfigured
+	}
+
+	if err := s.Storage.DestroyImpersonatedSessions(ctx, actor); err != nil {
+		return errors.Wrap(err, "sessionstorage.BaseStore.DestroyImpersonatedSessions()")
+	}
+
+	return nil
+}
 
 // ImpersonationResponse is the impersonation portion of the Authenticated response,
 // present only for an impersonated session so a frontend can banner it and render

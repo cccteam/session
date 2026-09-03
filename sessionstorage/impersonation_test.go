@@ -124,7 +124,7 @@ func Test_sessionStorage_Session_MapsImpersonation(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_CreateImpersonatedSession(t *testing.T) {
+func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
 	sessionID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
@@ -174,14 +174,76 @@ func TestPasswordAuth_CreateImpersonatedSession(t *testing.T) {
 			mockDB := NewMockdb(ctrl)
 			tt.prepare(mockDB)
 
-			p := &PasswordAuth{sessionStorage: sessionStorage{db: mockDB}}
+			s := &sessionStorage{db: mockDB}
 			imp := &sessioninfo.Impersonation{
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
 				Mask:      accesstypes.MaskPermissions(accesstypes.Read, accesstypes.List),
 				ExpiresAt: expires,
 			}
-			got, err := p.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
+			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != sessionID {
+				t.Errorf("CreateImpersonatedSession() = %v, want %v", got, sessionID)
+			}
+		})
+	}
+}
+
+func TestOIDC_CreateImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
+	expires := time.Date(2026, 8, 27, 11, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		prepare func(*Mockdb)
+		wantErr bool
+	}{
+		{
+			name: "renders an OIDC session row without an identity provider session ID",
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().
+					InsertImpersonatedSessionOIDC(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error) {
+						if session.OidcSID != "" || session.Username != "alice" || req.Reason != sessioninfo.ReasonImpersonation {
+							return ccc.NilUUID, errors.Newf("unexpected session %+v / request %+v", session, req)
+						}
+						want := &dbtype.InsertImpersonation{
+							ActorUsername: "alice",
+							PrincipalKind: dbtype.PrincipalKindRole,
+							PrincipalRole: strPtr("Editor"),
+							ExpiresAt:     expires,
+						}
+						if diff := cmp.Diff(want, imp); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected InsertImpersonation: " + diff)
+						}
+
+						return sessionID, nil
+					})
+			},
+		},
+		{
+			name: "propagates the driver error",
+			prepare: func(mockDB *Mockdb) {
+				mockDB.EXPECT().InsertImpersonatedSessionOIDC(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(ccc.NilUUID, errors.New("not configured"))
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockDB := NewMockdb(ctrl)
+			tt.prepare(mockDB)
+
+			s := &OIDC{sessionStorage: sessionStorage{db: mockDB}}
+			imp := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: expires}
+			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}, imp)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -225,8 +287,7 @@ func Test_sessionStorage_ImpersonationDelegates(t *testing.T) {
 		mockDB := NewMockdb(ctrl)
 		mockDB.EXPECT().DestroyImpersonatedSessions(gomock.Any(), "alice").Return(nil)
 
-		p := &PasswordAuth{sessionStorage: sessionStorage{db: mockDB}}
-		if err := p.DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
+		if err := (&sessionStorage{db: mockDB}).DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
 			t.Errorf("DestroyImpersonatedSessions() error = %v", err)
 		}
 	})

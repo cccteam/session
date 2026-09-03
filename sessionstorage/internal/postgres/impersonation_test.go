@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -282,6 +283,82 @@ func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 			if diff := cmp.Diff(tt.wantCustom, got.CustomData); diff != "" {
 				t.Errorf("Session().CustomData mismatch (-want +got):\n%s", diff)
 			}
+		})
+	}
+}
+
+// The shipped OIDC session schema declares OidcSid NOT NULL; the impersonated insert
+// writes the OIDC-shaped row with an empty identity provider session ID.
+func TestSessionStorageDriver_InsertImpersonatedSessionOIDC(t *testing.T) {
+	t.Parallel()
+
+	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob@example.com"}
+	imp := &dbtype.InsertImpersonation{
+		ActorUsername: "alice@example.com",
+		PrincipalKind: dbtype.PrincipalKindUser,
+		PrincipalUser: strPtr("bob@example.com"),
+		Mask:          strPtr("List,Read"),
+		ExpiresAt:     expires,
+	}
+
+	tests := []struct {
+		name       string
+		configured bool
+		google     bool
+		wantErr    bool
+	}{
+		{name: "writes the OIDC session row with an empty OidcSid and the record", configured: true},
+		{name: "refused without the configuration", wantErr: true},
+		{name: "refused on a Google OIDC driver", configured: true, google: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			conn, err := prepareDatabase(ctx, t, "file://../../../schema/postgresql/oidc/migrations", "file://../../../schema/postgresql/impersonation/migrations")
+			if err != nil {
+				t.Fatalf("prepareDatabase() error = %v", err)
+			}
+			c := NewSessionStorageDriver(conn.Pool)
+			if tt.google {
+				c = NewGoogleSessionStorageDriver(conn.Pool)
+			}
+			if tt.configured {
+				c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
+			}
+
+			now := time.Now()
+			session := &dbtype.InsertOIDCSession{InsertSession: dbtype.InsertSession{Username: req.Username, CreatedAt: now, UpdatedAt: now}}
+			id, err := c.InsertImpersonatedSessionOIDC(ctx, session, req, imp)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("InsertImpersonatedSessionOIDC() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+
+			got, err := c.Session(ctx, id)
+			if err != nil {
+				t.Fatalf("Session() error = %v", err)
+			}
+			if got.Username != req.Username || got.Expired {
+				t.Errorf("Session() = (%q, expired %v), want (%q, live)", got.Username, got.Expired, req.Username)
+			}
+			want := &dbtype.Impersonation{
+				SessionID:     id,
+				ActorUsername: imp.ActorUsername,
+				PrincipalKind: imp.PrincipalKind,
+				PrincipalUser: imp.PrincipalUser,
+				Mask:          imp.Mask,
+				ExpiresAt:     imp.ExpiresAt,
+			}
+			if diff := cmp.Diff(want, got.Impersonation, cmpopts.IgnoreFields(dbtype.Impersonation{}, "StartedAt")); diff != "" {
+				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)
+			}
+			runAssertions(ctx, t, conn.Pool, []string{
+				fmt.Sprintf(`SELECT "OidcSid" = '' FROM "Sessions" WHERE "Id" = '%s'`, id),
+			})
 		})
 	}
 }

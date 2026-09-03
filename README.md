@@ -675,7 +675,9 @@ session creation, and a `nil` hook is valid (write-API-only user data).
 An impersonated session operates as a principal other than the person who
 authenticated: as another **user** (support staff seeing the application exactly as
 that user does, usually read-only) or as a **role** (an administrator working under a
-role chosen for the session). Password auth supports both.
+role chosen for the session). Every session type supports both — password auth,
+Preauth, OIDC Azure and OIDC Google — through the same `ImpersonationRequest` on each
+`API()`.
 
 The model rests on two identities that are never conflated:
 
@@ -714,8 +716,10 @@ auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
 )
 ```
 
-Without `WithImpersonation` nothing changes: no session is ever impersonated and the
-impersonation APIs return a configuration error.
+The same `WithImpersonation` option and `WithImpersonationTimeout` /
+`WithImpersonationAudit` session options apply to `NewPreauth`, `NewOIDCAzure` and
+`NewOIDCGoogle`. Without `WithImpersonation` nothing changes: no session is ever
+impersonated and the impersonation APIs return a configuration error.
 
 ### Establishing a session
 
@@ -741,10 +745,28 @@ id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationReq
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused: a missing actor or principal, a caller that is itself an
-impersonated session (no chaining), and a user principal naming a missing or disabled
-user. *Who may impersonate whom* is the application's guard — the library records what
-happened.
+and fails the call). Refused everywhere: a missing actor or principal, and a caller that
+is itself an impersonated session (no chaining). *Who may impersonate whom* is the
+application's guard — the library records what happened.
+
+#### Identity by session type
+
+A role principal's session is always the actor's: nobody's identity is borrowed. What a
+**user** principal resolves to depends on what the session type knows about users:
+
+| Session type | User principal becomes | User ID | Refused |
+| --- | --- | --- | --- |
+| Password auth | The `SessionUsers` record's username | The record's ID | A missing or disabled user |
+| Preauth | The name as given | Zero | — (trust-the-caller, as `Login` is) |
+| OIDC Azure / Google | The name as given (what a login would take from the token) | Zero | — |
+
+An impersonated OIDC session authenticates no ID token: no OIDC user anchor is upserted,
+no roles are synchronized, and the configured custom session data resolver receives
+`ReasonImpersonation` with no claims. The row carries no identity provider session ID,
+so `FrontChannelLogout` never ends it — it ends by its hard cap, idle expiry, `Logout`,
+or `DestroyImpersonatedSessions`. Minting an impersonated session in the same
+application the actor is logged into replaces the browser's session cookie; pass the
+actor's session as `SourceSessionID` to keep the link.
 
 ### What the session carries
 
@@ -782,13 +804,14 @@ Everything an impersonated session touches names the actor and the principal:
   default one hour, shortened per call by `MaxDuration`); idle renewal never extends past
   it. The idle session timeout applies independently.
 - **Ending.** Logout, the hard cap, idle expiry, and `DestroyAllUserSessions` all end
-  the record with a reason (`Logout`, `Expired`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`
-  is the offboarding and incident tool: it expires every live impersonated session an
-  actor established.
-- **Validation.** A user principal's record is looked up like any session's — a disabled
-  impersonated user ends the session. A role principal has no local user: no record is
-  looked up and `UserFromCtx` carries the actor's username with the zero ID, so
-  self-referential checks (cannot delete yourself) go inert, correctly.
+  the record with a reason (`Logout`, `Expired`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`,
+  on every session type, is the offboarding and incident tool: it expires every live
+  impersonated session an actor established.
+- **Validation (password auth).** A user principal's record is looked up like any
+  session's — a disabled impersonated user ends the session. A role principal has no
+  local user: no record is looked up and `UserFromCtx` carries the actor's username with
+  the zero ID, so self-referential checks (cannot delete yourself) go inert, correctly.
+  Preauth and OIDC validate an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`

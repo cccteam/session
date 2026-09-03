@@ -82,8 +82,10 @@ func (s *sessionStorage) EndImpersonation(ctx context.Context, sessionID ccc.UUI
 
 // CreateImpersonatedSession creates a new session for the request together with its
 // impersonation record, atomically, and returns the session ID. Custom session data
-// follows CreateSession's semantics inside the same transaction.
-func (p *PasswordAuth) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+// follows the session type's creation semantics inside the same transaction. The
+// request's Username is written as the session's effective identity; no user record is
+// consulted here — the session type resolved the identity before calling.
+func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -93,7 +95,7 @@ func (p *PasswordAuth) CreateImpersonatedSession(ctx context.Context, req *sessi
 		UpdatedAt: time.Now(),
 	}
 
-	id, err := p.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
+	id, err := s.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertImpersonatedSession()")
 	}
@@ -101,13 +103,39 @@ func (p *PasswordAuth) CreateImpersonatedSession(ctx context.Context, req *sessi
 	return id, nil
 }
 
-// DestroyImpersonatedSessions expires every live impersonated session established by
-// actor and ends their records with reason Revoked.
-func (p *PasswordAuth) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+// CreateImpersonatedSession creates a new OIDC session for the request together with
+// its impersonation record, atomically, and returns the session ID. The row carries an
+// empty OidcSid: no identity provider authenticated this session, so no front-channel
+// logout ever names it (FrontChannelLogout refuses an empty sid) — an impersonated
+// session ends by its hard cap, idle expiry, Logout, or DestroyImpersonatedSessions.
+// The OIDC user anchor is left untouched for the same reason: there are no claims.
+func (s *OIDC) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.DestroyImpersonatedSessions(ctx, actor); err != nil {
+	session := &dbtype.InsertOIDCSession{
+		InsertSession: dbtype.InsertSession{
+			Username:  req.Username,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	id, err := s.db.InsertImpersonatedSessionOIDC(ctx, session, req, dbtype.NewInsertImpersonation(imp))
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "db.InsertImpersonatedSessionOIDC()")
+	}
+
+	return id, nil
+}
+
+// DestroyImpersonatedSessions expires every live impersonated session established by
+// actor and ends their records with reason Revoked.
+func (s *sessionStorage) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.DestroyImpersonatedSessions(ctx, actor); err != nil {
 		return errors.Wrap(err, "db.DestroyImpersonatedSessions()")
 	}
 

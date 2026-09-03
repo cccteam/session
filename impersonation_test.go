@@ -11,6 +11,7 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
+	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessioninfo"
@@ -120,8 +121,8 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 						if imp.Actor != "alice" || imp.ActorRealm != "admin-portal" || imp.Principal != accesstypes.RolePrincipal("PartnerViewer") || !imp.Mask.IsZero() {
 							return ccc.NilUUID, errors.Newf("unexpected impersonation %+v", imp)
 						}
-						if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != defaultImpersonationTimeout {
-							return ccc.NilUUID, errors.Newf("lifetime = %v, want %v", lifetime, defaultImpersonationTimeout)
+						if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != basesession.DefaultImpersonationTimeout {
+							return ccc.NilUUID, errors.Newf("lifetime = %v, want %v", lifetime, basesession.DefaultImpersonationTimeout)
 						}
 
 						return sessionID, nil
@@ -453,4 +454,393 @@ func TestPasswordAuthAPI_DestroyImpersonatedSessions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The Preauth, OIDC Azure and OIDC Google APIs share the establishing flow with
+// password auth; what differs per type is the identity a user principal resolves to (the
+// name as given, zero user ID — there is no username-keyed local record) and the storage
+// the session is written through. Preauth exercises the shared refusals in full; the
+// OIDC types are wired the same way and get the establishing cases.
+
+func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+	customData := &NoCustomData{}
+
+	tests := []struct {
+		name           string
+		ctx            context.Context
+		options        []PreauthOption
+		hook           ImpersonationAuditHook
+		req            *ImpersonationRequest
+		customData     []*NoCustomData
+		prepare        func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler)
+		wantErr        bool
+		wantBadRequest bool
+		wantForbidden  bool
+	}{
+		{
+			name: "refused when impersonation is not configured on the storage",
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(false)
+			},
+			wantErr: true,
+		},
+		{
+			name: "requires an actor",
+			req:  &ImpersonationRequest{Principal: accesstypes.UserPrincipal("bob")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+			},
+			wantErr:        true,
+			wantBadRequest: true,
+		},
+		{
+			name: "requires a named principal",
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+			},
+			wantErr:        true,
+			wantBadRequest: true,
+		},
+		{
+			name: "an impersonated session cannot impersonate",
+			ctx:  impersonatedCtx(sessionID, "bob", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}),
+			req:  &ImpersonationRequest{Actor: "bob", Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
+			name: "a user principal is taken as given: no record lookup, zero user ID, masked, with custom data",
+			req: &ImpersonationRequest{
+				Actor:       "alice",
+				ActorRealm:  "admin-portal",
+				Principal:   accesstypes.UserPrincipal("bob@partner.org"),
+				Mask:        accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+				Reason:      "ticket JRN-1",
+				MaxDuration: 30 * time.Minute,
+			},
+			customData: []*NoCustomData{customData},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+						if req.Reason != sessioninfo.ReasonImpersonation || req.Username != "bob@partner.org" || req.UserID != ccc.NilUUID || req.CustomData != customData {
+							return ccc.NilUUID, errors.Newf("unexpected NewSessionRequest %+v", req)
+						}
+						if imp.Actor != "alice" || imp.ActorRealm != "admin-portal" || imp.Principal != accesstypes.UserPrincipal("bob@partner.org") || imp.Mask.String() != "List,Read" || imp.Reason != "ticket JRN-1" {
+							return ccc.NilUUID, errors.Newf("unexpected impersonation %+v", imp)
+						}
+						if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != 30*time.Minute {
+							return ccc.NilUUID, errors.Newf("lifetime = %v, want 30m", lifetime)
+						}
+
+						return sessionID, nil
+					})
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+		},
+		{
+			name:    "a role principal establishes the session as the actor under the configured cap",
+			options: []PreauthOption{WithImpersonationTimeout(15 * time.Minute)},
+			req:     &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
+						if diff := cmp.Diff(want, *req); diff != "" {
+							return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
+						}
+						if imp.Principal != accesstypes.RolePrincipal("PartnerViewer") || !imp.Mask.IsZero() {
+							return ccc.NilUUID, errors.Newf("unexpected impersonation %+v", imp)
+						}
+						if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != 15*time.Minute {
+							return ccc.NilUUID, errors.Newf("lifetime = %v, want 15m", lifetime)
+						}
+
+						return sessionID, nil
+					})
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+		},
+		{
+			name: "a failed audit destroys the session and fails the establishment",
+			hook: func(context.Context, sessioninfo.ImpersonationEvent) error { return errors.New("audit store down") },
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
+				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
+			},
+			wantErr: true,
+		},
+		{
+			name:       "more than one custom data value is refused before any insert",
+			req:        &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			customData: []*NoCustomData{customData, customData},
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			storage := newPreauthStoreMock(ctrl)
+			cookieHandler := mock_cookie.NewMockHandler(ctrl)
+
+			var started []sessioninfo.ImpersonationEventKind
+			options := append([]PreauthOption{WithImpersonationAudit(hookOrRecorder(tt.hook, &started))}, tt.options...)
+
+			p, err := NewPreauth[NoCustomData](storage, cookieKey, options...)
+			if err != nil {
+				t.Fatalf("NewPreauth() error = %v", err)
+			}
+			p.baseSession.CookieHandler = cookieHandler
+			if tt.prepare != nil {
+				tt.prepare(storage, cookieHandler)
+			}
+
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			got, err := p.API().StartImpersonatedSession(ctx, httptest.NewRecorder(), tt.req, tt.customData...)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			assertErrorShape(t, err, tt.wantBadRequest, tt.wantForbidden, false)
+			if tt.wantErr {
+				return
+			}
+			if got != sessionID {
+				t.Errorf("StartImpersonatedSession() = %v, want %v", got, sessionID)
+			}
+			if diff := cmp.Diff([]sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationStarted}, started); diff != "" {
+				t.Errorf("audit events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestOIDCAzureAPI_StartImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name         string
+		req          *ImpersonationRequest
+		prepare      func(storage *mock_sessionstorage.MockOIDCStore, cookieHandler *mock_cookie.MockHandler)
+		wantErr      bool
+		wantUsername string
+	}{
+		{
+			name: "refused when impersonation is not configured on the storage",
+			req:  &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com")},
+			prepare: func(storage *mock_sessionstorage.MockOIDCStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(false)
+			},
+			wantErr: true,
+		},
+		{
+			name:         "a user principal is the session's username as given, with the zero user ID",
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.Read)},
+			wantUsername: "bob@example.com",
+		},
+		{
+			name:         "a role principal is the actor",
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("Auditor")},
+			wantUsername: "alice@example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			storage := newOIDCStoreMock(ctrl)
+			cookieHandler := mock_cookie.NewMockHandler(ctrl)
+			if tt.prepare != nil {
+				tt.prepare(storage, cookieHandler)
+			} else {
+				expectEstablished(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()), cookieHandler, sessionID, tt.wantUsername, tt.req)
+			}
+
+			var started []sessioninfo.ImpersonationEventKind
+			a := &OIDCAzure[NoCustomData, NoCustomData]{
+				storage: storage,
+				baseSession: &basesession.BaseSession{
+					Storage:            storage,
+					CookieHandler:      cookieHandler,
+					ImpersonationAudit: hookOrRecorder(nil, &started),
+				},
+			}
+
+			got, err := a.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if got != sessionID {
+				t.Errorf("StartImpersonatedSession() = %v, want %v", got, sessionID)
+			}
+			if diff := cmp.Diff([]sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationStarted}, started); diff != "" {
+				t.Errorf("audit events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestOIDCGoogleAPI_StartImpersonatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+
+	tests := []struct {
+		name         string
+		req          *ImpersonationRequest
+		prepare      func(storage *mock_sessionstorage.MockGoogleOIDCStore, cookieHandler *mock_cookie.MockHandler)
+		wantErr      bool
+		wantUsername string
+	}{
+		{
+			name: "refused when impersonation is not configured on the storage",
+			req:  &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com")},
+			prepare: func(storage *mock_sessionstorage.MockGoogleOIDCStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(false)
+			},
+			wantErr: true,
+		},
+		{
+			name:         "a user principal is the session's username as given, with the zero user ID",
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.Read)},
+			wantUsername: "bob@example.com",
+		},
+		{
+			name:         "a role principal is the actor",
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("Auditor")},
+			wantUsername: "alice@example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			storage := newGoogleOIDCStoreMock(ctrl)
+			cookieHandler := mock_cookie.NewMockHandler(ctrl)
+			if tt.prepare != nil {
+				tt.prepare(storage, cookieHandler)
+			} else {
+				expectEstablished(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()), cookieHandler, sessionID, tt.wantUsername, tt.req)
+			}
+
+			var started []sessioninfo.ImpersonationEventKind
+			a := &OIDCGoogle[NoCustomData, NoCustomData]{
+				storage: storage,
+				baseSession: &basesession.BaseSession{
+					Storage:            storage,
+					CookieHandler:      cookieHandler,
+					ImpersonationAudit: hookOrRecorder(nil, &started),
+				},
+			}
+
+			got, err := a.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if got != sessionID {
+				t.Errorf("StartImpersonatedSession() = %v, want %v", got, sessionID)
+			}
+			if diff := cmp.Diff([]sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationStarted}, started); diff != "" {
+				t.Errorf("audit events mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// expectEstablished arms the storage and cookie expectations for a successful
+// establishment through a store with no user record: the session is created for
+// wantUsername with the zero user ID, then both cookies are written for sessionID.
+func expectEstablished(enabled, create *gomock.Call, cookieHandler *mock_cookie.MockHandler, sessionID ccc.UUID, wantUsername string, req *ImpersonationRequest) {
+	enabled.Return(true)
+	create.DoAndReturn(func(_ context.Context, newReq *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+		want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: wantUsername}
+		if diff := cmp.Diff(want, *newReq); diff != "" {
+			return ccc.NilUUID, errors.New("unexpected NewSessionRequest: " + diff)
+		}
+		if imp.Actor != req.Actor || imp.Principal != req.Principal || imp.Mask.String() != req.Mask.String() {
+			return ccc.NilUUID, errors.Newf("unexpected impersonation %+v", imp)
+		}
+		if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != basesession.DefaultImpersonationTimeout {
+			return ccc.NilUUID, errors.Newf("lifetime = %v, want %v", lifetime, basesession.DefaultImpersonationTimeout)
+		}
+
+		return sessionID, nil
+	})
+	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+}
+
+func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Preauth refuses when not configured and delegates by actor", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newPreauthStoreMock(ctrl)
+		storage.EXPECT().ImpersonationEnabled().Return(false)
+		storage.EXPECT().ImpersonationEnabled().Return(true)
+		storage.EXPECT().DestroyImpersonatedSessions(gomock.Any(), "alice").Return(nil)
+
+		p, err := NewPreauth[NoCustomData](storage, cookieKey)
+		if err != nil {
+			t.Fatalf("NewPreauth() error = %v", err)
+		}
+		if err := p.API().DestroyImpersonatedSessions(context.Background(), "alice"); err == nil {
+			t.Error("DestroyImpersonatedSessions() error = nil, want not configured")
+		}
+		if err := p.API().DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
+			t.Errorf("DestroyImpersonatedSessions() error = %v", err)
+		}
+	})
+
+	t.Run("OIDC Azure delegates by actor", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newOIDCStoreMock(ctrl)
+		storage.EXPECT().ImpersonationEnabled().Return(true)
+		storage.EXPECT().DestroyImpersonatedSessions(gomock.Any(), "alice").Return(nil)
+
+		a := &OIDCAzure[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+		if err := a.API().DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
+			t.Errorf("DestroyImpersonatedSessions() error = %v", err)
+		}
+	})
+
+	t.Run("OIDC Google delegates by actor", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		storage := newGoogleOIDCStoreMock(ctrl)
+		storage.EXPECT().ImpersonationEnabled().Return(true)
+		storage.EXPECT().DestroyImpersonatedSessions(gomock.Any(), "alice").Return(nil)
+
+		a := &OIDCGoogle[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+		if err := a.API().DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
+			t.Errorf("DestroyImpersonatedSessions() error = %v", err)
+		}
+	})
 }

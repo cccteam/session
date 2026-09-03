@@ -154,6 +154,50 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 	return id, nil
 }
 
+// InsertImpersonatedSessionOIDC inserts an OIDC session row (OidcSid included) and its
+// impersonation record atomically, with the same custom session data semantics as
+// InsertImpersonatedSession. The OIDC user anchor is not touched: an impersonated
+// session authenticates no claims, so there is nothing to upsert.
+func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
+	ctx context.Context, insertSession *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation,
+) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.googleOIDC {
+		return ccc.NilUUID, errors.New("InsertImpersonatedSessionOIDC called on a Google OIDC storage driver")
+	}
+	if s.impersonation == nil {
+		return ccc.NilUUID, errors.New("impersonation is not configured on the storage")
+	}
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	session := &struct {
+		ID ccc.UUID
+		*dbtype.InsertOIDCSession
+	}{
+		ID:                id,
+		InsertOIDCSession: insertSession,
+	}
+
+	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+	}
+
+	impMutation := spanner.InsertMap(s.impersonation.TableName, impersonationRow(id, imp))
+
+	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation, impMutation}, req); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	return id, nil
+}
+
 // impersonationRow renders the full impersonation record row for a new session.
 func impersonationRow(id ccc.UUID, imp *dbtype.InsertImpersonation) map[string]any {
 	var sourceSessionID spanner.NullString

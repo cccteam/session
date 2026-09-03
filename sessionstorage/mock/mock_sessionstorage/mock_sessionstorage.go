@@ -45,6 +45,21 @@ func (m *MockBaseStore) EXPECT() *MockBaseStoreMockRecorder {
 	return m.recorder
 }
 
+// CreateImpersonatedSession mocks base method.
+func (m *MockBaseStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
+func (mr *MockBaseStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockBaseStore)(nil).CreateImpersonatedSession), ctx, req, imp)
+}
+
 // CustomDataType mocks base method.
 func (m *MockBaseStore) CustomDataType() reflect.Type {
 	m.ctrl.T.Helper()
@@ -71,6 +86,20 @@ func (m *MockBaseStore) CustomUserDataType() reflect.Type {
 func (mr *MockBaseStoreMockRecorder) CustomUserDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockBaseStore)(nil).CustomUserDataType))
+}
+
+// DestroyImpersonatedSessions mocks base method.
+func (m *MockBaseStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockBaseStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockBaseStore)(nil).DestroyImpersonatedSessions), ctx, actor)
 }
 
 // DestroySession mocks base method.
@@ -246,6 +275,21 @@ func (m *MockPreauthStore) EXPECT() *MockPreauthStoreMockRecorder {
 	return m.recorder
 }
 
+// CreateImpersonatedSession mocks base method.
+func (m *MockPreauthStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
+func (mr *MockPreauthStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockPreauthStore)(nil).CreateImpersonatedSession), ctx, req, imp)
+}
+
 // CustomDataType mocks base method.
 func (m *MockPreauthStore) CustomDataType() reflect.Type {
 	m.ctrl.T.Helper()
@@ -286,6 +330,20 @@ func (m *MockPreauthStore) DestroyAllUserSessions(ctx context.Context, username 
 func (mr *MockPreauthStoreMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*MockPreauthStore)(nil).DestroyAllUserSessions), ctx, username)
+}
+
+// DestroyImpersonatedSessions mocks base method.
+func (m *MockPreauthStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockPreauthStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockPreauthStore)(nil).DestroyImpersonatedSessions), ctx, actor)
 }
 
 // DestroySession mocks base method.
@@ -894,6 +952,21 @@ func (m *MockOIDCStore) EXPECT() *MockOIDCStoreMockRecorder {
 	return m.recorder
 }
 
+// CreateImpersonatedSession mocks base method.
+func (m *MockOIDCStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
+func (mr *MockOIDCStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockOIDCStore)(nil).CreateImpersonatedSession), ctx, req, imp)
+}
+
 // CustomDataType mocks base method.
 func (m *MockOIDCStore) CustomDataType() reflect.Type {
 	m.ctrl.T.Helper()
@@ -935,6 +1008,20 @@ func (m *MockOIDCStore) CustomUserDataType() reflect.Type {
 func (mr *MockOIDCStoreMockRecorder) CustomUserDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockOIDCStore)(nil).CustomUserDataType))
+}
+
+// DestroyImpersonatedSessions mocks base method.
+func (m *MockOIDCStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockOIDCStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockOIDCStore)(nil).DestroyImpersonatedSessions), ctx, actor)
 }
 
 // DestroySession mocks base method.
@@ -1183,6 +1270,21 @@ func (m *MockGoogleOIDCStore) EXPECT() *MockGoogleOIDCStoreMockRecorder {
 	return m.recorder
 }
 
+// CreateImpersonatedSession mocks base method.
+func (m *MockGoogleOIDCStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
+func (mr *MockGoogleOIDCStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CreateImpersonatedSession), ctx, req, imp)
+}
+
 // CustomDataType mocks base method.
 func (m *MockGoogleOIDCStore) CustomDataType() reflect.Type {
 	m.ctrl.T.Helper()
@@ -1224,6 +1326,20 @@ func (m *MockGoogleOIDCStore) CustomUserDataType() reflect.Type {
 func (mr *MockGoogleOIDCStoreMockRecorder) CustomUserDataType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CustomUserDataType))
+}
+
+// DestroyImpersonatedSessions mocks base method.
+func (m *MockGoogleOIDCStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockGoogleOIDCStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockGoogleOIDCStore)(nil).DestroyImpersonatedSessions), ctx, actor)
 }
 
 // DestroySession mocks base method.

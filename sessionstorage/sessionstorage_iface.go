@@ -51,6 +51,18 @@ type BaseStore interface {
 	// has not already ended, and is a no-op otherwise. It errors when no impersonation
 	// table is configured.
 	EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error
+	// CreateImpersonatedSession creates a new session for the request together with
+	// its impersonation record, atomically, and returns the session ID. Custom session
+	// data follows the session type's creation semantics inside the same transaction
+	// (per-call data, or the configured resolver receiving ReasonImpersonation). No user
+	// record or OIDC user anchor is consulted or written: the request's Username is the
+	// session's effective identity as the session type resolved it. It errors when no
+	// impersonation table is configured.
+	CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error)
+	// DestroyImpersonatedSessions expires every live impersonated session established
+	// by actor and ends their records with reason Revoked. It errors when no
+	// impersonation table is configured.
+	DestroyImpersonatedSessions(ctx context.Context, actor string) error
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
@@ -90,15 +102,6 @@ type PasswordAuthStore interface {
 	// resolver runs inside the session-insert transaction; a resolver error aborts
 	// session creation. With no resolver it is a plain insert.
 	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
-	// CreateImpersonatedSession creates a new session for the request together with
-	// its impersonation record, atomically, and returns the session ID. Custom session
-	// data follows CreateSession's semantics inside the same transaction. It errors when
-	// no impersonation table is configured.
-	CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error)
-	// DestroyImpersonatedSessions expires every live impersonated session established
-	// by actor and ends their records with reason Revoked. It errors when no
-	// impersonation table is configured.
-	DestroyImpersonatedSessions(ctx context.Context, actor string) error
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -279,6 +282,10 @@ type db interface {
 	// It honors the request's custom session data semantics (per-call data or configured resolver, atomic with the insert).
 	// When the OIDC user anchor is enabled the same transaction upserts the anchor row and runs any configured custom user data hook.
 	InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+	// InsertImpersonatedSessionOIDC inserts an OIDC session row and its impersonation record
+	// atomically, honoring the request's custom session data semantics exactly as InsertSession does.
+	// The OIDC user anchor is not touched: an impersonated session authenticates no claims.
+	InsertImpersonatedSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error)
 	// DestroySessionOIDC marks the OIDC session as expired by oidcSID.
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	// OIDCUser returns the OIDC user anchor record for the given ID.
