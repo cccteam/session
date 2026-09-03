@@ -160,6 +160,10 @@ const (
 	// or username change on the impersonated user, or user management under
 	// a mask); Operation names the handler.
 	ImpersonationIdentityOperationBlocked ImpersonationEventKind = "IdentityOperationBlocked"
+	// ImpersonationWriteBlocked fires when a read-only impersonated session
+	// attempts a non-safe HTTP request that the EnforceReadOnlyMask middleware
+	// refuses; Operation is the method and path ("POST /api/partners").
+	ImpersonationWriteBlocked ImpersonationEventKind = "WriteBlocked"
 )
 
 // ImpersonationEvent is delivered to the application's audit hook for each
@@ -167,7 +171,8 @@ const (
 type ImpersonationEvent struct {
 	Kind          ImpersonationEventKind
 	Impersonation *Impersonation
-	// Operation names the refused handler for IdentityOperationBlocked; empty otherwise.
+	// Operation names what was refused: the handler for IdentityOperationBlocked, the
+	// method and path for WriteBlocked; empty otherwise.
 	Operation string
 	At        time.Time
 }

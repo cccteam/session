@@ -119,6 +119,13 @@ func (p *Preauth[T]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (p *Preauth[T]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return p.baseSession.EnforceReadOnlyMask(next)
+}
+
 // API provides programatic access to Preauth handler internals
 func (p *Preauth[T]) API() *PreauthAPI[T] {
 	return newPreauthAPI(p)

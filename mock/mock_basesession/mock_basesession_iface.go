@@ -54,6 +54,20 @@ func (mr *MockHandlersMockRecorder) Authenticated() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Authenticated", reflect.TypeOf((*MockHandlers)(nil).Authenticated))
 }
 
+// EnforceReadOnlyMask mocks base method.
+func (m *MockHandlers) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnforceReadOnlyMask", next)
+	ret0, _ := ret[0].(http.Handler)
+	return ret0
+}
+
+// EnforceReadOnlyMask indicates an expected call of EnforceReadOnlyMask.
+func (mr *MockHandlersMockRecorder) EnforceReadOnlyMask(next any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnforceReadOnlyMask", reflect.TypeOf((*MockHandlers)(nil).EnforceReadOnlyMask), next)
+}
+
 // Logout mocks base method.
 func (m *MockHandlers) Logout() http.HandlerFunc {
 	m.ctrl.T.Helper()

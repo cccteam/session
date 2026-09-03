@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
@@ -144,7 +146,7 @@ func (s *BaseSession) EmitImpersonationEvent(ctx context.Context, kind sessionin
 	}
 
 	switch kind {
-	case sessioninfo.ImpersonationIdentityOperationBlocked:
+	case sessioninfo.ImpersonationIdentityOperationBlocked, sessioninfo.ImpersonationWriteBlocked:
 		attrs.Logger().Warnf("impersonation: %s refused for %s", operation, imp.Principal)
 	case sessioninfo.ImpersonationStarted, sessioninfo.ImpersonationEnded:
 		attrs.Logger().Infof("impersonation %s: %s as %s", kind, imp.Actor, imp.Principal)
@@ -162,6 +164,54 @@ func (s *BaseSession) EmitImpersonationEvent(ctx context.Context, kind sessionin
 	}
 
 	return nil
+}
+
+// EnforceReadOnlyMask refuses non-safe requests (anything but GET, HEAD, OPTIONS and
+// TRACE) from an impersonated session whose mask is read-only — a mask allowing nothing
+// beyond List and Read — with 403 Forbidden, evidenced as a WriteBlocked event. Every
+// other request, including every request of a session that is not impersonated or not
+// masked, passes through. It runs after ValidateSession; without a validated session in
+// the context it passes the request through.
+//
+// The middleware is a coarse, opt-in backstop: it stops a read-only session from
+// reaching any mutating handler regardless of whether that handler consults the mask.
+// It is not a substitute for honoring the mask in permission checks (Execute reaches
+// handlers by POST, and a session masked to Execute is not read-only).
+func (s *BaseSession) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx := r.Context()
+
+		if !internalcookie.SafeMethods.Contain(r.Method) {
+			if sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && sessData.Impersonation != nil && readOnlyMask(sessData.Impersonation.Mask) {
+				operation := r.Method + " " + r.URL.Path
+				if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationWriteBlocked, sessData.Impersonation, operation); err != nil {
+					logger.FromCtx(ctx).Error(err)
+				}
+
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("this session is read-only"))
+			}
+		}
+
+		next.ServeHTTP(w, r)
+
+		return nil
+	})
+}
+
+// readOnlyMask reports whether mask is read-only: restricted, and allowing nothing
+// beyond List and Read. The unrestricted mask is not read-only; the mask that allows
+// nothing is.
+func readOnlyMask(mask accesstypes.PermissionMask) bool {
+	if mask.IsZero() {
+		return false
+	}
+	for _, perm := range mask.Permissions() {
+		if perm != accesstypes.List && perm != accesstypes.Read {
+			return false
+		}
+	}
+
+	return true
 }
 
 // endImpersonation records an observed end of an impersonated session — an expiry

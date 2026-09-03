@@ -192,6 +192,13 @@ func (o *OIDCGoogle[T, U]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return o.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (o *OIDCGoogle[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return o.baseSession.EnforceReadOnlyMask(next)
+}
+
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCGoogle[T, U]) Login() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {

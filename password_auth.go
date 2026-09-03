@@ -131,6 +131,13 @@ func (p *PasswordAuth[T, U]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (p *PasswordAuth[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return p.baseSession.EnforceReadOnlyMask(next)
+}
+
 // StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
 // a new session. The session cookie is then updated and the sessionID is inserted into the context.
 func (p *PasswordAuth[T, U]) StartSession(next http.Handler) http.Handler {

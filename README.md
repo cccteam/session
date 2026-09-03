@@ -829,7 +829,7 @@ Everything an impersonated session touches names the actor and the principal:
 | The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
 | `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
 | `principal.kind`, `principal` — when a `WithPrincipalResolver` changed the request's subject | The request-level log entry and every line logged within the request |
-| `Started` / `Ended` / `IdentityOperationBlocked` events | Structured log lines, plus the `WithImpersonationAudit` hook |
+| `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, plus the `WithImpersonationAudit` hook |
 | The establishing call's own log entry | The source application's request log |
 | `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
 
@@ -851,5 +851,20 @@ Everything an impersonated session touches names the actor and the principal:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
   when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+- **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
+  `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
+  TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
+  beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
+  method and path. It is an opt-in backstop that keeps a read-only session away from
+  every mutating handler whether or not that handler consults the mask; it does not
+  replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and
+  a mask including `Execute` is not read-only).
+
+  ```go
+  r.Group(func(r chi.Router) {
+      r.Use(auth.ValidateSession, auth.ValidateXSRFToken, auth.EnforceReadOnlyMask)
+      // ...
+  })
+  ```
 
 ##### Created and maintained by the CCC team.
