@@ -69,6 +69,11 @@ type BaseStore interface {
 	// activity after activeSince. q narrows the listing by actor and/or principal. It
 	// errors when no impersonation table is configured.
 	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error)
+	// DestroyImpersonatedSession expires one live impersonated session and ends its record
+	// with reason Revoked, atomically — the single-session form of
+	// DestroyImpersonatedSessions. A session that is not impersonated, or whose record has
+	// already ended, is left untouched. It errors when no impersonation table is configured.
+	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
@@ -253,6 +258,9 @@ type db interface {
 	// record not ended, hard cap not passed, session not expired, session UpdatedAt after activeSince,
 	// narrowed by q's actor and/or principal.
 	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error)
+	// DestroyImpersonatedSession expires one live impersonated session and ends its record with
+	// reason Revoked, in one transaction; a no-op for sessions without a live record.
+	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.

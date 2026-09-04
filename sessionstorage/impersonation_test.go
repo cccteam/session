@@ -281,6 +281,17 @@ func Test_sessionStorage_ImpersonationDelegates(t *testing.T) {
 		}
 	})
 
+	t.Run("DestroyImpersonatedSession delegates by session and wraps errors", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		mockDB := NewMockdb(ctrl)
+		mockDB.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(errors.New("boom"))
+
+		if err := (&sessionStorage{db: mockDB}).DestroyImpersonatedSession(context.Background(), sessionID); err == nil {
+			t.Error("DestroyImpersonatedSession() error = nil, want error")
+		}
+	})
+
 	t.Run("DestroyImpersonatedSessions delegates by actor", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)

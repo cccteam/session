@@ -301,6 +301,52 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	return nil
 }
 
+// DestroyImpersonatedSession expires one live impersonated session and ends its
+// record with reason Revoked, in one transaction. A session with no live record
+// (not impersonated, or already ended) is left untouched.
+func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.impersonation == nil {
+		return errors.New("impersonation is not configured on the storage")
+	}
+
+	now := time.Now()
+
+	expireSession := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET Expired = TRUE, UpdatedAt = @now
+			WHERE Id = @id AND Id IN (
+				SELECT SessionId FROM %s WHERE SessionId = @id AND EndedAt IS NULL
+			)
+	`, s.sessionTableName, s.impersonation.TableName))
+	expireSession.Params["id"] = sessionID
+	expireSession.Params["now"] = now
+
+	endRecord := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET EndedAt = @now, EndReason = @reason
+			WHERE SessionId = @id AND EndedAt IS NULL
+	`, s.impersonation.TableName))
+	endRecord.Params["id"] = sessionID
+	endRecord.Params["now"] = now
+	endRecord.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
+
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.BatchUpdate(ctx, []spanner.Statement{expireSession, endRecord}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
 // endImpersonationIfConfigured ends the session's impersonation record with
 // reason when an impersonation table is configured; it is a no-op otherwise and
 // for sessions that are not impersonated.

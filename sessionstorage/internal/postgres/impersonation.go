@@ -268,6 +268,51 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	return nil
 }
 
+// DestroyImpersonatedSession expires one live impersonated session and ends its
+// record with reason Revoked, in one transaction. A session with no live record
+// (not impersonated, or already ended) is left untouched.
+func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if s.impersonation == nil {
+		return errors.New("impersonation is not configured on the storage")
+	}
+
+	impTable := pgx.Identifier{s.impersonation.TableName}.Sanitize()
+	expireSession := fmt.Sprintf(`
+		UPDATE "%s" s
+		SET "Expired" = TRUE, "UpdatedAt" = $2
+		FROM %s i
+		WHERE i."SessionId" = s."Id" AND s."Id" = $1 AND i."EndedAt" IS NULL`, s.sessionTableName, impTable)
+	endRecord := fmt.Sprintf(`
+		UPDATE %s
+		SET "EndedAt" = $2, "EndReason" = $3
+		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, impTable)
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	now := time.Now()
+	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if _, err := txn.Exec(ctx, endRecord, sessionID, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
+}
+
 // endImpersonationIfConfigured ends the session's impersonation record with
 // reason when an impersonation table is configured; it is a no-op otherwise and
 // for sessions that are not impersonated.

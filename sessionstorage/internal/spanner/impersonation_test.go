@@ -631,3 +631,62 @@ func TestSessionStorageDriver_ActiveImpersonations(t *testing.T) {
 		t.Error("ActiveImpersonations() without the configuration error = nil, want error")
 	}
 }
+
+func TestSessionStorageDriver_DestroyImpersonatedSession(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	conn, err := prepareDatabase(ctx, t, impersonationSchema)
+	if err != nil {
+		t.Fatalf("prepareDatabase() error = %v", err)
+	}
+	c := NewSessionStorageDriver(conn.Client)
+	c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
+
+	tests := []struct {
+		name        string
+		sessionID   ccc.UUID
+		wantExpired bool
+		wantReason  string
+	}{
+		{name: "a live impersonated session is expired and its record revoked", sessionID: impersonatedUserSession, wantExpired: true, wantReason: "Revoked"},
+		{name: "an already ended record keeps its end", sessionID: impersonatedRoleSession, wantExpired: true, wantReason: "Logout"},
+		{name: "a session that is not impersonated is untouched", sessionID: plainSession},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := c.DestroyImpersonatedSession(ctx, tt.sessionID); err != nil {
+				t.Fatalf("DestroyImpersonatedSession() error = %v", err)
+			}
+			got, err := c.Session(ctx, tt.sessionID)
+			if err != nil {
+				t.Fatalf("Session() error = %v", err)
+			}
+			if got.Expired != tt.wantExpired {
+				t.Errorf("Session().Expired = %v, want %v", got.Expired, tt.wantExpired)
+			}
+			if got.Impersonation == nil {
+				return
+			}
+			gotReason := ""
+			if got.Impersonation.EndReason != nil {
+				gotReason = *got.Impersonation.EndReason
+			}
+			if gotReason != tt.wantReason {
+				t.Errorf("EndReason = %q, want %q", gotReason, tt.wantReason)
+			}
+		})
+	}
+
+	other, err := c.Session(ctx, impersonatedByDave)
+	if err != nil {
+		t.Fatalf("Session() error = %v", err)
+	}
+	if other.Expired || other.Impersonation.EndedAt != nil {
+		t.Error("another live impersonated session was touched")
+	}
+	if err := NewSessionStorageDriver(conn.Client).DestroyImpersonatedSession(ctx, impersonatedCarol); err == nil {
+		t.Error("DestroyImpersonatedSession() without the configuration error = nil, want error")
+	}
+}

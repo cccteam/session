@@ -166,6 +166,23 @@ func (s *BaseSession) EmitImpersonationEvent(ctx context.Context, kind sessionin
 	return nil
 }
 
+// DestroyImpersonatedSession ends one live impersonated session: the session row is
+// expired and the record ended with reason Revoked, in one transaction — the
+// single-session form of DestroyImpersonatedSessions. The next request on that session
+// is refused as expired. A session that is not impersonated, or whose record has already
+// ended, is left untouched. It errors when the storage has no impersonation table.
+func (s *BaseSession) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+	if !s.Storage.ImpersonationEnabled() {
+		return ErrImpersonationNotConfigured
+	}
+
+	if err := s.Storage.DestroyImpersonatedSession(ctx, sessionID); err != nil {
+		return errors.Wrap(err, "sessionstorage.BaseStore.DestroyImpersonatedSession()")
+	}
+
+	return nil
+}
+
 // ActiveImpersonations lists the impersonated sessions that are live right now,
 // newest first: their record has not ended, their hard cap has not passed, their
 // session row is not expired, and the session has seen activity within the idle

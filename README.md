@@ -858,8 +858,13 @@ Everything an impersonated session touches names the actor and the principal:
   the idle session timeout. `q` (`*session.ImpersonationQuery`) narrows by `Actor`
   and/or `Principal`; `nil` lists everything.
 
+  `API().DestroyImpersonatedSession(ctx, sessionID)` is the action on a row: it expires
+  that session and ends its record `Revoked` in one transaction, so the next request on it
+  is refused. Who may list or revoke is the application's guard.
+
   ```go
   imps, err := auth.API().ActiveImpersonations(ctx, &session.ImpersonationQuery{Actor: "alice@example.com"})
+  err = auth.API().DestroyImpersonatedSession(ctx, imps[0].SessionID)
   ```
 - **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and

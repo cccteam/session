@@ -831,6 +831,49 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 		}
 	})
 
+	t.Run("single revocation refuses when not configured and delegates by session on every type", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		sessionID := ccc.Must(ccc.NewUUID())
+
+		password := newPasswordStoreMock(ctrl)
+		password.EXPECT().ImpersonationEnabled().Return(false)
+		p, err := NewPasswordAuth[NoCustomData, NoCustomData](password, cookieKey)
+		if err != nil {
+			t.Fatalf("NewPasswordAuth() error = %v", err)
+		}
+		if err := p.API().DestroyImpersonatedSession(context.Background(), sessionID); err == nil {
+			t.Error("PasswordAuth DestroyImpersonatedSession() error = nil, want not configured")
+		}
+
+		preauth := newPreauthStoreMock(ctrl)
+		preauth.EXPECT().ImpersonationEnabled().Return(true)
+		preauth.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		pa, err := NewPreauth[NoCustomData](preauth, cookieKey)
+		if err != nil {
+			t.Fatalf("NewPreauth() error = %v", err)
+		}
+		if err := pa.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
+			t.Errorf("Preauth DestroyImpersonatedSession() error = %v", err)
+		}
+
+		azure := newOIDCStoreMock(ctrl)
+		azure.EXPECT().ImpersonationEnabled().Return(true)
+		azure.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		a := &OIDCAzure[NoCustomData, NoCustomData]{storage: azure, baseSession: &basesession.BaseSession{Storage: azure}}
+		if err := a.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
+			t.Errorf("OIDCAzure DestroyImpersonatedSession() error = %v", err)
+		}
+
+		google := newGoogleOIDCStoreMock(ctrl)
+		google.EXPECT().ImpersonationEnabled().Return(true)
+		google.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		g := &OIDCGoogle[NoCustomData, NoCustomData]{storage: google, baseSession: &basesession.BaseSession{Storage: google}}
+		if err := g.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
+			t.Errorf("OIDCGoogle DestroyImpersonatedSession() error = %v", err)
+		}
+	})
+
 	t.Run("OIDC Google delegates by actor", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)

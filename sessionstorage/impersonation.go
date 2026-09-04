@@ -161,3 +161,16 @@ func (s *sessionStorage) ActiveImpersonations(ctx context.Context, activeSince t
 
 	return imps, nil
 }
+
+// DestroyImpersonatedSession expires one live impersonated session and ends its record
+// with reason Revoked, atomically; a session without a live record is left untouched.
+func (s *sessionStorage) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.DestroyImpersonatedSession(ctx, sessionID); err != nil {
+		return errors.Wrap(err, "db.DestroyImpersonatedSession()")
+	}
+
+	return nil
+}
