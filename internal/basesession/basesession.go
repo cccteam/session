@@ -16,7 +16,13 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// attrEndUserID is the OpenTelemetry semantic-convention attribute for the
+// authenticated end user of a request.
+const attrEndUserID = "enduser.id"
 
 // LogHandler defines the handler signature required for handling logs.
 type LogHandler func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc
@@ -106,12 +112,18 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
+//
+// The request's evidence — enduser.id, and the impersonation.* and principal.*
+// attributes when they apply — is stamped on the span current in r.Context(): the
+// server span, which is what trace-list filters match on.
 func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		evidence := trace.SpanFromContext(r.Context())
+
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		ctx, err := s.ValidateSessionAPI(ctx)
+		ctx, err := s.validateSession(ctx, evidence)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -122,8 +134,16 @@ func (s *BaseSession) ValidateSession(next http.Handler) http.Handler {
 	})
 }
 
-// ValidateSessionAPI checks the session cookie and if it is valid, stores the session data into the context
+// ValidateSessionAPI checks the session cookie and if it is valid, stores the session
+// data into the context. The request's evidence (see ValidateSession) is stamped on the
+// span current in ctx — the caller's span.
 func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, error) {
+	return s.validateSession(ctx, trace.SpanFromContext(ctx))
+}
+
+// validateSession validates the session in ctx and stamps the request's evidence on
+// the evidence span.
+func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) (context.Context, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -131,6 +151,12 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 	sessInfo, err := s.Storage.Session(ctx, sessioninfo.IDFromCtx(ctx))
 	if err != nil {
 		return ctx, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
+	}
+
+	// An impersonated session's evidence goes on the span before any refusal, so a
+	// trace of a refused request still names the actor and principal.
+	if imp := sessInfo.Impersonation; imp != nil {
+		evidence.SetAttributes(impersonationSpanAttributes(imp)...)
 	}
 
 	// Check for expiration: the idle timeout, and an impersonated session's hard cap.
@@ -154,6 +180,10 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 		return ctx, err
 	}
 
+	// enduser.id is the OpenTelemetry convention for the authenticated end user: the
+	// session's effective identity, on every validated request.
+	evidence.SetAttributes(attribute.String(attrEndUserID, sessInfo.Username))
+
 	// Add user to logging context — and, for an impersonated session, the evidence
 	// attributes on the request entry and every line logged within it; likewise the
 	// principal when a resolver changed it.
@@ -169,6 +199,7 @@ func (s *BaseSession) ValidateSessionAPI(ctx context.Context) (context.Context, 
 		kind, name := principalKindName(p)
 		l.AddRequestAttribute(sessioninfo.AttrPrincipalKind, kind).AddRequestAttribute(sessioninfo.AttrPrincipal, name)
 		attrs = attrs.AddAttribute(sessioninfo.AttrPrincipalKind, kind).AddAttribute(sessioninfo.AttrPrincipal, name)
+		evidence.SetAttributes(attribute.String(sessioninfo.AttrPrincipalKind, kind), attribute.String(sessioninfo.AttrPrincipal, name))
 	}
 
 	return logger.NewCtx(ctx, attrs.Logger()), nil
@@ -202,11 +233,11 @@ func (s *BaseSession) resolvePrincipal(ctx context.Context, sessData *sessioninf
 // principalKindName renders a principal as its evidence attributes.
 func principalKindName(p accesstypes.Principal) (kind, name string) {
 	if role, ok := p.Role(); ok {
-		return "Role", string(role)
+		return sessioninfo.PrincipalKindRole, string(role)
 	}
 	user, _ := p.User()
 
-	return "User", string(user)
+	return sessioninfo.PrincipalKindUser, string(user)
 }
 
 // Authenticated is the handler reports if the session is authenticated

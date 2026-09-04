@@ -829,7 +829,8 @@ Everything an impersonated session touches names the actor and the principal:
 | The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
 | `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
 | `principal.kind`, `principal` — when a `WithPrincipalResolver` changed the request's subject | The request-level log entry and every line logged within the request |
-| `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, plus the `WithImpersonationAudit` hook |
+| `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |
+| `enduser.id` (the session's username), the same `impersonation.*` attributes, and `principal.*` when a resolver changed the subject | The request's server span from the `ValidateSession` middleware (the caller's current span from `ValidateSessionAPI`), impersonation attributes set before any refusal so a refused request's trace still names the actor; the establishing call's own span on the source side |
 | The establishing call's own log entry | The source application's request log |
 | `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
 

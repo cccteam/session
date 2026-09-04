@@ -71,6 +71,11 @@ linters:
             - github.com/gorilla/securecookie
             - github.com/jackc/pgerrcode
             - github.com/jackc/pgx/v5
+            - go.opentelemetry.io/otel
+            - go.opentelemetry.io/otel/attribute
+            - go.opentelemetry.io/otel/sdk/trace
+            - go.opentelemetry.io/otel/sdk/trace/tracetest
+            - go.opentelemetry.io/otel/trace
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2

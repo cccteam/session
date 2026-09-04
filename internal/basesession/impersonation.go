@@ -52,6 +52,8 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
 	}
 	imp.SessionID = id
+	// The establishing call's own span carries the evidence on the source side.
+	span.SetAttributes(impersonationSpanAttributes(imp)...)
 
 	if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationStarted, imp, ""); err != nil {
 		if derr := s.Storage.DestroySession(ctx, id); derr != nil {
@@ -130,9 +132,12 @@ func NewImpersonationResponse(imp *sessioninfo.Impersonation) *ImpersonationResp
 }
 
 // EmitImpersonationEvent logs a lifecycle event of an impersonated session with the
-// record's evidence attributes and delivers it to the audit hook when one is
-// configured. It returns the hook's error, if any; the log line is written regardless.
+// record's evidence attributes, records it as an event on the current trace span, and
+// delivers it to the audit hook when one is configured. It returns the hook's error, if
+// any; the log line and span event are written regardless.
 func (s *BaseSession) EmitImpersonationEvent(ctx context.Context, kind sessioninfo.ImpersonationEventKind, imp *sessioninfo.Impersonation, operation string) error {
+	addImpersonationSpanEvent(ctx, kind, imp, operation)
+
 	attrs := logger.FromCtx(ctx).WithAttributes()
 	for _, a := range imp.Attributes() {
 		attrs = attrs.AddAttribute(a.Key, a.Value)
