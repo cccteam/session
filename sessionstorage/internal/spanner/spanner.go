@@ -336,31 +336,46 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	sessionUpdate := struct {
-		ID        ccc.UUID  `spanner:"Id"`
-		Expired   bool      `spanner:"Expired"`
-		UpdatedAt time.Time `spanner:"UpdatedAt"`
-	}{
-		ID:        sessionID,
-		Expired:   true,
-		UpdatedAt: time.Now(),
+	now := time.Now()
+
+	// A session that does not exist updates no row and is not an error: a browser can
+	// return with old state, and refusing it would be noise.
+	expireSession := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET Expired = TRUE, UpdatedAt = @now
+			WHERE Id = @id
+	`, s.sessionTableName))
+	expireSession.Params["id"] = sessionID
+	expireSession.Params["now"] = now
+	statements := []spanner.Statement{expireSession}
+
+	// The row and its impersonation record, if any, end together: a live record on
+	// an expired row would misreport the end, and an ended record on a live row must
+	// never exist.
+	if s.impersonation != nil {
+		endRecord := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET EndedAt = @now, EndReason = @reason
+			WHERE SessionId = @id AND EndedAt IS NULL
+	`, s.impersonation.TableName))
+		endRecord.Params["id"] = sessionID
+		endRecord.Params["now"] = now
+		endRecord.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
+		statements = append(statements, endRecord)
 	}
 
-	mutation, err := spanner.UpdateStruct(s.sessionTableName, sessionUpdate)
-	if err != nil {
-		return errors.Wrap(err, "spanner.UpdateStruct()")
-	}
-
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
-		// Attempting to destroy a session that does not exist is something that
-		// can happen when a browser returns with old state. Erroring in this
-		// case is extra noise, so we will ignore instead.
-		if spanner.ErrCode(err) != codes.NotFound {
-			return errors.Wrap(err, "spanner.Client.Apply()")
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.BatchUpdate(ctx, statements); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
-	return s.endImpersonationIfConfigured(ctx, sessionID, sessioninfo.ImpersonationEndedByLogout)
+	return nil
 }
 
 // User returns the user record associated with the user id

@@ -298,18 +298,49 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`
+	// A session that does not exist updates no row and is not an error: a browser can
+	// return with old state, and refusing it would be noise.
+	expireSession := fmt.Sprintf(`
 		UPDATE "%s" SET "Expired" = TRUE, "UpdatedAt" = $2
 		WHERE "Id" = $1`, s.sessionTableName)
+	now := time.Now()
 
-	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now()); err != nil {
-		// Attempting to destroy a session that does not exist is something that
-		// can happen when a browser returns with old state. Erroring in this
-		// case is extra noise, so we will ignore instead.
-		return errors.Wrap(err, "Queryer.Exec()")
+	if s.impersonation == nil {
+		if _, err := s.conn.Exec(ctx, expireSession, sessionID, now); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
 	}
 
-	return s.endImpersonationIfConfigured(ctx, sessionID, sessioninfo.ImpersonationEndedByLogout)
+	// The row and its impersonation record, if any, end together: a live record on
+	// an expired row would misreport the end, and an ended record on a live row must
+	// never exist.
+	endRecord := fmt.Sprintf(`
+		UPDATE %s
+		SET "EndedAt" = $2, "EndReason" = $3
+		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if _, err := txn.Exec(ctx, endRecord, sessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
 }
 
 // User returns the user record associated with the user id

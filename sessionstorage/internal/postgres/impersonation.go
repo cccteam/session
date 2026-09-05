@@ -313,17 +313,6 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 	return nil
 }
 
-// endImpersonationIfConfigured ends the session's impersonation record with
-// reason when an impersonation table is configured; it is a no-op otherwise and
-// for sessions that are not impersonated.
-func (s *SessionStorageDriver) endImpersonationIfConfigured(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
-	if s.impersonation == nil {
-		return nil
-	}
-
-	return s.EndImpersonation(ctx, sessionID, string(reason))
-}
-
 // ActiveImpersonations lists live impersonation records joined to their session
 // rows, newest first: record not ended, hard cap not passed, session not expired,
 // and session UpdatedAt after activeSince; q narrows by actor and/or principal.
