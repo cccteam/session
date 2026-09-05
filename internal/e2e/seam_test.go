@@ -17,12 +17,13 @@ import (
 	dbinitiator "github.com/cccteam/db-initiator"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session"
+	"github.com/cccteam/session/internal/testkey"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-chi/chi/v5"
 )
 
-const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
+const cookieKey = testkey.CookieKey
 
 // The XSRF cookie and header names the cookie client uses by default.
 const (
