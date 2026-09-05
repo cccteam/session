@@ -159,8 +159,9 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 		evidence.SetAttributes(impersonationSpanAttributes(imp)...)
 	}
 
-	// Check for expiration: the idle timeout, and an impersonated session's hard cap.
-	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.SessionTimeout || impersonationExpired(sessInfo) {
+	// Check for expiration: the idle timeout, an impersonated session's hard cap, and an
+	// impersonation record that has already ended.
+	if sessInfo.Expired || time.Since(sessInfo.UpdatedAt) > s.SessionTimeout || impersonationExpired(sessInfo) || impersonationEnded(sessInfo) {
 		s.endImpersonation(ctx, sessInfo, sessioninfo.ImpersonationEndedByExpiry)
 
 		return ctx, httpio.NewUnauthorizedMessage("session expired")

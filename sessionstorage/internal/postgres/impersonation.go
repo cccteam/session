@@ -269,9 +269,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 }
 
 // DestroyImpersonatedSession expires one live impersonated session and ends its
-// record with reason Revoked, in one transaction. A session with no live record
-// (not impersonated, or already ended) is left untouched.
-func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+// record with reason, in one transaction. A session with no live record (not
+// impersonated, or already ended) is left untouched.
+func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -302,7 +302,7 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecord, sessionID, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, endRecord, sessionID, now, reason); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 

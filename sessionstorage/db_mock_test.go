@@ -175,17 +175,17 @@ func (mr *MockdbMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.
 }
 
 // DestroyImpersonatedSession mocks base method.
-func (m *Mockdb) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+func (m *Mockdb) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroyImpersonatedSession", ctx, sessionID)
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSession", ctx, sessionID, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DestroyImpersonatedSession indicates an expected call of DestroyImpersonatedSession.
-func (mr *MockdbMockRecorder) DestroyImpersonatedSession(ctx, sessionID any) *gomock.Call {
+func (mr *MockdbMockRecorder) DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSession", reflect.TypeOf((*Mockdb)(nil).DestroyImpersonatedSession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSession", reflect.TypeOf((*Mockdb)(nil).DestroyImpersonatedSession), ctx, sessionID, reason)
 }
 
 // DestroyImpersonatedSessions mocks base method.

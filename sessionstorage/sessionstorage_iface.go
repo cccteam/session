@@ -70,10 +70,11 @@ type BaseStore interface {
 	// errors when no impersonation table is configured.
 	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error)
 	// DestroyImpersonatedSession expires one live impersonated session and ends its record
-	// with reason Revoked, atomically — the single-session form of
-	// DestroyImpersonatedSessions. A session that is not impersonated, or whose record has
-	// already ended, is left untouched. It errors when no impersonation table is configured.
-	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error
+	// with reason, atomically — the single-session form of DestroyImpersonatedSessions
+	// (Revoked) and the storage step of EndImpersonation (Released). A session that is
+	// not impersonated, or whose record has already ended, is left untouched. It errors
+	// when no impersonation table is configured.
+	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.
@@ -259,8 +260,8 @@ type db interface {
 	// narrowed by q's actor and/or principal.
 	ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error)
 	// DestroyImpersonatedSession expires one live impersonated session and ends its record with
-	// reason Revoked, in one transaction; a no-op for sessions without a live record.
-	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error
+	// reason, in one transaction; a no-op for sessions without a live record.
+	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error
 	// SetSessionTableName sets the name of the session table.
 	SetSessionTableName(name string)
 	// SetUserTableName sets the name of the user table.

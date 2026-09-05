@@ -281,13 +281,13 @@ func Test_sessionStorage_ImpersonationDelegates(t *testing.T) {
 		}
 	})
 
-	t.Run("DestroyImpersonatedSession delegates by session and wraps errors", func(t *testing.T) {
+	t.Run("DestroyImpersonatedSession passes the reason as text and wraps errors", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		mockDB := NewMockdb(ctrl)
-		mockDB.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(errors.New("boom"))
+		mockDB.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, "Released").Return(errors.New("boom"))
 
-		if err := (&sessionStorage{db: mockDB}).DestroyImpersonatedSession(context.Background(), sessionID); err == nil {
+		if err := (&sessionStorage{db: mockDB}).DestroyImpersonatedSession(context.Background(), sessionID, sessioninfo.ImpersonationEndedByRelease); err == nil {
 			t.Error("DestroyImpersonatedSession() error = nil, want error")
 		}
 	})

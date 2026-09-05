@@ -134,12 +134,13 @@ func (s *BaseSession) EndImpersonation() http.HandlerFunc {
 	})
 }
 
-// EndImpersonationAPI ends the impersonated session in ctx: the record ends with reason
-// Released, the session row is expired, and the end is announced as an Ended event. For
-// a local actor whose source session is still live, not itself impersonated, and still
-// theirs, the response is given that session's cookies, so the actor is back in their
-// own session without logging in; restored reports whether that happened. A context
-// whose session is not impersonated is refused.
+// EndImpersonationAPI ends the impersonated session in ctx: the session row is expired
+// and the record ends with reason Released, in one storage transaction, and the end is
+// announced as an Ended event. For a local actor whose source session is still live,
+// not itself impersonated, and still theirs, the response is given that session's
+// cookies, so the actor is back in their own session without logging in; restored
+// reports whether that happened. A context whose session is not impersonated is
+// refused.
 func (s *BaseSession) EndImpersonationAPI(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -150,11 +151,10 @@ func (s *BaseSession) EndImpersonationAPI(ctx context.Context, w http.ResponseWr
 	}
 	imp := sessData.Impersonation
 
-	if err := s.Storage.EndImpersonation(ctx, imp.SessionID, sessioninfo.ImpersonationEndedByRelease); err != nil {
-		return false, errors.Wrap(err, "sessionstorage.BaseStore.EndImpersonation()")
-	}
-	if err := s.Storage.DestroySession(ctx, sessData.ID); err != nil {
-		return false, errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	// One transaction: a session must never be left with an ended record and a live
+	// row, which would validate while ActiveImpersonations no longer lists it.
+	if err := s.Storage.DestroyImpersonatedSession(ctx, sessData.ID, sessioninfo.ImpersonationEndedByRelease); err != nil {
+		return false, errors.Wrap(err, "sessionstorage.BaseStore.DestroyImpersonatedSession()")
 	}
 
 	now := time.Now()
@@ -302,7 +302,7 @@ func (s *BaseSession) DestroyImpersonatedSession(ctx context.Context, sessionID 
 		return ErrImpersonationNotConfigured
 	}
 
-	if err := s.Storage.DestroyImpersonatedSession(ctx, sessionID); err != nil {
+	if err := s.Storage.DestroyImpersonatedSession(ctx, sessionID, sessioninfo.ImpersonationEndedByRevocation); err != nil {
 		return errors.Wrap(err, "sessionstorage.BaseStore.DestroyImpersonatedSession()")
 	}
 
@@ -431,4 +431,12 @@ func (s *BaseSession) LogoutAPI(ctx context.Context) error {
 // impersonationExpired reports whether an impersonated session's hard cap has passed.
 func impersonationExpired(sessData *sessioninfo.SessionData) bool {
 	return sessData.Impersonation != nil && !time.Now().Before(sessData.Impersonation.ExpiresAt)
+}
+
+// impersonationEnded reports whether an impersonated session's record has ended. The
+// record is the authority: a session whose record has ended is over even if its row
+// was not expired with it, so no ended-but-live session can keep validating while
+// ActiveImpersonations no longer lists it.
+func impersonationEnded(sessData *sessioninfo.SessionData) bool {
+	return sessData.Impersonation != nil && sessData.Impersonation.EndedAt != nil
 }

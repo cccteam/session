@@ -631,18 +631,20 @@ func TestSessionStorageDriver_DestroyImpersonatedSession(t *testing.T) {
 	tests := []struct {
 		name        string
 		sessionID   ccc.UUID
+		reason      sessioninfo.ImpersonationEndReason
 		wantExpired bool
 		wantReason  string
 	}{
-		{name: "a live impersonated session is expired and its record revoked", sessionID: impersonatedUserSession, wantExpired: true, wantReason: "Revoked"},
-		{name: "an already ended record keeps its end", sessionID: impersonatedRoleSession, wantExpired: true, wantReason: "Logout"},
-		{name: "a session that is not impersonated is untouched", sessionID: plainSession},
+		{name: "a live impersonated session is expired and its record revoked", sessionID: impersonatedUserSession, reason: sessioninfo.ImpersonationEndedByRevocation, wantExpired: true, wantReason: "Revoked"},
+		{name: "a live impersonated session is expired and its record released, in one step", sessionID: impersonatedCarol, reason: sessioninfo.ImpersonationEndedByRelease, wantExpired: true, wantReason: "Released"},
+		{name: "an already ended record keeps its end", sessionID: impersonatedRoleSession, reason: sessioninfo.ImpersonationEndedByRevocation, wantExpired: true, wantReason: "Logout"},
+		{name: "a session that is not impersonated is untouched", sessionID: plainSession, reason: sessioninfo.ImpersonationEndedByRevocation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if err := c.DestroyImpersonatedSession(ctx, tt.sessionID); err != nil {
+			if err := c.DestroyImpersonatedSession(ctx, tt.sessionID, string(tt.reason)); err != nil {
 				t.Fatalf("DestroyImpersonatedSession() error = %v", err)
 			}
 			got, err := c.Session(ctx, tt.sessionID)
@@ -672,7 +674,7 @@ func TestSessionStorageDriver_DestroyImpersonatedSession(t *testing.T) {
 	if other.Expired || other.Impersonation.EndedAt != nil {
 		t.Error("another live impersonated session was touched")
 	}
-	if err := NewSessionStorageDriver(conn.Pool).DestroyImpersonatedSession(ctx, impersonatedCarol); err == nil {
+	if err := NewSessionStorageDriver(conn.Pool).DestroyImpersonatedSession(ctx, impersonatedCarol, string(sessioninfo.ImpersonationEndedByRevocation)); err == nil {
 		t.Error("DestroyImpersonatedSession() without the configuration error = nil, want error")
 	}
 }

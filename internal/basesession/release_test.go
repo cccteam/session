@@ -207,8 +207,7 @@ func TestBaseSession_EndImpersonationAPI(t *testing.T) {
 		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "alice"}, Impersonation: imp}
 	}
 	ended := func(storage *mock_sessionstorage.MockBaseStore) {
-		storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(nil)
-		storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
+		storage.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(nil)
 	}
 
 	tests := []struct {
@@ -277,10 +276,10 @@ func TestBaseSession_EndImpersonationAPI(t *testing.T) {
 			wantEvents: []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
 		},
 		{
-			name:    "a failed record end fails the call before the session is destroyed",
+			name:    "a failed end fails the call before any restore, and announces nothing",
 			session: impersonated(&sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}),
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, _ *mock_cookie.MockHandler) {
-				storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(errors.New("db down"))
+				storage.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(errors.New("db down"))
 			},
 			wantErr: true,
 		},
@@ -335,8 +334,7 @@ func TestBaseSession_EndImpersonation(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	storage := mock_sessionstorage.NewMockBaseStore(ctrl)
-	storage.EXPECT().EndImpersonation(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(nil)
-	storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
+	storage.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRelease).Return(nil)
 	storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now()), nil)
 	cookieHandler := mock_cookie.NewMockHandler(ctrl)
 	cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sourceID).Return(cookie.NewValues())

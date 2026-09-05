@@ -94,6 +94,22 @@ func TestBaseSession_ValidateSessionAPI_Impersonation(t *testing.T) {
 			wantEnded:        true,
 		},
 		{
+			name: "ended record on a live row: refused without a second end, so a half-ended session never validates",
+			session: func() *sessioninfo.SessionData {
+				s := newSession(time.Hour)
+				ended := time.Now()
+				s.Impersonation.EndedAt = &ended
+				s.Impersonation.EndReason = sessioninfo.ImpersonationEndedByRelease
+
+				return s
+			}(),
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {
+				storage.EXPECT().Session(gomock.Any(), sessionID).Return(session, nil)
+			},
+			wantUnauthorized: true,
+			wantEnded:        true,
+		},
+		{
 			name:    "a failing end write is logged, not returned",
 			session: newSession(-time.Second),
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, session *sessioninfo.SessionData) {

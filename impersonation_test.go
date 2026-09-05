@@ -953,7 +953,7 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 
 		preauth := newPreauthStoreMock(ctrl)
 		preauth.EXPECT().ImpersonationEnabled().Return(true)
-		preauth.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		preauth.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRevocation).Return(nil)
 		pa, err := NewPreauth[NoCustomData](preauth, cookieKey)
 		if err != nil {
 			t.Fatalf("NewPreauth() error = %v", err)
@@ -964,7 +964,7 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 
 		azure := newOIDCStoreMock(ctrl)
 		azure.EXPECT().ImpersonationEnabled().Return(true)
-		azure.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		azure.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRevocation).Return(nil)
 		a := &OIDCAzure[NoCustomData, NoCustomData]{storage: azure, baseSession: &basesession.BaseSession{Storage: azure}}
 		if err := a.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
 			t.Errorf("OIDCAzure DestroyImpersonatedSession() error = %v", err)
@@ -972,7 +972,7 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 
 		google := newGoogleOIDCStoreMock(ctrl)
 		google.EXPECT().ImpersonationEnabled().Return(true)
-		google.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID).Return(nil)
+		google.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRevocation).Return(nil)
 		g := &OIDCGoogle[NoCustomData, NoCustomData]{storage: google, baseSession: &basesession.BaseSession{Storage: google}}
 		if err := g.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
 			t.Errorf("OIDCGoogle DestroyImpersonatedSession() error = %v", err)
