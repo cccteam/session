@@ -138,6 +138,14 @@ func (p *PasswordAuth[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler
 	return p.baseSession.EnforceReadOnlyMask(next)
 }
 
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (p *PasswordAuth[T, U]) EndImpersonation() http.HandlerFunc {
+	return p.baseSession.EndImpersonation()
+}
+
 // StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
 // a new session. The session cookie is then updated and the sessionID is inserted into the context.
 func (p *PasswordAuth[T, U]) StartSession(next http.Handler) http.Handler {

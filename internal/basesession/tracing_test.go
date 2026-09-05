@@ -243,7 +243,7 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 	cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 
 	s := &BaseSession{Storage: storage, CookieHandler: cookieHandler}
-	imp := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")}
+	imp := &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")}
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
 	if _, err := s.StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req, imp); err != nil {
 		t.Fatalf("StartImpersonatedSession() error = %v", err)
@@ -255,6 +255,7 @@ func TestBaseSession_StartImpersonatedSession_SpanEvidence(t *testing.T) {
 	}
 	want := map[string]string{
 		sessioninfo.AttrImpersonationActor:         "alice",
+		sessioninfo.AttrImpersonationActorRealm:    "admin-portal",
 		sessioninfo.AttrImpersonationPrincipalKind: "Role",
 		sessioninfo.AttrImpersonationPrincipal:     "Editor",
 		sessioninfo.AttrImpersonationMask:          "unrestricted",

@@ -108,8 +108,8 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			wantUnauthorized: true,
 		},
 		{
-			name: "a role principal is refused when the actor is a user of this application",
-			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			name: "a foreign actor's role principal is refused when the actor's name is a user of this application",
+			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&dbtype.SessionUser{ID: userID, Username: "alice"}, nil)
@@ -119,7 +119,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 		},
 		{
 			name: "a failed actor lookup fails the establishment",
-			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("db down"))
@@ -127,7 +127,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "a role principal establishes the session as the actor with the default cap",
+			name: "a foreign actor's role principal establishes the session as the actor with the default cap",
 			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
@@ -152,6 +152,59 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			},
 		},
 		{
+			name: "a local actor's role principal is verified against their own live session, not against SessionUsers",
+			req:  &ImpersonationRequest{Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(liveSession(sourceID, "alice"), nil)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(createdAsLocalActor("alice", sourceID, sessionID))
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+		},
+		{
+			name: "a local actor must name their own session",
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+			},
+			wantErr:        true,
+			wantBadRequest: true,
+		},
+		{
+			name: "a local actor's source session must be theirs",
+			req:  &ImpersonationRequest{Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(liveSession(sourceID, "carol"), nil)
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
+			name: "a local actor's source session must be live",
+			req:  &ImpersonationRequest{Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true}, Principal: accesstypes.UserPrincipal("bob")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+				src := liveSession(sourceID, "alice")
+				src.Expired = true
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(src, nil)
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
+			name: "a local actor's source session must exist here",
+			req:  &ImpersonationRequest{Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(nil, httpio.NewNotFoundMessage("no such session"))
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
 			name: "a user principal establishes the session as the user, masked, with custom data and a shortened cap",
 			req: &ImpersonationRequest{
 				Actor:           "alice",
@@ -165,6 +218,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().UserByUserName(gomock.Any(), "Bob").Return(&dbtype.SessionUser{ID: userID, Username: "bob"}, nil)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(liveSession(sourceID, "alice"), nil)
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 						if req.Reason != sessioninfo.ReasonImpersonation || req.Username != "bob" || req.UserID != userID || req.CustomData != customData {
@@ -186,7 +240,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "the configured impersonation timeout caps the session",
 			options: []PasswordOption{WithImpersonationTimeout(15 * time.Minute)},
-			req:     &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), MaxDuration: time.Hour},
+			req:     &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor"), MaxDuration: time.Hour},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
@@ -205,7 +259,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name: "a failed audit destroys the session and fails the establishment",
 			hook: func(context.Context, sessioninfo.ImpersonationEvent) error { return errors.New("audit store down") },
-			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")},
+			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
@@ -263,6 +317,23 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 	}
 }
 
+// createdAsLocalActor is a CreateImpersonatedSession stand-in asserting a local actor's
+// role session: the actor's name with the zero ID, no realm, and their source session.
+func createdAsLocalActor(actor string, sourceID, sessionID ccc.UUID) func(context.Context, *sessioninfo.NewSessionRequest, *sessioninfo.Impersonation) (ccc.UUID, error) {
+	return func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+		if req.Username != actor || req.UserID != ccc.NilUUID || imp.ActorRealm != "" || imp.SourceSessionID.UUID != sourceID {
+			return ccc.NilUUID, errors.Newf("unexpected request %+v / impersonation %+v", req, imp)
+		}
+
+		return sessionID, nil
+	}
+}
+
+// liveSession is an ordinary, just-active session row for username.
+func liveSession(id ccc.UUID, username string) *sessioninfo.SessionData {
+	return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Username: username, UpdatedAt: time.Now()}}
+}
+
 // hookOrRecorder returns hook when set, otherwise a hook recording event kinds into seen.
 func hookOrRecorder(hook ImpersonationAuditHook, seen *[]sessioninfo.ImpersonationEventKind) ImpersonationAuditHook {
 	if hook != nil {
@@ -299,13 +370,25 @@ func TestPasswordAuth_ValidateSession_Impersonation(t *testing.T) {
 		wantUserInfo   *sessioninfo.UserInfo
 	}{
 		{
-			name: "a role principal needs no local user record",
+			name: "a foreign actor's role principal needs no local user record",
 			session: &sessioninfo.SessionData{
 				SessionInfo:   &sessioninfo.SessionInfo{ID: sessionID, Username: "alice", UpdatedAt: time.Now()},
-				Impersonation: &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer"), ExpiresAt: time.Now().Add(time.Hour)},
+				Impersonation: &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer"), ExpiresAt: time.Now().Add(time.Hour)},
 			},
 			wantStatusCode: http.StatusOK,
 			wantUserInfo:   &sessioninfo.UserInfo{Username: "alice"},
+		},
+		{
+			name: "a local actor's role principal resolves the actor's own record",
+			session: &sessioninfo.SessionData{
+				SessionInfo:   &sessioninfo.SessionInfo{ID: sessionID, Username: "alice", UpdatedAt: time.Now()},
+				Impersonation: &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: time.Now().Add(time.Hour)},
+			},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore) {
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&dbtype.SessionUser{ID: userID, Username: "alice"}, nil)
+			},
+			wantStatusCode: http.StatusOK,
+			wantUserInfo:   &sessioninfo.UserInfo{ID: userID, Username: "alice"},
 		},
 		{
 			name: "a user principal resolves the impersonated user's record",
@@ -572,7 +655,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:    "a role principal establishes the session as the actor under the configured cap",
 			options: []PreauthOption{WithImpersonationTimeout(15 * time.Minute)},
-			req:     &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			req:     &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
 			prepare: func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -597,7 +680,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name: "a failed audit destroys the session and fails the establishment",
 			hook: func(context.Context, sessioninfo.ImpersonationEvent) error { return errors.New("audit store down") },
-			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
 			prepare: func(storage *mock_sessionstorage.MockPreauthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
@@ -676,12 +759,12 @@ func TestOIDCAzureAPI_StartImpersonatedSession(t *testing.T) {
 		},
 		{
 			name:         "a user principal is the session's username as given, with the zero user ID",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
 			wantUsername: "bob@example.com",
 		},
 		{
 			name:         "a role principal is the actor",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("Auditor")},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Auditor")},
 			wantUsername: "alice@example.com",
 		},
 	}
@@ -746,12 +829,12 @@ func TestOIDCGoogleAPI_StartImpersonatedSession(t *testing.T) {
 		},
 		{
 			name:         "a user principal is the session's username as given, with the zero user ID",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
 			wantUsername: "bob@example.com",
 		},
 		{
 			name:         "a role principal is the actor",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("Auditor")},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Auditor")},
 			wantUsername: "alice@example.com",
 		},
 	}

@@ -503,19 +503,35 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
-		// A live role-principal impersonation carrying this name belongs to the actor, not
-		// to the renamed account, and keeps the name its record names.
+		// A live role-principal impersonation by a foreign actor carrying this name belongs
+		// to that actor, not to the renamed account, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
 				SET Username = @newUsername, UpdatedAt = @updatedAt
 				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
-		`, s.sessionTableName, s.liveRolePrincipalRecord()))
+		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
 		sessionsStmt.Params["updatedAt"] = time.Now()
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		// The live impersonations this account holds as a local actor follow the rename, so
+		// they stay reachable by the new name; ended records keep the name of their time.
+		if s.impersonation != nil {
+			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
+					UPDATE %s
+					SET ActorUsername = @newUsername
+					WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
+			`, s.impersonation.TableName))
+			recordsStmt.Params["oldUsername"] = oldUsername
+			recordsStmt.Params["newUsername"] = newUsername
+
+			if _, err := txn.Update(ctx, recordsStmt); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
 		}
 
 		return nil
@@ -655,36 +671,40 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 
 	now := time.Now()
 
-	// A live role-principal impersonation carries the actor's name, not an account of
-	// this user's, and is not one of their sessions.
+	// Every session under the name is this user's — their own, a user-principal
+	// impersonation of them, a role-principal session they hold as a local actor — except
+	// a foreign actor's role-principal session, which only borrows the name. The sessions
+	// this user holds as a local actor under other names go too.
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s s
 			SET Expired = TRUE, UpdatedAt = @updatedAt
-			WHERE s.Username = @username AND NOT %s
-	`, s.sessionTableName, s.liveRolePrincipalRecord()))
+			WHERE (s.Username = @username AND NOT %s) OR %s
+	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
 	stmt.Params["username"] = username
 	stmt.Params["updatedAt"] = now
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		// Sessions first: the expiry predicate reads the records while they are still live.
+		if _, err := txn.Update(ctx, stmt); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
 		if s.impersonation != nil {
-			// The user's live impersonation records end with the sessions, as Revoked.
+			// The live impersonation records of those sessions end with them, as Revoked.
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 					UPDATE %s
 					SET EndedAt = @now, EndReason = @reason
-					WHERE EndedAt IS NULL AND PrincipalKind <> '%s' AND SessionId IN (
-						SELECT Id FROM %s WHERE Username = @username
-					)
-			`, s.impersonation.TableName, dbtype.PrincipalKindRole, s.sessionTableName))
+					WHERE EndedAt IS NULL AND (
+						(SessionId IN (SELECT Id FROM %s WHERE Username = @username)
+							AND NOT (PrincipalKind = '%s' AND ActorRealm IS NOT NULL))
+						OR (ActorUsername = @username AND ActorRealm IS NULL))
+			`, s.impersonation.TableName, s.sessionTableName, dbtype.PrincipalKindRole))
 			endRecords.Params["username"] = username
 			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 			}
-		}
-
-		if _, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 
 		return nil

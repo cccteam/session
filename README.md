@@ -736,17 +736,28 @@ id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationReq
     Reason:     "ticket JRN-123",
 })
 
-// An administrator works the partner portal under a role.
+// An administrator of the admin application works the partner portal under a role.
 id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:     "alice@example.com",
-    Principal: accesstypes.RolePrincipal("PartnerViewer"),
+    Actor:      "alice@example.com",
+    ActorRealm: "admin-portal",
+    Principal:  accesstypes.RolePrincipal("PartnerViewer"),
 }, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
+
+// A user of this application acts under a narrower role for a while — their own
+// session, narrowed. The actor is local: no realm, and their own session as the source.
+info := sessioninfo.FromCtx(ctx)
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:           info.Username,
+    SourceSessionID: ccc.NullUUID{UUID: info.ID, Valid: true},
+    Principal:       accesstypes.RolePrincipal("Auditor"),
+})
 ```
 
 The session row and the record are written in one transaction; the cookie is set only
 after the `Started` event has been delivered (a failing audit hook destroys the session
-and fails the call). Refused everywhere: a missing actor or principal, and a caller that
-is itself an impersonated session (no chaining). *Who may impersonate whom* is the
+and fails the call). Refused everywhere: a missing actor or principal, a caller that is
+itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
+is missing or is not their own live session here. *Who may impersonate whom* is the
 application's guard — the library records what happened.
 
 #### Identity by session type
@@ -764,9 +775,24 @@ An impersonated OIDC session authenticates no ID token: no OIDC user anchor is u
 no roles are synchronized, and the configured custom session data resolver receives
 `ReasonImpersonation` with no claims. The row carries no identity provider session ID,
 so `FrontChannelLogout` never ends it — it ends by its hard cap, idle expiry, `Logout`,
-or `DestroyImpersonatedSessions`. Minting an impersonated session in the same
-application the actor is logged into replaces the browser's session cookie; pass the
-actor's session as `SourceSessionID` to keep the link.
+`EndImpersonation`, or `DestroyImpersonatedSessions`.
+
+#### Local and foreign actors
+
+`ActorRealm` says where the actor was authenticated, and it decides what the actor's name
+means in this application's session table:
+
+| | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
+| --- | --- | --- |
+| Who | An account of this application, logged in here | Authenticated by another application or IdP |
+| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username | Optional; the session in the source application, for correlation |
+| A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
+| Kept alive | The source session's activity is refreshed with the impersonated session's, so `EndImpersonation` can return to it | — |
+| Deactivating or renaming the account named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one account*) | Never touches the role session |
+
+Minting an impersonated session in the same application the actor is logged into
+replaces the browser's session cookie — which is why the source session is verified,
+kept alive, and returned to.
 
 ### What the session carries
 
@@ -878,29 +904,53 @@ Everything an impersonated session touches names the actor and the principal:
 - **Hard cap.** `ExpiresAt` is fixed at establishment (`WithImpersonationTimeout`,
   default one hour, shortened per call by `MaxDuration`); idle renewal never extends past
   it. The idle session timeout applies independently.
-- **Ending.** Logout, the hard cap, idle expiry, and `DestroyAllUserSessions` all end
-  the record with a reason (`Logout`, `Expired`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`,
-  on every session type, is the offboarding and incident tool: it expires every live
-  impersonated session an actor established.
+- **Ending.** Logout, the hard cap, idle expiry, `EndImpersonation`, and
+  `DestroyAllUserSessions` all end the record with a reason (`Logout`, `Expired`,
+  `Released`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`, on every
+  session type, is the offboarding and incident tool: it expires every live impersonated
+  session an actor established.
+- **Returning to self.** `EndImpersonation` (a handler on every session type, routed
+  inside the validated group; `API().EndImpersonation(ctx, w)` beside it) ends the
+  impersonated session `Released` and, for a local actor whose own session is still live,
+  not itself impersonated, and still theirs, gives the response that session's cookies:
+  the actor is back in their own session without logging in. The body says whether that
+  happened (`{"restored": true}`); when it did not, send the actor to login. The hard cap
+  is a hard boundary — a session past it is refused at validation before any handler runs,
+  so a frontend offers *return to self* before `expiresAt` from the `Authenticated()`
+  response, or warns and calls it as the cap nears.
+
+  ```go
+  r.Group(func(r chi.Router) {
+      r.Use(auth.ValidateSession, auth.ValidateXSRFToken)
+      r.Post("/impersonation/end", auth.EndImpersonation())
+  })
+  ```
 - **Validation (password auth).** A user principal's record is looked up like any
-  session's — a disabled impersonated user ends the session. A role principal has no
-  local user: no record is looked up and `UserFromCtx` carries the actor's username with
-  the zero ID, so self-referential checks (cannot delete yourself) go inert, correctly.
+  session's — a disabled impersonated user ends the session. A foreign actor's role
+  principal has no local user: no record is looked up and `UserFromCtx` carries the
+  actor's username with the zero ID, so self-referential checks (cannot delete yourself)
+  go inert, correctly. A local actor's role principal is their own session, so their
+  record is looked up as usual — a disabled actor's role session ends with their others.
   Preauth and OIDC validate an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
   when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
 - **One name, one account.** A role principal's session carries the actor's own username,
-  in the same session table as the application's real accounts. Password auth therefore
-  refuses a role principal when the actor's name is already a `SessionUsers` account (the
-  actor logs in as that account, or impersonates it as a user principal), and the two
-  username-keyed store operations — `DestroyAllUserSessions` and the session rename on
-  `ChangeUsername` — never touch a session carrying a live role-principal record, so an
-  account created later under that name cannot reach the actor's session either. Preauth
-  and OIDC have no username-keyed account to collide with. This is the store-level
-  complement of the authorization rule: under a role principal the subject is the role,
-  and application policy must not key row conditions on the session username.
+  in the same session table as the application's real accounts. For a *local* actor that
+  name is their account, and the two username-keyed store operations treat everything
+  under it as theirs: `DestroyAllUserSessions` expires their own sessions, their role
+  sessions, and every impersonation they hold as a local actor under other names, ending
+  the records `Revoked`; the session rename on `ChangeUsername` renames their role sessions
+  and moves their live records to the new name. For a *foreign* actor the name is
+  borrowed, so password auth refuses a role principal when that name is already a
+  `SessionUsers` account (the actor logs in as that account, or impersonates it as a user
+  principal), and the two operations never touch a session carrying a live foreign
+  role-principal record — an account created later under that name cannot reach the
+  actor's session either. Preauth and OIDC have no username-keyed account to collide with.
+  This is the store-level complement of the authorization rule: under a role principal the
+  subject is the role, and application policy must not key row conditions on the session
+  username.
 - **Listing.** `API().ActiveImpersonations(ctx, q)`, on every session type, lists the
   impersonated sessions that are live right now, newest first — the admin surface's view
   of who is acting as whom. *Active* means: the record has not ended, the hard cap has

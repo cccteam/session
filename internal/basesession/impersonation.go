@@ -47,6 +47,10 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := s.verifyLocalActor(ctx, imp); err != nil {
+		return ccc.NilUUID, err
+	}
+
 	id, err := s.Storage.CreateImpersonatedSession(ctx, req, imp)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.BaseStore.CreateImpersonatedSession()")
@@ -76,6 +80,123 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 	}
 
 	return id, nil
+}
+
+// verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an
+// account of this application, so the request must name the actor's own session in
+// this store as SourceSessionID, and that session must be live, not itself impersonated,
+// and carry the actor's username. A foreign actor (ActorRealm set) was authenticated
+// elsewhere and has nothing here to check.
+func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Impersonation) error {
+	if !imp.IsLocalActor() {
+		return nil
+	}
+	if !imp.SourceSessionID.Valid {
+		return httpio.NewBadRequestMessage("a local actor must name their own session as SourceSessionID; an actor authenticated by another application sets ActorRealm")
+	}
+
+	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	if err != nil {
+		return httpio.NewForbiddenMessageWithError(err, "the actor's source session is not a session of this application")
+	}
+	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
+		return httpio.NewForbiddenMessagef("session %s is not a live session of %q in this application", src.ID, imp.Actor)
+	}
+
+	return nil
+}
+
+// live reports whether a session row is neither destroyed nor past the idle timeout.
+func (s *BaseSession) live(sess *sessioninfo.SessionData) bool {
+	return !sess.Expired && time.Since(sess.UpdatedAt) <= s.SessionTimeout
+}
+
+// EndImpersonationResponse is the body of the EndImpersonation handler.
+type EndImpersonationResponse struct {
+	// Restored reports that the browser's cookies name the actor's own session again;
+	// false means the actor must log in.
+	Restored bool `json:"restored"`
+}
+
+// EndImpersonation ends the impersonated session and, when it can, returns the actor to
+// their own session; see EndImpersonationAPI. The body says which happened.
+func (s *BaseSession) EndImpersonation() http.HandlerFunc {
+	return s.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		restored, err := s.EndImpersonationAPI(ctx, w)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(EndImpersonationResponse{Restored: restored})
+	})
+}
+
+// EndImpersonationAPI ends the impersonated session in ctx: the record ends with reason
+// Released, the session row is expired, and the end is announced as an Ended event. For
+// a local actor whose source session is still live, not itself impersonated, and still
+// theirs, the response is given that session's cookies, so the actor is back in their
+// own session without logging in; restored reports whether that happened. A context
+// whose session is not impersonated is refused.
+func (s *BaseSession) EndImpersonationAPI(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || sessData.Impersonation == nil {
+		return false, httpio.NewBadRequestMessage("the session is not impersonated")
+	}
+	imp := sessData.Impersonation
+
+	if err := s.Storage.EndImpersonation(ctx, imp.SessionID, sessioninfo.ImpersonationEndedByRelease); err != nil {
+		return false, errors.Wrap(err, "sessionstorage.BaseStore.EndImpersonation()")
+	}
+	if err := s.Storage.DestroySession(ctx, sessData.ID); err != nil {
+		return false, errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	}
+
+	now := time.Now()
+	imp.EndedAt = &now
+	imp.EndReason = sessioninfo.ImpersonationEndedByRelease
+	if err := s.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationEnded, imp, ""); err != nil {
+		logger.FromCtx(ctx).Error(err)
+	}
+
+	src, ok := s.restorableSource(ctx, imp)
+	if !ok {
+		return false, nil
+	}
+
+	s.CookieHandler.NewAuthCookie(w, true, src.ID)
+	s.CookieHandler.CreateXSRFTokenCookie(w, src.ID)
+	logger.FromCtx(ctx).AddRequestAttribute("RestoredSessionId", src.ID)
+
+	return true, nil
+}
+
+// restorableSource loads a local actor's own session and reports whether they can be
+// returned to it: it is live, not itself impersonated, and still carries the actor's
+// username. A foreign actor's session lives in another application.
+func (s *BaseSession) restorableSource(ctx context.Context, imp *sessioninfo.Impersonation) (*sessioninfo.SessionData, bool) {
+	if !imp.IsLocalActor() || !imp.SourceSessionID.Valid {
+		return nil, false
+	}
+
+	src, err := s.Storage.Session(ctx, imp.SourceSessionID.UUID)
+	if err != nil {
+		if !httpio.HasNotFound(err) {
+			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.BaseStore.Session()"))
+		}
+
+		return nil, false
+	}
+	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
+		return nil, false
+	}
+
+	return src, true
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by

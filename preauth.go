@@ -126,6 +126,14 @@ func (p *Preauth[T]) EnforceReadOnlyMask(next http.Handler) http.Handler {
 	return p.baseSession.EnforceReadOnlyMask(next)
 }
 
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (p *Preauth[T]) EndImpersonation() http.HandlerFunc {
+	return p.baseSession.EndImpersonation()
+}
+
 // API provides programatic access to Preauth handler internals
 func (p *Preauth[T]) API() *PreauthAPI[T] {
 	return newPreauthAPI(p)

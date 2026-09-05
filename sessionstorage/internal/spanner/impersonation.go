@@ -447,11 +447,25 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 // true when the session carries a live role-principal impersonation record. FALSE when
 // no impersonation table is configured, so username-keyed statements can embed it
 // unconditionally.
-func (s *SessionStorageDriver) liveRolePrincipalRecord() string {
+// foreignRolePrincipalRecord is a predicate over session alias s: the session carries a
+// live role-principal record whose actor was authenticated by another application. Its
+// username is that actor's, borrowed, not an account of this application's.
+func (s *SessionStorageDriver) foreignRolePrincipalRecord() string {
 	if s.impersonation == nil {
 		return "FALSE"
 	}
 
-	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s r WHERE r.SessionId = s.Id AND r.PrincipalKind = '%s' AND r.EndedAt IS NULL)",
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s r WHERE r.SessionId = s.Id AND r.PrincipalKind = '%s' AND r.ActorRealm IS NOT NULL AND r.EndedAt IS NULL)",
 		s.impersonation.TableName, dbtype.PrincipalKindRole)
+}
+
+// heldByLocalActor is a predicate over session alias s with the username bound to
+// @username: the session carries a live record established by that name as a local actor.
+func (s *SessionStorageDriver) heldByLocalActor() string {
+	if s.impersonation == nil {
+		return "FALSE"
+	}
+
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s r WHERE r.SessionId = s.Id AND r.ActorUsername = @username AND r.ActorRealm IS NULL AND r.EndedAt IS NULL)",
+		s.impersonation.TableName)
 }

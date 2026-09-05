@@ -171,6 +171,15 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 		if err := s.Storage.UpdateSessionActivity(ctx, sessInfo.ID); err != nil {
 			return ctx, errors.Wrap(err, "sessionstorage.BaseStore.UpdateSessionActivity()")
 		}
+
+		// A local actor's own session stays alive while they are impersonating: the
+		// actor is at the keyboard, and EndImpersonation returns them to that session.
+		// The impersonated session's hard cap bounds how long this can go on.
+		if imp := sessInfo.Impersonation; imp != nil && imp.IsLocalActor() && imp.SourceSessionID.Valid {
+			if err := s.Storage.UpdateSessionActivity(ctx, imp.SourceSessionID.UUID); err != nil {
+				logger.FromCtx(ctx).Warnf("impersonation: source session %s not refreshed: %v", imp.SourceSessionID.UUID, err)
+			}
+		}
 	}
 
 	// Store session info in context

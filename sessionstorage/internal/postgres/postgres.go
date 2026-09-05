@@ -477,14 +477,26 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
-	// A live role-principal impersonation carrying this name belongs to the actor, not to
-	// the renamed account, and keeps the name its record names.
+	// A live role-principal impersonation by a foreign actor carrying this name belongs to
+	// that actor, not to the renamed account, and keeps the name its record names.
 	sessionQuery := fmt.Sprintf(`
 		UPDATE "%s" s SET "Username" = $2, "UpdatedAt" = $3
-		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTableName, s.liveRolePrincipalRecord())
+		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTableName, s.foreignRolePrincipalRecord())
 
 	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername, time.Now()); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	// The live impersonations this account holds as a local actor follow the rename, so
+	// they stay reachable by the new name; ended records keep the name of their time.
+	if s.impersonation != nil {
+		recordQuery := fmt.Sprintf(`
+			UPDATE %s SET "ActorUsername" = $2
+			WHERE "ActorUsername" = $1 AND "ActorRealm" IS NULL AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
+
+		if _, err := tx.Exec(ctx, recordQuery, oldUsername, newUsername); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -583,19 +595,23 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 		return nil
 	}
 
-	// A live role-principal impersonation carries the actor's name, not an account of
-	// this user's, and is not one of their sessions.
+	// Every session under the name is this user's — their own, a user-principal
+	// impersonation of them, a role-principal session they hold as a local actor — except
+	// a foreign actor's role-principal session, which only borrows the name. The sessions
+	// this user holds as a local actor under other names go too.
 	query := fmt.Sprintf(`
 		UPDATE "%s" s
 		SET "Expired" = TRUE, "UpdatedAt" = $2
-		WHERE s."Username" = $1 AND NOT %s`, s.sessionTableName, s.liveRolePrincipalRecord())
+		WHERE (s."Username" = $1 AND NOT %s) OR %s`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor())
 
-	// The user's live impersonation records end with the sessions, as Revoked.
+	// The live impersonation records of those sessions end with them, as Revoked.
 	endRecords := fmt.Sprintf(`
 		UPDATE %s i
 		SET "EndedAt" = $2, "EndReason" = $3
-		FROM "%s" s
-		WHERE s."Id" = i."SessionId" AND s."Username" = $1 AND i."EndedAt" IS NULL AND i."PrincipalKind" <> '%s'`,
+		WHERE i."EndedAt" IS NULL AND (
+			(EXISTS (SELECT 1 FROM "%s" s WHERE s."Id" = i."SessionId" AND s."Username" = $1)
+				AND NOT (i."PrincipalKind" = '%s' AND i."ActorRealm" IS NOT NULL))
+			OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
 		pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName, dbtype.PrincipalKindRole)
 
 	txn, err := s.conn.Begin(ctx)
@@ -606,11 +622,12 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 		_ = txn.Rollback(ctx)
 	}()
 
+	// Sessions first: the expiry predicate reads the records while they are still live.
 	now := time.Now()
-	if _, err := txn.Exec(ctx, endRecords, username, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, query, username, now); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, query, username, now); err != nil {
+	if _, err := txn.Exec(ctx, endRecords, username, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 

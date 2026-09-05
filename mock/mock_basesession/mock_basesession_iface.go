@@ -54,6 +54,20 @@ func (mr *MockHandlersMockRecorder) Authenticated() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Authenticated", reflect.TypeOf((*MockHandlers)(nil).Authenticated))
 }
 
+// EndImpersonation mocks base method.
+func (m *MockHandlers) EndImpersonation() http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation")
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockHandlersMockRecorder) EndImpersonation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockHandlers)(nil).EndImpersonation))
+}
+
 // EnforceReadOnlyMask mocks base method.
 func (m *MockHandlers) EnforceReadOnlyMask(next http.Handler) http.Handler {
 	m.ctrl.T.Helper()

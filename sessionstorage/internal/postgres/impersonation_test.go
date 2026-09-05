@@ -677,10 +677,11 @@ func TestSessionStorageDriver_DestroyImpersonatedSession(t *testing.T) {
 	}
 }
 
-// A role-principal impersonation carries the actor's username in the same session table
-// as the application's accounts. The username-keyed operations must not mistake it for
-// one of that account's sessions, even when the account is created after the mint.
-func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testing.T) {
+// The two username-keyed operations treat every session under a name as that account's —
+// its own login, a user-principal impersonation of it, the role session it holds as a
+// local actor, and the sessions it holds as a local actor under other names — except a
+// foreign actor's role-principal session, which only borrows the name.
+func TestSessionStorageDriver_UsernameKeyedOperations_LocalAndForeignActors(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	conn, err := prepareDatabase(ctx, t, "file://../../../schema/postgresql/migrations", "file://../../../schema/postgresql/impersonation/migrations")
@@ -692,27 +693,37 @@ func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testin
 
 	now := time.Now()
 	const name = "dave@example.com"
-	session := func() *dbtype.InsertSession {
-		return &dbtype.InsertSession{Username: name, CreatedAt: now, UpdatedAt: now}
+	const target = "erin@example.com"
+	session := func(username string) *dbtype.InsertSession {
+		return &dbtype.InsertSession{Username: username, CreatedAt: now, UpdatedAt: now}
 	}
-	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name}
+	request := func(username string) *sessioninfo.NewSessionRequest {
+		return &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: username}
+	}
+	impersonated := func(username string, imp *sessioninfo.Impersonation) ccc.UUID {
+		imp.ExpiresAt = now.Add(time.Hour)
+		id, err := c.InsertImpersonatedSession(ctx, session(username), request(username), dbtype.NewInsertImpersonation(imp))
+		if err != nil {
+			t.Fatalf("InsertImpersonatedSession() error = %v", err)
+		}
 
-	// dave's own login, support impersonating dave as a user, and an admin also named dave
-	// acting under a role — the last one is the actor's session, not dave's.
-	own, err := c.InsertSession(ctx, session(), req)
+		return id
+	}
+
+	own, err := c.InsertSession(ctx, session(name), request(name))
 	if err != nil {
 		t.Fatalf("InsertSession() error = %v", err)
 	}
-	asUser, err := c.InsertImpersonatedSession(ctx, session(), req, dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal(name), ExpiresAt: now.Add(time.Hour)}))
-	if err != nil {
-		t.Fatalf("InsertImpersonatedSession() error = %v", err)
-	}
-	asRole, err := c.InsertImpersonatedSession(ctx, session(), req, dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: name, Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: now.Add(time.Hour)}))
-	if err != nil {
-		t.Fatalf("InsertImpersonatedSession() error = %v", err)
-	}
+	source := ccc.NullUUID{UUID: own, Valid: true}
+	// Support (from the admin application) viewing dave as a user.
+	asUser := impersonated(name, &sessioninfo.Impersonation{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(name)})
+	// dave, logged in here, acting under a role: his own session, narrowed.
+	ownRole := impersonated(name, &sessioninfo.Impersonation{Actor: name, SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")})
+	// dave, logged in here, viewing erin.
+	held := impersonated(target, &sessioninfo.Impersonation{Actor: name, SourceSessionID: source, Principal: accesstypes.UserPrincipal(target)})
+	// An administrator of another application, also named dave, under a role: borrows the name.
+	foreignRole := impersonated(name, &sessioninfo.Impersonation{Actor: name, ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")})
 
-	// The account arrives after the mint.
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
 	if err != nil {
 		t.Fatalf("securehash.Hash() error = %v", err)
@@ -729,10 +740,13 @@ func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testin
 		name      string
 		sessionID ccc.UUID
 		want      string
+		wantActor string
 	}{
-		{"dave's own session is renamed", own, "dan@example.com"},
-		{"the user impersonation of dave is renamed with him", asUser, "dan@example.com"},
-		{"the role session keeps the actor's name", asRole, name},
+		{"dave's own session is renamed", own, "dan@example.com", ""},
+		{"the user impersonation of dave is renamed with him", asUser, "dan@example.com", "alice@example.com"},
+		{"dave's own role session is renamed with him", ownRole, "dan@example.com", "dan@example.com"},
+		{"the session dave holds as erin keeps erin's name; its live record follows dave's rename", held, target, "dan@example.com"},
+		{"the foreign role session keeps the borrowed name, record untouched", foreignRole, name, name},
 	} {
 		got, err := c.Session(ctx, tt.sessionID)
 		if err != nil {
@@ -740,6 +754,9 @@ func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testin
 		}
 		if got.Username != tt.want {
 			t.Errorf("%s: Username = %q, want %q", tt.name, got.Username, tt.want)
+		}
+		if got.Impersonation != nil && got.Impersonation.ActorUsername != tt.wantActor {
+			t.Errorf("%s: record ActorUsername = %q, want %q", tt.name, got.Impersonation.ActorUsername, tt.wantActor)
 		}
 	}
 
@@ -757,7 +774,9 @@ func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testin
 	}{
 		{"dave's own session is destroyed", own, true, false},
 		{"the user impersonation of dave is destroyed and revoked", asUser, true, true},
-		{"the role session under the actor's name survives both calls", asRole, false, false},
+		{"dave's own role session is destroyed and revoked", ownRole, true, true},
+		{"the session dave holds as erin is destroyed and revoked", held, true, true},
+		{"the foreign role session survives both calls", foreignRole, false, false},
 	} {
 		got, err := c.Session(ctx, tt.sessionID)
 		if err != nil {
@@ -768,6 +787,9 @@ func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testin
 		}
 		if got.Impersonation != nil && (got.Impersonation.EndedAt != nil) != tt.wantEnded {
 			t.Errorf("%s: record ended = %v, want %v", tt.name, got.Impersonation.EndedAt != nil, tt.wantEnded)
+		}
+		if got.Impersonation != nil && tt.wantEnded && (got.Impersonation.EndReason == nil || *got.Impersonation.EndReason != string(sessioninfo.ImpersonationEndedByRevocation)) {
+			t.Errorf("%s: EndReason = %v, want Revoked", tt.name, got.Impersonation.EndReason)
 		}
 	}
 }

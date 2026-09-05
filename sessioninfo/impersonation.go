@@ -25,9 +25,12 @@ type Impersonation struct {
 	Actor string
 	// ActorRealm names the application or identity provider that authenticated
 	// the actor, when it differs from this application (e.g. "admin-portal").
+	// Empty means the actor is an account of this application (see IsLocalActor).
 	ActorRealm string
-	// SourceSessionID is the actor's session in the source application, when
-	// known, for cross-application correlation.
+	// SourceSessionID is the actor's own session: in this application for a local
+	// actor (verified at establishment, kept alive by this session's activity, and
+	// returned to by EndImpersonation), or in the source application for a
+	// foreign actor, for cross-application correlation.
 	SourceSessionID ccc.NullUUID
 	// Principal is the authorization subject the session evaluates against.
 	Principal accesstypes.Principal
@@ -50,6 +53,14 @@ type Impersonation struct {
 	EndReason ImpersonationEndReason
 }
 
+// IsLocalActor reports whether the actor is an account of this application: no
+// ActorRealm names another one. A local actor's role-principal session is their own
+// session narrowed to a role, and their name in the session table is theirs; a foreign
+// actor's role-principal session carries a name borrowed from another application.
+func (i *Impersonation) IsLocalActor() bool {
+	return i.ActorRealm == ""
+}
+
 // ImpersonationEndReason says how an impersonated session ended.
 type ImpersonationEndReason string
 
@@ -62,6 +73,9 @@ const (
 	// ImpersonationEndedByExpiry is a session whose hard cap or idle timeout
 	// passed, observed when the next request was validated.
 	ImpersonationEndedByExpiry ImpersonationEndReason = "Expired"
+	// ImpersonationEndedByRelease is a session the actor ended through
+	// EndImpersonation to return to their own session.
+	ImpersonationEndedByRelease ImpersonationEndReason = "Released"
 )
 
 // Canonical attribute keys for impersonation evidence. Session validation
