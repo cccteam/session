@@ -891,6 +891,16 @@ Everything an impersonated session touches names the actor and the principal:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
   when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+- **One name, one account.** A role principal's session carries the actor's own username,
+  in the same session table as the application's real accounts. Password auth therefore
+  refuses a role principal when the actor's name is already a `SessionUsers` account (the
+  actor logs in as that account, or impersonates it as a user principal), and the two
+  username-keyed store operations — `DestroyAllUserSessions` and the session rename on
+  `ChangeUsername` — never touch a session carrying a live role-principal record, so an
+  account created later under that name cannot reach the actor's session either. Preauth
+  and OIDC have no username-keyed account to collide with. This is the store-level
+  complement of the authorization rule: under a role principal the subject is the role,
+  and application policy must not key row conditions on the session username.
 - **Listing.** `API().ActiveImpersonations(ctx, q)`, on every session type, lists the
   impersonated sessions that are live right now, newest first — the admin surface's view
   of who is acting as whom. *Active* means: the record has not ended, the hard cap has

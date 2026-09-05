@@ -108,10 +108,30 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			wantUnauthorized: true,
 		},
 		{
+			name: "a role principal is refused when the actor is a user of this application",
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&dbtype.SessionUser{ID: userID, Username: "alice"}, nil)
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
+			name: "a failed actor lookup fails the establishment",
+			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("db down"))
+			},
+			wantErr: true,
+		},
+		{
 			name: "a role principal establishes the session as the actor with the default cap",
 			req:  &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 						want := sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
@@ -169,6 +189,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			req:     &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), MaxDuration: time.Hour},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, cookieHandler *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 						if lifetime := imp.ExpiresAt.Sub(imp.StartedAt); lifetime != 15*time.Minute {
@@ -187,6 +208,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
 				storage.EXPECT().ImpersonationEnabled().Return(true)
+				storage.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).Return(sessionID, nil)
 				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},

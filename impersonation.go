@@ -83,7 +83,10 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // evidence is stamped on every request's log entry.
 //
 // Password auth resolves a user principal against SessionUsers: the session carries the
-// record's username and ID, and a missing or disabled user is refused.
+// record's username and ID, and a missing or disabled user is refused. A role principal's
+// session carries the actor's own username, so it is refused when that name is already a
+// SessionUsers account — one name must never mean two accounts in one session table; the
+// actor logs in as that account or impersonates it as a user principal instead.
 //
 // Establishment is refused when the storage has no impersonation table
 // (sessionstorage.WithImpersonation), when the calling context is itself an
@@ -93,7 +96,7 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // StartAuthenticatedSession's semantics; the configured resolver receives
 // ReasonImpersonation.
 func (p *PasswordAuthAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return startImpersonatedSession(ctx, w, p.passwordAuth.baseSession, req, customData, p.passwordAuth.impersonatedUser)
+	return startImpersonatedSession(ctx, w, p.passwordAuth.baseSession, req, customData, p.passwordAuth.identity())
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
@@ -302,22 +305,33 @@ func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, se
 	return nil
 }
 
-// userIdentityResolver resolves the effective identity an impersonated session is
-// established under for a user principal: the session's username and user record ID.
-// Role principals never reach it — their session is the actor's.
-type userIdentityResolver func(ctx context.Context, user accesstypes.User) (username string, userID ccc.UUID, err error)
+// identityResolver is what a session type contributes to establishment: how a user
+// principal becomes the session's identity, and whether an actor may hold a role
+// principal's session under their own name.
+type identityResolver struct {
+	// user resolves a user principal to the session's username and user record ID.
+	user func(ctx context.Context, user accesstypes.User) (username string, userID ccc.UUID, err error)
+	// actor guards a role principal, whose session carries the actor's own username:
+	// it refuses when that name already belongs to an account in this store, so one
+	// name never means two accounts in one session table. Nil when the store has no
+	// username-keyed accounts.
+	actor func(ctx context.Context, actor string) error
+}
 
 // identityAsGiven is the resolver for session types with no username-keyed local user
-// record (Preauth, OIDC): the principal's name is the username and the user ID is zero.
-func identityAsGiven(_ context.Context, user accesstypes.User) (string, ccc.UUID, error) {
-	return string(user), ccc.NilUUID, nil
+// record (Preauth, OIDC): the principal's name is the username, the user ID is zero, and
+// no name can collide with an account.
+var identityAsGiven = identityResolver{
+	user: func(_ context.Context, user accesstypes.User) (string, ccc.UUID, error) {
+		return string(user), ccc.NilUUID, nil
+	},
 }
 
 // startImpersonatedSession is the establishing flow shared by every session type: the
 // type-independent refusals, identity resolution through resolveUser, the record, and
 // the BaseSession step that writes, evidences and sets cookies.
 func startImpersonatedSession[T any](
-	ctx context.Context, w http.ResponseWriter, base *basesession.BaseSession, req *ImpersonationRequest, customData []*T, resolveUser userIdentityResolver,
+	ctx context.Context, w http.ResponseWriter, base *basesession.BaseSession, req *ImpersonationRequest, customData []*T, resolve identityResolver,
 ) (ccc.UUID, error) {
 	if len(customData) > 1 {
 		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom session data row")
@@ -336,7 +350,7 @@ func startImpersonatedSession[T any](
 		return ccc.NilUUID, httpio.NewForbiddenMessage("an impersonated session cannot establish another impersonated session")
 	}
 
-	username, userID, err := impersonatedIdentity(ctx, req, resolveUser)
+	username, userID, err := impersonatedIdentity(ctx, req, resolve)
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -371,11 +385,17 @@ func startImpersonatedSession[T any](
 }
 
 // impersonatedIdentity resolves the session's effective identity for req: the actor
-// with the zero UUID for a role principal, or resolveUser's answer for a user principal.
-func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolveUser userIdentityResolver) (username string, userID ccc.UUID, err error) {
+// with the zero UUID for a role principal (once the type's actor guard allows it), or
+// the type's answer for a user principal.
+func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolve identityResolver) (username string, userID ccc.UUID, err error) {
 	if role, ok := req.Principal.Role(); ok {
 		if role == "" {
 			return "", ccc.NilUUID, httpio.NewBadRequestMessage("impersonation requires a role name for a role principal")
+		}
+		if resolve.actor != nil {
+			if err := resolve.actor(ctx, req.Actor); err != nil {
+				return "", ccc.NilUUID, err
+			}
 		}
 
 		return req.Actor, ccc.NilUUID, nil
@@ -386,7 +406,14 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 		return "", ccc.NilUUID, httpio.NewBadRequestMessage("impersonation requires a user or role principal")
 	}
 
-	return resolveUser(ctx, user)
+	return resolve.user(ctx, user)
+}
+
+// identity is password auth's identity resolver: user principals resolve against
+// SessionUsers, and a role principal is refused when the actor's name is already an
+// account there.
+func (p *PasswordAuth[T, U]) identity() identityResolver {
+	return identityResolver{user: p.impersonatedUser, actor: p.refuseShadowedActor}
 }
 
 // impersonatedUser resolves a user principal against SessionUsers: the record's username
@@ -401,6 +428,22 @@ func (p *PasswordAuth[T, U]) impersonatedUser(ctx context.Context, user accessty
 	}
 
 	return record.Username, record.ID, nil
+}
+
+// refuseShadowedActor refuses a role-principal session for an actor whose username is
+// already an account in SessionUsers. The session row would carry that name, and the
+// store's username-keyed operations could not tell the two apart; the actor logs in as
+// that account or impersonates it as a user principal instead.
+func (p *PasswordAuth[T, U]) refuseShadowedActor(ctx context.Context, actor string) error {
+	_, err := p.storage.UserByUserName(ctx, actor)
+	switch {
+	case err == nil:
+		return httpio.NewForbiddenMessagef("%q is a user of this application: log in as that user or impersonate it as a user principal", actor)
+	case httpio.HasNotFound(err):
+		return nil
+	default:
+		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.UserByUserName()")
+	}
 }
 
 // sessionUserInfo resolves the validated session's user record for the request

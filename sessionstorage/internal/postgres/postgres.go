@@ -477,9 +477,11 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
+	// A live role-principal impersonation carrying this name belongs to the actor, not to
+	// the renamed account, and keeps the name its record names.
 	sessionQuery := fmt.Sprintf(`
-		UPDATE "%s" SET "Username" = $2, "UpdatedAt" = $3
-		WHERE "Username" = $1 AND "Expired" = FALSE`, s.sessionTableName)
+		UPDATE "%s" s SET "Username" = $2, "UpdatedAt" = $3
+		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTableName, s.liveRolePrincipalRecord())
 
 	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername, time.Now()); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
@@ -569,12 +571,11 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`
-		UPDATE "%s"
-		SET "Expired" = TRUE, "UpdatedAt" = $2
-		WHERE "Username" = $1`, s.sessionTableName)
-
 	if s.impersonation == nil {
+		query := fmt.Sprintf(`
+			UPDATE "%s"
+			SET "Expired" = TRUE, "UpdatedAt" = $2
+			WHERE "Username" = $1`, s.sessionTableName)
 		if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
@@ -582,12 +583,20 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 		return nil
 	}
 
+	// A live role-principal impersonation carries the actor's name, not an account of
+	// this user's, and is not one of their sessions.
+	query := fmt.Sprintf(`
+		UPDATE "%s" s
+		SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE s."Username" = $1 AND NOT %s`, s.sessionTableName, s.liveRolePrincipalRecord())
+
 	// The user's live impersonation records end with the sessions, as Revoked.
 	endRecords := fmt.Sprintf(`
 		UPDATE %s i
 		SET "EndedAt" = $2, "EndReason" = $3
 		FROM "%s" s
-		WHERE s."Id" = i."SessionId" AND s."Username" = $1 AND i."EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName)
+		WHERE s."Id" = i."SessionId" AND s."Username" = $1 AND i."EndedAt" IS NULL AND i."PrincipalKind" <> '%s'`,
+		pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName, dbtype.PrincipalKindRole)
 
 	txn, err := s.conn.Begin(ctx)
 	if err != nil {

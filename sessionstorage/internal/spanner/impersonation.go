@@ -442,3 +442,16 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 
 	return imps, nil
 }
+
+// liveRolePrincipalRecord renders an EXISTS predicate, over the session alias s, that is
+// true when the session carries a live role-principal impersonation record. FALSE when
+// no impersonation table is configured, so username-keyed statements can embed it
+// unconditionally.
+func (s *SessionStorageDriver) liveRolePrincipalRecord() string {
+	if s.impersonation == nil {
+		return "FALSE"
+	}
+
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s r WHERE r.SessionId = s.Id AND r.PrincipalKind = '%s' AND r.EndedAt IS NULL)",
+		s.impersonation.TableName, dbtype.PrincipalKindRole)
+}

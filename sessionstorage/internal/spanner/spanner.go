@@ -503,11 +503,13 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
+		// A live role-principal impersonation carrying this name belongs to the actor, not
+		// to the renamed account, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s
+				UPDATE %s s
 				SET Username = @newUsername, UpdatedAt = @updatedAt
-				WHERE Username = @oldUsername AND Expired = FALSE
-		`, s.sessionTableName))
+				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
+		`, s.sessionTableName, s.liveRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
 		sessionsStmt.Params["updatedAt"] = time.Now()
@@ -653,11 +655,13 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 
 	now := time.Now()
 
+	// A live role-principal impersonation carries the actor's name, not an account of
+	// this user's, and is not one of their sessions.
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s
+			UPDATE %s s
 			SET Expired = TRUE, UpdatedAt = @updatedAt
-			WHERE Username = @username
-	`, s.sessionTableName))
+			WHERE s.Username = @username AND NOT %s
+	`, s.sessionTableName, s.liveRolePrincipalRecord()))
 	stmt.Params["username"] = username
 	stmt.Params["updatedAt"] = now
 
@@ -667,10 +671,10 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 					UPDATE %s
 					SET EndedAt = @now, EndReason = @reason
-					WHERE EndedAt IS NULL AND SessionId IN (
+					WHERE EndedAt IS NULL AND PrincipalKind <> '%s' AND SessionId IN (
 						SELECT Id FROM %s WHERE Username = @username
 					)
-			`, s.impersonation.TableName, s.sessionTableName))
+			`, s.impersonation.TableName, dbtype.PrincipalKindRole, s.sessionTableName))
 			endRecords.Params["username"] = username
 			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)

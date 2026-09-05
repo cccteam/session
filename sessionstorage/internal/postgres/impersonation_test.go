@@ -9,6 +9,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/google/go-cmp/cmp"
@@ -673,5 +674,100 @@ func TestSessionStorageDriver_DestroyImpersonatedSession(t *testing.T) {
 	}
 	if err := NewSessionStorageDriver(conn.Pool).DestroyImpersonatedSession(ctx, impersonatedCarol); err == nil {
 		t.Error("DestroyImpersonatedSession() without the configuration error = nil, want error")
+	}
+}
+
+// A role-principal impersonation carries the actor's username in the same session table
+// as the application's accounts. The username-keyed operations must not mistake it for
+// one of that account's sessions, even when the account is created after the mint.
+func TestSessionStorageDriver_UsernameKeyedOperations_SkipRoleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	conn, err := prepareDatabase(ctx, t, "file://../../../schema/postgresql/migrations", "file://../../../schema/postgresql/impersonation/migrations")
+	if err != nil {
+		t.Fatalf("prepareDatabase() error = %v", err)
+	}
+	c := NewSessionStorageDriver(conn.Pool)
+	c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
+
+	now := time.Now()
+	const name = "dave@example.com"
+	session := func() *dbtype.InsertSession {
+		return &dbtype.InsertSession{Username: name, CreatedAt: now, UpdatedAt: now}
+	}
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name}
+
+	// dave's own login, support impersonating dave as a user, and an admin also named dave
+	// acting under a role — the last one is the actor's session, not dave's.
+	own, err := c.InsertSession(ctx, session(), req)
+	if err != nil {
+		t.Fatalf("InsertSession() error = %v", err)
+	}
+	asUser, err := c.InsertImpersonatedSession(ctx, session(), req, dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal(name), ExpiresAt: now.Add(time.Hour)}))
+	if err != nil {
+		t.Fatalf("InsertImpersonatedSession() error = %v", err)
+	}
+	asRole, err := c.InsertImpersonatedSession(ctx, session(), req, dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: name, Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: now.Add(time.Hour)}))
+	if err != nil {
+		t.Fatalf("InsertImpersonatedSession() error = %v", err)
+	}
+
+	// The account arrives after the mint.
+	hash, err := securehash.New(securehash.Argon2()).Hash("password")
+	if err != nil {
+		t.Fatalf("securehash.Hash() error = %v", err)
+	}
+	user, err := c.CreateUser(ctx, &dbtype.InsertSessionUser{Username: name, PasswordHash: hash}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+
+	if err := c.SetUserUsername(ctx, user.ID, "dan@example.com"); err != nil {
+		t.Fatalf("SetUserUsername() error = %v", err)
+	}
+	for _, tt := range []struct {
+		name      string
+		sessionID ccc.UUID
+		want      string
+	}{
+		{"dave's own session is renamed", own, "dan@example.com"},
+		{"the user impersonation of dave is renamed with him", asUser, "dan@example.com"},
+		{"the role session keeps the actor's name", asRole, name},
+	} {
+		got, err := c.Session(ctx, tt.sessionID)
+		if err != nil {
+			t.Fatalf("Session() error = %v", err)
+		}
+		if got.Username != tt.want {
+			t.Errorf("%s: Username = %q, want %q", tt.name, got.Username, tt.want)
+		}
+	}
+
+	if err := c.DestroyAllUserSessions(ctx, "dan@example.com"); err != nil {
+		t.Fatalf("DestroyAllUserSessions() error = %v", err)
+	}
+	if err := c.DestroyAllUserSessions(ctx, name); err != nil {
+		t.Fatalf("DestroyAllUserSessions() error = %v", err)
+	}
+	for _, tt := range []struct {
+		name        string
+		sessionID   ccc.UUID
+		wantExpired bool
+		wantEnded   bool
+	}{
+		{"dave's own session is destroyed", own, true, false},
+		{"the user impersonation of dave is destroyed and revoked", asUser, true, true},
+		{"the role session under the actor's name survives both calls", asRole, false, false},
+	} {
+		got, err := c.Session(ctx, tt.sessionID)
+		if err != nil {
+			t.Fatalf("Session() error = %v", err)
+		}
+		if got.Expired != tt.wantExpired {
+			t.Errorf("%s: Expired = %v, want %v", tt.name, got.Expired, tt.wantExpired)
+		}
+		if got.Impersonation != nil && (got.Impersonation.EndedAt != nil) != tt.wantEnded {
+			t.Errorf("%s: record ended = %v, want %v", tt.name, got.Impersonation.EndedAt != nil, tt.wantEnded)
+		}
 	}
 }
