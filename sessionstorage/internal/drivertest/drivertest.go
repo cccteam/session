@@ -36,9 +36,9 @@ type Driver interface {
 type Schema int
 
 const (
-	// SeededImpersonation is the driver package's impersonation fixture: sessions, the
-	// custom session data table, the impersonation table, and the seeded rows the
-	// Seeded* identifiers below name.
+	// SeededImpersonation is the driver package's impersonation fixture: sessions and the
+	// custom session data table, the shipped impersonation migration, and the seeded rows
+	// the Seeded* identifiers below name.
 	SeededImpersonation Schema = iota
 	// Sessions is the shipped sessions schema (Sessions, SessionUsers) plus the shipped
 	// impersonation migration.

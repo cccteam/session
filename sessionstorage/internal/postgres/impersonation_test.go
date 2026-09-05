@@ -27,7 +27,13 @@ func TestImpersonation(t *testing.T) {
 func impersonationSources(schema drivertest.Schema) []string {
 	switch schema {
 	case drivertest.SeededImpersonation:
-		return []string{"file://testdata/sessions_test/impersonation_schema"}
+		// The fixture holds only what the shipped schema does not: the custom session data
+		// table and the seeded rows. The impersonation table is the shipped migration.
+		return []string{
+			"file://testdata/sessions_test/impersonation_schema",
+			"file://../../../schema/postgresql/impersonation/migrations",
+			"file://testdata/sessions_test/impersonation_seed",
+		}
 	case drivertest.Sessions:
 		return []string{"file://../../../schema/postgresql/migrations", "file://../../../schema/postgresql/impersonation/migrations"}
 	case drivertest.OIDC:
