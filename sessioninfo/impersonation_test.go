@@ -29,7 +29,7 @@ func TestImpersonationAccessors(t *testing.T) {
 		SessionID: sessionID,
 		Actor:     "alice@example.com",
 		Principal: accesstypes.UserPrincipal("bob@partner.org"),
-		Mask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+		Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 	}
 	roleImp := &Impersonation{
 		SessionID:       sessionID,
@@ -75,7 +75,7 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantImp:       userImp,
 			wantPrincipal: accesstypes.RolePrincipal("Editor"),
 			wantActor:     "alice@example.com",
-			wantMask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+			wantMask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 			wantKind:      "User",
 			wantName:      "bob@partner.org",
 			wantAttrs: []Attribute{
@@ -92,7 +92,7 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantImp:       userImp,
 			wantPrincipal: accesstypes.UserPrincipal("bob@partner.org"),
 			wantActor:     "alice@example.com",
-			wantMask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+			wantMask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 			wantKind:      "User",
 			wantName:      "bob@partner.org",
 			wantAttrs: []Attribute{

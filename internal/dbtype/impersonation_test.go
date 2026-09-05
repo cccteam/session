@@ -21,8 +21,8 @@ func TestMaskColumn_RoundTrip(t *testing.T) {
 		wantCol *string
 	}{
 		{name: "unrestricted is NULL", mask: accesstypes.PermissionMask{}, wantCol: nil},
-		{name: "read-only", mask: accesstypes.MaskPermissions(accesstypes.Read, accesstypes.List), wantCol: strPtr("List,Read")},
-		{name: "allows nothing is the empty string", mask: accesstypes.MaskPermissions(), wantCol: strPtr("")},
+		{name: "read-only", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.List), wantCol: strPtr("List,Read")},
+		{name: "allows nothing is the empty string", mask: accesstypes.DenyAll(), wantCol: strPtr("")},
 	}
 
 	for _, tt := range tests {
@@ -85,7 +85,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 			imp: &sessioninfo.Impersonation{
 				Actor:     "alice@example.com",
 				Principal: accesstypes.UserPrincipal("bob@partner.org"),
-				Mask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 				ExpiresAt: expires,
 			},
 			wantInsert: &InsertImpersonation{
@@ -108,7 +108,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				SessionID: sessionID,
 				Actor:     "alice@example.com",
 				Principal: accesstypes.UserPrincipal("bob@partner.org"),
-				Mask:      accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 				StartedAt: started,
 				ExpiresAt: expires,
 			},

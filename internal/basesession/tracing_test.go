@@ -78,7 +78,7 @@ func TestBaseSession_ValidateSession_SpanEvidence(t *testing.T) {
 			ActorRealm:      "admin-portal",
 			SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true},
 			Principal:       accesstypes.UserPrincipal("bob@partner.org"),
-			Mask:            accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+			Mask:            accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 			ExpiresAt:       time.Now().Add(time.Hour),
 		}
 	}

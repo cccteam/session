@@ -130,7 +130,7 @@ func MaskFromColumn(col *string) accesstypes.PermissionMask {
 		}
 	}
 
-	return accesstypes.MaskPermissions(perms...)
+	return accesstypes.MaskPermissions(accesstypes.DenyAll(), perms...)
 }
 
 func optionalString(s string) *string {

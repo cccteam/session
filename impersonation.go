@@ -31,9 +31,10 @@ type ImpersonationRequest struct {
 	// for a role. Required. How a user principal becomes the session's identity depends
 	// on the session type — see StartImpersonatedSession on each API.
 	Principal accesstypes.Principal
-	// Mask attenuates the session to the listed permissions; the zero mask leaves it
-	// unrestricted. accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read) is
-	// a read-only session.
+	// Mask attenuates the session to the listed permissions; the zero mask
+	// (accesstypes.AllowAll()) leaves it unrestricted, and
+	// accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
+	// is a read-only session.
 	Mask accesstypes.PermissionMask
 	// Reason is a free-text justification (a ticket reference, a support note)
 	// recorded on the impersonation record. Optional; an application's guard may

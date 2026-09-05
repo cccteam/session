@@ -27,7 +27,7 @@ func TestBaseSession_EnforceReadOnlyMask(t *testing.T) {
 	impersonated := func(mask accesstypes.PermissionMask) *sessioninfo.Impersonation {
 		return &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: mask, ExpiresAt: time.Now().Add(time.Hour)}
 	}
-	readOnly := accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read)
+	readOnly := accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read)
 
 	type test struct {
 		name        string
@@ -39,9 +39,9 @@ func TestBaseSession_EnforceReadOnlyMask(t *testing.T) {
 		{name: "no session in context passes", ctx: context.Background(), method: http.MethodPost},
 		{name: "an ordinary session writes", ctx: withSession(nil), method: http.MethodPost},
 		{name: "an unmasked impersonation writes", ctx: withSession(impersonated(accesstypes.PermissionMask{})), method: http.MethodDelete},
-		{name: "a mask including Execute is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read, accesstypes.Execute))), method: http.MethodPost},
-		{name: "a mask including Update is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.Read, accesstypes.Update))), method: http.MethodPatch},
-		{name: "the mask that allows nothing blocks writes", ctx: withSession(impersonated(accesstypes.MaskPermissions())), method: http.MethodPost, wantBlocked: true},
+		{name: "a mask including Execute is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute))), method: http.MethodPost},
+		{name: "a mask including Update is not read-only", ctx: withSession(impersonated(accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.Update))), method: http.MethodPatch},
+		{name: "the mask that allows nothing blocks writes", ctx: withSession(impersonated(accesstypes.DenyAll())), method: http.MethodPost, wantBlocked: true},
 	}...)
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
 		tests = append(tests, test{name: "read-only reads with " + method, ctx: withSession(impersonated(readOnly)), method: method})
@@ -107,11 +107,11 @@ func Test_readOnlyMask(t *testing.T) {
 		want bool
 	}{
 		{name: "unrestricted", mask: accesstypes.PermissionMask{}},
-		{name: "allows nothing", mask: accesstypes.MaskPermissions(), want: true},
-		{name: "Read only", mask: accesstypes.MaskPermissions(accesstypes.Read), want: true},
-		{name: "List and Read", mask: accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read), want: true},
-		{name: "List, Read and Execute", mask: accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read, accesstypes.Execute)},
-		{name: "Create", mask: accesstypes.MaskPermissions(accesstypes.Create)},
+		{name: "allows nothing", mask: accesstypes.DenyAll(), want: true},
+		{name: "Read only", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read), want: true},
+		{name: "List and Read", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read), want: true},
+		{name: "List, Read and Execute", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read, accesstypes.Execute)},
+		{name: "Create", mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Create)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

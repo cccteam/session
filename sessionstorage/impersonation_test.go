@@ -178,7 +178,7 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 			imp := &sessioninfo.Impersonation{
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
-				Mask:      accesstypes.MaskPermissions(accesstypes.Read, accesstypes.List),
+				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.List),
 				ExpiresAt: expires,
 			}
 			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)

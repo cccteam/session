@@ -157,7 +157,7 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 				Actor:           "alice",
 				SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true},
 				Principal:       accesstypes.UserPrincipal("Bob"),
-				Mask:            accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+				Mask:            accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 				Reason:          "ticket JRN-1",
 				MaxDuration:     30 * time.Minute,
 			},
@@ -369,7 +369,7 @@ func TestPasswordAuth_refuseImpersonated(t *testing.T) {
 	t.Parallel()
 
 	sessionID := ccc.Must(ccc.NewUUID())
-	masked := &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.MaskPermissions(accesstypes.Read)}
+	masked := &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)}
 	unmasked := &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")}
 
 	tests := []struct {
@@ -544,7 +544,7 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 				Actor:       "alice",
 				ActorRealm:  "admin-portal",
 				Principal:   accesstypes.UserPrincipal("bob@partner.org"),
-				Mask:        accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+				Mask:        accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 				Reason:      "ticket JRN-1",
 				MaxDuration: 30 * time.Minute,
 			},
@@ -676,7 +676,7 @@ func TestOIDCAzureAPI_StartImpersonatedSession(t *testing.T) {
 		},
 		{
 			name:         "a user principal is the session's username as given, with the zero user ID",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.Read)},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
 			wantUsername: "bob@example.com",
 		},
 		{
@@ -746,7 +746,7 @@ func TestOIDCGoogleAPI_StartImpersonatedSession(t *testing.T) {
 		},
 		{
 			name:         "a user principal is the session's username as given, with the zero user ID",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.Read)},
+			req:          &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
 			wantUsername: "bob@example.com",
 		},
 		{
