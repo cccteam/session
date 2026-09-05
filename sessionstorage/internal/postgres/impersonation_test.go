@@ -13,7 +13,6 @@ import (
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 const impersonationSchema = "file://testdata/sessions_test/impersonation_schema"
@@ -182,7 +181,8 @@ func TestSessionStorageDriver_Session_Impersonation(t *testing.T) {
 func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
-	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	started := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	expires := started.Add(time.Hour)
 
 	tests := []struct {
 		name       string
@@ -202,6 +202,7 @@ func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 				ActorRealm:    strPtr("admin-portal"),
 				PrincipalKind: dbtype.PrincipalKindRole,
 				PrincipalRole: strPtr("PartnerViewer"),
+				StartedAt:     started,
 				ExpiresAt:     expires,
 			},
 		},
@@ -221,6 +222,7 @@ func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 				PrincipalUser:   strPtr("bob@partner.org"),
 				Mask:            strPtr("List,Read"),
 				Reason:          strPtr("ticket JRN-2"),
+				StartedAt:       started,
 				ExpiresAt:       expires,
 			},
 			wantCustom: &customStringData{CustomString: "support"},
@@ -274,13 +276,11 @@ func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 				PrincipalRole:   tt.imp.PrincipalRole,
 				Mask:            tt.imp.Mask,
 				Reason:          tt.imp.Reason,
+				StartedAt:       tt.imp.StartedAt,
 				ExpiresAt:       tt.imp.ExpiresAt,
 			}
-			if diff := cmp.Diff(want, got.Impersonation, cmpopts.IgnoreFields(dbtype.Impersonation{}, "StartedAt")); diff != "" {
+			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
 				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)
-			}
-			if got.Impersonation.StartedAt.Before(now.Add(-time.Minute)) || got.Impersonation.StartedAt.After(time.Now().Add(time.Minute)) {
-				t.Errorf("StartedAt = %v, want about now", got.Impersonation.StartedAt)
 			}
 			if diff := cmp.Diff(tt.wantCustom, got.CustomData); diff != "" {
 				t.Errorf("Session().CustomData mismatch (-want +got):\n%s", diff)
@@ -294,14 +294,15 @@ func TestSessionStorageDriver_InsertImpersonatedSession(t *testing.T) {
 func TestSessionStorageDriver_InsertImpersonatedSessionOIDC(t *testing.T) {
 	t.Parallel()
 
-	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	started := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob@example.com"}
 	imp := &dbtype.InsertImpersonation{
 		ActorUsername: "alice@example.com",
 		PrincipalKind: dbtype.PrincipalKindUser,
 		PrincipalUser: strPtr("bob@example.com"),
 		Mask:          strPtr("List,Read"),
-		ExpiresAt:     expires,
+		StartedAt:     started,
+		ExpiresAt:     started.Add(time.Hour),
 	}
 
 	tests := []struct {
@@ -353,9 +354,10 @@ func TestSessionStorageDriver_InsertImpersonatedSessionOIDC(t *testing.T) {
 				PrincipalKind: imp.PrincipalKind,
 				PrincipalUser: imp.PrincipalUser,
 				Mask:          imp.Mask,
+				StartedAt:     imp.StartedAt,
 				ExpiresAt:     imp.ExpiresAt,
 			}
-			if diff := cmp.Diff(want, got.Impersonation, cmpopts.IgnoreFields(dbtype.Impersonation{}, "StartedAt")); diff != "" {
+			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
 				t.Errorf("Session().Impersonation mismatch (-want +got):\n%s", diff)
 			}
 			runAssertions(ctx, t, conn.Pool, []string{
@@ -553,13 +555,13 @@ func TestSessionStorageDriver_ActiveImpersonations(t *testing.T) {
 		if user, ok := principal.User(); ok {
 			username = string(user)
 		}
-		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, ExpiresAt: expiresAt})
+		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, StartedAt: time.Now(), ExpiresAt: expiresAt})
 		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: username}
 		id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: username, CreatedAt: updatedAt, UpdatedAt: updatedAt}, req, imp)
 		if err != nil {
 			t.Fatalf("InsertImpersonatedSession() error = %v", err)
 		}
-		time.Sleep(2 * time.Millisecond) // StartedAt is the driver's clock; keep the order observable
+		time.Sleep(2 * time.Millisecond) // the listing orders by StartedAt; keep the order observable
 
 		return id
 	}

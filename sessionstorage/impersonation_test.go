@@ -128,7 +128,8 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
 	sessionID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
-	expires := time.Date(2026, 8, 27, 11, 0, 0, 0, time.UTC)
+	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	expires := started.Add(time.Hour)
 
 	tests := []struct {
 		name    string
@@ -149,6 +150,7 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 							PrincipalKind: dbtype.PrincipalKindUser,
 							PrincipalUser: strPtr("bob"),
 							Mask:          strPtr("List,Read"),
+							StartedAt:     started,
 							ExpiresAt:     expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
@@ -179,6 +181,7 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
 				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read, accesstypes.List),
+				StartedAt: started,
 				ExpiresAt: expires,
 			}
 			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob"}, imp)
@@ -196,7 +199,8 @@ func TestOIDC_CreateImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
 	sessionID := ccc.Must(ccc.UUIDFromString("123e4567-e89b-12d3-a456-426614174000"))
-	expires := time.Date(2026, 8, 27, 11, 0, 0, 0, time.UTC)
+	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	expires := started.Add(time.Hour)
 
 	tests := []struct {
 		name    string
@@ -216,6 +220,7 @@ func TestOIDC_CreateImpersonatedSession(t *testing.T) {
 							ActorUsername: "alice",
 							PrincipalKind: dbtype.PrincipalKindRole,
 							PrincipalRole: strPtr("Editor"),
+							StartedAt:     started,
 							ExpiresAt:     expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
@@ -242,7 +247,7 @@ func TestOIDC_CreateImpersonatedSession(t *testing.T) {
 			tt.prepare(mockDB)
 
 			s := &OIDC{sessionStorage: sessionStorage{db: mockDB}}
-			imp := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: expires}
+			imp := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor"), StartedAt: started, ExpiresAt: expires}
 			got, err := s.CreateImpersonatedSession(context.Background(), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}, imp)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("CreateImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)

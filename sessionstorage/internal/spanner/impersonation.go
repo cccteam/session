@@ -215,7 +215,7 @@ func impersonationRow(id ccc.UUID, imp *dbtype.InsertImpersonation) map[string]a
 		"PrincipalRole":        nullString(imp.PrincipalRole),
 		"Mask":                 nullString(imp.Mask),
 		"Reason":               nullString(imp.Reason),
-		"StartedAt":            time.Now(),
+		"StartedAt":            imp.StartedAt,
 		"ExpiresAt":            imp.ExpiresAt,
 		endedAtColumn:          spanner.NullTime{},
 		endReasonColumn:        spanner.NullString{},

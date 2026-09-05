@@ -86,6 +86,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				Actor:     "alice@example.com",
 				Principal: accesstypes.UserPrincipal("bob@partner.org"),
 				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
+				StartedAt: started,
 				ExpiresAt: expires,
 			},
 			wantInsert: &InsertImpersonation{
@@ -93,6 +94,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				PrincipalKind: PrincipalKindUser,
 				PrincipalUser: strPtr("bob@partner.org"),
 				Mask:          strPtr("List,Read"),
+				StartedAt:     started,
 				ExpiresAt:     expires,
 			},
 			row: &Impersonation{
@@ -121,6 +123,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true},
 				Principal:       accesstypes.RolePrincipal("PartnerViewer"),
 				Reason:          "ticket JRN-123",
+				StartedAt:       started,
 				ExpiresAt:       expires,
 			},
 			wantInsert: &InsertImpersonation{
@@ -130,6 +133,7 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				PrincipalKind:   PrincipalKindRole,
 				PrincipalRole:   strPtr("PartnerViewer"),
 				Reason:          strPtr("ticket JRN-123"),
+				StartedAt:       started,
 				ExpiresAt:       expires,
 			},
 			row: &Impersonation{

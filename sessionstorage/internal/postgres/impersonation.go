@@ -191,7 +191,7 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 	args := []any{
 		id, imp.ActorUsername, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUser, imp.PrincipalRole,
-		imp.Mask, imp.Reason, time.Now(), imp.ExpiresAt,
+		imp.Mask, imp.Reason, imp.StartedAt, imp.ExpiresAt,
 	}
 
 	if _, err := txn.Exec(ctx, query, args...); err != nil {
