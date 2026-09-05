@@ -147,6 +147,19 @@ linters:
           - nlreturn
           - scopelint
         path: _test\.go
+      # drivertest is test code shared by the driver packages; it gets the test-file
+      # allowances even though it cannot be a _test.go file.
+      - linters:
+          - funlen
+          - gochecknoglobals
+          - gochecknoinits
+          - goconst
+          - gocyclo
+          - lll
+          - mnd
+          - nlreturn
+          - scopelint
+        path: sessionstorage/internal/drivertest/
       - linters:
           - tagliatelle
         path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
