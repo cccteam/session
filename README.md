@@ -745,11 +745,12 @@ id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationReq
 
 // A user of this application acts under a narrower role for a while — their own
 // session, narrowed. The actor is local: no realm, and their own session as the source.
+// The call arrives on their validated session, so SourceSessionID may be omitted: it
+// defaults to that session, and Actor must be that session's user.
 info := sessioninfo.FromCtx(ctx)
 id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
-    Actor:           info.Username,
-    SourceSessionID: ccc.NullUUID{UUID: info.ID, Valid: true},
-    Principal:       accesstypes.RolePrincipal("Auditor"),
+    Actor:     info.Username,
+    Principal: accesstypes.RolePrincipal("Auditor"),
 })
 ```
 
@@ -757,8 +758,17 @@ The session row and the record are written in one transaction; the cookie is set
 after the `Started` event has been delivered (a failing audit hook destroys the session
 and fails the call). Refused everywhere: a missing actor or principal, a caller that is
 itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
-is missing or is not their own live session here. *Who may impersonate whom* is the
-application's guard — the library records what happened.
+is missing or is not their own live session here.
+
+When the call arrives on a validated session of this application (the context has passed
+`ValidateSession`), the request is bound to that session: `Actor` must be its user,
+`SourceSessionID` must be it (and defaults to it when omitted), and `ActorRealm` must be
+empty — an actor logged in here is local. The binding keeps a caller from minting a
+session as another user by naming them and one of their session IDs, which appear in
+logs, spans and `ActiveImpersonations`. A call with no session in its context (a
+server-to-server handoff) is taken at its word, so its handler must authenticate the
+caller. *Who may impersonate whom* is the application's guard — the library records what
+happened.
 
 #### Identity by session type
 
@@ -785,7 +795,7 @@ means in this application's session table:
 | | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
 | --- | --- | --- |
 | Who | An account of this application, logged in here | Authenticated by another application or IdP |
-| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username | Optional; the session in the source application, for correlation |
+| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
 | Kept alive | The source session's activity is refreshed with the impersonated session's, so `EndImpersonation` can return to it | — |
 | Deactivating or renaming the account named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one account*) | Never touches the role session |

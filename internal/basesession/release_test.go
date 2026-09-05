@@ -32,13 +32,75 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 	sourceID := ccc.Must(ccc.NewUUID())
 	source := ccc.NullUUID{UUID: sourceID, Valid: true}
 
+	otherID := ccc.Must(ccc.NewUUID())
+	// onSession is a context carrying the validated, non-impersonated session the
+	// establishing call arrives on.
+	onSession := func(sess *sessioninfo.SessionData) context.Context {
+		ctx := context.WithValue(context.Background(), sessioninfo.CTXSessionID, sess.ID)
+
+		return context.WithValue(ctx, sessioninfo.CtxSessionInfo, sess)
+	}
+	// createdWithSource asserts the record written names sourceID as the source session.
+	createdWithSource := func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
+		storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
+				if imp.SourceSessionID != source {
+					return ccc.NilUUID, errors.Newf("SourceSessionID = %v, want %v", imp.SourceSessionID, source)
+				}
+
+				return sessionID, nil
+			})
+		cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+		cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+	}
+
 	tests := []struct {
 		name           string
+		ctx            context.Context
 		imp            *sessioninfo.Impersonation
 		prepare        func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler)
 		wantBadRequest bool
 		wantForbidden  bool
 	}{
+		{
+			name: "on a validated session, the actor and source are bound to it and verified as usual",
+			ctx:  onSession(ordinarySession(sourceID, "alice", time.Now())),
+			imp:  &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now()), nil)
+				createdWithSource(storage, cookieHandler)
+			},
+		},
+		{
+			name: "on a validated session, an omitted source defaults to that session",
+			ctx:  onSession(ordinarySession(sourceID, "alice", time.Now())),
+			imp:  &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now()), nil)
+				createdWithSource(storage, cookieHandler)
+			},
+		},
+		{
+			name:          "on a validated session, naming another user as the actor is refused before any lookup",
+			ctx:           onSession(ordinarySession(sourceID, "carol", time.Now())),
+			imp:           &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare:       func(*mock_sessionstorage.MockBaseStore, *mock_cookie.MockHandler) {},
+			wantForbidden: true,
+		},
+		{
+			name:          "on a validated session, naming another session as the source is refused before any lookup",
+			ctx:           onSession(ordinarySession(otherID, "alice", time.Now())),
+			imp:           &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare:       func(*mock_sessionstorage.MockBaseStore, *mock_cookie.MockHandler) {},
+			wantForbidden: true,
+		},
+		{
+			name:          "on a validated session, a foreign realm is refused: an actor logged in here is local",
+			ctx:           onSession(ordinarySession(sourceID, "alice", time.Now())),
+			imp:           &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")},
+			prepare:       func(*mock_sessionstorage.MockBaseStore, *mock_cookie.MockHandler) {},
+			wantForbidden: true,
+		},
 		{
 			name: "a foreign actor is not checked here",
 			imp:  &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Editor")},
@@ -117,9 +179,13 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			cookieHandler := mock_cookie.NewMockHandler(ctrl)
 			tt.prepare(storage, cookieHandler)
 
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			s := &BaseSession{SessionTimeout: 10 * time.Minute, Storage: storage, CookieHandler: cookieHandler}
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice"}
-			_, err := s.StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req, tt.imp)
+			_, err := s.StartImpersonatedSession(ctx, httptest.NewRecorder(), req, tt.imp)
 			wantErr := tt.wantBadRequest || tt.wantForbidden
 			if (err != nil) != wantErr {
 				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, wantErr)

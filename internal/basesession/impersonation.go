@@ -38,15 +38,20 @@ func (s *BaseSession) ImpersonationTTL(maxDuration time.Duration) time.Duration 
 }
 
 // StartImpersonatedSession is the establishing step shared by every session type once
-// the effective identity is resolved: it writes the session row and its record
-// atomically, delivers the Started event (a failing audit hook destroys the session and
-// fails the call, so no unevidenced impersonated session ever lives), writes the auth
-// and XSRF cookies, and stamps the evidence on the establishing request's log entry.
-// req.Username is the session's effective identity; imp.SessionID is set on return.
+// the effective identity is resolved: it binds the actor to the validated session the
+// call arrived on, if any, verifies a local actor's source session, writes the session
+// row and its record atomically, delivers the Started event (a failing audit hook
+// destroys the session and fails the call, so no unevidenced impersonated session ever
+// lives), writes the auth and XSRF cookies, and stamps the evidence on the establishing
+// request's log entry. req.Username is the session's effective identity; imp.SessionID
+// is set on return.
 func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := bindActorToSession(ctx, imp); err != nil {
+		return ccc.NilUUID, err
+	}
 	if err := s.verifyLocalActor(ctx, imp); err != nil {
 		return ccc.NilUUID, err
 	}
@@ -80,6 +85,40 @@ func (s *BaseSession) StartImpersonatedSession(ctx context.Context, w http.Respo
 	}
 
 	return id, nil
+}
+
+// bindActorToSession ties an establishing call that arrives on a validated session of
+// this application to that session. The request's own session is proof of who is at
+// the keyboard, so the actor must be its user, and a local actor's SourceSessionID
+// must be it (and defaults to it when omitted). A claim to a foreign realm is refused:
+// an actor logged in here is local. Without a validated session in ctx (a
+// server-to-server handoff) the request's claims stand as given, for verifyLocalActor
+// and the application's guard to check.
+//
+// Without this, an actor who learned another user's session ID — it appears in logs,
+// spans and ActiveImpersonations — could mint a session as that user by naming them.
+func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) error {
+	sessData, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok {
+		return nil
+	}
+
+	if imp.ActorRealm != "" {
+		return httpio.NewForbiddenMessage("the request carries a session of this application, so the actor is local: leave ActorRealm empty")
+	}
+	if imp.Actor != sessData.Username {
+		return httpio.NewForbiddenMessagef("actor %q is not the user of the session making the request", imp.Actor)
+	}
+	if !imp.SourceSessionID.Valid {
+		imp.SourceSessionID = ccc.NullUUID{UUID: sessData.ID, Valid: true}
+
+		return nil
+	}
+	if imp.SourceSessionID.UUID != sessData.ID {
+		return httpio.NewForbiddenMessage("SourceSessionID is not the session making the request")
+	}
+
+	return nil
 }
 
 // verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an

@@ -89,6 +89,16 @@ func TestPasswordAuthAPI_StartImpersonatedSession(t *testing.T) {
 			wantForbidden: true,
 		},
 		{
+			name: "a request on a validated session cannot name another user as the actor",
+			ctx:  impersonatedCtx(sourceID, "carol", nil),
+			req:  &ImpersonationRequest{Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: sourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
+				storage.EXPECT().ImpersonationEnabled().Return(true)
+			},
+			wantErr:       true,
+			wantForbidden: true,
+		},
+		{
 			name: "an impersonated user must exist",
 			req:  &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("ghost")},
 			prepare: func(storage *mock_sessionstorage.MockPasswordAuthStore, _ *mock_cookie.MockHandler) {
