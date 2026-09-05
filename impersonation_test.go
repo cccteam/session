@@ -1115,3 +1115,66 @@ func TestSessionAPIs_ActiveImpersonations(t *testing.T) {
 		}
 	})
 }
+
+// Logout on the session APIs announces an impersonated session's end as an Ended
+// event on every type that offers it; a type that destroys the row directly would
+// end the record without evidence.
+func TestSessionAPIs_Logout_AnnouncesImpersonationEnd(t *testing.T) {
+	t.Parallel()
+
+	type logoutAPI interface {
+		Logout(ctx context.Context) error
+	}
+	tests := []struct {
+		name  string
+		build func(t *testing.T, ctrl *gomock.Controller, sessionID ccc.UUID, hook ImpersonationAuditHook) logoutAPI
+	}{
+		{
+			name: "PasswordAuth",
+			build: func(t *testing.T, ctrl *gomock.Controller, sessionID ccc.UUID, hook ImpersonationAuditHook) logoutAPI {
+				storage := newPasswordStoreMock(ctrl)
+				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
+				p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
+				if err != nil {
+					t.Fatalf("NewPasswordAuth() error = %v", err)
+				}
+
+				return p.API()
+			},
+		},
+		{
+			name: "Preauth",
+			build: func(t *testing.T, ctrl *gomock.Controller, sessionID ccc.UUID, hook ImpersonationAuditHook) logoutAPI {
+				storage := newPreauthStoreMock(ctrl)
+				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
+				p, err := NewPreauth[NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
+				if err != nil {
+					t.Fatalf("NewPreauth() error = %v", err)
+				}
+
+				return p.API()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			sessionID := ccc.Must(ccc.NewUUID())
+
+			var seen []sessioninfo.ImpersonationEventKind
+			api := tt.build(t, ctrl, sessionID, hookOrRecorder(nil, &seen))
+
+			imp := &sessioninfo.Impersonation{SessionID: sessionID, Actor: "alice", Principal: accesstypes.UserPrincipal("bob"), ExpiresAt: time.Now().Add(time.Hour)}
+			if err := api.Logout(impersonatedCtx(sessionID, "bob", imp)); err != nil {
+				t.Fatalf("Logout() error = %v", err)
+			}
+			if diff := cmp.Diff([]sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded}, seen); diff != "" {
+				t.Errorf("audit events mismatch (-want +got):\n%s", diff)
+			}
+			if imp.EndReason != sessioninfo.ImpersonationEndedByLogout {
+				t.Errorf("EndReason = %q, want %q", imp.EndReason, sessioninfo.ImpersonationEndedByLogout)
+			}
+		})
+	}
+}

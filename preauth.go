@@ -223,11 +223,11 @@ func (p *PreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
 	return *data, nil
 }
 
-// Logout destroys the current session
+// Logout destroys the current session. For an impersonated session the end is
+// announced as an Ended event, as on every other session type.
 func (p *PreauthAPI[T]) Logout(ctx context.Context) error {
-	// Destroy session in database
-	if err := p.preauth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	if err := p.preauth.baseSession.LogoutAPI(ctx); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.LogoutAPI()")
 	}
 
 	return nil
