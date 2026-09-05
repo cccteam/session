@@ -788,25 +788,64 @@ application.
 
 ### Choosing the principal
 
-By default a session's principal is its user, or the impersonation record's principal.
-Some applications want a session to act as something else without impersonating anyone
-— a partner portal whose every session acts as the role it was minted with, carried in
-custom session data. `WithPrincipalResolver` is that seam: the resolver runs inside
-session validation, with the session, its custom data and its impersonation record in
-the context, and returns the principal `PrincipalFromCtx` reports for the request.
+By default a session's principal is its user, or the impersonation record's principal,
+and for almost every application that is the end of the story: put role membership in
+the permission store, check with `ForUser`, and a role change is enforced on the user's
+next request. `WithPrincipalResolver` exists for the narrow case where a session's
+subject genuinely is not a user. The resolver runs inside session validation, with the
+session, its custom data and its impersonation record in the context, and returns the
+principal `PrincipalFromCtx` reports for the request.
+
+**The resolver chooses *which subject*, never *which grants*.** Grants always come from
+the permission store at check time. The moment a resolver reads role membership from
+somewhere that was copied at login, the application has built a cache of its
+authorization model with a lifetime of one session, and no amount of live grant checking
+repairs that.
+
+#### Intended uses
+
+- **Machine and API-key sessions.** The caller is a service, not a person; the subject is
+  the service's role, decided from the credential the session was established with.
+- **Membership that lives outside the permission store and is read live.** The resolver
+  asks the external system on each request (or through a cache with a deliberate,
+  short TTL that the application owns and documents). Staleness is bounded by that TTL,
+  not by the session.
 
 ```go
-auth, err := session.NewPreauth[PortalData](storage, cookieKey,
+// A service session acts as the role bound to its API key. The key-to-role binding is
+// read on every request, so revoking or re-binding the key takes effect immediately.
+auth, err := session.NewPreauth[APIKeySession](storage, cookieKey,
     session.WithPrincipalResolver(func(ctx context.Context) (accesstypes.Principal, error) {
-        data, err := sessioninfo.CustomDataFromCtx[*PortalData](ctx)
+        data, err := sessioninfo.CustomDataFromCtx[*APIKeySession](ctx)
+        if err != nil {
+            return accesstypes.Principal{}, err
+        }
+        role, err := keys.RoleForKey(ctx, data.KeyID) // live lookup, not a stored copy
         if err != nil {
             return accesstypes.Principal{}, err
         }
 
-        return accesstypes.RolePrincipal(accesstypes.Role(data.RoleID)), nil
+        return accesstypes.RolePrincipal(role), nil
     }),
 )
 ```
+
+#### Not for this
+
+- **A role snapshotted into custom session data at login.** `RolePrincipal(data.RoleID)`
+  where `RoleID` was resolved when the session was created is the anti-pattern this
+  section exists to name. The user keeps the old role until they log in again; an
+  administrator's change is silently ignored for the life of every open session. The fix
+  is not a resolver — it is moving membership into the permission store
+  (`AddUserRoles` / `DeleteUserRoles`) and letting the default user principal do its job.
+- **"The user picked a role for this session."** That is a deliberate, time-capped act
+  by an actor, which is what the impersonation record is for: establish a role-principal
+  impersonation with the user as actor and you get evidence, a hard cap, listing and
+  revocation. A resolver gives you none of those.
+- **Avoiding a permission-store write.** If the only reason to reach for the resolver is
+  that membership is stored somewhere else and nobody wants to move it, move it.
+
+#### Mechanics
 
 - The choice is made per request at validation and never stored; nothing changes in the
   schema and no impersonation record is written.
@@ -816,7 +855,7 @@ auth, err := session.NewPreauth[PortalData](storage, cookieKey,
 - Returning the zero `Principal` keeps the default. An error fails the request as a
   server error, not an unauthorized one: the session is valid; the application could not
   decide what it acts as.
-- When the resolver changes the principal, the request's log entry carries
+- When the resolver changes the principal, the request's log entry and trace span carry
   `principal.kind` and `principal` (`sessioninfo.AttrPrincipalKind`,
   `sessioninfo.AttrPrincipal`); unchanged requests carry nothing extra.
 
