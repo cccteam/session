@@ -34,6 +34,7 @@ type SessionStorageDriver struct {
 	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
+	impersonation     *ImpersonationConfig
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -114,48 +115,67 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	sessData := &dbtype.SessionData{Session: session}
 
 	if s.customData != nil {
-		// The query selects c.SessionId ahead of the custom columns as a row-presence
-		// marker: a LEFT JOIN with no custom row yields NULL here.
-		var marker spanner.NullString
-		if err := row.Column(idx, &marker); err != nil {
-			return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, dbtype.SessionIDColumn)
-		}
-		idx++
-
-		if !marker.Valid {
-			// No custom data row: zero-value *T.
-			sessData.CustomData = s.customData.Codec.NewStruct()
-
-			return sessData, nil
-		}
-
-		columns := s.customData.Codec.Columns()
-		values := make([]any, len(columns))
-		for i, col := range columns {
-			var val spanner.GenericColumnValue
-			if err := row.Column(idx, &val); err != nil {
-				return nil, errors.Wrapf(err, "row.Column(%d/%s)", idx, col)
-			}
-			values[i] = val
-			idx++
-		}
-
-		// Rebuild a row containing only the custom columns (names are unique within
-		// the custom set) so the client's tag-based ToStruct can decode into T —
-		// the JOIN row itself may contain duplicate column names.
-		synthetic, err := spanner.NewRow(columns, values)
+		data, next, err := s.readCustomData(row, idx)
 		if err != nil {
-			return nil, errors.Wrap(err, "spanner.NewRow()")
-		}
-
-		data := s.customData.Codec.NewStruct()
-		if err := synthetic.ToStruct(data); err != nil {
-			return nil, errors.Wrap(err, "spanner.Row.ToStruct()")
+			return nil, err
 		}
 		sessData.CustomData = data
+		idx = next
+	}
+
+	if s.impersonation != nil {
+		imp, err := readImpersonation(row, idx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		sessData.Impersonation = imp
 	}
 
 	return sessData, nil
+}
+
+// readCustomData reads the custom session data row from row positionally,
+// starting at the marker column idx, and returns the *T (zero-value when the
+// LEFT JOIN found no row) together with the index of the next unread column.
+func (s *SessionStorageDriver) readCustomData(row *spanner.Row, idx int) (data any, next int, err error) {
+	// The query selects c.SessionId ahead of the custom columns as a row-presence
+	// marker: a LEFT JOIN with no custom row yields NULL here.
+	var marker spanner.NullString
+	if err := row.Column(idx, &marker); err != nil {
+		return nil, idx, errors.Wrapf(err, "row.Column(%d/%s)", idx, dbtype.SessionIDColumn)
+	}
+	idx++
+
+	columns := s.customData.Codec.Columns()
+	if !marker.Valid {
+		// No custom data row: zero-value *T.
+		return s.customData.Codec.NewStruct(), idx + len(columns), nil
+	}
+
+	values := make([]any, len(columns))
+	for i, col := range columns {
+		var val spanner.GenericColumnValue
+		if err := row.Column(idx, &val); err != nil {
+			return nil, idx, errors.Wrapf(err, "row.Column(%d/%s)", idx, col)
+		}
+		values[i] = val
+		idx++
+	}
+
+	// Rebuild a row containing only the custom columns (names are unique within
+	// the custom set) so the client's tag-based ToStruct can decode into T —
+	// the JOIN row itself may contain duplicate column names.
+	synthetic, err := spanner.NewRow(columns, values)
+	if err != nil {
+		return nil, idx, errors.Wrap(err, "spanner.NewRow()")
+	}
+
+	data = s.customData.Codec.NewStruct()
+	if err := synthetic.ToStruct(data); err != nil {
+		return nil, idx, errors.Wrap(err, "spanner.Row.ToStruct()")
+	}
+
+	return data, idx, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
@@ -214,19 +234,19 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
 	}
 
-	if err := s.applySessionInsert(ctx, id, sessionMutation, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation}, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
 	return id, nil
 }
 
-// applySessionInsert commits a session-insert mutation, honoring the request's custom
-// session data semantics: per-call data wins and is committed with the session mutation
-// in a single Apply (the configured resolver is not invoked); otherwise a configured
-// resolver runs within a read-write transaction; otherwise the session mutation is
-// applied alone.
-func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UUID, sessionMutation *spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
+// applySessionInsert commits the session-insert mutations (the session row and any
+// rows that must land with it), honoring the request's custom session data semantics:
+// per-call data wins and is committed with the session mutations in a single Apply
+// (the configured resolver is not invoked); otherwise a configured resolver runs
+// within a read-write transaction; otherwise the session mutations are applied alone.
+func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UUID, sessionMutations []*spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
 	if req.CustomData != nil {
 		if s.customData == nil {
 			return errors.New("custom session data provided but no custom session data config is attached")
@@ -237,7 +257,9 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 			return err
 		}
 
-		mutations := []*spanner.Mutation{sessionMutation, customMutation}
+		mutations := make([]*spanner.Mutation, 0, len(sessionMutations)+1)
+		mutations = append(mutations, sessionMutations...)
+		mutations = append(mutations, customMutation)
 		if _, err := s.spanner.Apply(ctx, mutations); err != nil {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
@@ -246,7 +268,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 	}
 
 	if s.customData == nil || s.customData.Resolver == nil {
-		if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{sessionMutation}); err != nil {
+		if _, err := s.spanner.Apply(ctx, sessionMutations); err != nil {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}
 
@@ -255,7 +277,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 
 	// Use a ReadWriteTransaction so the resolver can read within the same transaction.
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		if err := txn.BufferWrite([]*spanner.Mutation{sessionMutation}); err != nil {
+		if err := txn.BufferWrite(sessionMutations); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
@@ -314,28 +336,43 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	sessionUpdate := struct {
-		ID        ccc.UUID  `spanner:"Id"`
-		Expired   bool      `spanner:"Expired"`
-		UpdatedAt time.Time `spanner:"UpdatedAt"`
-	}{
-		ID:        sessionID,
-		Expired:   true,
-		UpdatedAt: time.Now(),
+	now := time.Now()
+
+	// A session that does not exist updates no row and is not an error: a browser can
+	// return with old state, and refusing it would be noise.
+	expireSession := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET Expired = TRUE, UpdatedAt = @now
+			WHERE Id = @id
+	`, s.sessionTableName))
+	expireSession.Params["id"] = sessionID
+	expireSession.Params["now"] = now
+	statements := []spanner.Statement{expireSession}
+
+	// The row and its impersonation record, if any, end together: a live record on
+	// an expired row would misreport the end, and an ended record on a live row must
+	// never exist.
+	if s.impersonation != nil {
+		endRecord := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET EndedAt = @now, EndReason = @reason
+			WHERE SessionId = @id AND EndedAt IS NULL
+	`, s.impersonation.TableName))
+		endRecord.Params["id"] = sessionID
+		endRecord.Params["now"] = now
+		endRecord.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
+		statements = append(statements, endRecord)
 	}
 
-	mutation, err := spanner.UpdateStruct(s.sessionTableName, sessionUpdate)
-	if err != nil {
-		return errors.Wrap(err, "spanner.UpdateStruct()")
-	}
-
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
-		// Attempting to destroy a session that does not exist is something that
-		// can happen when a browser returns with old state. Erroring in this
-		// case is extra noise, so we will ignore instead.
-		if spanner.ErrCode(err) != codes.NotFound {
-			return errors.Wrap(err, "spanner.Client.Apply()")
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if _, err := txn.BatchUpdate(ctx, statements); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BatchUpdate()")
 		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil
@@ -481,17 +518,35 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
+		// A live role-principal impersonation by a foreign actor carrying this name belongs
+		// to that actor, not to the renamed account, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s
+				UPDATE %s s
 				SET Username = @newUsername, UpdatedAt = @updatedAt
-				WHERE Username = @oldUsername AND Expired = FALSE
-		`, s.sessionTableName))
+				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
+		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
 		sessionsStmt.Params["updatedAt"] = time.Now()
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		// The live impersonations this account holds as a local actor follow the rename, so
+		// they stay reachable by the new name; ended records keep the name of their time.
+		if s.impersonation != nil {
+			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
+					UPDATE %s
+					SET ActorUsername = @newUsername
+					WHERE ActorUsername = @oldUsername AND ActorRealm IS NULL AND EndedAt IS NULL
+			`, s.impersonation.TableName))
+			recordsStmt.Params["oldUsername"] = oldUsername
+			recordsStmt.Params["newUsername"] = newUsername
+
+			if _, err := txn.Update(ctx, recordsStmt); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
 		}
 
 		return nil
@@ -629,17 +684,42 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	now := time.Now()
+
+	// Every session under the name is this user's — their own, a user-principal
+	// impersonation of them, a role-principal session they hold as a local actor — except
+	// a foreign actor's role-principal session, which only borrows the name. The sessions
+	// this user holds as a local actor under other names go too.
 	stmt := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s
+			UPDATE %s s
 			SET Expired = TRUE, UpdatedAt = @updatedAt
-			WHERE Username = @username
-	`, s.sessionTableName))
+			WHERE (s.Username = @username AND NOT %s) OR %s
+	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
 	stmt.Params["username"] = username
-	stmt.Params["updatedAt"] = time.Now()
+	stmt.Params["updatedAt"] = now
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		// Sessions first: the expiry predicate reads the records while they are still live.
 		if _, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		if s.impersonation != nil {
+			// The live impersonation records of those sessions end with them, as Revoked.
+			endRecords := spanner.NewStatement(fmt.Sprintf(`
+					UPDATE %s
+					SET EndedAt = @now, EndReason = @reason
+					WHERE EndedAt IS NULL AND (
+						(SessionId IN (SELECT Id FROM %s WHERE Username = @username)
+							AND NOT (PrincipalKind = '%s' AND ActorRealm IS NOT NULL))
+						OR (ActorUsername = @username AND ActorRealm IS NULL))
+			`, s.impersonation.TableName, s.sessionTableName, dbtype.PrincipalKindRole))
+			endRecords.Params["username"] = username
+			endRecords.Params["now"] = now
+			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
+			if _, err := txn.Update(ctx, endRecords); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
 		}
 
 		return nil
@@ -731,6 +811,12 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statemen
 			fmt.Fprintf(&columns, ", c.`%s`", col)
 		}
 		joinClause = fmt.Sprintf("LEFT JOIN `%s` c ON s.Id = c.%s", s.customData.TableName, dbtype.SessionIDColumn)
+	}
+	if s.impersonation != nil {
+		// The impersonation record follows the custom columns, with its own
+		// i.SessionId row-presence marker.
+		columns.WriteString(impersonationSelect())
+		joinClause += " " + s.impersonationJoin()
 	}
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s s %s WHERE s.Id = @id`, columns.String(), s.sessionTableName, joinClause))

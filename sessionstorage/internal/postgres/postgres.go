@@ -33,6 +33,7 @@ type SessionStorageDriver struct {
 	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
+	impersonation     *ImpersonationConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -91,7 +92,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	session := &dbtype.Session{}
 	baseDests := []any{&session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired}
 
-	if s.customData == nil {
+	if s.customData == nil && s.impersonation == nil {
 		if err := rows.Scan(baseDests...); err != nil {
 			return nil, errors.Wrap(err, "rows.Scan()")
 		}
@@ -99,44 +100,86 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 		return &dbtype.SessionData{Session: session}, nil
 	}
 
-	// Phase 1: scan base columns plus the c.SessionId row-presence marker, with
-	// NULL-safe throwaway destinations for the custom columns.
-	columns := s.customData.Codec.Columns()
-	var marker any
-	scanDests := make([]any, 0, len(baseDests)+1+len(columns))
-	scanDests = append(scanDests, baseDests...)
-	scanDests = append(scanDests, &marker)
-	for range columns {
-		scanDests = append(scanDests, new(any))
-	}
-	if err := rows.Scan(scanDests...); err != nil {
+	// Phase 1: scan base columns plus each joined row's SessionId row-presence
+	// marker, with NULL-safe throwaway destinations for the joined columns.
+	var customMarker, impMarker any
+	if err := rows.Scan(s.markerScanDests(baseDests, &customMarker, &impMarker)...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
 
+	// Phase 2: re-scan the same buffered row, this time into typed destinations for
+	// the joined rows that exist (pgx re-plans per destination, converting NULL-free
+	// values into the typed fields); absent rows keep their throwaways.
 	sessData := &dbtype.SessionData{Session: session}
-
-	if marker == nil {
-		// LEFT JOIN found no custom data row: zero-value *T.
-		sessData.CustomData = s.customData.Codec.NewStruct()
-
-		return sessData, nil
-	}
-
-	// Phase 2: re-scan the same buffered row, this time into T's fields (pgx
-	// re-plans per destination, converting NULL-free values into the typed fields).
-	data := s.customData.Codec.NewStruct()
-	fieldAddrs, err := s.customData.Codec.FieldAddrs(data)
+	scanDests, impScan, err := s.typedScanDests(baseDests, sessData, customMarker, impMarker)
 	if err != nil {
-		return nil, errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+		return nil, err
 	}
-	scanDests = scanDests[:len(baseDests)+1]
-	scanDests = append(scanDests, fieldAddrs...)
 	if err := rows.Scan(scanDests...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
-	sessData.CustomData = data
+
+	if impScan != nil {
+		imp, err := impScan.row()
+		if err != nil {
+			return nil, err
+		}
+		sessData.Impersonation = imp
+	}
 
 	return sessData, nil
+}
+
+// markerScanDests returns the phase-one scan destinations: the base columns, then
+// for each configured join its SessionId marker followed by throwaways.
+func (s *SessionStorageDriver) markerScanDests(baseDests []any, customMarker, impMarker *any) []any {
+	dests := make([]any, 0, len(baseDests)+2+len(impersonationColumns))
+	dests = append(dests, baseDests...)
+	if s.customData != nil {
+		dests = append(dests, customMarker)
+		dests = append(dests, throwaways(len(s.customData.Codec.Columns()))...)
+	}
+	if s.impersonation != nil {
+		dests = append(dests, impMarker)
+		dests = append(dests, throwaways(len(impersonationColumns))...)
+	}
+
+	return dests
+}
+
+// typedScanDests returns the phase-two scan destinations. It populates
+// sessData.CustomData with the *T to scan into (zero-value when the join found no
+// row, which then keeps throwaways) and returns the impersonation scan when the
+// record's row exists.
+func (s *SessionStorageDriver) typedScanDests(baseDests []any, sessData *dbtype.SessionData, customMarker, impMarker any) ([]any, *impersonationScan, error) {
+	dests := make([]any, 0, len(baseDests)+2+len(impersonationColumns))
+	dests = append(dests, baseDests...)
+	if s.customData != nil {
+		sessData.CustomData = s.customData.Codec.NewStruct()
+		dests = append(dests, &customMarker)
+		if customMarker == nil {
+			dests = append(dests, throwaways(len(s.customData.Codec.Columns()))...)
+		} else {
+			fieldAddrs, err := s.customData.Codec.FieldAddrs(sessData.CustomData)
+			if err != nil {
+				return nil, nil, errors.Wrap(err, "dbtype.CustomDataCodec.FieldAddrs()")
+			}
+			dests = append(dests, fieldAddrs...)
+		}
+	}
+
+	var impScan *impersonationScan
+	if s.impersonation != nil {
+		dests = append(dests, &impMarker)
+		if impMarker == nil {
+			dests = append(dests, throwaways(len(impersonationColumns))...)
+		} else {
+			impScan = newImpersonationScan(sessData.ID)
+			dests = append(dests, impScan.dests()...)
+		}
+	}
+
+	return dests, impScan, nil
 }
 
 // UpdateSessionActivity updates the session activity column with the current time
@@ -182,7 +225,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		`, s.sessionTableName)
 	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
-	if err := s.execSessionInsert(ctx, id, query, args, req); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, nil); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -193,13 +236,17 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // session data semantics: per-call data wins and is written with the session insert in
 // one transaction (the configured resolver is not invoked); otherwise a configured
 // resolver runs within the same transaction; otherwise the insert executes alone.
-func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest) error {
+// A non-nil companion runs inside the same transaction right after the session insert,
+// for rows that must land with the session (an impersonation record).
+func (s *SessionStorageDriver) execSessionInsert(
+	ctx context.Context, id ccc.UUID, query string, args []any, req *sessioninfo.NewSessionRequest, companion func(ctx context.Context, txn pgx.Tx) error,
+) error {
 	perCallData := req.CustomData != nil
 	if perCallData && s.customData == nil {
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
-	if !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
+	if companion == nil && !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
 		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
@@ -219,8 +266,14 @@ func (s *SessionStorageDriver) execSessionInsert(ctx context.Context, id ccc.UUI
 		return errors.Wrap(err, "tx.Exec()")
 	}
 
+	if companion != nil {
+		if err := companion(ctx, txn); err != nil {
+			return err
+		}
+	}
+
 	data := req.CustomData
-	if !perCallData {
+	if !perCallData && s.customData != nil && s.customData.Resolver != nil {
 		data, err = s.customData.Resolver(ctx, txn, req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")
@@ -245,15 +298,46 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`
+	// A session that does not exist updates no row and is not an error: a browser can
+	// return with old state, and refusing it would be noise.
+	expireSession := fmt.Sprintf(`
 		UPDATE "%s" SET "Expired" = TRUE, "UpdatedAt" = $2
 		WHERE "Id" = $1`, s.sessionTableName)
+	now := time.Now()
 
-	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now()); err != nil {
-		// Attempting to destroy a session that does not exist is something that
-		// can happen when a browser returns with old state. Erroring in this
-		// case is extra noise, so we will ignore instead.
-		return errors.Wrap(err, "Queryer.Exec()")
+	if s.impersonation == nil {
+		if _, err := s.conn.Exec(ctx, expireSession, sessionID, now); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
+	}
+
+	// The row and its impersonation record, if any, end together: a live record on
+	// an expired row would misreport the end, and an ended record on a live row must
+	// never exist.
+	endRecord := fmt.Sprintf(`
+		UPDATE %s
+		SET "EndedAt" = $2, "EndReason" = $3
+		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if _, err := txn.Exec(ctx, endRecord, sessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil
@@ -424,12 +508,26 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
+	// A live role-principal impersonation by a foreign actor carrying this name belongs to
+	// that actor, not to the renamed account, and keeps the name its record names.
 	sessionQuery := fmt.Sprintf(`
-		UPDATE "%s" SET "Username" = $2, "UpdatedAt" = $3
-		WHERE "Username" = $1 AND "Expired" = FALSE`, s.sessionTableName)
+		UPDATE "%s" s SET "Username" = $2, "UpdatedAt" = $3
+		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTableName, s.foreignRolePrincipalRecord())
 
 	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername, time.Now()); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	// The live impersonations this account holds as a local actor follow the rename, so
+	// they stay reachable by the new name; ended records keep the name of their time.
+	if s.impersonation != nil {
+		recordQuery := fmt.Sprintf(`
+			UPDATE %s SET "ActorUsername" = $2
+			WHERE "ActorUsername" = $1 AND "ActorRealm" IS NULL AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
+
+		if _, err := tx.Exec(ctx, recordQuery, oldUsername, newUsername); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -516,13 +614,56 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`
-		UPDATE "%s" 
-		SET "Expired" = TRUE, "UpdatedAt" = $2
-		WHERE "Username" = $1`, s.sessionTableName)
+	if s.impersonation == nil {
+		query := fmt.Sprintf(`
+			UPDATE "%s"
+			SET "Expired" = TRUE, "UpdatedAt" = $2
+			WHERE "Username" = $1`, s.sessionTableName)
+		if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
 
-	if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+		return nil
+	}
+
+	// Every session under the name is this user's — their own, a user-principal
+	// impersonation of them, a role-principal session they hold as a local actor — except
+	// a foreign actor's role-principal session, which only borrows the name. The sessions
+	// this user holds as a local actor under other names go too.
+	query := fmt.Sprintf(`
+		UPDATE "%s" s
+		SET "Expired" = TRUE, "UpdatedAt" = $2
+		WHERE (s."Username" = $1 AND NOT %s) OR %s`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor())
+
+	// The live impersonation records of those sessions end with them, as Revoked.
+	endRecords := fmt.Sprintf(`
+		UPDATE %s i
+		SET "EndedAt" = $2, "EndReason" = $3
+		WHERE i."EndedAt" IS NULL AND (
+			(EXISTS (SELECT 1 FROM "%s" s WHERE s."Id" = i."SessionId" AND s."Username" = $1)
+				AND NOT (i."PrincipalKind" = '%s' AND i."ActorRealm" IS NOT NULL))
+			OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
+		pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName, dbtype.PrincipalKindRole)
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	// Sessions first: the expiry predicate reads the records while they are still live.
+	now := time.Now()
+	if _, err := txn.Exec(ctx, query, username, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if _, err := txn.Exec(ctx, endRecords, username, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil
@@ -625,6 +766,12 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, a
 			fmt.Fprintf(&columns, `, c.%s`, pgx.Identifier{col}.Sanitize())
 		}
 		joinClause = fmt.Sprintf(`LEFT JOIN %s c ON s."Id" = c.%s`, pgx.Identifier{s.customData.TableName}.Sanitize(), pgx.Identifier{dbtype.SessionIDColumn}.Sanitize())
+	}
+	if s.impersonation != nil {
+		// The impersonation record follows the custom columns, with its own
+		// i.SessionId row-presence marker.
+		columns.WriteString(impersonationSelect())
+		joinClause += " " + s.impersonationJoin()
 	}
 
 	query = fmt.Sprintf(`

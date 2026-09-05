@@ -182,6 +182,21 @@ func (o *OIDCAzure[T, U]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return o.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (o *OIDCAzure[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return o.baseSession.EnforceReadOnlyMask(next)
+}
+
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (o *OIDCAzure[T, U]) EndImpersonation() http.HandlerFunc {
+	return o.baseSession.EndImpersonation()
+}
+
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {

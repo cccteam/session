@@ -71,6 +71,11 @@ linters:
             - github.com/gorilla/securecookie
             - github.com/jackc/pgerrcode
             - github.com/jackc/pgx/v5
+            - go.opentelemetry.io/otel
+            - go.opentelemetry.io/otel/attribute
+            - go.opentelemetry.io/otel/sdk/trace
+            - go.opentelemetry.io/otel/sdk/trace/tracetest
+            - go.opentelemetry.io/otel/trace
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
@@ -142,13 +147,26 @@ linters:
           - nlreturn
           - scopelint
         path: _test\.go
+      # drivertest is test code shared by the driver packages; it gets the test-file
+      # allowances even though it cannot be a _test.go file.
+      - linters:
+          - funlen
+          - gochecknoglobals
+          - gochecknoinits
+          - goconst
+          - gocyclo
+          - lll
+          - mnd
+          - nlreturn
+          - scopelint
+        path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
+        path: oidc_azure\.go|internal/azureoidc/azureoidc(_skipAuth)?(_test)?\.go
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc\.go|internal/googleoidc/googleoidc_skipAuth\.go
+        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go
         text: email_verified
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the

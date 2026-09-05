@@ -119,6 +119,21 @@ func (p *Preauth[T]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (p *Preauth[T]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return p.baseSession.EnforceReadOnlyMask(next)
+}
+
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (p *Preauth[T]) EndImpersonation() http.HandlerFunc {
+	return p.baseSession.EndImpersonation()
+}
+
 // API provides programatic access to Preauth handler internals
 func (p *Preauth[T]) API() *PreauthAPI[T] {
 	return newPreauthAPI(p)
@@ -208,11 +223,11 @@ func (p *PreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
 	return *data, nil
 }
 
-// Logout destroys the current session
+// Logout destroys the current session. For an impersonated session the end is
+// announced as an Ended event, as on every other session type.
 func (p *PreauthAPI[T]) Logout(ctx context.Context) error {
-	// Destroy session in database
-	if err := p.preauth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	if err := p.preauth.baseSession.LogoutAPI(ctx); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.LogoutAPI()")
 	}
 
 	return nil

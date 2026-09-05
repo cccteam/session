@@ -3,9 +3,6 @@
 package googleoidc
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,10 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
-	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/go-jose/go-jose/v4"
+	"github.com/cccteam/session/internal/oidctest"
 )
 
 const (
@@ -24,113 +19,10 @@ const (
 	testHostedDomain = "example.com"
 )
 
-// fakeIDP is a minimal OIDC provider: discovery, JWKS, and a token endpoint that
-// returns an ID token built per request by the test case.
-type fakeIDP struct {
-	server *httptest.Server
-	key    *rsa.PrivateKey
-
-	// tokenClaims builds the ID token claims for the next token-endpoint call. The
-	// issuer and audience are filled in by the fake unless already present.
-	tokenClaims func() map[string]any
-	// tokenStatus, when non-zero, makes the token endpoint fail with that status.
-	tokenStatus int
-}
-
-func newFakeIDP(t *testing.T) *fakeIDP {
+func newFakeIDP(t *testing.T) *oidctest.FakeIDP {
 	t.Helper()
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("rsa.GenerateKey() error = %v", err)
-	}
-
-	f := &fakeIDP{key: key}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":                 f.server.URL,
-			"authorization_endpoint": f.server.URL + "/auth",
-			"token_endpoint":         f.server.URL + "/token",
-			"jwks_uri":               f.server.URL + "/jwks",
-		})
-	})
-	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{
-			Keys: []jose.JSONWebKey{{Key: key.Public(), KeyID: "test-key", Algorithm: "RS256", Use: "sig"}},
-		})
-	})
-	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
-		if f.tokenStatus != 0 {
-			http.Error(w, "token endpoint failure", f.tokenStatus)
-
-			return
-		}
-
-		claims := f.tokenClaims()
-		if _, ok := claims["iss"]; !ok {
-			claims["iss"] = f.server.URL
-		}
-		if _, ok := claims["aud"]; !ok {
-			claims["aud"] = testClientID
-		}
-		claims["exp"] = time.Now().Add(time.Hour).Unix()
-		claims["iat"] = time.Now().Unix()
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token": "test-access-token",
-			"token_type":   "Bearer",
-			"expires_in":   3600,
-			"id_token":     f.signToken(claims),
-		})
-	})
-
-	f.server = httptest.NewServer(mux)
-	t.Cleanup(f.server.Close)
-
-	return f
-}
-
-func (f *fakeIDP) signToken(claims map[string]any) string {
-	payload, err := json.Marshal(claims)
-	if err != nil {
-		panic(err)
-	}
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: f.key}, &jose.SignerOptions{
-		ExtraHeaders: map[jose.HeaderKey]any{"kid": "test-key"},
-	})
-	if err != nil {
-		panic(err)
-	}
-	jws, err := signer.Sign(payload)
-	if err != nil {
-		panic(err)
-	}
-	token, err := jws.CompactSerialize()
-	if err != nil {
-		panic(err)
-	}
-
-	return token
-}
-
-func newTestCookieClient(t *testing.T) *internalcookie.Client {
-	t.Helper()
-
-	key := make([]byte, 64)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatalf("rand.Read() error = %v", err)
-	}
-	client, err := internalcookie.NewCookieClient(base64.StdEncoding.EncodeToString(key))
-	if err != nil {
-		t.Fatalf("internalcookie.NewCookieClient() error = %v", err)
-	}
-
-	return client
+	return oidctest.NewFakeIDP(t, testClientID)
 }
 
 // startLogin runs AuthCodeURL and returns the parsed redirect URL plus a callback
@@ -161,7 +53,7 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
 	idp := newFakeIDP(t)
-	o := newWithIssuer(newTestCookieClient(t), idp.server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+	o := newWithIssuer(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 	authURL, _ := startLogin(t, o)
 
@@ -296,10 +188,10 @@ func TestOIDC_Verify(t *testing.T) {
 			ctx := t.Context()
 
 			idp := newFakeIDP(t)
-			idp.tokenClaims = tt.tokenClaims
-			idp.tokenStatus = tt.tokenStatus
+			idp.TokenClaims = tt.tokenClaims
+			idp.TokenStatus = tt.tokenStatus
 
-			o := newWithIssuer(newTestCookieClient(t), idp.server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+			o := newWithIssuer(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 			_, callback := startLogin(t, o)
 			if tt.dropCookie {
