@@ -24,13 +24,19 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 )
 
-// UserRoleManager defines an interface for managing user roles.
+// UserRoleManager defines the role store operations required by OIDC role
+// synchronization (see RoleSync). The domain sweep list is NOT part of this
+// interface — it is configuration of the sync feature, supplied to RoleSync as a
+// DomainsProvider by the application, which owns the tenant table.
+//
+// RoleExists errors must be returned, never flattened to false: the sync is
+// reconcile-with-delete, and a swallowed store error would silently remove a
+// user's valid role membership at login.
 type UserRoleManager interface {
-	Domains(ctx context.Context) ([]accesstypes.Domain, error)
-	UserRoles(ctx context.Context, user accesstypes.User, domains ...accesstypes.Domain) (accesstypes.RoleCollection, error)
-	RoleExists(ctx context.Context, domain accesstypes.Domain, role accesstypes.Role) bool
-	AddUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
-	DeleteUserRoles(ctx context.Context, domain accesstypes.Domain, user accesstypes.User, roles ...accesstypes.Role) error
+	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error)
+	RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
+	AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
+	DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 }
 
 // LogHandler defines the handler signature required for handling logs.
