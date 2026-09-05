@@ -784,8 +784,14 @@ A role principal's session is always the actor's: nobody's identity is borrowed.
 An impersonated OIDC session authenticates no ID token: no OIDC user anchor is upserted,
 no roles are synchronized, and the configured custom session data resolver receives
 `ReasonImpersonation` with no claims. The row carries no identity provider session ID,
-so `FrontChannelLogout` never ends it — it ends by its hard cap, idle expiry, `Logout`,
-`EndImpersonation`, or `DestroyImpersonatedSessions`.
+so an identity provider logout cannot name it directly — but `FrontChannelLogout` expires
+every live session carrying the *username* of the session the provider named. A provider
+logout of `bob@partner.org` therefore also ends every user-principal impersonation of bob
+and any foreign actor's role session borrowing bob's name. The logout itself does not end
+those sessions' records; the next request on one is refused and ends its record
+`Expired`. Otherwise an impersonated OIDC session ends by its hard cap, idle expiry,
+`Logout`, `EndImpersonation`, `DestroyImpersonatedSession`, or
+`DestroyImpersonatedSessions`.
 
 #### Local and foreign actors
 
@@ -916,7 +922,8 @@ Everything an impersonated session touches names the actor and the principal:
   it. The idle session timeout applies independently.
 - **Ending.** Logout, the hard cap, idle expiry, `EndImpersonation`, and
   `DestroyAllUserSessions` all end the record with a reason (`Logout`, `Expired`,
-  `Released`, `Revoked`). `API().DestroyImpersonatedSessions(ctx, actor)`, on every
+  `Released`, `Revoked`); an OIDC `FrontChannelLogout` expires the row, and the record
+  ends `Expired` on the session's next request. `API().DestroyImpersonatedSessions(ctx, actor)`, on every
   session type, is the offboarding and incident tool: it expires every live impersonated
   session an actor established.
 - **Returning to self.** `EndImpersonation` (a handler on every session type, routed
@@ -957,7 +964,9 @@ Everything an impersonated session touches names the actor and the principal:
   `SessionUsers` account (the actor logs in as that account, or impersonates it as a user
   principal), and the two operations never touch a session carrying a live foreign
   role-principal record — an account created later under that name cannot reach the
-  actor's session either. Preauth and OIDC have no username-keyed account to collide with.
+  actor's session either. Preauth and OIDC have no username-keyed account to collide with;
+  OIDC's `FrontChannelLogout` is username-keyed all the same, and makes no exception for a
+  foreign role session (see *Identity by session type*).
   This is the store-level complement of the authorization rule: under a role principal the
   subject is the role, and application policy must not key row conditions on the session
   username.
