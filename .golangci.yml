@@ -159,14 +159,14 @@ linters:
           - mnd
           - nlreturn
           - scopelint
-        path: sessionstorage/internal/drivertest/
+        path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
+        path: oidc_azure\.go|internal/azureoidc/azureoidc(_skipAuth)?(_test)?\.go
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc\.go|internal/googleoidc/googleoidc_skipAuth\.go
+        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go
         text: email_verified
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
