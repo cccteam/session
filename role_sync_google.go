@@ -69,16 +69,25 @@ func (g *googleRoleSyncConfig) roleNames(ctx context.Context, email string) ([]s
 
 	var names []string
 	for _, group := range groups {
-		local, _, found := strings.Cut(strings.ToLower(group), "@")
-		if !found {
-			continue
+		if name, ok := g.roleFromGroup(strings.ToLower(group)); ok {
+			names = append(names, name)
 		}
-		name, ok := strings.CutPrefix(local, g.groupPrefix)
-		if !ok || name == "" {
-			continue
-		}
-		names = append(names, name)
 	}
 
 	return names, nil
+}
+
+// roleFromPrefixedGroup applies the naming convention to one lowercased group email: the
+// local part must start with the configured prefix, and the remainder is the role name.
+func (g *googleRoleSyncConfig) roleFromPrefixedGroup(group string) (string, bool) {
+	local, _, found := strings.Cut(group, "@")
+	if !found {
+		return "", false
+	}
+	name, ok := strings.CutPrefix(local, g.groupPrefix)
+	if !ok || name == "" {
+		return "", false
+	}
+
+	return name, true
 }

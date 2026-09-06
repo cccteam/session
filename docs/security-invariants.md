@@ -34,7 +34,7 @@ Layers, from the outside in:
 | O2 | A token for another client or from another issuer is rejected | `TestOIDC_Verify/…audience…`, `…issuer…` | verifier |
 | O3 | PKCE verifier and state are fresh per login | `TestOIDC_AuthCodeURL` in both packages | verifier |
 | O4 | Google logins outside the hosted domain, or with an unverified email, are refused | `internal/googleoidc` `TestOIDC_Verify/hd…`, `…unverified…` | verifier |
-| O5 | The simulated (`skipAuth`) login fabricates exactly the claims the real one would carry | `*_skipAuth_test.go` in both packages | verifier |
+| O5 | The simulated (`skipAuth`) login fabricates exactly the claims the real one would carry, and the simulated Google groups lookup yields exactly the roles `APP_ROLES` names | `*_skipAuth_test.go` in both packages; `role_sync_google_skipAuth_test.go` | verifier |
 
 ## Impersonation
 

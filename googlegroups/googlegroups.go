@@ -1,17 +1,5 @@
-// Package googlegroups provides Google Groups membership lookups for Google OIDC role
-// synchronization. Google ID tokens carry no roles or groups claim, so group membership
-// — the raw material for role sync — must be fetched from a Google API at login.
-//
-// Directory is the adapter for the Admin SDK Directory API, which is available on every
-// Google Workspace edition and returns the groups a user is a DIRECT member of (nested
-// membership is not expanded — role groups should hold people, not other groups). It
-// authenticates as a service account with domain-wide delegation, impersonating an
-// account that holds a Groups-read admin privilege.
-//
-// A CloudIdentity adapter (Cloud Identity API searchTransitiveGroups: nested expansion,
-// Groups Reader admin role instead of domain-wide delegation) is intentionally left for
-// the future: that API is limited to Workspace Enterprise / Cloud Identity Premium
-// accounts, enforced per queried member.
+//go:build !skipAuth
+
 package googlegroups
 
 import (

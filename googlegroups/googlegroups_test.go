@@ -1,3 +1,5 @@
+//go:build !skipAuth
+
 package googlegroups
 
 import (

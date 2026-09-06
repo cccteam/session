@@ -36,7 +36,11 @@ carved from next. Needs Docker.
 **Verifiers** (`internal/azureoidc`, `internal/googleoidc`). Real login round trips
 against `internal/oidctest.FakeIDP`, which signs real RS256 tokens. Both build tags are
 tested: the production verifier under the default tag and the `skipAuth` simulator under
-its own.
+its own. The Google groups lookup has the same split: `googlegroups` is the Admin SDK
+adapter under the default tag and, under `skipAuth`, the simulated directory that answers
+groups from `APP_ROLES`; `role_sync_google_skipAuth_test.go` proves the role sync reads
+those simulated groups as exactly the roles `APP_ROLES` names, so a directory-run Google
+auth can be signed in to in development.
 
 ## Conventions
 
