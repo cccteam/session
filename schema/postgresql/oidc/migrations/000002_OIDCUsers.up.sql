@@ -9,8 +9,8 @@ CREATE TABLE "OIDCUsers" (
   "Tid"       character varying NOT NULL,
   "Oid"       character varying NOT NULL,
   "Username"  character varying NOT NULL,
-  "CreatedAt" timestamp without time zone NOT NULL,
-  "UpdatedAt" timestamp without time zone NOT NULL,
+  "CreatedAt" timestamp with time zone NOT NULL,
+  "UpdatedAt" timestamp with time zone NOT NULL,
   CONSTRAINT "OIDCUsers_pkey" PRIMARY KEY ("Id")
 );
 

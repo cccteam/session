@@ -94,7 +94,7 @@ func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, inse
 // behaves exactly like applySessionInsert.
 func (s *SessionStorageDriver) applySessionInsertOIDC(ctx context.Context, id ccc.UUID, sessionMutation *spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
 	if !s.oidcUsersEnabled {
-		return s.applySessionInsert(ctx, id, sessionMutation, req)
+		return s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation}, req)
 	}
 
 	if req.CustomData != nil && s.customData == nil {

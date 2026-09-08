@@ -9,8 +9,8 @@ CREATE TABLE "GoogleOIDCUsers" (
   "Sub"       character varying NOT NULL,
   "Hd"        character varying NOT NULL,
   "Username"  character varying NOT NULL,
-  "CreatedAt" timestamp without time zone NOT NULL,
-  "UpdatedAt" timestamp without time zone NOT NULL,
+  "CreatedAt" timestamp with time zone NOT NULL,
+  "UpdatedAt" timestamp with time zone NOT NULL,
   CONSTRAINT "GoogleOIDCUsers_pkey" PRIMARY KEY ("Id")
 );
 

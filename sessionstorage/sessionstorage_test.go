@@ -209,8 +209,8 @@ func Test_sessionStorage_Session(t *testing.T) {
 				t.Errorf("Session() error = %v, wantErr = %v", err, tt.wantErr)
 			}
 
-			if cmp.Diff(si, tt.expectedSI) != "" {
-				t.Errorf("Session() = %v, expectedSI = %v", si, tt.expectedSI)
+			if diff := cmp.Diff(tt.expectedSI, si, principalComparer); diff != "" {
+				t.Errorf("Session() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

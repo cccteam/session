@@ -4,8 +4,8 @@ CREATE TABLE "Sessions"
 (
     "Id" UUID NOT NULL,
     "Username" character varying NOT NULL,
-    "CreatedAt" timestamp without time zone NOT NULL,
-    "UpdatedAt" timestamp without time zone NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "UpdatedAt" timestamp with time zone NOT NULL,
     "Expired" boolean NOT NULL,
     CONSTRAINT "Sessions_pkey" PRIMARY KEY ("Id")
 );
@@ -21,7 +21,7 @@ CREATE TABLE "SessionCustomData"
     "CustomInt" integer,
     "CustomBool" boolean,
     "CustomFloat" double precision,
-    "CustomTimestamp" timestamp without time zone,
+    "CustomTimestamp" timestamp with time zone,
     CONSTRAINT "SessionCustomData_pkey" PRIMARY KEY ("SessionId"),
     CONSTRAINT "SessionCustomData_SessionId_fkey" FOREIGN KEY ("SessionId") REFERENCES "Sessions"("Id") ON DELETE CASCADE
 );

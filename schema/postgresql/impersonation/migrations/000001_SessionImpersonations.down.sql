@@ -1,0 +1,9 @@
+BEGIN;
+
+DROP INDEX "SessionImpersonations_PrincipalUser_idx";
+
+DROP INDEX "SessionImpersonations_ActorUsername_idx";
+
+DROP TABLE "SessionImpersonations";
+
+COMMIT;

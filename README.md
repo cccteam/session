@@ -25,6 +25,30 @@ All session types are generic over two data axes: `PasswordAuth[SessionData, Use
 application that uses neither instantiates with the `NoCustomData` sentinel:
 `session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
 
+## Schema
+
+The DDL for every table the library owns ships as golang-migrate files under
+`schema/spanner/` and `schema/postgresql/`: `migrations` (sessions and password-auth
+users), `oidc` (Azure OIDC), `oidc-google` (Google Workspace OIDC), and `impersonation`.
+
+**PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
+values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
+Earlier revisions of the DDL declared `timestamp without time zone`, which keeps the wall
+clock and drops the zone: a deployment on that type stays correct as long as every process
+writing to it runs in UTC, and such a deployment does not need to migrate. To migrate
+anyway, convert the columns and restart the application in the same window — pgx caches
+the parameter types of its prepared statements, so a live pool keeps writing wall-clock
+values (and fails one cached read per connection) until its connections are recycled:
+
+```sql
+-- Repeat for every time column created from the DDL (OIDCUsers/GoogleOIDCUsers
+-- CreatedAt and UpdatedAt, the impersonation table's StartedAt/ExpiresAt/EndedAt).
+-- 'UTC' names the zone the writing processes ran in.
+ALTER TABLE "Sessions"
+    ALTER COLUMN "CreatedAt" TYPE timestamptz USING "CreatedAt" AT TIME ZONE 'UTC',
+    ALTER COLUMN "UpdatedAt" TYPE timestamptz USING "UpdatedAt" AT TIME ZONE 'UTC';
+```
+
 ## OIDC role synchronization
 
 Role synchronization reconciles a user's application roles to the identity provider's
@@ -645,5 +669,336 @@ session creation, and a `nil` hook is valid (write-API-only user data).
 | Per-call data on `CreateSessionUser` with no config attached, or more than one value | Error before any insert |
 | `UpdateCustomUserData` for a user ID that doesn't exist | Not-found error; nothing written |
 | User has no custom row | Not a failure: reads and RMW yield a zero-value `U` |
+
+## Impersonated sessions
+
+An impersonated session operates as a principal other than the person who
+authenticated: as another **user** (support staff seeing the application exactly as
+that user does, usually read-only) or as a **role** (an administrator working under a
+role chosen for the session). Every session type supports both — password auth,
+Preauth, OIDC Azure and OIDC Google — through the same `ImpersonationRequest` on each
+`API()`.
+
+The model rests on two identities that are never conflated:
+
+- **Actor** — who authenticated. Constant for the session's life; the identity audit
+  and attribution always name.
+- **Principal** — what permission checks evaluate against
+  (`accesstypes.UserPrincipal` or `accesstypes.RolePrincipal`).
+
+**A session is a session.** Once established, an impersonated session flows through
+`ValidateSession`, `sessioninfo`, custom session data and every handler exactly as an
+ordinary session does. The session's `Username` is its *effective identity*: the
+impersonated user for a user principal (so every consumer sees precisely what that user
+would see), or the actor for a role principal (nobody's identity is borrowed). The
+**impersonation record** — not the username — is what marks the session as
+impersonated, and only the way the session is *established* is new.
+
+### Enabling
+
+Create the record table from the shipped DDL
+(`schema/{spanner,postgresql}/impersonation/migrations`) and attach it to the storage.
+The table deliberately has **no foreign key to the session table**: the record is
+evidence and outlives the session; retention is the application's policy.
+
+```go
+imp, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
+
+auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
+    sessionstorage.NewSpannerPasswordAuth(client,
+        sessionstorage.WithSpannerCustomSessionData(sessCfg),
+        sessionstorage.WithImpersonation(imp)),
+    cookieKey,
+    session.WithImpersonationTimeout(time.Hour),        // hard cap; default one hour
+    session.WithImpersonationAudit(func(ctx context.Context, e sessioninfo.ImpersonationEvent) error {
+        return auditTrail.Record(ctx, e)                 // Started, Ended, IdentityOperationBlocked
+    }),
+)
+```
+
+The same `WithImpersonation` option and `WithImpersonationTimeout` /
+`WithImpersonationAudit` session options apply to `NewPreauth`, `NewOIDCAzure` and
+`NewOIDCGoogle`. Without `WithImpersonation` nothing changes: no session is ever
+impersonated and the impersonation APIs return a configuration error.
+
+### Establishing a session
+
+The establishing call runs in the *target* application's session API, typically from a
+server-to-server handoff (an admin application minting a session in a partner portal):
+
+```go
+// Support views bob's portal, read-only, for an hour at most.
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:      "alice@example.com",
+    ActorRealm: "admin-portal",
+    Principal:  accesstypes.UserPrincipal("bob@partner.org"),
+    Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
+    Reason:     "ticket JRN-123",
+})
+
+// An administrator of the admin application works the partner portal under a role.
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:      "alice@example.com",
+    ActorRealm: "admin-portal",
+    Principal:  accesstypes.RolePrincipal("PartnerViewer"),
+}, &MyData{PartnerID: partnerID}) // custom session data rides along as usual
+
+// A user of this application acts under a narrower role for a while — their own
+// session, narrowed. The actor is local: no realm, and their own session as the source.
+// The call arrives on their validated session, so SourceSessionID may be omitted: it
+// defaults to that session, and Actor must be that session's user.
+info := sessioninfo.FromCtx(ctx)
+id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
+    Actor:     info.Username,
+    Principal: accesstypes.RolePrincipal("Auditor"),
+})
+```
+
+The session row and the record are written in one transaction; the cookie is set only
+after the `Started` event has been delivered (a failing audit hook destroys the session
+and fails the call). Refused everywhere: a missing actor or principal, a caller that is
+itself an impersonated session (no chaining), and a local actor whose `SourceSessionID`
+is missing or is not their own live session here.
+
+When the call arrives on a validated session of this application (the context has passed
+`ValidateSession`), the request is bound to that session: `Actor` must be its user,
+`SourceSessionID` must be it (and defaults to it when omitted), and `ActorRealm` must be
+empty — an actor logged in here is local. The binding keeps a caller from minting a
+session as another user by naming them and one of their session IDs, which appear in
+logs, spans and `ActiveImpersonations`. A call with no session in its context (a
+server-to-server handoff) is taken at its word, so its handler must authenticate the
+caller. *Who may impersonate whom* is the application's guard — the library records what
+happened.
+
+#### Identity by session type
+
+A role principal's session is always the actor's: nobody's identity is borrowed. What a
+**user** principal resolves to depends on what the session type knows about users:
+
+| Session type | User principal becomes | User ID | Refused |
+| --- | --- | --- | --- |
+| Password auth | The `SessionUsers` record's username | The record's ID | A missing or disabled user |
+| Preauth | The name as given | Zero | — (trust-the-caller, as `Login` is) |
+| OIDC Azure / Google | The name as given (what a login would take from the token) | Zero | — |
+
+An impersonated OIDC session authenticates no ID token: no OIDC user anchor is upserted,
+no roles are synchronized, and the configured custom session data resolver receives
+`ReasonImpersonation` with no claims. The row carries no identity provider session ID,
+so an identity provider logout cannot name it directly — but `FrontChannelLogout` expires
+every live session carrying the *username* of the session the provider named. A provider
+logout of `bob@partner.org` therefore also ends every user-principal impersonation of bob
+and any foreign actor's role session borrowing bob's name. The logout itself does not end
+those sessions' records; the next request on one is refused and ends its record
+`Expired`. Otherwise an impersonated OIDC session ends by its hard cap, idle expiry,
+`Logout`, `EndImpersonation`, `DestroyImpersonatedSession`, or
+`DestroyImpersonatedSessions`.
+
+#### Local and foreign actors
+
+`ActorRealm` says where the actor was authenticated, and it decides what the actor's name
+means in this application's session table:
+
+| | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
+| --- | --- | --- |
+| Who | An account of this application, logged in here | Authenticated by another application or IdP |
+| `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
+| A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
+| Kept alive | The source session's activity is refreshed with the impersonated session's, so `EndImpersonation` can return to it | — |
+| Deactivating or renaming the account named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one account*) | Never touches the role session |
+
+Minting an impersonated session in the same application the actor is logged into
+replaces the browser's session cookie — which is why the source session is verified,
+kept alive, and returned to.
+
+### What the session carries
+
+Every validated request exposes the record without branching on whether the session is
+impersonated:
+
+```go
+principal := sessioninfo.PrincipalFromCtx(ctx) // UserPrincipal(username) for an ordinary session
+actor     := sessioninfo.ActorFromCtx(ctx)     // == Username unless impersonated
+mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonated
+imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
+```
+
+A permission check honors the mask by asking it before asking policy —
+`sessioninfo.MaskFromCtx(ctx).Allows(perm)` — and picks the check by the principal's
+kind (`Role()` → `CheckRoleResources`, otherwise `CheckUserResources`). Forgetting the
+mask fails *open*, so prefer a shared implementation over hand-rolling it per
+application.
+
+### Choosing the principal
+
+By default a session's principal is its user, or the impersonation record's principal,
+and for almost every application that is the end of the story: put role membership in
+the permission store, check with `ForUser`, and a role change is enforced on the user's
+next request. `WithPrincipalResolver` exists for the narrow case where a session's
+subject genuinely is not a user. The resolver runs inside session validation, with the
+session, its custom data and its impersonation record in the context, and returns the
+principal `PrincipalFromCtx` reports for the request.
+
+**The resolver chooses *which subject*, never *which grants*.** Grants always come from
+the permission store at check time. The moment a resolver reads role membership from
+somewhere that was copied at login, the application has built a cache of its
+authorization model with a lifetime of one session, and no amount of live grant checking
+repairs that.
+
+#### Intended uses
+
+- **Machine and API-key sessions.** The caller is a service, not a person; the subject is
+  the service's role, decided from the credential the session was established with.
+- **Membership that lives outside the permission store and is read live.** The resolver
+  asks the external system on each request (or through a cache with a deliberate,
+  short TTL that the application owns and documents). Staleness is bounded by that TTL,
+  not by the session.
+
+```go
+// A service session acts as the role bound to its API key. The key-to-role binding is
+// read on every request, so revoking or re-binding the key takes effect immediately.
+auth, err := session.NewPreauth[APIKeySession](storage, cookieKey,
+    session.WithPrincipalResolver(func(ctx context.Context) (accesstypes.Principal, error) {
+        data, err := sessioninfo.CustomDataFromCtx[*APIKeySession](ctx)
+        if err != nil {
+            return accesstypes.Principal{}, err
+        }
+        role, err := keys.RoleForKey(ctx, data.KeyID) // live lookup, not a stored copy
+        if err != nil {
+            return accesstypes.Principal{}, err
+        }
+
+        return accesstypes.RolePrincipal(role), nil
+    }),
+)
+```
+
+#### Not for this
+
+- **A role snapshotted into custom session data at login.** `RolePrincipal(data.RoleID)`
+  where `RoleID` was resolved when the session was created is the anti-pattern this
+  section exists to name. The user keeps the old role until they log in again; an
+  administrator's change is silently ignored for the life of every open session. The fix
+  is not a resolver — it is moving membership into the permission store
+  (`AddUserRoles` / `DeleteUserRoles`) and letting the default user principal do its job.
+- **"The user picked a role for this session."** That is a deliberate, time-capped act
+  by an actor, which is what the impersonation record is for: establish a role-principal
+  impersonation with the user as actor and you get evidence, a hard cap, listing and
+  revocation. A resolver gives you none of those.
+- **Avoiding a permission-store write.** If the only reason to reach for the resolver is
+  that membership is stored somewhere else and nobody wants to move it, move it.
+
+#### Mechanics
+
+- The choice is made per request at validation and never stored; nothing changes in the
+  schema and no impersonation record is written.
+- The resolver runs for ordinary sessions and for user-principal impersonations — an
+  impersonated user's session acts as that user's session would. A role-principal
+  impersonation already names its subject and skips the resolver.
+- Returning the zero `Principal` keeps the default. An error fails the request as a
+  server error, not an unauthorized one: the session is valid; the application could not
+  decide what it acts as.
+- When the resolver changes the principal, the request's log entry and trace span carry
+  `principal.kind` and `principal` (`sessioninfo.AttrPrincipalKind`,
+  `sessioninfo.AttrPrincipal`); unchanged requests carry nothing extra.
+
+### Evidence
+
+Everything an impersonated session touches names the actor and the principal:
+
+| Evidence | Where |
+| --- | --- |
+| The record (actor, realm, source session, principal, mask, reason, started/expires/ended, end reason) | The impersonation table, durable |
+| `impersonation.actor`, `.actor_realm`, `.principal_kind`, `.principal`, `.mask`, `.session_id`, `.source_session_id` | The request-level log entry and every line logged within the request (constants in `sessioninfo`) |
+| `principal.kind`, `principal` — when a `WithPrincipalResolver` changed the request's subject | The request-level log entry and every line logged within the request |
+| `Started` / `Ended` / `IdentityOperationBlocked` / `WriteBlocked` events | Structured log lines, span events (`impersonation.Started`, …) on the current trace span, plus the `WithImpersonationAudit` hook |
+| `enduser.id` (the session's username), the same `impersonation.*` attributes, and `principal.*` when a resolver changed the subject | The request's server span from the `ValidateSession` middleware (the caller's current span from `ValidateSessionAPI`), impersonation attributes set before any refusal so a refused request's trace still names the actor; the establishing call's own span on the source side |
+| The establishing call's own log entry | The source application's request log |
+| `impersonation` object in the `Authenticated()` response | For the frontend to banner the session and render read-only affordances |
+
+### Lifecycle and guards
+
+- **Hard cap.** `ExpiresAt` is fixed at establishment (`WithImpersonationTimeout`,
+  default one hour, shortened per call by `MaxDuration`); idle renewal never extends past
+  it. The idle session timeout applies independently.
+- **Ending.** Logout, the hard cap, idle expiry, `EndImpersonation`, and
+  `DestroyAllUserSessions` all end the record with a reason (`Logout`, `Expired`,
+  `Released`, `Revoked`); an OIDC `FrontChannelLogout` expires the row, and the record
+  ends `Expired` on the session's next request. `API().DestroyImpersonatedSessions(ctx, actor)`, on every
+  session type, is the offboarding and incident tool: it expires every live impersonated
+  session an actor established.
+- **Returning to self.** `EndImpersonation` (a handler on every session type, routed
+  inside the validated group; `API().EndImpersonation(ctx, w)` beside it) ends the
+  impersonated session `Released` and, for a local actor whose own session is still live,
+  not itself impersonated, and still theirs, gives the response that session's cookies:
+  the actor is back in their own session without logging in. The body says whether that
+  happened (`{"restored": true}`); when it did not, send the actor to login. The hard cap
+  is a hard boundary — a session past it is refused at validation before any handler runs,
+  so a frontend offers *return to self* before `expiresAt` from the `Authenticated()`
+  response, or warns and calls it as the cap nears.
+
+  ```go
+  r.Group(func(r chi.Router) {
+      r.Use(auth.ValidateSession, auth.ValidateXSRFToken)
+      r.Post("/impersonation/end", auth.EndImpersonation())
+  })
+  ```
+- **Validation (password auth).** A user principal's record is looked up like any
+  session's — a disabled impersonated user ends the session. A foreign actor's role
+  principal has no local user: no record is looked up and `UserFromCtx` carries the
+  actor's username with the zero ID, so self-referential checks (cannot delete yourself)
+  go inert, correctly. A local actor's role principal is their own session, so their
+  record is looked up as usual — a disabled actor's role session ends with their others.
+  Preauth and OIDC validate an impersonated session exactly as any other.
+- **Identity operations.** The library's own handlers refuse under impersonation:
+  `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
+  user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
+  when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+- **One name, one account.** A role principal's session carries the actor's own username,
+  in the same session table as the application's real accounts. For a *local* actor that
+  name is their account, and the two username-keyed store operations treat everything
+  under it as theirs: `DestroyAllUserSessions` expires their own sessions, their role
+  sessions, and every impersonation they hold as a local actor under other names, ending
+  the records `Revoked`; the session rename on `ChangeUsername` renames their role sessions
+  and moves their live records to the new name. For a *foreign* actor the name is
+  borrowed, so password auth refuses a role principal when that name is already a
+  `SessionUsers` account (the actor logs in as that account, or impersonates it as a user
+  principal), and the two operations never touch a session carrying a live foreign
+  role-principal record — an account created later under that name cannot reach the
+  actor's session either. Preauth and OIDC have no username-keyed account to collide with;
+  OIDC's `FrontChannelLogout` is username-keyed all the same, and makes no exception for a
+  foreign role session (see *Identity by session type*).
+  This is the store-level complement of the authorization rule: under a role principal the
+  subject is the role, and application policy must not key row conditions on the session
+  username.
+- **Listing.** `API().ActiveImpersonations(ctx, q)`, on every session type, lists the
+  impersonated sessions that are live right now, newest first — the admin surface's view
+  of who is acting as whom. *Active* means: the record has not ended, the hard cap has
+  not passed, the session row is not expired, and the session has seen activity within
+  the idle session timeout. `q` (`*session.ImpersonationQuery`) narrows by `Actor`
+  and/or `Principal`; `nil` lists everything.
+
+  `API().DestroyImpersonatedSession(ctx, sessionID)` is the action on a row: it expires
+  that session and ends its record `Revoked` in one transaction, so the next request on it
+  is refused. Who may list or revoke is the application's guard.
+
+  ```go
+  imps, err := auth.API().ActiveImpersonations(ctx, &session.ImpersonationQuery{Actor: "alice@example.com"})
+  err = auth.API().DestroyImpersonatedSession(ctx, imps[0].SessionID)
+  ```
+- **Read-only middleware.** `EnforceReadOnlyMask` (on every session type, after
+  `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
+  TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
+  beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
+  method and path. It is an opt-in backstop that keeps a read-only session away from
+  every mutating handler whether or not that handler consults the mask; it does not
+  replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and
+  a mask including `Execute` is not read-only).
+
+  ```go
+  r.Group(func(r chi.Router) {
+      r.Use(auth.ValidateSession, auth.ValidateXSRFToken, auth.EnforceReadOnlyMask)
+      // ...
+  })
+  ```
 
 ##### Created and maintained by the CCC team.

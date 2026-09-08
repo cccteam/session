@@ -11,12 +11,13 @@ import (
 	"aidanwoods.dev/go-paseto"
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/cookie"
+	"github.com/cccteam/session/internal/testkey"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
+const cookieKey = testkey.CookieKey
 
 // mockRequestWithXSRFToken Mocks Request with XSRF Token
 func mockRequestWithXSRFToken(t *testing.T, setHeader bool, cookieSessionID, requestSessionID ccc.UUID) *http.Request {

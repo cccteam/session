@@ -131,6 +131,21 @@ func (p *PasswordAuth[T, U]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return p.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (p *PasswordAuth[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return p.baseSession.EnforceReadOnlyMask(next)
+}
+
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (p *PasswordAuth[T, U]) EndImpersonation() http.HandlerFunc {
+	return p.baseSession.EndImpersonation()
+}
+
 // StartSession initializes a session by restoring it from a cookie, or if that fails, initializing
 // a new session. The session cookie is then updated and the sessionID is inserted into the context.
 func (p *PasswordAuth[T, U]) StartSession(next http.Handler) http.Handler {
@@ -221,21 +236,13 @@ func (p *PasswordAuth[T, U]) ValidateSession(next http.Handler) http.Handler {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
+		userInfo, err := p.sessionUserInfo(ctx, sessInfo)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		if user.Disabled {
-			return httpio.NewEncoder(w).UnauthorizedMessage(ctx, "Session Expired")
-		}
-
 		// Store user info in context
-		ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, &sessioninfo.UserInfo{
-			ID:       user.ID,
-			Username: user.Username,
-			Disabled: user.Disabled,
-		})
+		ctx = context.WithValue(ctx, sessioninfo.CtxUserInfo, userInfo)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 
@@ -246,8 +253,9 @@ func (p *PasswordAuth[T, U]) ValidateSession(next http.Handler) http.Handler {
 // Authenticated is the handler that reports if the session is authenticated
 func (p *PasswordAuth[T, U]) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool   `json:"authenticated"`
-		Username      string `json:"username"`
+		Authenticated bool                               `json:"authenticated"`
+		Username      string                             `json:"username"`
+		Impersonation *basesession.ImpersonationResponse `json:"impersonation,omitempty"`
 	}
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -265,19 +273,17 @@ func (p *PasswordAuth[T, U]) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		user, err := p.storage.UserByUserName(ctx, sessInfo.Username)
-		if err != nil {
+		if _, err := p.sessionUserInfo(ctx, sessInfo); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		if user.Disabled {
-			return httpio.NewEncoder(w).UnauthorizedMessage(ctx, "Session Expired")
-		}
+		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 
 		// set response values
 		res := response{
 			Authenticated: true,
 			Username:      sessInfo.Username,
+			Impersonation: basesession.NewImpersonationResponse(imp),
 		}
 
 		return httpio.NewEncoder(w).Ok(res)
@@ -295,6 +301,10 @@ func (p *PasswordAuth[T, U]) ChangeUsername() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
+
+		if err := p.refuseImpersonated(ctx, "ChangeUsername", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		req, err := decoder.Decode(r)
 		if err != nil {
@@ -325,6 +335,10 @@ func (p *PasswordAuth[T, U]) ChangeUserPassword() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
+
+		if err := p.refuseImpersonated(ctx, "ChangeUserPassword", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		req, err := decoder.Decode(r)
 		if err != nil {
@@ -359,6 +373,10 @@ func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		if err := p.refuseImpersonated(ctx, "CreateUser", false); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		req, err := decoder.Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -380,6 +398,10 @@ func (p *PasswordAuth[T, U]) DeactivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
+
+		if err := p.refuseImpersonated(ctx, "DeactivateUser", false); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
 
@@ -403,6 +425,10 @@ func (p *PasswordAuth[T, U]) DeleteUser() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		if err := p.refuseImpersonated(ctx, "DeleteUser", false); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		sessionUserID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
 
 		if sessionUserID == sessioninfo.UserFromCtx(ctx).ID {
@@ -422,6 +448,10 @@ func (p *PasswordAuth[T, U]) ActivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
+
+		if err := p.refuseImpersonated(ctx, "ActivateUser", false); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		sessionUserUUID := httpio.Param[ccc.UUID](r, RouterSessionUserID)
 		if err := p.activateSessionUser(ctx, sessionUserUUID); err != nil {
@@ -728,9 +758,8 @@ func (p *PasswordAuthAPI[T, U]) StartAuthenticatedSession(ctx context.Context, w
 
 // Logout destroys the current session
 func (p *PasswordAuthAPI[T, U]) Logout(ctx context.Context) error {
-	// Destroy session in database
-	if err := p.passwordAuth.baseSession.Storage.DestroySession(ctx, sessioninfo.IDFromCtx(ctx)); err != nil {
-		return errors.Wrap(err, "sessionstorage.BaseStore.DestroySession()")
+	if err := p.passwordAuth.baseSession.LogoutAPI(ctx); err != nil {
+		return errors.Wrap(err, "basesession.BaseSession.LogoutAPI()")
 	}
 
 	return nil

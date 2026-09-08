@@ -17,6 +17,7 @@ import (
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/testkey"
 	"github.com/cccteam/session/mock/mock_azureoidc"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/mock/mock_session"
@@ -27,7 +28,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
+const cookieKey = testkey.CookieKey
 
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
