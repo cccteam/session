@@ -4,7 +4,9 @@ package googlegroups
 
 import (
 	"context"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/go-playground/errors/v5"
 	"golang.org/x/oauth2/google"
@@ -13,9 +15,13 @@ import (
 )
 
 // Directory looks up a user's direct Google Groups memberships through the Admin SDK
-// Directory API.
+// Directory API. The service behind it is built on first use, not at construction.
 type Directory struct {
-	service *admin.Service
+	opts []option.ClientOption
+
+	buildOnce sync.Once
+	service   *admin.Service
+	buildErr  error
 }
 
 // NewDirectory creates a Directory groups adapter.
@@ -27,6 +33,13 @@ type Directory struct {
 //
 // credentialsJSON may be nil when opts carry the authentication instead (e.g. a token
 // source, or an unauthenticated test endpoint); subject is then unused and may be empty.
+//
+// Construction is lazy. The inputs are validated here, but the Admin SDK service — and
+// with it any credential resolution, including the fallback to Application Default
+// Credentials when neither credentialsJSON nor opts authenticate — is built on the first
+// UserGroups call. An application can therefore construct the adapter at startup in an
+// environment without Google credentials; a credential problem surfaces from the first
+// UserGroups, and from every later one.
 func NewDirectory(ctx context.Context, credentialsJSON []byte, subject string, opts ...option.ClientOption) (*Directory, error) {
 	if credentialsJSON != nil {
 		if subject == "" {
@@ -42,19 +55,26 @@ func NewDirectory(ctx context.Context, credentialsJSON []byte, subject string, o
 		opts = append([]option.ClientOption{option.WithTokenSource(config.TokenSource(ctx))}, opts...)
 	}
 
-	service, err := admin.NewService(ctx, opts...)
-	if err != nil {
-		return nil, errors.Wrap(err, "admin.NewService()")
-	}
-
-	return &Directory{service: service}, nil
+	// The options outlive this call now, so the caller's slice is not the one kept.
+	return &Directory{opts: slices.Clone(opts)}, nil
 }
 
 // UserGroups returns the email addresses of the groups the user is a direct member of,
 // lowercased.
+//
+// The first call builds the Admin SDK service (see NewDirectory). When that fails —
+// typically because no credentials could be resolved — the construction error is
+// returned by this call and, unchanged, by every later one: the Directory does not
+// retry, so a misconfigured adapter fails the same way on each login rather than
+// re-resolving credentials every time.
 func (d *Directory) UserGroups(ctx context.Context, email string) ([]string, error) {
+	service, err := d.adminService(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var groups []string
-	err := d.service.Groups.List().UserKey(email).Pages(ctx, func(page *admin.Groups) error {
+	err = service.Groups.List().UserKey(email).Pages(ctx, func(page *admin.Groups) error {
 		for _, g := range page.Groups {
 			groups = append(groups, strings.ToLower(g.Email))
 		}
@@ -66,4 +86,22 @@ func (d *Directory) UserGroups(ctx context.Context, email string) ([]string, err
 	}
 
 	return groups, nil
+}
+
+// adminService builds the Admin SDK service once and remembers the outcome, error
+// included. The service is long-lived, so it is built under the first caller's context
+// stripped of its cancellation: the request that happens to come first must not take
+// the client down with it.
+func (d *Directory) adminService(ctx context.Context) (*admin.Service, error) {
+	d.buildOnce.Do(func() {
+		service, err := admin.NewService(context.WithoutCancel(ctx), d.opts...)
+		if err != nil {
+			d.buildErr = errors.Wrap(err, "admin.NewService()")
+
+			return
+		}
+		d.service = service
+	})
+
+	return d.service, d.buildErr
 }

@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
+	"golang.org/x/oauth2"
 	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/option"
 )
@@ -114,6 +117,87 @@ func TestDirectory_UserGroups(t *testing.T) {
 				if groups[i] != tt.wantGroups[i] {
 					t.Errorf("Directory.UserGroups()[%d] = %q, want %q", i, groups[i], tt.wantGroups[i])
 				}
+			}
+		})
+	}
+}
+
+func TestNewDirectory_BuildsTheServiceOnFirstUse(t *testing.T) {
+	t.Parallel()
+
+	// One endpoint for every case that reaches the Admin SDK; whether a case does is the
+	// case's own business.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&admin.Groups{Groups: []*admin.Group{{Email: "App-MyApp-Admin@Example.COM"}}})
+	}))
+	t.Cleanup(server.Close)
+
+	tests := []struct {
+		name       string
+		opts       []option.ClientOption
+		callGroups bool
+		wantGroups []string
+		wantErr    bool
+	}{
+		{
+			// Nothing here authenticates, so the Admin SDK would fall back to Application
+			// Default Credentials; construction must not go looking for them. UserGroups is
+			// not called: its outcome would depend on the machine.
+			name: "no credentials and no options construct without ADC",
+		},
+		{
+			name:       "the service is built on the first UserGroups and answers lowercased groups",
+			opts:       []option.ClientOption{option.WithoutAuthentication(), option.WithEndpoint(server.URL)},
+			callGroups: true,
+			wantGroups: []string{"app-myapp-admin@example.com"},
+		},
+		{
+			// Contradictory credential options are refused by the Admin SDK's own settings
+			// validation inside admin.NewService, before any network or filesystem access,
+			// so the failure is the same on every machine.
+			name: "a credentials problem is deferred to UserGroups and returned again by the next call",
+			opts: []option.ClientOption{
+				option.WithoutAuthentication(),
+				option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})),
+			},
+			callGroups: true,
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			d, err := NewDirectory(ctx, nil, "", tt.opts...)
+			if err != nil {
+				t.Fatalf("NewDirectory() error = %v, want nil: construction must not touch the Admin SDK", err)
+			}
+			if !tt.callGroups {
+				return
+			}
+
+			first, firstErr := d.UserGroups(ctx, "user@example.com")
+			if (firstErr != nil) != tt.wantErr {
+				t.Fatalf("Directory.UserGroups() error = %v, wantErr %v", firstErr, tt.wantErr)
+			}
+			second, secondErr := d.UserGroups(ctx, "user@example.com")
+			if tt.wantErr {
+				if !errors.Is(secondErr, firstErr) {
+					t.Errorf("second Directory.UserGroups() error = %v, want the remembered construction error %v", secondErr, firstErr)
+				}
+
+				return
+			}
+			if secondErr != nil {
+				t.Fatalf("second Directory.UserGroups() error = %v", secondErr)
+			}
+			if diff := cmp.Diff(tt.wantGroups, first); diff != "" {
+				t.Errorf("Directory.UserGroups() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(first, second); diff != "" {
+				t.Errorf("second Directory.UserGroups() differs from the first (-first +second):\n%s", diff)
 			}
 		})
 	}

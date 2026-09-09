@@ -934,7 +934,8 @@ Everything an impersonated session touches names the actor and the principal:
   happened (`{"restored": true}`); when it did not, send the actor to login. The hard cap
   is a hard boundary — a session past it is refused at validation before any handler runs,
   so a frontend offers *return to self* before `expiresAt` from the `Authenticated()`
-  response, or warns and calls it as the cap nears.
+  response, or warns and calls it as the cap nears. The route is a POST, so it sits
+  outside any group carrying `EnforceReadOnlyMask` (see *Read-only middleware*).
 
   ```go
   r.Group(func(r chi.Router) {
@@ -992,9 +993,20 @@ Everything an impersonated session touches names the actor and the principal:
   method and path. It is an opt-in backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and
-  a mask including `Execute` is not read-only).
+  a mask including `Execute` is not read-only). Ending a session is never a safe method
+  either — `EndImpersonation` is a POST, `Logout` a POST or DELETE — so the
+  `EndImpersonation` route (and `Logout`) must be mounted outside the group that carries
+  the backstop, in a validated group of their own, or a read-only view-as session could
+  never end itself.
 
   ```go
+  // Ending a session is never a safe method: these stay out from under the backstop.
+  r.Group(func(r chi.Router) {
+      r.Use(auth.ValidateSession, auth.ValidateXSRFToken)
+      r.Post("/impersonation/end", auth.EndImpersonation())
+      r.Delete("/session", auth.Logout())
+  })
+  // Everything else a read-only session may reach is under it.
   r.Group(func(r chi.Router) {
       r.Use(auth.ValidateSession, auth.ValidateXSRFToken, auth.EnforceReadOnlyMask)
       // ...
