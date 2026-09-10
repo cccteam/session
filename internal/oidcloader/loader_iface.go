@@ -1,4 +1,4 @@
-package loader
+package oidcloader
 
 import (
 	"context"

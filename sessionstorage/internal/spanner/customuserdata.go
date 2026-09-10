@@ -228,6 +228,155 @@ func (s *SessionStorageDriver) OIDCUserByKey(ctx context.Context, tid, oid strin
 	return user, nil
 }
 
+// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
+func (s *SessionStorageDriver) GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.GoogleOIDCUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+		SELECT
+			Id,
+			Sub,
+			Hd,
+			Username,
+			CreatedAt,
+			UpdatedAt
+		FROM %s
+		WHERE Id = @id
+	`, s.oidcUserTableName))
+	stmt.Params["id"] = id
+
+	user := &dbtype.GoogleOIDCUser{}
+	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
+		if errors.Is(err, spxapi.ErrNotFound) {
+			return nil, httpio.NewNotFoundMessagef("Google OIDC user id %q does not exist", id)
+		}
+
+		return nil, errors.Wrap(err, "spxscan.Get()")
+	}
+
+	return user, nil
+}
+
+// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
+func (s *SessionStorageDriver) GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.GoogleOIDCUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+		SELECT
+			Id,
+			Sub,
+			Hd,
+			Username,
+			CreatedAt,
+			UpdatedAt
+		FROM %s
+		WHERE Sub = @sub
+	`, s.oidcUserTableName))
+	stmt.Params["sub"] = sub
+
+	user := &dbtype.GoogleOIDCUser{}
+	if err := spxscan.Get(ctx, s.spanner.Single(), user, stmt); err != nil {
+		if errors.Is(err, spxapi.ErrNotFound) {
+			return nil, httpio.NewNotFoundMessagef("Google OIDC user (sub %q) does not exist", sub)
+		}
+
+		return nil, errors.Wrap(err, "spxscan.Get()")
+	}
+
+	return user, nil
+}
+
+// upsertAnchor resolves the OIDC user anchor row for the driver's provider inside txn
+// and populates req.UserID with the anchor record's ID.
+func (s *SessionStorageDriver) upsertAnchor(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) error {
+	if s.googleOIDC {
+		return s.upsertGoogleOIDCUser(ctx, txn, req)
+	}
+
+	return s.upsertOIDCUser(ctx, txn, req)
+}
+
+// upsertGoogleOIDCUser resolves the GoogleOIDCUsers anchor row for the request's Sub
+// inside txn — provisioning it on first login, updating the mutable Username and Hd
+// attributes in place on change, touching UpdatedAt otherwise — and populates req.UserID
+// with the anchor record's ID.
+func (s *SessionStorageDriver) upsertGoogleOIDCUser(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) error {
+	if req.Sub == "" || req.Hd == "" {
+		return errors.New("the OIDC user anchor is enabled but the verified claims are missing the sub or hd claim")
+	}
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id FROM %s WHERE Sub = @sub`, s.oidcUserTableName))
+	stmt.Params["sub"] = req.Sub
+
+	iter := txn.Query(ctx, stmt)
+	defer iter.Stop()
+
+	now := time.Now()
+
+	row, err := iter.Next()
+	if err != nil {
+		if !errors.Is(err, iterator.Done) {
+			return errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		// First login for this Sub: provision the anchor row.
+		id, err := ccc.NewUUID()
+		if err != nil {
+			return errors.Wrap(err, "ccc.NewUUID()")
+		}
+
+		user := &dbtype.GoogleOIDCUser{
+			ID:        id,
+			Sub:       req.Sub,
+			Hd:        req.Hd,
+			Username:  req.Username,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		m, err := spanner.InsertStruct(s.oidcUserTableName, user)
+		if err != nil {
+			return errors.Wrap(err, "spanner.InsertStruct()")
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "txn.BufferWrite()")
+		}
+		req.UserID = id
+
+		return nil
+	}
+
+	var id ccc.UUID
+	if err := row.Column(0, &id); err != nil {
+		return errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	// Username and Hd are mutable attributes: write the token's current values in place
+	// so an IdP rename never orphans the record.
+	update := struct {
+		ID        ccc.UUID  `spanner:"Id"`
+		Hd        string    `spanner:"Hd"`
+		Username  string    `spanner:"Username"`
+		UpdatedAt time.Time `spanner:"UpdatedAt"`
+	}{
+		ID:        id,
+		Hd:        req.Hd,
+		Username:  req.Username,
+		UpdatedAt: now,
+	}
+	m, err := spanner.UpdateStruct(s.oidcUserTableName, update)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+	if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+		return errors.Wrap(err, "txn.BufferWrite()")
+	}
+	req.UserID = id
+
+	return nil
+}
+
 // upsertOIDCUser resolves the OIDCUsers anchor row for the request's (Tid, Oid) inside
 // txn — provisioning it on first login, updating Username in place on rename, touching
 // UpdatedAt otherwise — and populates req.UserID with the anchor record's ID.

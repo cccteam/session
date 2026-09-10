@@ -46,9 +46,16 @@ type NewSessionRequest struct {
 	// they need — the library does not curate a claims struct.
 	Claims json.RawMessage
 	// Tid and Oid are the verified tenant and directory-object GUID claims when the
-	// session is created by an OIDC login; they are empty for all other session types.
-	// When the OIDC user anchor is enabled they key the OIDCUsers upsert, and UserID is
-	// populated with the anchor record's ID before any resolver or hook runs.
+	// session is created by an Azure OIDC login; they are empty for all other session
+	// types. When the OIDC user anchor is enabled they key the OIDCUsers upsert, and
+	// UserID is populated with the anchor record's ID before any resolver or hook runs.
 	Tid string
 	Oid string
+	// Sub and Hd are the verified subject and hosted-domain claims when the session is
+	// created by a Google OIDC login; they are empty for all other session types. When
+	// the OIDC user anchor is enabled, Sub keys the GoogleOIDCUsers upsert (Hd is a
+	// mutable attribute on the row), and UserID is populated with the anchor record's
+	// ID before any resolver or hook runs.
+	Sub string
+	Hd  string
 }

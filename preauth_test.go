@@ -44,9 +44,12 @@ func TestPreauthAPI_Login(t *testing.T) {
 					NewAuthCookie(gomock.Any(), true, gomock.Any()).
 					DoAndReturn(func(w http.ResponseWriter, _ bool, sessionID ccc.UUID) (*cookie.Values, error) {
 						http.SetCookie(w, &http.Cookie{
-							Name:  "auth",
-							Value: sessionID.String(),
-							Path:  "/",
+							Name:     "auth",
+							Value:    sessionID.String(),
+							Path:     "/",
+							Secure:   true,
+							HttpOnly: true,
+							SameSite: http.SameSiteStrictMode,
 						})
 						return cookie.NewValues().SetString(internalcookie.SessionID, sessionID.String()), nil
 					}).

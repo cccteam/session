@@ -30,14 +30,14 @@ data have different *destinations*.
 
 ## What the library gives you, per auth mode
 
-| | Username/Password | Azure OIDC | Preauth |
-|---|---|---|---|
-| Library user table | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | none |
-| Stable identity anchor | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
-| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
-| Custom session data | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
-| Custom user data | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
-| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
+| | Username/Password | Azure OIDC | Google OIDC | Preauth |
+|---|---|---|---|---|
+| Library user table | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | `GoogleOIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `Sub` unique) | none |
+| Stable identity anchor | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | `GoogleOIDCUsers.Id` (UUID over the globally unique `sub` claim); without the anchor, the `sub` claim via `req.Claims` | caller-defined |
+| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | mutable, tracked with the anchor (login upserts `Username` and `Hd` in place); **untracked** without it | caller-defined |
+| Custom session data | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
+| Custom user data | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `GoogleOIDCUsers.Id` | unsupported (no user record) |
+| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a today | n/a |
 
 ## Patterns
 
@@ -54,6 +54,14 @@ data have different *destinations*.
   tenant; it is the only rename-proof, recycle-proof anchor Azure gives us.
   Username (`preferred_username` / UPN) is a mutable *attribute* on that row —
   which is exactly how `OIDCUsers` treats it.
+- **Google OIDC:** same pattern, simpler key: enable the anchor and key by
+  `GoogleOIDCUsers.Id` — a surrogate UUID over the `sub` claim **alone**.
+  Google's `sub` is globally unique among all Google accounts and never
+  reused, so no composite is needed (Azure's composite exists only because
+  `oid` is tenant-scoped). Apps that manage their own user table key it by
+  `sub`. The hosted domain (`hd`) and username (`email`) are mutable
+  *attributes* on the row — the org gate is the `hd` claim check at login,
+  not the table shape.
 - **Preauth:** the library never sees claims or credentials, so the caller owns
   identity. Whatever string is passed as `username` becomes the identity for
   the session's lifetime — pass a stable identifier, or maintain the mapping

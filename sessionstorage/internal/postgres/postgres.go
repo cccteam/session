@@ -22,11 +22,15 @@ import (
 
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
-	conn              Queryer
-	sessionTableName  string
-	userTableName     string
+	conn             Queryer
+	sessionTableName string
+	userTableName    string
+	// oidcUserTableName names the OIDC user anchor table for the driver's provider:
+	// OIDCUsers (Azure) or GoogleOIDCUsers (Google). A driver serves exactly one
+	// provider, fixed at construction.
 	oidcUserTableName string
 	oidcUsersEnabled  bool
+	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 }
@@ -38,6 +42,19 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 		sessionTableName:  "Sessions",
 		userTableName:     "SessionUsers",
 		oidcUserTableName: "OIDCUsers",
+	}
+}
+
+// NewGoogleSessionStorageDriver creates a SessionStorageDriver whose OIDC provider is
+// Google: the user anchor is the Sub-keyed GoogleOIDCUsers table and sessions are
+// inserted without an OidcSid (Google issues no sid claim).
+func NewGoogleSessionStorageDriver(conn Queryer) *SessionStorageDriver {
+	return &SessionStorageDriver{
+		conn:              conn,
+		sessionTableName:  "Sessions",
+		userTableName:     "SessionUsers",
+		oidcUserTableName: "GoogleOIDCUsers",
+		googleOIDC:        true,
 	}
 }
 

@@ -1,8 +1,9 @@
 // Package session provides session handlers for various authentication implementations.
 // Currently supported are:
 // 1) Azure OIDC Authorization Code Flow with PKCE
-// 2) Preauth: Allows you to implement your own authentication, but still use session handlers
-// 3) Username/Password: Implements user storage and password management
+// 2) Google Workspace OIDC Authorization Code Flow with PKCE, restricted to a hosted domain
+// 3) Preauth: Allows you to implement your own authentication, but still use session handlers
+// 4) Username/Password: Implements user storage and password management
 //
 // All three support custom session data: an app-defined table whose row is resolved
 // atomically inside the session-insert transaction (or supplied per call), decoded on
@@ -37,6 +38,18 @@ type UserRoleManager interface {
 	RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error)
 	AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 	DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
+}
+
+// GroupsProvider supplies the Google Groups a user is a member of, identified by group
+// email address. It is the role-claim substitute for Google OIDC: Google ID tokens
+// carry no roles or groups claim, so role synchronization looks group membership up at
+// login through this seam (see GoogleRoleSync). googlegroups.Directory (Admin SDK
+// Directory API, direct memberships, every Workspace edition) is the provided
+// implementation.
+type GroupsProvider interface {
+	// UserGroups returns the email addresses of the groups the user is a direct member
+	// of, lowercased.
+	UserGroups(ctx context.Context, email string) ([]string, error)
 }
 
 // LogHandler defines the handler signature required for handling logs.

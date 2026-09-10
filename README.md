@@ -12,26 +12,31 @@ The Session repository is designed to handle the management of user sessions, in
   - Google Cloud Spanner
 - `Login Types`: Supports multiple authentication methods.
   - Azure OIDC
+  - Google Workspace OIDC (restricted to one hosted domain — see the "Google Workspace OIDC" section)
   - Username/Password
   - Preauth (trust-the-caller stepping-stone sessions)
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
 - `Custom User Data`: App-defined durable data attached to the user record — it survives logout, expiry, and regeneration, and dies with the user. See the "Custom user data" section.
-- `OIDC User Anchor`: An optional library-managed durable user record for OIDC logins, keyed by the immutable `(tid, oid)` claim pair. See the "OIDC user anchor" section.
+- `OIDC User Anchor`: An optional library-managed durable user record for OIDC logins, keyed by the provider's immutable identity — the `(tid, oid)` claim pair on Azure, the `sub` claim on Google. See the "OIDC user anchor" section.
 
-All three session types are generic over two data axes: `PasswordAuth[SessionData, UserData]`,
-`OIDCAzure[SessionData, UserData]`, and `Preauth[SessionData]` (Preauth has no user record,
-so no user-data axis). An application that uses neither instantiates with the
-`NoCustomData` sentinel: `session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
+All session types are generic over two data axes: `PasswordAuth[SessionData, UserData]`,
+`OIDCAzure[SessionData, UserData]`, `OIDCGoogle[SessionData, UserData]`, and
+`Preauth[SessionData]` (Preauth has no user record, so no user-data axis). An
+application that uses neither instantiates with the `NoCustomData` sentinel:
+`session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
 
 ## OIDC role synchronization
 
-Role synchronization reconciles a user's application roles to their ID token's role
-claims on every OIDC login: roles named in the token are assigned (where a role of that
-name exists), roles the user holds that are NOT in the token are removed, and the login
-is rejected unless the token yields at least one recognized role. It is designed for
-organizations that manage roles centrally through Active Directory group/app-role
-assignments. See the `OIDCAzure` godoc for the full semantics and their
-multi-tenancy limitations.
+Role synchronization reconciles a user's application roles to the identity provider's
+authorization signal on every OIDC login: role names sourced from the IdP are assigned
+(where a role of that name exists), roles the user holds that are NOT among them are
+removed, and the login is rejected unless at least one recognized role results. It is
+designed for organizations that manage roles centrally in the directory. The role
+names come from the provider's native mechanism — Azure delivers them in the token's
+`roles` claim (App Role ↔ group assignments); Google has no such claim, so the Google
+flow derives them from Google Groups membership at login (see the "Google Workspace
+OIDC" section). See the `OIDCAzure` and `OIDCGoogle` godoc for the full semantics and
+their multi-tenancy limitations.
 
 The `NewOIDCAzure` constructor takes a required role-sync slot that
 configures the feature as one unit — the role store together with the domain sweep
@@ -71,6 +76,102 @@ rather than being flattened to "role missing", which would delete valid membersh
 a transient store error). Replace `session.DisableUserRoleManagement()` with
 `session.DisableRoleSync()` — note that unlike the old disabled manager, it also
 disables the at-least-one-role login gate.
+
+## Google Workspace OIDC
+
+`OIDCGoogle` is the Google Workspace counterpart of `OIDCAzure`: the same session
+machinery, custom data axes, and role-reconciliation semantics, built on Google's
+identity model instead of Entra's. The mental-model difference that drives every API
+difference: **an Entra app registration is an authorization surface** (App Roles are
+declared on the app, assigned to groups, and delivered in the token's `roles` claim),
+while **a Google OAuth client is authentication only** — the ID token says who the user
+is (`email`, `sub`) and which Workspace org they belong to (`hd`), and nothing about
+what they may do. Authorization signals therefore come from the directory itself
+(Google Groups), fetched at login.
+
+### Restricting login to your organization
+
+Two layers, one enforced by Google and one by this library:
+
+1. **Internal OAuth consent screen** (Google-side): create the OAuth client in a Google
+   Cloud project that belongs to your Workspace org and set the consent screen's user
+   type to *Internal*. Google then refuses accounts outside the org (`org_internal`
+   error) before they ever reach your callback.
+2. **`hostedDomain`** (library-side, required): sent as the `hd` hint on the
+   authorization request (pre-selects org accounts in the account chooser — UX only),
+   and enforced against the verified ID token's `hd` claim. A consumer account carries
+   no `hd` claim at all, so the check fails closed. This is the trusted backstop even
+   with an Internal consent screen in place.
+
+### Constructing
+
+```go
+// Directory-driven roles: Google Groups membership is fetched at login through a
+// GroupsProvider and mapped to role names by a group naming convention.
+groups, err := googlegroups.NewDirectory(ctx, credentialsJSON, "groups-reader@example.com")
+if err != nil { ... }
+
+oidcSession, err := session.NewOIDCGoogle[session.NoCustomData, session.NoCustomData](
+    storage, // sessionstorage.NewSpannerGoogleOIDC / NewPostgresGoogleOIDC
+    session.GoogleRoleSync(userRoleManager, domainsFn, "app-myapp-", groups),
+    cookieKey, clientID, clientSecret, redirectURL,
+    "example.com", // hostedDomain — required
+)
+
+// Application-managed roles (or no roles): same slot as Azure.
+oidcSession, err := session.NewOIDCGoogle[session.NoCustomData, session.NoCustomData](
+    storage, session.DisableRoleSync(),
+    cookieKey, clientID, clientSecret, redirectURL, "example.com",
+)
+```
+
+There is no `issuerURL` parameter — Google operates a single issuer
+(`https://accounts.google.com`) for all orgs; tenancy is the `hd` claim, not the
+issuer. The storage must be Google OIDC storage (`NewSpannerGoogleOIDC` /
+`NewPostgresGoogleOIDC`, migrations in `schema/*/oidc-google/migrations`); the Azure
+role-sync slot and Azure OIDC storage do not compile into `NewOIDCGoogle`.
+
+### The group naming convention
+
+`GoogleRoleSync` derives candidate role names from group emails: a group whose local
+part is the configured prefix followed by a role name maps to that role, everything
+else is ignored. With prefix `app-myapp-`:
+
+| Group email                       | Candidate role |
+| --------------------------------- | -------------- |
+| `app-myapp-admin@example.com`     | `admin`        |
+| `app-myapp-viewer@example.com`    | `viewer`       |
+| `team-eng@example.com`            | — (no prefix)  |
+| `app-otherapp-admin@example.com`  | — (other app)  |
+
+The candidates then flow through the same reconcile logic as Azure's token roles: names
+for which a role exists are assigned, held roles not among them are removed, and the
+login is rejected unless at least one recognized role results. Group emails are
+lowercase by nature, so define application roles intended for Google sync with
+lowercase names. Membership is resolved through the `GroupsProvider` seam:
+
+- `googlegroups.NewDirectory` (provided): Admin SDK Directory API, available on every
+  Workspace edition, **direct memberships only** (role groups should hold people, not
+  other groups — matching Entra's direct-only App Role resolution). It authenticates as
+  a service account with domain-wide delegation on the
+  `admin.directory.group.readonly` scope, impersonating an account whose only admin
+  privilege is *Groups → Read* (a custom admin role; no Super Admin).
+- A `CloudIdentity` adapter (transitive expansion via `searchTransitiveGroups`) is
+  deliberately reserved for the future: that API requires Workspace Enterprise /
+  Cloud Identity Premium, enforced per queried member.
+
+A groups-lookup failure fails the login — the same posture as a role-store error.
+
+### Identity and the other differences from Azure
+
+| Concern                | Azure (`OIDCAzure`)                  | Google (`OIDCGoogle`)                          |
+| ---------------------- | ------------------------------------ | ---------------------------------------------- |
+| Username               | `preferred_username` claim           | `email` claim (`email_verified` enforced)      |
+| Durable identity key   | `(tid, oid)` — oid is tenant-scoped  | `sub` alone — globally unique, never reused    |
+| User anchor table      | `OIDCUsers`                          | `GoogleOIDCUsers` (`Hd`/`Username` mutable attributes) |
+| Roles source           | Token `roles` claim                  | Google Groups lookup + naming convention       |
+| Org restriction        | Single-tenant registration / `tid`   | Internal consent screen + `hostedDomain` (`hd`) |
+| IdP-initiated logout   | `FrontChannelLogout` (`sid` claim)   | None — Google has no `end_session_endpoint` or `sid`; `Logout` destroys the local session only |
 
 ## Custom session data
 
@@ -358,36 +459,44 @@ gap.
 
 How it works:
 
-- **One row per directory identity.** The `OIDCUsers` table (ship the
-  `schema/*/oidc/migrations` migration) keys each user by the immutable
-  `(tid, oid)` claim pair — the only rename-proof, recycle-proof identity Azure gives
-  you — under a surrogate UUID primary key. `Username` (`preferred_username`) is a
-  mutable *attribute* on the row, never part of the key.
+- **One row per directory identity, keyed by the provider's immutable identity.** On
+  Azure, the `OIDCUsers` table (ship the `schema/*/oidc/migrations` migration) keys
+  each user by the immutable `(tid, oid)` claim pair — the only rename-proof,
+  recycle-proof identity Azure gives you (`oid` is only unique within a tenant) —
+  under a surrogate UUID primary key. On Google, the `GoogleOIDCUsers` table (ship the
+  `schema/*/oidc-google/migrations` migration) keys each user by the `sub` claim
+  alone — globally unique among all Google accounts and never reused — with `Hd` as a
+  mutable attribute alongside `Username`. In both cases `Username`
+  (`preferred_username` on Azure, `email` on Google) is a mutable *attribute* on the
+  row, never part of the key.
 - **Maintained just-in-time, atomically with login.** Enable it with
   `sessionstorage.WithOIDCUsers()` on the OIDC storage constructor. Inside every
   session-insert transaction the library upserts the row: first login provisions it; a
   login after an IdP rename updates `Username` in place (continuity preserved — no
   orphaned record, no data inherited by a future holder of the old name); every login
-  touches `UpdatedAt`. A missing `tid`/`oid` claim aborts the login before any row or
-  cookie exists.
+  touches `UpdatedAt`. A missing key claim (`tid`/`oid` on Azure, `sub`/`hd` on Google)
+  aborts the login before any row or cookie exists.
 - **The durable key flows into your hooks.** `NewSessionRequest.UserID` carries the
   anchor record's ID into the custom session data resolver (copy it into a session
   column to reach the user record from any request without a lookup) and into the
   custom user data hook (below).
-- **Read it when you need it.** `oidcSession.API().OIDCUser(ctx, id)` and
-  `OIDCUserByKey(ctx, tid, oid)` return the record. Identity comparison in OIDC is
-  always `(tid, oid)` — never the username.
+- **Read it when you need it.** On Azure, `oidcSession.API().OIDCUser(ctx, id)` and
+  `OIDCUserByKey(ctx, tid, oid)` return the record; on Google, `GoogleOIDCUser(ctx,
+  id)` and `GoogleOIDCUserBySub(ctx, sub)`. Identity comparison in OIDC is always the
+  provider's immutable key — never the username.
 
 ```go
-storage := sessionstorage.NewSpannerOIDC(client,
+storage := sessionstorage.NewSpannerOIDC(client, // or NewSpannerGoogleOIDC
     sessionstorage.WithOIDCUsers(),
     /* custom data options */
 )
 ```
 
-The table name defaults to `OIDCUsers` (`session.WithOIDCUserTableName` overrides it).
-The anchor is OIDC-only: enabling it on password-auth or preauth storage is a
-construction error. It is required for custom user data on OIDC storage.
+`WithOIDCUsers()` is provider-neutral — it enables *the anchor*, and the storage it is
+applied to defines the anchor's shape. The table name defaults to `OIDCUsers` on Azure
+storage and `GoogleOIDCUsers` on Google storage (`session.WithOIDCUserTableName`
+overrides either). The anchor is OIDC-only: enabling it on password-auth or preauth
+storage is a construction error. It is required for custom user data on OIDC storage.
 
 ## Custom user data
 
@@ -409,7 +518,7 @@ differences that follow from durability:
   - **Password auth**: users are created explicitly, so initial data is **per-call on
     `CreateSessionUser`**, written atomically with the user insert. There is no
     login-time hook — password logins carry no claims.
-  - **Azure OIDC**: users just *arrive*, known only by their verified claims, so the
+  - **OIDC (Azure and Google)**: users just *arrive*, known only by their verified claims, so the
     config carries a **login hook** that runs inside every OIDC session-insert
     transaction, after the anchor upsert (requires the OIDC user anchor).
   - **Preauth**: unsupported — there is no user record to anchor durable data to
@@ -466,11 +575,13 @@ err = auth.API().UpdateCustomUserData(ctx, userID, func(d *UserData) error {
 })
 ```
 
-### Configuration — Azure OIDC with a login hook
+### Configuration — OIDC with a login hook
 
-The hook is how OIDC user data tracks the directory. It runs inside every OIDC
-session-insert transaction — after the `OIDCUsers` anchor upsert, before the session
-data resolver — and receives the user's **current row** (`nil` on their first login):
+The hook is how OIDC user data tracks the directory, and it works identically for
+Azure and Google (the anchor upsert it follows is `OIDCUsers` or `GoogleOIDCUsers`
+respectively). It runs inside every OIDC session-insert transaction — after the anchor
+upsert, before the session data resolver — and receives the user's **current row**
+(`nil` on their first login):
 
 ```go
 type UserProfile struct {

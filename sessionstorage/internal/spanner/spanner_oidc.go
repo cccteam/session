@@ -20,6 +20,10 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if s.googleOIDC {
+		return ccc.NilUUID, errors.New("InsertSessionOIDC called on a Google OIDC storage driver")
+	}
+
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
@@ -31,6 +35,42 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	}{
 		ID:                id,
 		InsertOIDCSession: insertSession,
+	}
+
+	mutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+	}
+
+	if err := s.applySessionInsertOIDC(ctx, id, mutation, req); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	return id, nil
+}
+
+// InsertSessionGoogleOIDC inserts a Google OIDC Session into the database and returns
+// its id. Google issues no sid claim, so the session row carries no OidcSid. It honors
+// the request's custom session data semantics exactly like InsertSessionOIDC.
+func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.googleOIDC {
+		return ccc.NilUUID, errors.New("InsertSessionGoogleOIDC called on a non-Google OIDC storage driver")
+	}
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	session := &struct {
+		ID ccc.UUID
+		*dbtype.InsertSession
+	}{
+		ID:            id,
+		InsertSession: insertSession,
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, session)
@@ -62,7 +102,7 @@ func (s *SessionStorageDriver) applySessionInsertOIDC(ctx context.Context, id cc
 	}
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		if err := s.upsertOIDCUser(ctx, txn, req); err != nil {
+		if err := s.upsertAnchor(ctx, txn, req); err != nil {
 			return err
 		}
 

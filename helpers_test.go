@@ -28,6 +28,14 @@ func newOIDCStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockOIDCStor
 	return storage
 }
 
+func newGoogleOIDCStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockGoogleOIDCStore {
+	storage := mock_sessionstorage.NewMockGoogleOIDCStore(ctrl)
+	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
+	storage.EXPECT().OIDCUsersEnabled().Return(false).AnyTimes()
+
+	return storage
+}
+
 func newPreauthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockPreauthStore {
 	storage := mock_sessionstorage.NewMockPreauthStore(ctrl)
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
