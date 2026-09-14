@@ -3,9 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
@@ -216,7 +214,7 @@ func (o *OIDCGoogle[T, U]) Login() http.HandlerFunc {
 		returnURL := r.URL.Query().Get("returnUrl")
 		authCodeURL, err := o.oidc.AuthCodeURL(ctx, w, returnURL)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "googleoidc.Authenticator.AuthCodeURL()")
 		}
@@ -248,20 +246,20 @@ func (o *OIDCGoogle[T, U]) CallbackOIDC() http.HandlerFunc {
 		var rawClaims json.RawMessage
 		returnURL, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "googleoidc.Authenticator.Verify()")
 		}
 
 		claims := &claims{}
 		if err := json.Unmarshal(rawClaims, claims); err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "json.Unmarshal()")
 		}
 		if claims.Email == "" {
-			err := httpio.NewUnauthorizedMessage("Unauthorized: token carries no email claim")
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+			err := sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoEmailClaim, httpio.NewUnauthorizedMessage("Unauthorized: token carries no email claim"))
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return err
 		}
@@ -272,19 +270,19 @@ func (o *OIDCGoogle[T, U]) CallbackOIDC() http.HandlerFunc {
 		if o.roleSync != nil {
 			roleNames, err := o.roleSync.roleNames(ctx, claims.Email)
 			if err != nil {
-				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 				return errors.Wrap(err, "googleRoleSyncConfig.roleNames()")
 			}
 			hasRole, err := o.roleSync.reconcile(ctx, accesstypes.User(claims.Email), roleNames)
 			if err != nil {
-				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 				return errors.Wrap(err, "roleSyncConfig.reconcile()")
 			}
 			if !hasRole {
-				err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
-				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+				err := sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoRoles, httpio.NewUnauthorizedMessage("Unauthorized: user has no roles"))
+				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 				return err
 			}
@@ -296,11 +294,7 @@ func (o *OIDCGoogle[T, U]) CallbackOIDC() http.HandlerFunc {
 		// written.
 		sessionID, err := o.startNewSession(ctx, w, claims.Email, rawClaims)
 		if err != nil {
-			message := httpio.Message(err)
-			if message == "" {
-				message = "Internal Server Error"
-			}
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(message)), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "OIDCGoogle.startNewSession()")
 		}

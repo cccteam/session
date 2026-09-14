@@ -15,6 +15,7 @@ import (
 	"github.com/cccteam/httpio"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 const testClientID = "test-client-id"
@@ -95,6 +96,7 @@ func TestOIDC_Verify(t *testing.T) {
 		wantErr       bool
 		wantForbidden bool
 		wantErrPart   string
+		wantCode      sessioninfo.LoginRefusalCode
 	}{
 		{
 			name:        "happy path: claims, return URL and the provider's session ID come back",
@@ -107,6 +109,7 @@ func TestOIDC_Verify(t *testing.T) {
 			wantErr:       true,
 			wantForbidden: true,
 			wantErrPart:   "No OIDC cookie",
+			wantCode:      sessioninfo.RefusedNoOIDCCookie,
 		},
 		{
 			name:        "state mismatch is refused: the callback is not the login this browser started",
@@ -119,6 +122,7 @@ func TestOIDC_Verify(t *testing.T) {
 			wantErr:       true,
 			wantForbidden: true,
 			wantErrPart:   "Invalid 'state' parameter value",
+			wantCode:      sessioninfo.RefusedInvalidState,
 		},
 		{
 			name:        "token exchange failure",
@@ -126,6 +130,7 @@ func TestOIDC_Verify(t *testing.T) {
 			tokenStatus: http.StatusInternalServerError,
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
+			wantCode:    sessioninfo.RefusedTokenExchange,
 		},
 		{
 			name: "a token for another client fails verification",
@@ -137,6 +142,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 		{
 			name: "a token from another issuer fails verification",
@@ -148,6 +154,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 	}
 	for _, tt := range tests {
@@ -178,6 +185,9 @@ func TestOIDC_Verify(t *testing.T) {
 			if tt.wantErr {
 				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
 					t.Errorf("OIDC.Verify() error = %q, want it to contain %q", err.Error(), tt.wantErrPart)
+				}
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != tt.wantCode {
+					t.Errorf("OIDC.Verify() refusal code = %q, want %q: %v", got, tt.wantCode, err)
 				}
 				if httpio.HasForbidden(err) != tt.wantForbidden {
 					t.Errorf("OIDC.Verify() forbidden = %v, want %v: %v", httpio.HasForbidden(err), tt.wantForbidden, err)

@@ -3,10 +3,8 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/cccteam/ccc"
@@ -18,6 +16,7 @@ import (
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/mock/mock_googleoidc"
 	"github.com/cccteam/session/mock/mock_session"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
@@ -41,7 +40,7 @@ func TestOIDCGoogleSessionLogin(t *testing.T) {
 			},
 			wantErr:         true,
 			wantStatusCode:  http.StatusFound,
-			wantRedirectURL: "/login?message=Internal+Server+Error",
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name: "success initiating login",
@@ -99,6 +98,9 @@ func TestOIDCGoogleSessionLogin(t *testing.T) {
 				if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 					t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
 				}
+				if tt.wantErr {
+					assertRefusalQuery(t, rr.Header().Get("Location"))
+				}
 			}
 		})
 	}
@@ -134,10 +136,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			name: "fails to verify callback request",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain")).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain"))).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Account is not a member of the required Google Workspace domain")),
+			wantRedirectURL: "/login?code=not_workspace_member",
 		},
 		{
 			name: "fails to unmarshal claims",
@@ -147,7 +149,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", nil).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name: "missing email claim is rejected",
@@ -156,7 +158,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"sub": "sub-1"}`)).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: token carries no email claim")),
+			wantRedirectURL: "/login?code=no_email_claim",
 		},
 		{
 			name: "groups lookup failure fails the login before any role calls",
@@ -167,7 +169,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return(nil, errors.New("groups API unavailable")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name:    "unauthorized when no group maps to a recognized role",
@@ -180,7 +182,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{}, nil).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
+			wantRedirectURL: "/login?code=no_roles",
 		},
 		{
 			name:    "aborts the sync when RoleExists returns an error",
@@ -195,7 +197,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, errors.New("store blip")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name:    "fails to create new session",
@@ -211,7 +213,39 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
+		},
+		{
+			name:    "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
+			domains: []accesstypes.Domain{"testDomain1"},
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+				oidc.EXPECT().LoginURL().Return("/login").Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
+				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, httpio.NewBadRequestMessage("user is not provisioned")).Times(1)
+			},
+			wantErr:         true,
+			wantRedirectURL: "/login?code=login_refused",
+		},
+		{
+			name:    "custom session data resolver refuses with its own code, which rides to the login page",
+			domains: []accesstypes.Domain{"testDomain1"},
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+				oidc.EXPECT().LoginURL().Return("/login").Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
+				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
+				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, sessioninfo.NewLoginRefusal(sessioninfo.LoginRefusalCode("not_provisioned"), httpio.NewBadRequestMessage("user is not provisioned"))).Times(1)
+			},
+			wantErr:         true,
+			wantRedirectURL: "/login?code=not_provisioned",
 		},
 		{
 			name:            "role sync disabled: login proceeds with no groups or role calls",
@@ -319,6 +353,9 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			}
 			if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 				t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
+			}
+			if tt.wantErr {
+				assertRefusalQuery(t, rr.Header().Get("Location"))
 			}
 		})
 	}

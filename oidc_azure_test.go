@@ -3,11 +3,9 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -48,7 +46,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			},
 			wantErr:         true,
 			wantStatusCode:  http.StatusFound,
-			wantRedirectURL: "/login?message=Internal+Server+Error",
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name: "success initiating login",
@@ -106,6 +104,9 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 				if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 					t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
 				}
+				if tt.wantErr {
+					assertRefusalQuery(t, rr.Header().Get("Location"))
+				}
 			}
 		})
 	}
@@ -127,10 +128,10 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "fails to verify callback request",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", httpio.NewForbiddenMessage("failed to verify callback")).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("failed to verify callback")),
+			wantRedirectURL: "/login?code=invalid_state",
 		},
 		{
 			name: "fails to unmarshal claims",
@@ -140,7 +141,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name:    "fails to create new session",
@@ -155,10 +156,10 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "custom session data resolver abort surfaces its client message with no cookies",
+			name:    "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
 			domains: []accesstypes.Domain{"testDomain1"},
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
@@ -172,7 +173,24 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 					Return(ccc.NilUUID, httpio.NewBadRequestMessage("user is not provisioned")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("user is not provisioned")),
+			wantRedirectURL: "/login?code=login_refused",
+		},
+		{
+			name:    "custom session data resolver refuses with its own code, which rides to the login page",
+			domains: []accesstypes.Domain{"testDomain1"},
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+				oidc.EXPECT().LoginURL().Return("/login").Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("testRole1")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				// No cookie-handler expectations: a resolver abort must not write cookies.
+				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
+					Return(ccc.NilUUID, sessioninfo.NewLoginRefusal(sessioninfo.LoginRefusalCode("not_provisioned"), httpio.NewBadRequestMessage("user is not provisioned"))).Times(1)
+			},
+			wantErr:         true,
+			wantRedirectURL: "/login?code=not_provisioned",
 		},
 		{
 			name:       "fails to get domains from the provider",
@@ -181,7 +199,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username"}`)).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
@@ -192,7 +210,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(nil, errors.New("failed to get user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
@@ -206,7 +224,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				// expectations — flattening the error to false would sweep testRole0.
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("testRole1")).Return(false, errors.New("store blip")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
@@ -223,7 +241,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), gomock.Any()).Return(true, nil).Times(4)
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(errors.New("failed to add user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
@@ -241,7 +259,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(errors.New("failed to delete user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
@@ -258,7 +276,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
+			wantRedirectURL: "/login?code=no_roles",
 			wantErr:         true,
 		},
 		{
@@ -371,6 +389,9 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			}
 			if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 				t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
+			}
+			if tt.wantErr {
+				assertRefusalQuery(t, rr.Header().Get("Location"))
 			}
 		})
 	}

@@ -18,6 +18,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
 - `Custom User Data`: App-defined durable data attached to the user record — it survives logout, expiry, and regeneration, and dies with the user. See the "Custom user data" section.
 - `OIDC User Anchor`: An optional library-managed durable user record for OIDC logins, keyed by the provider's immutable identity — the `(tid, oid)` claim pair on Azure, the `sub` claim on Google. See the "OIDC user anchor" section.
+- `Login Refusal Codes`: A refused OIDC login returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
 
 All session types are generic over two data axes: `PasswordAuth[SessionData, UserData]`,
 `OIDCAzure[SessionData, UserData]`, `OIDCGoogle[SessionData, UserData]`, and
@@ -197,6 +198,62 @@ A groups-lookup failure fails the login — the same posture as a role-store err
 | Org restriction        | Single-tenant registration / `tid`   | Internal consent screen + `hostedDomain` (`hd`) |
 | IdP-initiated logout   | `FrontChannelLogout` (`sid` claim)   | None — Google has no `end_session_endpoint` or `sid`; `Logout` destroys the local session only |
 
+## Login refusal codes
+
+A refused OIDC login returns the browser to the login page with the reason as a code, never
+as text: `<LoginURL>?code=<code>`. The page maps the code to a sentence it holds itself and
+shows nothing for a code it does not know, so nothing that arrives in the URL is ever
+displayed. `LoginURL` is the login page of the surface the auth serves; both `Login` and
+`CallbackOIDC` redirect there, and `code` is the only query key they write.
+
+The codes are typed constants in `sessioninfo` (`sessioninfo.LoginRefusalCode`), and the
+table is the wire contract:
+
+| Code | Constant | Produced when |
+| --- | --- | --- |
+| `internal_error` | `RefusedInternalError` | A fault the module does not classify: the authorization URL could not be built, the claims payload would not decode, the role store or session store failed, or a resolver error is neither a `LoginRefusal` nor a client message. |
+| `login_refused` | `RefusedByApplication` | The application's custom session data resolver refused the login with an httpio client message and no code. The message goes to the log. |
+| `no_oidc_cookie` | `RefusedNoOIDCCookie` | The callback arrived without the cookie the login route set. |
+| `invalid_state` | `RefusedInvalidState` | The callback's `state` does not match the login this browser started. |
+| `invalid_pkce` | `RefusedInvalidPKCE` | The login cookie carries no usable PKCE verifier. |
+| `token_exchange_failed` | `RefusedTokenExchange` | The provider refused to exchange the authorization code for tokens. |
+| `no_id_token` | `RefusedNoIDToken` | The token response carried no `id_token`. |
+| `verify_id_token_failed` | `RefusedIDTokenVerification` | The ID token failed signature, issuer, audience, or expiry verification. |
+| `parse_claims_failed` | `RefusedClaimsParse` | The verified ID token's claims would not decode. |
+| `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the account is outside the Workspace domain logins are restricted to. |
+| `email_not_verified` | `RefusedEmailNotVerified` | Google: the account's email address is not verified. |
+| `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role. |
+| `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
+
+**The resolver rule.** A custom session data resolver's error decides the code by its
+shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers
+its code, and the code may be the application's own — `LoginRefusalCode("not_provisioned")`
+— as long as the application's login page holds text for it. An httpio client message with
+no code answers `login_refused`, and its text stays in the log. Any other error answers
+`internal_error`. `LoginRefusal` unwraps to its cause, so the log handler still sees the
+client message's status and `errors.Is` still matches the cause.
+
+```go
+func resolve(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*SessionClaims, error) {
+    member, err := lookUpMember(ctx, txn, req.Username)
+    if err != nil {
+        return nil, errors.Wrap(err, "lookUpMember()") // internal_error
+    }
+    if member == nil {
+        return nil, sessioninfo.NewLoginRefusal("not_provisioned", httpio.NewForbiddenMessage("member is not provisioned"))
+    }
+
+    return &SessionClaims{...}, nil
+}
+```
+
+**The page authors all text.** A login page reads `code` and renders the sentence it holds
+for it; it never renders the parameter. Angular applications get the mapping from
+`@cccteam/resource-angular`: `LOGIN_MESSAGES` holds a sentence for every code above,
+`UiCoreService.loginMessage(code)` looks one up (empty for an unknown code) and
+`publishLoginError(code)` raises it as a notification, and `provideLoginMessages({...})` in
+the application's providers adds the application's own codes or rewords a default.
+
 ## Custom session data
 
 Custom session data attaches app-specific values to a session — a selected tenant, a role
@@ -334,7 +391,9 @@ apps that use neither axis instantiate both with `session.NoCustomData`.
 For OIDC logins the resolver receives the **complete raw verified ID-token claims** as
 `req.Claims json.RawMessage` — the library does not curate a claims struct; unmarshal the
 fields you need. A resolver error aborts the login before any cookie is written and the
-user is redirected to the login page with the error's client message.
+user is redirected to the login page with a refusal code: the code of a
+`sessioninfo.LoginRefusal` the resolver returned, else `login_refused` for a client
+message, else `internal_error` (see "Login refusal codes").
 
 ```go
 type SessionClaims struct {
@@ -463,7 +522,7 @@ on regeneration feels like data loss, it was user data, not session data — see
 | Non-struct `T`, no persistable fields, invalid tag identifier, reserved `SessionId`, duplicate columns | Error from the config constructor, at startup |
 | Session type's `T` doesn't match the storage config's `T` (or no config attached) | Error from the session-type constructor, at startup |
 | Wrong-backend config on a storage constructor | Compile error |
-| Resolver returns an error | Session creation aborts atomically: no session row, no custom row, no cookies; login fails (OIDC: redirect to login with the error's client message) |
+| Resolver returns an error | Session creation aborts atomically: no session row, no custom row, no cookies; login fails (OIDC: redirect to the login page with a refusal code, see "Login refusal codes") |
 | Per-call data with no config attached, or more than one per-call value | Error before any insert |
 | Column name not in your DDL | Database error from the creation transaction (aborts atomically) or from the per-request query |
 | `NULL` column scanned into a non-nullable field | The request fails (401) — map nullable columns to nullable Go types |

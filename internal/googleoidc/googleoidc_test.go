@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 const (
@@ -98,6 +99,7 @@ func TestOIDC_Verify(t *testing.T) {
 		dropCookie  bool
 		wantErr     bool
 		wantErrPart string
+		wantCode    sessioninfo.LoginRefusalCode
 	}{
 		{
 			name:        "happy path",
@@ -109,6 +111,7 @@ func TestOIDC_Verify(t *testing.T) {
 			dropCookie:  true,
 			wantErr:     true,
 			wantErrPart: "No OIDC cookie",
+			wantCode:    sessioninfo.RefusedNoOIDCCookie,
 		},
 		{
 			name:        "state mismatch",
@@ -120,6 +123,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "Invalid 'state' parameter value",
+			wantCode:    sessioninfo.RefusedInvalidState,
 		},
 		{
 			name:        "token exchange failure",
@@ -127,6 +131,7 @@ func TestOIDC_Verify(t *testing.T) {
 			tokenStatus: http.StatusInternalServerError,
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
+			wantCode:    sessioninfo.RefusedTokenExchange,
 		},
 		{
 			name: "wrong audience fails verification",
@@ -138,6 +143,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 		{
 			name: "hd claim absent (consumer account) fails closed",
@@ -149,6 +155,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "not a member of the required Google Workspace domain",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
 		},
 		{
 			name: "hd claim for another domain is rejected",
@@ -160,6 +167,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "not a member of the required Google Workspace domain",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
 		},
 		{
 			name: "hd claim comparison is case-insensitive",
@@ -180,6 +188,7 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 			wantErr:     true,
 			wantErrPart: "email is not verified",
+			wantCode:    sessioninfo.RefusedEmailNotVerified,
 		},
 	}
 	for _, tt := range tests {
@@ -209,6 +218,9 @@ func TestOIDC_Verify(t *testing.T) {
 			if tt.wantErr {
 				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
 					t.Errorf("OIDC.Verify() error = %q, want it to contain %q", err.Error(), tt.wantErrPart)
+				}
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != tt.wantCode {
+					t.Errorf("OIDC.Verify() refusal code = %q, want %q: %v", got, tt.wantCode, err)
 				}
 
 				return

@@ -124,6 +124,9 @@ linters:
       ignore-sigs:
         - .Errorf(
         - errors.New(
+        # A coded login refusal is the module's own error type; attaching the code IS the
+        # wrapping, and the redirect helper reads it back with errors.As.
+        - sessioninfo.NewLoginRefusal(
         - errors.Unwrap(
         - .Wrap(
         - .Wrapf(
