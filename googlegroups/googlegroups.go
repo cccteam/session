@@ -62,19 +62,31 @@ func NewDirectory(ctx context.Context, credentialsJSON []byte, subject string, o
 // UserGroups returns the email addresses of the groups the user is a direct member of,
 // lowercased.
 //
+// The lookup names the user's own domain, the part of email after the @, beside the
+// user. The Directory API resolves the Workspace customer from that domain; without it
+// the API infers the customer from the caller, which works for a signed-in
+// administrator and answers 404 "Domain not found" for a service account holding an
+// admin role, the keyless deployment. Role groups therefore live in the login's domain,
+// which the hosted-domain restriction on the sign-in already guarantees.
+//
 // The first call builds the Admin SDK service (see NewDirectory). When that fails —
 // typically because no credentials could be resolved — the construction error is
 // returned by this call and, unchanged, by every later one: the Directory does not
 // retry, so a misconfigured adapter fails the same way on each login rather than
 // re-resolving credentials every time.
 func (d *Directory) UserGroups(ctx context.Context, email string) ([]string, error) {
+	domain, err := domainOf(email)
+	if err != nil {
+		return nil, err
+	}
+
 	service, err := d.adminService(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var groups []string
-	err = service.Groups.List().UserKey(email).Pages(ctx, func(page *admin.Groups) error {
+	err = service.Groups.List().UserKey(email).Domain(domain).Pages(ctx, func(page *admin.Groups) error {
 		for _, g := range page.Groups {
 			groups = append(groups, strings.ToLower(g.Email))
 		}
@@ -104,4 +116,15 @@ func (d *Directory) adminService(ctx context.Context) (*admin.Service, error) {
 	})
 
 	return d.service, d.buildErr
+}
+
+// domainOf is the domain of an email address, lowercased: what the groups lookup names
+// beside the user. An address with no domain cannot be looked up at all.
+func domainOf(email string) (string, error) {
+	at := strings.LastIndex(email, "@")
+	if at < 0 || at == len(email)-1 {
+		return "", errors.Newf("user %q has no domain to look groups up in", email)
+	}
+
+	return strings.ToLower(email[at+1:]), nil
 }

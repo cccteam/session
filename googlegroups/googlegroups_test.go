@@ -32,10 +32,12 @@ func TestDirectory_UserGroups(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
+		email      string // the login; user@example.com when empty
 		pages      []page
 		status     int
 		wantGroups []string
 		wantErr    bool
+		wantNoCall bool // the lookup is refused before any request
 	}{
 		{
 			name:       "single page",
@@ -65,26 +67,45 @@ func TestDirectory_UserGroups(t *testing.T) {
 			status:  http.StatusForbidden,
 			wantErr: true,
 		},
+		{
+			name:       "the domain sent is the login's, lowercased",
+			email:      "User@Example.COM",
+			pages:      []page{{groups: []string{"a@example.com"}}},
+			wantGroups: []string{"a@example.com"},
+		},
+		{
+			name:       "an address without a domain is refused before any request",
+			email:      "nobody",
+			wantErr:    true,
+			wantNoCall: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
+			email := tt.email
+			if email == "" {
+				email = "user@example.com"
+			}
+
 			var call int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.wantNoCall {
+					t.Errorf("a request was made for %q, which has no domain", email)
+				}
 				if tt.status != 0 {
 					http.Error(w, "boom", tt.status)
 
 					return
 				}
-				if got := r.URL.Query().Get("userKey"); got != "user@example.com" {
-					t.Errorf("userKey = %q, want %q", got, "user@example.com")
-				}
+				wantQuery(t, r, "userKey", email)
+				// The customer is resolved from the domain: a service account holding an
+				// admin role gets "Domain not found" without it.
+				wantQuery(t, r, "domain", "example.com")
 				if call > 0 {
-					if got := r.URL.Query().Get("pageToken"); got != tt.pages[call-1].nextToken {
-						t.Errorf("pageToken = %q, want %q", got, tt.pages[call-1].nextToken)
-					}
+					wantQuery(t, r, "pageToken", tt.pages[call-1].nextToken)
 				}
 
 				p := tt.pages[call]
@@ -103,7 +124,7 @@ func TestDirectory_UserGroups(t *testing.T) {
 				t.Fatalf("NewDirectory() error = %v", err)
 			}
 
-			groups, err := d.UserGroups(ctx, "user@example.com")
+			groups, err := d.UserGroups(ctx, email)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Directory.UserGroups() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -200,5 +221,14 @@ func TestNewDirectory_BuildsTheServiceOnFirstUse(t *testing.T) {
 				t.Errorf("second Directory.UserGroups() differs from the first (-first +second):\n%s", diff)
 			}
 		})
+	}
+}
+
+// wantQuery fails the test when the request's query parameter key is not want.
+func wantQuery(t *testing.T, r *http.Request, key, want string) {
+	t.Helper()
+
+	if got := r.URL.Query().Get(key); got != want {
+		t.Errorf("%s = %q, want %q", key, got, want)
 	}
 }
