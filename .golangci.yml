@@ -60,6 +60,8 @@ linters:
           allow:
             - aidanwoods.dev/go-paseto
             - cloud.google.com/go/spanner
+            - cloud.google.com/go/compute/metadata
+            - google.golang.org/api/impersonate
             - github.com/cccteam
             - github.com/coreos/go-oidc/v3
             - github.com/georgysavva/scany/v2

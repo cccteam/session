@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -230,5 +231,33 @@ func wantQuery(t *testing.T, r *http.Request, key, want string) {
 
 	if got := r.URL.Query().Get(key); got != want {
 		t.Errorf("%s = %q, want %q", key, got, want)
+	}
+}
+
+// TestNewDirectory_KeylessDelegation pins the keyless form: no key and a subject
+// constructs lazily, and the first lookup asks the metadata server for the runtime
+// identity, so off Google Cloud (a metadata host that answers nothing) it fails naming
+// what the delegation needs rather than reaching the Directory API unauthenticated.
+func TestNewDirectory_KeylessDelegation(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		wantErr string
+	}{
+		{name: "the metadata host answers nothing", host: "127.0.0.1:1", wantErr: "the runtime identity for keyless domain-wide delegation"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GCE_METADATA_HOST", tt.host)
+
+			d, err := NewDirectory(t.Context(), nil, "admin@example.com")
+			if err != nil {
+				t.Fatalf("NewDirectory() error = %v, want nil: construction is lazy", err)
+			}
+			_, err = d.UserGroups(t.Context(), "person@example.com")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("UserGroups() error = %v, want one containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }

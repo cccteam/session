@@ -11,6 +11,7 @@ replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migr
 
 require (
 	aidanwoods.dev/go-paseto v1.6.0
+	cloud.google.com/go/compute/metadata v0.9.0
 	cloud.google.com/go/spanner v1.94.0
 	github.com/cccteam/ccc v0.3.2
 	github.com/cccteam/ccc/accesstypes v0.5.10-0.20260908043255-2adf7c91cccf
@@ -46,7 +47,6 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.23.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.13.0 // indirect
 	cloud.google.com/go/logging v1.19.1 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
