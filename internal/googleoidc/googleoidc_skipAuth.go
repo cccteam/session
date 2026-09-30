@@ -29,8 +29,10 @@ type OIDC struct {
 	loginURL     string
 }
 
-// New returns a new OIDC Authenticator
-func New(cookieClient *internalcookie.Client, _, _, redirectURL, hostedDomain string) *OIDC {
+// New returns a new OIDC Authenticator. The scopes are accepted and unused: the
+// simulated Verify hands back no access token, and the simulated group lookup reads
+// APP_ROLES instead.
+func New(cookieClient *internalcookie.Client, _, _, redirectURL, hostedDomain string, _ ...string) *OIDC {
 	return &OIDC{
 		redirectURL:  redirectURL,
 		hostedDomain: hostedDomain,
@@ -63,8 +65,9 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 
 // Verify performs the necessary verification and processing of the OIDC callback request.
 // It populates 'claims' with simulated ID Token claims and returns the URL to redirect
-// to following successful authentication.
-func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL string, err error) {
+// to following successful authentication. There is no access token: nothing was
+// exchanged, and the simulated group lookup needs none.
+func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, accessToken string, err error) {
 	type claimsSimulated struct {
 		Email         string `json:"email"`
 		EmailVerified bool   `json:"email_verified"`
@@ -81,23 +84,23 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	// Transfer the claims values to the input 'claims' variable
 	cByte, err := json.Marshal(c)
 	if err != nil {
-		return "", errors.Wrap(err, "json.Marshal()")
+		return "", "", errors.Wrap(err, "json.Marshal()")
 	}
 	if err := json.Unmarshal(cByte, claims); err != nil {
-		return "", errors.Wrap(err, "json.Unmarshal()")
+		return "", "", errors.Wrap(err, "json.Unmarshal()")
 	}
 
 	cval, ok, err := o.cookieClient.ReadOidcCookie(r)
 	if err != nil {
-		return "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
+		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
 	}
 	if !ok {
-		return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
 	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 
-	return returnURL, nil
+	return returnURL, "", nil
 }

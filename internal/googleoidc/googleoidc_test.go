@@ -211,7 +211,7 @@ func TestOIDC_Verify(t *testing.T) {
 			}
 
 			var claims json.RawMessage
-			returnURL, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
+			returnURL, _, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("OIDC.Verify() error = %v, wantErr %v", err, tt.wantErr)
 			}

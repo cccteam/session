@@ -40,17 +40,5 @@ type UserRoleManager interface {
 	DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error
 }
 
-// GroupsProvider supplies the Google Groups a user is a member of, identified by group
-// email address. It is the role-claim substitute for Google OIDC: Google ID tokens
-// carry no roles or groups claim, so role synchronization looks group membership up at
-// login through this seam (see GoogleRoleSync). googlegroups.Directory (Admin SDK
-// Directory API, direct memberships, every Workspace edition) is the provided
-// implementation.
-type GroupsProvider interface {
-	// UserGroups returns the email addresses of the groups the user is a direct member
-	// of, lowercased.
-	UserGroups(ctx context.Context, email string) ([]string, error)
-}
-
 // LogHandler defines the handler signature required for handling logs.
 type LogHandler = basesession.LogHandler

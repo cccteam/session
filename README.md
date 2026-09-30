@@ -131,14 +131,13 @@ Two layers, one enforced by Google and one by this library:
 ### Constructing
 
 ```go
-// Directory-driven roles: Google Groups membership is fetched at login through a
-// GroupsProvider and mapped to role names by a group naming convention.
-groups, err := googlegroups.NewDirectory(ctx, credentialsJSON, "groups-reader@example.com")
-if err != nil { ... }
-
+// Directory-driven roles: at login, the person's Google Groups are read with their own
+// access token and mapped to role names by a group naming convention (see "The group
+// naming convention"). DirectGroups is the default lookup; session.ParseGroupLookup
+// reads the setting ("direct" or "nested") from configuration.
 oidcSession, err := session.NewOIDCGoogle[session.NoCustomData, session.NoCustomData](
     storage, // sessionstorage.NewSpannerGoogleOIDC / NewPostgresGoogleOIDC
-    session.GoogleRoleSync(userRoleManager, domainsFn, "app-myapp-", groups),
+    session.GoogleRoleSync(userRoleManager, domainsFn, "app-myapp-", session.DirectGroups()),
     cookieKey, clientID, clientSecret, redirectURL,
     "example.com", // hostedDomain — required
 )
@@ -173,17 +172,43 @@ The candidates then flow through the same reconcile logic as Azure's token roles
 for which a role exists are assigned, held roles not among them are removed, and the
 login is rejected unless at least one recognized role results. Group emails are
 lowercase by nature, so define application roles intended for Google sync with
-lowercase names. Membership is resolved through the `GroupsProvider` seam:
+lowercase names.
 
-- `googlegroups.NewDirectory` (provided): Admin SDK Directory API, available on every
-  Workspace edition, **direct memberships only** (role groups should hold people, not
-  other groups — matching Entra's direct-only App Role resolution). It authenticates as
-  a service account with domain-wide delegation on the
-  `admin.directory.group.readonly` scope, impersonating an account whose only admin
-  privilege is *Groups → Read* (a custom admin role; no Super Admin).
-- A `CloudIdentity` adapter (transitive expansion via `searchTransitiveGroups`) is
-  deliberately reserved for the future: that API requires Workspace Enterprise /
-  Cloud Identity Premium, enforced per queried member.
+Membership is read at login through Google's Cloud Identity Groups API, with the
+signing-in person's own access token. An access token is the credential that lets the
+application call a Google API as that person. The library gets it by asking for one
+extra OAuth scope, in addition to `openid`, `email` and `profile`:
+`https://www.googleapis.com/auth/cloud-identity.groups.readonly`. A scope names one
+permission the application asks the person for. The token is used for the lookup once
+and never stored. No administrator credential is involved: no service account (a
+Google account for software rather than a person), no domain-wide delegation (a
+setting that lets such an account act as anyone in the organization), and no admin
+role.
+
+The last argument of `GoogleRoleSync` is a `session.GroupLookup`, which sets how far
+the lookup reaches. It has two values:
+
+- `session.DirectGroups()` (the default): one call. Only the groups the person is
+  directly assigned to count, however the directory is nested (role groups should then
+  hold people, not other groups — matching Entra's direct-only App Role resolution).
+- `session.NestedGroups()`: the groups those groups are in count too, level by level,
+  up to 10 levels. Each level is one round of calls to Google, so a deeply nested
+  directory makes login slower. `DirectGroups` restores the one call.
+
+`session.ParseGroupLookup(value)` reads the setting from configuration: `direct` or
+`nested`, in any letter case, with surrounding space ignored. An empty value means
+`DirectGroups`. Any other value is an error, so a misspelled setting stops the
+application when it constructs its auth.
+
+Google returns only the groups whose member list the person may view. A group whose
+member list the person may not view is hidden: Google leaves it out, so that one
+membership does not count. A hidden group never fails the lookup; the login goes ahead
+with the groups Google returned. Two rules follow for your organization's groups:
+
+- A group grants a role only if its *who can view members* setting includes the
+  group's members.
+- With `NestedGroups`, a hidden group hides everything above it, because the lookup
+  cannot pass through it to the groups it is in.
 
 A groups-lookup failure fails the login — the same posture as a role-store error.
 

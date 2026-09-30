@@ -75,7 +75,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 			}
 
 			got := claims{}
-			returnURL, err := o.Verify(ctx, httptest.NewRecorder(), callback, &got)
+			returnURL, _, err := o.Verify(ctx, httptest.NewRecorder(), callback, &got)
 			if err != nil {
 				t.Fatalf("OIDC.Verify() error = %v", err)
 			}
@@ -96,7 +96,7 @@ func TestOIDC_Verify_requiresTheOIDCCookie(t *testing.T) {
 	callback := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/auth/callback", http.NoBody)
 
 	var got map[string]any
-	if _, err := o.Verify(t.Context(), httptest.NewRecorder(), callback, &got); err == nil {
+	if _, _, err := o.Verify(t.Context(), httptest.NewRecorder(), callback, &got); err == nil {
 		t.Error("OIDC.Verify() without the OIDC cookie error = nil, want error")
 	}
 }

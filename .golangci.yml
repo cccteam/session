@@ -59,9 +59,8 @@ linters:
             - $all
           allow:
             - aidanwoods.dev/go-paseto
-            - cloud.google.com/go/spanner
             - cloud.google.com/go/compute/metadata
-            - google.golang.org/api/impersonate
+            - cloud.google.com/go/spanner
             - github.com/cccteam
             - github.com/coreos/go-oidc/v3
             - github.com/georgysavva/scany/v2
@@ -81,7 +80,8 @@ linters:
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
-            - google.golang.org/api/admin/directory/v1
+            - golang.org/x/sync/errgroup
+            - google.golang.org/api/cloudidentity/v1
             - google.golang.org/api/iterator
             - google.golang.org/api/option
             - google.golang.org/grpc/codes

@@ -108,15 +108,15 @@ func TestOIDCGoogleSessionLogin(t *testing.T) {
 
 // googleVerifyWithClaims mirrors verifyWithClaims for the Google Authenticator, whose
 // Verify returns no OIDC session ID (Google issues no sid claim).
-func googleVerifyWithClaims(t *testing.T, rawClaims string) func(context.Context, http.ResponseWriter, *http.Request, interface{}) (string, error) {
+func googleVerifyWithClaims(t *testing.T, rawClaims string) func(context.Context, http.ResponseWriter, *http.Request, interface{}) (string, string, error) {
 	t.Helper()
 
-	return func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, error) {
+	return func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
 		if err := json.Unmarshal([]byte(rawClaims), claims); err != nil {
 			t.Fatalf("failed to unmarshal claims: %v", err)
 		}
 
-		return "testReturnUrl", nil
+		return "testReturnUrl", "", nil
 	}
 }
 
@@ -128,32 +128,32 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		domains         []accesstypes.Domain
 		domainsErr      error
 		disableRoleSync bool
-		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_googleoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_session.MockGroupsProvider, *mock_sessionstorage.MockGoogleOIDCStore)
+		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_googleoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *fakeGroups, *mock_sessionstorage.MockGoogleOIDCStore)
 		wantErr         bool
 		wantRedirectURL string
 	}{
 		{
 			name: "fails to verify callback request",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain"))).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain"))).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=not_workspace_member",
 		},
 		{
 			name: "fails to unmarshal claims",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				// Verify succeeds but never populates the raw claims (nil payload).
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", nil).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "", nil).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name: "missing email claim is rejected",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"sub": "sub-1"}`)).Times(1)
 			},
@@ -162,11 +162,11 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "groups lookup failure fails the login before any role calls",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				// No UserRoleManager expectations: a groups failure must abort before the sweep.
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return(nil, errors.New("groups API unavailable")).Times(1)
+				g.err = errors.New("groups API unavailable")
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
@@ -174,11 +174,11 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "unauthorized when no group maps to a recognized role",
 			domains: []accesstypes.Domain{"testDomain1"},
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				// Only unrelated groups: no candidate role names, so no RoleExists calls.
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"team-eng@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"team-eng@example.com"}
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{}, nil).Times(1)
 			},
 			wantErr:         true,
@@ -187,10 +187,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "aborts the sync when RoleExists returns an error",
 			domains: []accesstypes.Domain{"testDomain1"},
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, _ *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {"admin"}}, nil).Times(1)
 				// A store error must abort the sync: no AddUserRoles/DeleteUserRoles
 				// expectations — flattening the error to false would sweep the admin role.
@@ -202,10 +202,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "fails to create new session",
 			domains: []accesstypes.Domain{"testDomain1"},
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
@@ -218,10 +218,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
 			domains: []accesstypes.Domain{"testDomain1"},
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
@@ -234,10 +234,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "custom session data resolver refuses with its own code, which rides to the login page",
 			domains: []accesstypes.Domain{"testDomain1"},
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
 				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
@@ -250,7 +250,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:            "role sync disabled: login proceeds with no groups or role calls",
 			disableRoleSync: true,
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				// No GroupsProvider or UserRoleManager expectations: with role sync
 				// disabled, neither the lookup nor the reconciliation runs.
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
@@ -263,11 +263,11 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 		{
 			name:    "success authenticating via OIDC callback",
 			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *mock_session.MockGroupsProvider, s *mock_sessionstorage.MockGoogleOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				rawClaims := `{"email": "user@example.com", "sub": "sub-1", "hd": "example.com"}`
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, rawClaims)).Times(1)
 				// Two role groups and one unrelated group: candidates are admin, viewer.
-				g.EXPECT().UserGroups(gomock.Any(), "user@example.com").Return([]string{"app-myapp-admin@example.com", "app-myapp-viewer@example.com", "team-eng@example.com"}, nil).Times(1)
+				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com", "app-myapp-viewer@example.com", "team-eng@example.com"}
 				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ string, claims json.RawMessage) (ccc.UUID, error) {
 						// The full verified claims payload must reach storage untouched.
@@ -304,7 +304,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			user := mock_session.NewMockUserRoleManager(ctrl)
-			groups := mock_session.NewMockGroupsProvider(ctrl)
+			groups := newFakeGroups()
 			authenticator := mock_googleoidc.NewMockAuthenticator(ctrl)
 			sessionStorage := newGoogleOIDCStoreMock(ctrl)
 			c := mock_cookie.NewMockHandler(ctrl)
@@ -318,6 +318,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 						},
 					},
 					groupPrefix: "app-myapp-",
+					lookup:      lookupDirect,
 					groups:      groups,
 				}
 			}

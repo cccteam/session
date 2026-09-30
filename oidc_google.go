@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/cloudidentity"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/googleoidc"
 	"github.com/cccteam/session/sessioninfo"
@@ -46,8 +47,9 @@ var _ OIDCGoogleHandlers = &OIDCGoogle[NoCustomData, NoCustomData]{}
 //
 // Role synchronization: Google Workspace has no equivalent of Azure App Roles and its
 // ID tokens carry no roles claim, so the integrated flow sources role names from the
-// directory itself: on every login the user's Google Groups are fetched through the
-// configured GroupsProvider and mapped through a group naming convention
+// directory itself: on every login the user's Google Groups are read through the Cloud
+// Identity Groups API with the user's own access token, as far as the configured
+// GroupLookup reaches, and mapped through a group naming convention
 // (<prefix><role>@domain — see GoogleRoleSync). The reconciliation semantics then match
 // the Azure flow exactly: mapped names for which a role exists are assigned (where a
 // role of that name exists), any role the user currently holds that is NOT among them
@@ -81,7 +83,7 @@ type OIDCGoogle[SessionData, UserData any] struct {
 // built for the same SessionData and UserData; a mismatch is a construction error.
 // Custom user data requires the OIDC user anchor (sessionstorage.WithOIDCUsers).
 // roleSync: role-synchronization configuration — session.GoogleRoleSync(manager,
-// domains, groupPrefix, groups) to enable, session.DisableRoleSync() to disable; see
+// domains, groupPrefix, lookup) to enable, session.DisableRoleSync() to disable; see
 // OIDCGoogle for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes of
 // cryptographically secure random data.
@@ -94,7 +96,7 @@ func NewOIDCGoogle[SessionData, UserData any](
 	options ...OIDCGoogleOption,
 ) (*OIDCGoogle[SessionData, UserData], error) {
 	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, domains, groupPrefix, groups) or session.DisableRoleSync()")
+		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, domains, groupPrefix, lookup) or session.DisableRoleSync()")
 	}
 	roleSyncCfg := roleSync.googleConfig()
 	if roleSyncCfg != nil {
@@ -104,8 +106,8 @@ func NewOIDCGoogle[SessionData, UserData any](
 		if roleSyncCfg.groupPrefix == "" {
 			return nil, errors.New("session.GoogleRoleSync() requires a non-empty groupPrefix: it is the only filter separating role groups from the rest of the directory")
 		}
-		if roleSyncCfg.groups == nil {
-			return nil, errors.New("session.GoogleRoleSync() requires a non-nil GroupsProvider")
+		if roleSyncCfg.lookup == lookupUnset {
+			return nil, errors.New("session.GoogleRoleSync() requires a group lookup: session.DirectGroups() or session.NestedGroups()")
 		}
 	}
 	if hostedDomain == "" {
@@ -132,7 +134,13 @@ func NewOIDCGoogle[SessionData, UserData any](
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
 
-	oidc := googleoidc.New(cookieClient, clientID, clientSecret, redirectURL, hostedDomain)
+	// With role sync on, the sign-in also asks for the groups scope, so the access token
+	// Verify hands back can read the person's own groups.
+	var scopes []string
+	if roleSyncCfg != nil {
+		scopes = []string{cloudidentity.Scope}
+	}
+	oidc := googleoidc.New(cookieClient, clientID, clientSecret, redirectURL, hostedDomain, scopes...)
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
 		CookieHandler:  cookieClient,
@@ -244,7 +252,7 @@ func (o *OIDCGoogle[T, U]) CallbackOIDC() http.HandlerFunc {
 		// Capture the full verified claims payload so a configured custom session data
 		// resolver receives every claim, then decode the fields this handler needs.
 		var rawClaims json.RawMessage
-		returnURL, err := o.oidc.Verify(ctx, w, r, &rawClaims)
+		returnURL, accessToken, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
 			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
@@ -268,7 +276,7 @@ func (o *OIDCGoogle[T, U]) CallbackOIDC() http.HandlerFunc {
 		// leaves a live session or auth cookie behind. With role sync disabled the
 		// reconciliation and its at-least-one-role gate are skipped entirely.
 		if o.roleSync != nil {
-			roleNames, err := o.roleSync.roleNames(ctx, claims.Email)
+			roleNames, err := o.roleSync.roleNames(ctx, claims.Email, accessToken)
 			if err != nil {
 				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
