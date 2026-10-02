@@ -15,7 +15,7 @@ require (
 	github.com/cccteam/ccc/resource v0.10.2
 	github.com/cccteam/ccc/securehash v0.0.13
 	github.com/cccteam/ccc/tracer v0.1.6
-	github.com/cccteam/db-initiator v0.3.17-0.20261001191422-ff48523b81bd
+	github.com/cccteam/db-initiator v0.4.0
 	github.com/cccteam/httpio v0.7.17
 	github.com/cccteam/logger v0.1.27
 	github.com/cccteam/spxscan v0.0.14
