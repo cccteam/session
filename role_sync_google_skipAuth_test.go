@@ -25,7 +25,7 @@ func TestGoogleRoleSyncConfig_roleNames_simulatedGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("APP_ROLES", tt.roles)
 
-			got, err := GoogleRoleSync(nil, nil, tt.prefix, DirectGroups()).googleConfig().roleNames(t.Context(), "user@example.com", "")
+			got, err := GoogleRoleSync(nil, tt.prefix, DirectGroups()).googleConfig().roleNames(t.Context(), "user@example.com", "")
 			if err != nil {
 				t.Fatalf("googleRoleSyncConfig.roleNames() error = %v", err)
 			}
@@ -54,7 +54,7 @@ func TestGoogleRoleSyncConfig_roleFromGroup_simulated(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := GoogleRoleSync(nil, nil, "app-", DirectGroups()).googleConfig().roleFromGroup(tt.group)
+			got, ok := GoogleRoleSync(nil, "app-", DirectGroups()).googleConfig().roleFromGroup(tt.group)
 			if got != tt.want || ok != tt.ok {
 				t.Errorf("googleRoleSyncConfig.roleFromGroup(%q) = %q, %v; want %q, %v", tt.group, got, ok, tt.want, tt.ok)
 			}
@@ -65,7 +65,7 @@ func TestGoogleRoleSyncConfig_roleFromGroup_simulated(t *testing.T) {
 func TestGoogleRoleSync_readsTheSimulation(t *testing.T) {
 	t.Parallel()
 
-	cfg := GoogleRoleSync(nil, nil, "app-", DirectGroups()).googleConfig()
+	cfg := GoogleRoleSync(nil, "app-", DirectGroups()).googleConfig()
 	if _, ok := cfg.groups.(simulatedGroups); !ok {
 		t.Errorf("GoogleRoleSync() reads groups through %T, want the APP_ROLES simulation", cfg.groups)
 	}

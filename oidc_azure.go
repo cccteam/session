@@ -42,21 +42,14 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // is removed. The login is rejected as Unauthorized unless the token yields at least
 // one recognized role.
 //
-// DESIGN LIMITATION — role synchronization is domain-blind: the token's roles are
-// applied identically in every swept domain where the role name exists (the sweep
-// covers the global scope plus the domains from the configured
-// DomainsProvider — see RoleSync).
-//
-// Use this flow when:
-//   - the application is single-tenant, or
-//   - the application is multi-tenant but a user's roles should apply uniformly
-//     across all tenants.
-//
-// Do NOT rely on this flow's role synchronization when strict multi-tenancy is
-// required (different roles per domain, e.g. Admin in tenant A but Viewer in tenant
-// B). Encoding tenancy into AD groups (Admin_TenantA, …) leads to an unmaintainable
-// explosion of groups; per-domain roles should instead be managed inside the
-// application, with OIDC role synchronization disabled.
+// A person's directory roles apply in every tenant alike: a global role is held in
+// the global partition and a domain default role is held in every tenant domain, so
+// the sync writes each membership once, where the role is held, and it reaches every
+// tenant, the ones that exist today and the ones created later. A tenant-specific
+// role (Admin in tenant A but Viewer in tenant B) is the application's business: a
+// custom role and a membership held in one domain, written by the application. The
+// sync removes any membership the directory does not name, a membership held in one
+// domain included.
 //
 // Because the reconciliation removes roles absent from the token, application-side
 // role assignment cannot coexist with this flow — any manually assigned role would be
@@ -64,11 +57,10 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // IdP-driven (this flow) or application-driven, never both for the same app.
 //
 // Role synchronization is configured through the required RoleSyncConfig
-// constructor slot: RoleSync(manager, domains) enables the flow above, sweeping
-// the global scope plus the domains returned by the application's
-// DomainsProvider; DisableRoleSync() disables role maintenance during login
-// entirely — no roles are read, written, or removed, and the at-least-one-role
-// login gate does not apply (application-managed roles, or no roles at all).
+// constructor slot: RoleSync(manager) enables the flow above; DisableRoleSync()
+// disables role maintenance during login entirely — no roles are read, written,
+// or removed, and the at-least-one-role login gate does not apply
+// (application-managed roles, or no roles at all).
 type OIDCAzure[SessionData, UserData any] struct {
 	roleSync    *roleSyncConfig
 	oidc        azureoidc.Authenticator
@@ -84,8 +76,8 @@ type OIDCAzure[SessionData, UserData any] struct {
 // mismatch is a construction error. Custom user data on OIDC storage requires the OIDC
 // user anchor (sessionstorage.WithOIDCUsers) — without it there is no durable user
 // record to attach the data to.
-// roleSync: role-synchronization configuration — session.RoleSync(manager, domains)
-// to enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
+// roleSync: role-synchronization configuration — session.RoleSync(manager) to
+// enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewOIDCAzure[SessionData, UserData any](
@@ -95,7 +87,7 @@ func NewOIDCAzure[SessionData, UserData any](
 	options ...OIDCAzureOption,
 ) (*OIDCAzure[SessionData, UserData], error) {
 	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.RoleSync(manager, domains) or session.DisableRoleSync()")
+		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")
 	}
 	roleSyncCfg := roleSync.config()
 	if roleSyncCfg != nil && roleSyncCfg.manager == nil {

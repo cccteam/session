@@ -42,7 +42,7 @@ func (m *MockUserRoleManager) EXPECT() *MockUserRoleManagerMockRecorder {
 }
 
 // AddUserRoles mocks base method.
-func (m *MockUserRoleManager) AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserRoleManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -61,7 +61,7 @@ func (mr *MockUserRoleManagerMockRecorder) AddUserRoles(ctx, scope, user any, ro
 }
 
 // DeleteUserRoles mocks base method.
-func (m *MockUserRoleManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserRoleManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -80,7 +80,7 @@ func (mr *MockUserRoleManagerMockRecorder) DeleteUserRoles(ctx, scope, user any,
 }
 
 // RoleExists mocks base method.
-func (m *MockUserRoleManager) RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (m *MockUserRoleManager) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, scope, role)
 	ret0, _ := ret[0].(bool)
@@ -95,7 +95,7 @@ func (mr *MockUserRoleManagerMockRecorder) RoleExists(ctx, scope, role any) *gom
 }
 
 // UserRoles mocks base method.
-func (m *MockUserRoleManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error) {
+func (m *MockUserRoleManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, user}
 	for _, a := range scopes {

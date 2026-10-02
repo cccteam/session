@@ -115,8 +115,9 @@ func ParseGroupLookup(value string) (GroupLookup, error) {
 // Cloud Identity Groups API with the person's own access token, as far as lookup
 // reaches (DirectGroups or NestedGroups), mapped through the prefix, and reconciled
 // exactly like Azure's token role claims: candidate names for which a role exists are
-// assigned, roles the user holds that are absent are removed, and the login is rejected
-// unless at least one recognized role results.
+// assigned where the role is held (the global partition for a global role, every tenant
+// domain for a domain role), roles the user holds that are absent are removed wherever
+// they are held, and the login is rejected unless at least one recognized role results.
 //
 // Google answers only the groups whose member list the person may view, so a group
 // grants a role only when its "who can view members" setting includes its members; a
@@ -125,13 +126,9 @@ func ParseGroupLookup(value string) (GroupLookup, error) {
 //
 // Group emails are lowercase by nature, so derived role names are lowercase — define
 // the application roles intended for Google sync with lowercase names.
-//
-// The domains provider is required alongside the manager because there is no safe
-// universal default for the sweep list (see RoleSync); global-only applications pass a
-// nil provider.
-func GoogleRoleSync(manager UserRoleManager, domains DomainsProvider, groupPrefix string, lookup GroupLookup) GoogleRoleSyncConfig {
+func GoogleRoleSync(manager UserRoleManager, groupPrefix string, lookup GroupLookup) GoogleRoleSyncConfig {
 	cfg := &googleRoleSyncConfig{
-		roleSyncConfig: roleSyncConfig{manager: manager, domains: domains},
+		roleSyncConfig: roleSyncConfig{manager: manager},
 		groupPrefix:    strings.ToLower(groupPrefix),
 		groups:         defaultGroupsReader(),
 	}

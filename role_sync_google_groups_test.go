@@ -25,7 +25,7 @@ func TestGoogleRoleSyncConfig_roleNames_noSimulatedGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := GoogleRoleSync(nil, nil, tt.prefix, DirectGroups()).googleConfig()
+			cfg := GoogleRoleSync(nil, tt.prefix, DirectGroups()).googleConfig()
 			groups := newFakeGroups()
 			groups.direct["user@example.com"] = tt.groups
 			cfg.groups = groups
@@ -44,7 +44,7 @@ func TestGoogleRoleSyncConfig_roleNames_noSimulatedGroups(t *testing.T) {
 func TestGoogleRoleSync_readsThroughCloudIdentity(t *testing.T) {
 	t.Parallel()
 
-	cfg := GoogleRoleSync(nil, nil, "app-", DirectGroups()).googleConfig()
+	cfg := GoogleRoleSync(nil, "app-", DirectGroups()).googleConfig()
 	if _, ok := cfg.groups.(cloudidentity.Lookup); !ok {
 		t.Errorf("GoogleRoleSync() reads groups through %T, want cloudidentity.Lookup", cfg.groups)
 	}

@@ -1,10 +1,8 @@
 package session
 
 import (
-	"context"
 	"testing"
 
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/mock/mock_session"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -70,7 +68,7 @@ func TestGoogleRoleSyncConfig_roleNames(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			cfg := GoogleRoleSync(mock_session.NewMockUserRoleManager(ctrl), nil, tt.groupPrefix, DirectGroups()).googleConfig()
+			cfg := GoogleRoleSync(mock_session.NewMockUserRoleManager(ctrl), tt.groupPrefix, DirectGroups()).googleConfig()
 			groups := newFakeGroups()
 			groups.direct["user@example.com"] = tt.groups
 			groups.err = tt.groupsErr
@@ -135,7 +133,7 @@ func TestNewOIDCGoogle_validation(t *testing.T) {
 		{
 			name: "GoogleRoleSync with a nil manager is a construction error",
 			roleSync: func(UserRoleManager) GoogleRoleSyncConfig {
-				return GoogleRoleSync(nil, nil, "app-myapp-", DirectGroups())
+				return GoogleRoleSync(nil, "app-myapp-", DirectGroups())
 			},
 			hostedDomain: "example.com",
 			wantErr:      true,
@@ -143,7 +141,7 @@ func TestNewOIDCGoogle_validation(t *testing.T) {
 		{
 			name: "GoogleRoleSync with an empty group prefix is a construction error",
 			roleSync: func(manager UserRoleManager) GoogleRoleSyncConfig {
-				return GoogleRoleSync(manager, nil, "", DirectGroups())
+				return GoogleRoleSync(manager, "", DirectGroups())
 			},
 			hostedDomain: "example.com",
 			wantErr:      true,
@@ -151,7 +149,7 @@ func TestNewOIDCGoogle_validation(t *testing.T) {
 		{
 			name: "GoogleRoleSync with no group lookup is a construction error",
 			roleSync: func(manager UserRoleManager) GoogleRoleSyncConfig {
-				return GoogleRoleSync(manager, nil, "app-myapp-", nil)
+				return GoogleRoleSync(manager, "app-myapp-", nil)
 			},
 			hostedDomain: "example.com",
 			wantErr:      true,
@@ -159,17 +157,15 @@ func TestNewOIDCGoogle_validation(t *testing.T) {
 		{
 			name: "empty hostedDomain is a construction error",
 			roleSync: func(manager UserRoleManager) GoogleRoleSyncConfig {
-				return GoogleRoleSync(manager, nil, "app-myapp-", DirectGroups())
+				return GoogleRoleSync(manager, "app-myapp-", DirectGroups())
 			},
 			hostedDomain: "",
 			wantErr:      true,
 		},
 		{
-			name: "GoogleRoleSync with manager, prefix, lookup, and domains constructs",
+			name: "GoogleRoleSync with manager, prefix and lookup constructs",
 			roleSync: func(manager UserRoleManager) GoogleRoleSyncConfig {
-				return GoogleRoleSync(manager, func(context.Context) ([]accesstypes.Domain, error) {
-					return []accesstypes.Domain{"tenant1"}, nil
-				}, "app-myapp-", NestedGroups())
+				return GoogleRoleSync(manager, "app-myapp-", NestedGroups())
 			},
 			hostedDomain: "example.com",
 		},
@@ -213,7 +209,7 @@ func TestGoogleRoleSyncConfig_userGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := GoogleRoleSync(nil, nil, "app-", tt.lookup).googleConfig()
+			cfg := GoogleRoleSync(nil, "app-", tt.lookup).googleConfig()
 			groups := newFakeGroups()
 			groups.direct["user@example.com"] = []string{"app-admin@example.com"}
 			groups.nested["user@example.com"] = []string{"app-admin@example.com", "app-viewer@example.com"}

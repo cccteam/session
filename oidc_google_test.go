@@ -123,10 +123,12 @@ func googleVerifyWithClaims(t *testing.T, rawClaims string) func(context.Context
 func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 	t.Parallel()
 
+	global := accesstypes.GlobalPolicyScope()
+	every := accesstypes.EveryDomainPolicyScope()
+	tenant := accesstypes.DomainPolicyScope("testDomain1")
+
 	tests := []struct {
 		name            string
-		domains         []accesstypes.Domain
-		domainsErr      error
 		disableRoleSync bool
 		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_googleoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *fakeGroups, *mock_sessionstorage.MockGoogleOIDCStore)
 		wantErr         bool
@@ -165,83 +167,78 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
-				// No UserRoleManager expectations: a groups failure must abort before the sweep.
+				// No UserRoleManager expectations: a groups failure must abort before any role call.
 				g.err = errors.New("groups API unavailable")
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "unauthorized when no group maps to a recognized role",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "unauthorized when no group maps to a recognized role",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				// Only unrelated groups: no candidate role names, so no RoleExists calls.
 				g.direct["user@example.com"] = []string{"team-eng@example.com"}
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{}, nil).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=no_roles",
 		},
 		{
-			name:    "aborts the sync when RoleExists returns an error",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "aborts the sync when RoleExists returns an error",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {"admin"}}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{every: {"admin"}}, nil).Times(1)
 				// A store error must abort the sync: no AddUserRoles/DeleteUserRoles
-				// expectations — flattening the error to false would sweep the admin role.
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, errors.New("store blip")).Times(1)
+				// expectations — flattening the error to false would remove the admin role.
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("admin")).Return(false, errors.New("store blip")).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "fails to create new session",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "fails to create new session",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("admin")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("admin")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("admin")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("admin")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, httpio.NewBadRequestMessage("user is not provisioned")).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=login_refused",
 		},
 		{
-			name:    "custom session data resolver refuses with its own code, which rides to the login page",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "custom session data resolver refuses with its own code, which rides to the login page",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, `{"email": "user@example.com"}`)).Times(1)
 				g.direct["user@example.com"] = []string{"app-myapp-admin@example.com"}
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("admin")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("admin")).Return(true, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("admin")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("admin")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("user@example.com"), []accesstypes.Role{"admin"}).Return(nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "user@example.com", gomock.Any()).Return(ccc.NilUUID, sessioninfo.NewLoginRefusal(sessioninfo.LoginRefusalCode("not_provisioned"), httpio.NewBadRequestMessage("user is not provisioned"))).Times(1)
 			},
 			wantErr:         true,
@@ -261,8 +258,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			wantRedirectURL: "/testReturnUrl",
 		},
 		{
-			name:    "success authenticating via OIDC callback",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "success authenticating via OIDC callback",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, g *fakeGroups, s *mock_sessionstorage.MockGoogleOIDCStore) {
 				rawClaims := `{"email": "user@example.com", "sub": "sub-1", "hd": "example.com"}`
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(googleVerifyWithClaims(t, rawClaims)).Times(1)
@@ -278,22 +274,23 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 					}).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(accesstypes.RoleCollection{
-					accesstypes.DomainScope("testDomain1"):   {"stale", "admin"},
-					accesstypes.DomainScope("test domain 2"): {"viewer"},
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("user@example.com")).Return(accesstypes.RoleCollection{
+					every:  {"stale", "admin"},
+					tenant: {"viewer"},
 				}, nil).Times(1)
 
-				// global (implicitly swept; none of the mapped roles exist there)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), gomock.Any()).Return(false, nil).Times(2)
+				// The global partition: neither candidate is a global role.
+				u.EXPECT().RoleExists(gomock.Any(), global, gomock.Any()).Return(false, nil).Times(2)
 
-				// testDomain1: admin and viewer exist; admin already held, stale removed
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), gomock.Any()).Return(true, nil).Times(2)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), []accesstypes.Role{"viewer"}).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("user@example.com"), accesstypes.Role("stale")).Return(nil).Times(1)
+				// Every tenant domain: admin and viewer are domain roles; admin is already
+				// held, viewer is added, and stale is not the directory's and goes.
+				u.EXPECT().RoleExists(gomock.Any(), every, gomock.Any()).Return(true, nil).Times(2)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("user@example.com"), []accesstypes.Role{"viewer"}).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), every, accesstypes.User("user@example.com"), accesstypes.Role("stale")).Return(nil).Times(1)
 
-				// test domain 2: only viewer exists and is already held
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("admin")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("viewer")).Return(true, nil).Times(1)
+				// One tenant domain: the viewer held there is not where the directory's
+				// viewer is held (every tenant domain), so it goes.
+				u.EXPECT().DeleteUserRoles(gomock.Any(), tenant, accesstypes.User("user@example.com"), accesstypes.Role("viewer")).Return(nil).Times(1)
 			},
 			wantRedirectURL: "/testReturnUrl",
 		},
@@ -311,15 +308,10 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			var rs *googleRoleSyncConfig
 			if !tt.disableRoleSync {
 				rs = &googleRoleSyncConfig{
-					roleSyncConfig: roleSyncConfig{
-						manager: user,
-						domains: func(context.Context) ([]accesstypes.Domain, error) {
-							return tt.domains, tt.domainsErr
-						},
-					},
-					groupPrefix: "app-myapp-",
-					lookup:      lookupDirect,
-					groups:      groups,
+					roleSyncConfig: roleSyncConfig{manager: user},
+					groupPrefix:    "app-myapp-",
+					lookup:         lookupDirect,
+					groups:         groups,
 				}
 			}
 			a := &OIDCGoogle[NoCustomData, NoCustomData]{

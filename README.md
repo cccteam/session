@@ -60,22 +60,23 @@ designed for organizations that manage roles centrally in the directory. The rol
 names come from the provider's native mechanism — Azure delivers them in the token's
 `roles` claim (App Role ↔ group assignments); Google has no such claim, so the Google
 flow derives them from Google Groups membership at login (see the "Google Workspace
-OIDC" section). See the `OIDCAzure` and `OIDCGoogle` godoc for the full semantics and
-their multi-tenancy limitations.
+OIDC" section). See the `OIDCAzure` and `OIDCGoogle` godoc for the full semantics.
 
-The `NewOIDCAzure` constructor takes a required role-sync slot that
-configures the feature as one unit — the role store together with the domain sweep
-list:
+A membership is written where the role is held. A global role is held in the global
+partition, and a domain role is held in every tenant domain, so one membership reaches
+every tenant, the ones that exist today and the ones created later; the sync keeps no
+list of tenants. A membership the directory does not name is removed wherever it is
+held, a membership in one tenant domain included, so an application that writes its own
+memberships (a tenant-specific role, say) runs with role synchronization disabled.
+
+The `NewOIDCAzure` constructor takes a required role-sync slot that enables or disables
+the feature:
 
 ```go
-// Enabled: reconcile against the global domain plus the app's tenant domains.
-// The domains provider is called at every login, so tenants created between
-// logins are included. Global-only apps pass a nil provider.
+// Enabled: reconcile the user's memberships to the token's roles at every login.
 oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
     storage,
-    session.RoleSync(userRoleManager, func(ctx context.Context) ([]accesstypes.Domain, error) {
-        return app.TenantDomains(ctx) // the app owns the tenant table
-    }),
+    session.RoleSync(userRoleManager),
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 
@@ -87,19 +88,22 @@ oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomD
 )
 ```
 
-The sweep list is deliberately a required, explicit input rather than an option with a
-default: there is no safe universal default for a multi-tenant application — a
-global-only default would compile and log users in while silently never assigning (or
-sweeping) their tenant-domain roles. `accesstypes.GlobalDomain` is always included
-implicitly; the provider returns tenant domains only.
+`session.UserRoleManager` is the role store surface the sync needs, and the access
+package's `UserManager` satisfies it. Each method names where a membership is held with
+an `accesstypes.PolicyScope`: `accesstypes.GlobalPolicyScope()` is the global partition
+and `accesstypes.EveryDomainPolicyScope()` is every tenant domain, the two places the
+sync writes. `UserRoles` called with no scopes lists every membership the user holds,
+keyed by where each is held, which is how the sync finds a stale membership in one
+tenant domain. `RoleExists` errors must be returned, never flattened to "role missing":
+the sync removes what the directory does not name, so a swallowed store error would
+delete a valid membership on a transient fault.
 
-Migrating from the previous two-parameter shape (`NewOIDCAzure(storage,
-userRoleManager, ...)`): wrap the manager in `session.RoleSync(manager, domainsFn)` —
-the manager no longer supplies the domain list (`Domains` left the `UserRoleManager`
-interface, and `RoleExists` now returns `(bool, error)`; its errors abort the sync
-rather than being flattened to "role missing", which would delete valid memberships on
-a transient store error). Replace `session.DisableUserRoleManagement()` with
-`session.DisableRoleSync()` — note that unlike the old disabled manager, it also
+Migrating from the shape that took a domains provider (`session.RoleSync(manager,
+domainsFn)` and `session.GoogleRoleSync(manager, domainsFn, ...)`): drop the provider,
+since the sync no longer keeps a list of tenants, and give the manager the
+`accesstypes.PolicyScope` signatures above. Older code that passed the manager straight
+to `NewOIDCAzure` wraps it in `session.RoleSync(manager)`, and
+`session.DisableUserRoleManagement()` becomes `session.DisableRoleSync()`, which also
 disables the at-least-one-role login gate.
 
 ## Google Workspace OIDC
@@ -137,7 +141,7 @@ Two layers, one enforced by Google and one by this library:
 // reads the setting ("direct" or "nested") from configuration.
 oidcSession, err := session.NewOIDCGoogle[session.NoCustomData, session.NoCustomData](
     storage, // sessionstorage.NewSpannerGoogleOIDC / NewPostgresGoogleOIDC
-    session.GoogleRoleSync(userRoleManager, domainsFn, "app-myapp-", session.DirectGroups()),
+    session.GoogleRoleSync(userRoleManager, "app-myapp-", session.DirectGroups()),
     cookieKey, clientID, clientSecret, redirectURL,
     "example.com", // hostedDomain — required
 )
@@ -443,7 +447,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 
 oidcSession, err := session.NewOIDCAzure[SessionClaims, session.NoCustomData](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
-    session.RoleSync(userRoleManager, tenantDomains), // see "OIDC role synchronization"
+    session.RoleSync(userRoleManager), // see "OIDC role synchronization"
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 ```
@@ -727,7 +731,7 @@ oidcSession, err := session.NewOIDCAzure[SessionClaims, UserProfile](
         sessionstorage.WithOIDCUsers(), // the anchor is required for OIDC user data
         sessionstorage.WithSpannerCustomSessionData(sessCfg),
         sessionstorage.WithSpannerCustomUserData(userCfg)),
-    session.RoleSync(userRoleManager, tenantDomains),
+    session.RoleSync(userRoleManager),
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 ```

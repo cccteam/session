@@ -56,10 +56,12 @@ var _ OIDCGoogleHandlers = &OIDCGoogle[NoCustomData, NoCustomData]{}
 // is removed, and the login is rejected as Unauthorized unless at least one recognized
 // role results. A groups-lookup failure fails the login.
 //
-// DESIGN LIMITATION — role synchronization is domain-blind: the mapped roles are
-// applied identically in every swept domain where the role name exists (the sweep
-// covers the global scope plus the domains from the configured DomainsProvider — see
-// GoogleRoleSync). The multi-tenancy guidance on OIDCAzure applies unchanged.
+// A person's directory roles apply in every tenant alike: a global role is held in
+// the global partition and a domain default role is held in every tenant domain, so
+// the sync writes each membership once, where the role is held. A tenant-specific
+// role is the application's business, a custom role and a membership held in one
+// domain, written by the application; the sync removes any membership the directory
+// does not name. The guidance on OIDCAzure applies unchanged.
 //
 // Because the reconciliation removes roles absent from the directory, application-side
 // role assignment cannot coexist with this flow — role management must be either
@@ -83,7 +85,7 @@ type OIDCGoogle[SessionData, UserData any] struct {
 // built for the same SessionData and UserData; a mismatch is a construction error.
 // Custom user data requires the OIDC user anchor (sessionstorage.WithOIDCUsers).
 // roleSync: role-synchronization configuration — session.GoogleRoleSync(manager,
-// domains, groupPrefix, lookup) to enable, session.DisableRoleSync() to disable; see
+// groupPrefix, lookup) to enable, session.DisableRoleSync() to disable; see
 // OIDCGoogle for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes of
 // cryptographically secure random data.
@@ -96,7 +98,7 @@ func NewOIDCGoogle[SessionData, UserData any](
 	options ...OIDCGoogleOption,
 ) (*OIDCGoogle[SessionData, UserData], error) {
 	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, domains, groupPrefix, lookup) or session.DisableRoleSync()")
+		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, groupPrefix, lookup) or session.DisableRoleSync()")
 	}
 	roleSyncCfg := roleSync.googleConfig()
 	if roleSyncCfg != nil {
