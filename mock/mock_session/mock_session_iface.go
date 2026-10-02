@@ -42,7 +42,7 @@ func (m *MockUserRoleManager) EXPECT() *MockUserRoleManagerMockRecorder {
 }
 
 // AddUserRoles mocks base method.
-func (m *MockUserRoleManager) AddUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserRoleManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -61,7 +61,7 @@ func (mr *MockUserRoleManagerMockRecorder) AddUserRoles(ctx, scope, user any, ro
 }
 
 // DeleteUserRoles mocks base method.
-func (m *MockUserRoleManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Scope, user accesstypes.User, roles ...accesstypes.Role) error {
+func (m *MockUserRoleManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, scope, user}
 	for _, a := range roles {
@@ -80,7 +80,7 @@ func (mr *MockUserRoleManagerMockRecorder) DeleteUserRoles(ctx, scope, user any,
 }
 
 // RoleExists mocks base method.
-func (m *MockUserRoleManager) RoleExists(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (bool, error) {
+func (m *MockUserRoleManager) RoleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RoleExists", ctx, scope, role)
 	ret0, _ := ret[0].(bool)
@@ -95,7 +95,7 @@ func (mr *MockUserRoleManagerMockRecorder) RoleExists(ctx, scope, role any) *gom
 }
 
 // UserRoles mocks base method.
-func (m *MockUserRoleManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.Scope) (accesstypes.RoleCollection, error) {
+func (m *MockUserRoleManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, user}
 	for _, a := range scopes {
@@ -112,43 +112,4 @@ func (mr *MockUserRoleManagerMockRecorder) UserRoles(ctx, user any, scopes ...an
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, user}, scopes...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserRoles", reflect.TypeOf((*MockUserRoleManager)(nil).UserRoles), varargs...)
-}
-
-// MockGroupsProvider is a mock of GroupsProvider interface.
-type MockGroupsProvider struct {
-	ctrl     *gomock.Controller
-	recorder *MockGroupsProviderMockRecorder
-	isgomock struct{}
-}
-
-// MockGroupsProviderMockRecorder is the mock recorder for MockGroupsProvider.
-type MockGroupsProviderMockRecorder struct {
-	mock *MockGroupsProvider
-}
-
-// NewMockGroupsProvider creates a new mock instance.
-func NewMockGroupsProvider(ctrl *gomock.Controller) *MockGroupsProvider {
-	mock := &MockGroupsProvider{ctrl: ctrl}
-	mock.recorder = &MockGroupsProviderMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockGroupsProvider) EXPECT() *MockGroupsProviderMockRecorder {
-	return m.recorder
-}
-
-// UserGroups mocks base method.
-func (m *MockGroupsProvider) UserGroups(ctx context.Context, email string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGroups", ctx, email)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGroups indicates an expected call of UserGroups.
-func (mr *MockGroupsProviderMockRecorder) UserGroups(ctx, email any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGroups", reflect.TypeOf((*MockGroupsProvider)(nil).UserGroups), ctx, email)
 }

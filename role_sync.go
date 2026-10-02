@@ -1,7 +1,10 @@
 package session
 
 import (
+	"cmp"
 	"context"
+	"maps"
+	"slices"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
@@ -10,22 +13,12 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// DomainsProvider returns the set of domains (tenant partitions) that role
-// synchronization reconciles a user's IdP roles across on every login. It is
-// called at each login so tenants created between logins are included.
-//
-// The provider returns tenant domains only: the global scope is always swept
-// implicitly (it is structural — no domain value can address it, so any
-// returned string is just a tenant name). Multi-tenant applications return
-// their tenant domains; global-only applications use a nil provider.
-type DomainsProvider func(ctx context.Context) ([]accesstypes.Domain, error)
-
 // RoleSyncConfig is the required role-synchronization slot on NewOIDCAzure.
-// Role synchronization and its domain sweep list are one capability:
-// construct the slot with RoleSync to enable it, or with DisableRoleSync to
-// run the OIDC flow with role management left entirely to the application.
-// There is no default — see the OIDCAzure documentation for the semantics of
-// each choice. (The Google flow has its own slot: GoogleRoleSyncConfig.)
+// Construct the slot with RoleSync to enable synchronization, or with
+// DisableRoleSync to run the OIDC flow with role management left entirely to
+// the application. There is no default — see the OIDCAzure documentation for
+// the semantics of each choice. (The Google flow has its own slot:
+// GoogleRoleSyncConfig.)
 type RoleSyncConfig interface {
 	// config returns the enabled configuration, or nil when synchronization is
 	// disabled. Unexported: RoleSync and DisableRoleSync are the only
@@ -35,64 +28,44 @@ type RoleSyncConfig interface {
 
 type roleSyncConfig struct {
 	manager UserRoleManager
-	domains DomainsProvider
 }
 
 func (r *roleSyncConfig) config() *roleSyncConfig { return r }
 
-// syncScopes returns the full sweep list for one login: the global scope
-// followed by a tenant scope for each of the provider's domains. Tenant names
-// are pure data — no value can address the global partition, so no rejection
-// is needed.
-func (r *roleSyncConfig) syncScopes(ctx context.Context) ([]accesstypes.Scope, error) {
-	scopes := []accesstypes.Scope{accesstypes.GlobalScope()}
-	if r.domains == nil {
-		return scopes, nil
-	}
-
-	appDomains, err := r.domains(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "session.DomainsProvider")
-	}
-	for _, d := range appDomains {
-		scopes = append(scopes, accesstypes.DomainScope(d))
-	}
-
-	return scopes, nil
+// writeScopes returns the places the sync writes a membership: the global
+// partition, where a global role is held, and every tenant domain, where a
+// domain role is held. The sync asks RoleExists in these two places only and
+// keeps no list of tenants, since a membership held in every domain reaches
+// each tenant on its own, the ones created later included.
+func writeScopes() []accesstypes.PolicyScope {
+	return []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()}
 }
 
-// reconcile ensures that the user is assigned to the specified roles ONLY, sweeping
-// every scope from syncScopes. It returns true if the user has at least one assigned
-// role (after the operation is complete).
+// reconcile ensures that the user holds the named roles ONLY: a name that is a
+// role in the global partition is held there, a name that is a role in every
+// tenant domain is held there (a name may be both), and a membership the
+// directory does not name is removed wherever it is held, a membership in one
+// tenant domain included, since the directory is the authority and a membership
+// it does not name does not survive a login. It returns true if the user holds
+// at least one recognized role once the operation is complete.
 // A RoleExists error aborts the sync: flattening it to false would land an existing
 // valid role in removeRoles and delete the user's membership on a transient store blip.
 func (r *roleSyncConfig) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	scopes, err := r.syncScopes(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	existingRoles, err := r.manager.UserRoles(ctx, username, scopes...)
+	existing, err := r.manager.UserRoles(ctx, username)
 	if err != nil {
 		return false, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
 
-	for _, scope := range scopes {
-		var rolesToAssign []accesstypes.Role
-		for _, name := range roleNames {
-			exists, err := r.manager.RoleExists(ctx, scope, accesstypes.Role(name))
-			if err != nil {
-				return false, errors.Wrap(err, "UserRoleManager.RoleExists()")
-			}
-			if exists {
-				rolesToAssign = append(rolesToAssign, accesstypes.Role(name))
-			}
-		}
+	wanted, err := r.wantedRoles(ctx, roleNames)
+	if err != nil {
+		return false, err
+	}
 
-		newRoles := util.Exclude(rolesToAssign, existingRoles[scope])
+	for _, scope := range writeScopes() {
+		newRoles := util.Exclude(wanted[scope], existing[scope])
 		if len(newRoles) > 0 {
 			if err := r.manager.AddUserRoles(ctx, scope, username, newRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.AddUserRoles()")
@@ -100,39 +73,97 @@ func (r *roleSyncConfig) reconcile(ctx context.Context, username accesstypes.Use
 			logger.FromCtx(ctx).Infof("User %s assigned to roles %v in scope %s", username, newRoles, scope)
 		}
 
-		removeRoles := util.Exclude(existingRoles[scope], rolesToAssign)
+		hasRole = hasRole || len(wanted[scope]) > 0
+	}
+
+	for _, scope := range heldScopes(existing) {
+		removeRoles := util.Exclude(existing[scope], wanted[scope])
 		if len(removeRoles) > 0 {
 			if err := r.manager.DeleteUserRoles(ctx, scope, username, removeRoles...); err != nil {
 				return false, errors.Wrap(err, "UserRoleManager.DeleteUserRoles()")
 			}
 			logger.FromCtx(ctx).Infof("User %s removed from roles %v in scope %s", username, removeRoles, scope)
 		}
-
-		hasRole = hasRole || len(rolesToAssign) > 0
 	}
 
 	return hasRole, nil
+}
+
+// wantedRoles maps each place the sync writes to the candidate names that are
+// roles there, in candidate order: a name that exists in the global partition
+// is wanted there, a name that exists in every tenant domain is wanted there,
+// a name that exists in both is wanted in both, and a name that exists in
+// neither is ignored. A RoleExists error is returned as is, never read as
+// "missing".
+func (r *roleSyncConfig) wantedRoles(ctx context.Context, roleNames []string) (map[accesstypes.PolicyScope][]accesstypes.Role, error) {
+	wanted := make(map[accesstypes.PolicyScope][]accesstypes.Role)
+	for _, name := range roleNames {
+		for _, scope := range writeScopes() {
+			exists, err := r.manager.RoleExists(ctx, scope, accesstypes.Role(name))
+			if err != nil {
+				return nil, errors.Wrap(err, "UserRoleManager.RoleExists()")
+			}
+			if exists {
+				wanted[scope] = append(wanted[scope], accesstypes.Role(name))
+			}
+		}
+	}
+
+	return wanted, nil
+}
+
+// heldScopes lists the places the user holds a membership, in a fixed order so
+// the removals are applied and logged the same way on every login: the global
+// partition, then every tenant domain, then the one-domain places by domain.
+func heldScopes(existing accesstypes.RoleCollection) []accesstypes.PolicyScope {
+	scopes := slices.Collect(maps.Keys(existing))
+	slices.SortFunc(scopes, comparePolicyScopes)
+
+	return scopes
+}
+
+// comparePolicyScopes orders the global partition before every tenant domain
+// before the one-domain places, the one-domain places by domain, and places
+// on different axes by axis.
+func comparePolicyScopes(a, b accesstypes.PolicyScope) int {
+	if c := cmp.Compare(scopeRank(a), scopeRank(b)); c != 0 {
+		return c
+	}
+	domainA, _ := a.Domain()
+	domainB, _ := b.Domain()
+	if c := cmp.Compare(domainA, domainB); c != 0 {
+		return c
+	}
+
+	return cmp.Compare(a.Axis(), b.Axis())
+}
+
+// scopeRank is the position of a kind of place in heldScopes' order.
+func scopeRank(scope accesstypes.PolicyScope) int {
+	switch {
+	case scope.IsGlobal():
+		return 0
+	case scope.IsEveryDomain():
+		return 1
+	default:
+		return 2
+	}
 }
 
 type disabledRoleSync struct{}
 
 func (disabledRoleSync) config() *roleSyncConfig { return nil }
 
-// RoleSync enables IdP-driven role synchronization for the OIDC Azure flow: on
-// every login the user's roles are reconciled to the token's role claims across
-// the global scope plus a tenant scope for every domain returned by the
-// provider, and the login is rejected unless the token yields at least one
-// recognized role.
+// RoleSync enables directory-driven role synchronization for the OIDC Azure
+// flow: on every login the user's memberships are reconciled to the roles the
+// token names. A global role is held in the global partition and a domain role
+// in every tenant domain, and a membership the directory does not name —
+// wherever it is held — is removed. The login is rejected unless at least one
+// recognized role results.
 //
-// The provider is required alongside the manager because there is no safe
-// universal default for the sweep list: a global-only default in a multi-tenant
-// application would log users in while silently never assigning (or sweeping)
-// their tenant-domain roles. Global-only applications pass a nil provider.
-//
-// See the OIDCAzure documentation for the full synchronization semantics and
-// their multi-tenancy limitations.
-func RoleSync(manager UserRoleManager, domains DomainsProvider) RoleSyncConfig {
-	return &roleSyncConfig{manager: manager, domains: domains}
+// See the OIDCAzure documentation for the full synchronization semantics.
+func RoleSync(manager UserRoleManager) RoleSyncConfig {
+	return &roleSyncConfig{manager: manager}
 }
 
 // DisabledRoleSyncConfig is the type returned by DisableRoleSync. It satisfies

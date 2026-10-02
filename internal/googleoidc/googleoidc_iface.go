@@ -13,9 +13,11 @@ type Authenticator interface {
 	// Verify performs the necessary verification and processing of the OIDC callback
 	// request, including the hosted-domain (hd claim) and verified-email checks.
 	// It populates 'claims' with the ID Token's claims and returns the URL to redirect
-	// to following successful authentication. Google issues no sid claim, so no OIDC
+	// to following successful authentication, together with the access token the code
+	// exchange produced, which carries the scopes New was given: the caller uses it once,
+	// for the group lookup, and never stores it. Google issues no sid claim, so no OIDC
 	// session ID is returned.
-	Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL string, err error)
+	Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, accessToken string, err error)
 
 	// LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
 	LoginURL() string

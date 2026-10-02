@@ -17,10 +17,12 @@ type Session struct {
 	Expired   bool      `spanner:"Expired"   db:"Expired"`
 }
 
-// SessionData pairs a Session with optional custom session data.
+// SessionData pairs a Session with optional custom session data and, for an
+// impersonated session, its impersonation record (nil otherwise).
 type SessionData struct {
 	*Session
-	CustomData any
+	CustomData    any
+	Impersonation *Impersonation
 }
 
 // InsertSession defines the structure for inserting new session data into the database.

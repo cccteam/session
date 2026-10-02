@@ -11,6 +11,7 @@ import (
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidcloader"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
@@ -74,7 +75,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
 	}
 	if !ok {
-		return "", "", httpio.NewForbiddenMessage("No OIDC cookie")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 
@@ -83,35 +84,35 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	state, err := cval.GetString(internalcookie.OIDCState)
 	if err != nil {
-		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
 	}
 	// Validate state parameter
 	if r.URL.Query().Get("state") != state {
-		return "", "", httpio.NewForbiddenMessage("Invalid 'state' parameter value")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
 	}
 
 	verifier, err := cval.GetString(internalcookie.OIDCPkceVerifier)
 	if err != nil {
-		return "", "", httpio.NewForbiddenMessage("Invalid 'pkceVerifier' parameter value")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidPKCE, httpio.NewForbiddenMessage("Invalid 'pkceVerifier' parameter value"))
 	}
 	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
-		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange, httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token"))
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		return "", "", httpio.NewInternalServerErrorMessage("No id_token in token response")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoIDToken, httpio.NewInternalServerErrorMessage("No id_token in token response"))
 	}
 
 	idToken, err := provider.Verify(ctx, rawIDToken)
 	if err != nil {
-		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedIDTokenVerification, httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token"))
 	}
 
 	// Extract the claims from the ID Token
 	if err := idToken.Claims(&claims); err != nil {
-		return "", "", httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims"))
 	}
 
 	sid = r.URL.Query().Get("session_state")

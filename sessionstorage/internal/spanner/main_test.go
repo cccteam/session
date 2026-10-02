@@ -78,17 +78,17 @@ func runAssertions(ctx context.Context, t *testing.T, db *spanner.Client, assert
 				return nil
 			})
 		if err != nil {
-			t.Errorf("spanner.RowIterator.Do(): Assertion %d for test %q failed. %v", i+1, t.Name(), err)
+			t.Errorf("spanner.RowIterator.Do(): Assertion %d for test %q failed. %v\n%s", i+1, t.Name(), err, query)
 
 			continue
 		}
 		if rows != 1 {
-			t.Errorf("Assertion %d for test %q returned %d rows, expected 1", i+1, t.Name(), rows)
+			t.Errorf("Assertion %d for test %q returned %d rows, expected 1\n%s", i+1, t.Name(), rows, query)
 
 			continue
 		}
 		if !isTrue {
-			t.Errorf("Assertion %d for test %q failed", i+1, t.Name())
+			t.Errorf("Assertion %d for test %q failed: the query returned false\n%s", i+1, t.Name(), query)
 		}
 	}
 }
