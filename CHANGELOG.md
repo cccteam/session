@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/cccteam/session/compare/v0.11.1...v0.12.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* Replace the OIDC userRoleManager param with a required RoleSync slot ([#241](https://github.com/cccteam/session/issues/241))
+
+### Features
+
+* Add Google Workspace OIDC as a first-class login provider ([#243](https://github.com/cccteam/session/issues/243)) ([294e5b1](https://github.com/cccteam/session/commit/294e5b1cfe522e2bdcad7fc6559aabe207768d2a))
+* Impersonated sessions — sessions that operate as a user or a role ([#249](https://github.com/cccteam/session/issues/249)) ([0d5de33](https://github.com/cccteam/session/commit/0d5de3386f092e985223244d0524954a3f18a047))
+* Replace the OIDC userRoleManager param with a required RoleSync slot ([#241](https://github.com/cccteam/session/issues/241)) ([941264d](https://github.com/cccteam/session/commit/941264dc4586fc1f5fdd240015e73c0632656eeb))
+
 ## [0.11.1](https://github.com/cccteam/session/compare/v0.11.0...v0.11.1) (2026-09-02)
 
 
