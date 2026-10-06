@@ -23,6 +23,55 @@ All three session types are generic over two data axes: `PasswordAuth[SessionDat
 so no user-data axis). An application that uses neither instantiates with the
 `NoCustomData` sentinel: `session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
 
+## OIDC role synchronization
+
+Role synchronization reconciles a user's application roles to their ID token's role
+claims on every OIDC login: roles named in the token are assigned (where a role of that
+name exists), roles the user holds that are NOT in the token are removed, and the login
+is rejected unless the token yields at least one recognized role. It is designed for
+organizations that manage roles centrally through Active Directory group/app-role
+assignments. See the `OIDCAzure` godoc for the full semantics and their
+multi-tenancy limitations.
+
+The `NewOIDCAzure` constructor takes a required role-sync slot that
+configures the feature as one unit — the role store together with the domain sweep
+list:
+
+```go
+// Enabled: reconcile against the global domain plus the app's tenant domains.
+// The domains provider is called at every login, so tenants created between
+// logins are included. Global-only apps pass a nil provider.
+oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
+    storage,
+    session.RoleSync(userRoleManager, func(ctx context.Context) ([]accesstypes.Domain, error) {
+        return app.TenantDomains(ctx) // the app owns the tenant table
+    }),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+)
+
+// Disabled (application-managed roles, or no roles at all): no roles are read,
+// written, or removed at login, and the at-least-one-role gate does not apply.
+oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
+    storage, session.DisableRoleSync(),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+)
+```
+
+The sweep list is deliberately a required, explicit input rather than an option with a
+default: there is no safe universal default for a multi-tenant application — a
+global-only default would compile and log users in while silently never assigning (or
+sweeping) their tenant-domain roles. `accesstypes.GlobalDomain` is always included
+implicitly; the provider returns tenant domains only.
+
+Migrating from the previous two-parameter shape (`NewOIDCAzure(storage,
+userRoleManager, ...)`): wrap the manager in `session.RoleSync(manager, domainsFn)` —
+the manager no longer supplies the domain list (`Domains` left the `UserRoleManager`
+interface, and `RoleExists` now returns `(bool, error)`; its errors abort the sync
+rather than being flattened to "role missing", which would delete valid memberships on
+a transient store error). Replace `session.DisableUserRoleManagement()` with
+`session.DisableRoleSync()` — note that unlike the old disabled manager, it also
+disables the at-least-one-role login gate.
+
 ## Custom session data
 
 Custom session data attaches app-specific values to a session — a selected tenant, a role
@@ -185,7 +234,8 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 
 oidcSession, err := session.NewOIDCAzure[SessionClaims, session.NoCustomData](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
-    userRoleManager, cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+    session.RoleSync(userRoleManager, tenantDomains), // see "OIDC role synchronization"
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 ```
 
@@ -458,7 +508,8 @@ oidcSession, err := session.NewOIDCAzure[SessionClaims, UserProfile](
         sessionstorage.WithOIDCUsers(), // the anchor is required for OIDC user data
         sessionstorage.WithSpannerCustomSessionData(sessCfg),
         sessionstorage.WithSpannerCustomUserData(userCfg)),
-    userRoleManager, cookieKey, issuerURL, clientID, clientSecret, redirectURL,
+    session.RoleSync(userRoleManager, tenantDomains),
+    cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
 ```
 
