@@ -1,5 +1,4 @@
-// provider contains interfaces for safely accessing an OIDC Provider
-package loader
+package oidcloader
 
 import (
 	"reflect"
@@ -14,6 +13,7 @@ func TestNew(t *testing.T) {
 		clientID     string
 		clientSecret string
 		redirectURL  string
+		scopes       []string
 	}
 	tests := []struct {
 		name string
@@ -27,19 +27,21 @@ func TestNew(t *testing.T) {
 				clientID:     "clientID",
 				clientSecret: "clientSecret",
 				redirectURL:  "https://example.com/redirect",
+				scopes:       []string{"openid", "profile"},
 			},
 			want: &loader{
 				issuerURL:    "https://example.com",
 				clientID:     "clientID",
 				clientSecret: "clientSecret",
 				redirectURL:  "https://example.com/redirect",
+				scopes:       []string{"openid", "profile"},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := New(tt.args.issuerURL, tt.args.clientID, tt.args.clientSecret, tt.args.redirectURL); !reflect.DeepEqual(got, tt.want) {
+			if got := New(tt.args.issuerURL, tt.args.clientID, tt.args.clientSecret, tt.args.redirectURL, tt.args.scopes); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("New() = %v, want %v", got, tt.want)
 			}
 		})

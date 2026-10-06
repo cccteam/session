@@ -19,6 +19,10 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if s.googleOIDC {
+		return ccc.NilUUID, errors.New("InsertSessionOIDC called on a Google OIDC storage driver")
+	}
+
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
@@ -31,6 +35,37 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 			($1, $2, $3, $4, $5, $6)
 		`, s.sessionTableName)
 	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+
+	if err := s.execSessionInsertOIDC(ctx, id, query, args, req); err != nil {
+		return ccc.NilUUID, err
+	}
+
+	return id, nil
+}
+
+// InsertSessionGoogleOIDC inserts a Google OIDC Session into the database and returns
+// its id. Google issues no sid claim, so the session row carries no OidcSid. It honors
+// the request's custom session data semantics exactly like InsertSessionOIDC.
+func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.googleOIDC {
+		return ccc.NilUUID, errors.New("InsertSessionGoogleOIDC called on a non-Google OIDC storage driver")
+	}
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO "%s"
+			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
+		VALUES
+			($1, $2, $3, $4, $5)
+		`, s.sessionTableName)
+	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
 	if err := s.execSessionInsertOIDC(ctx, id, query, args, req); err != nil {
 		return ccc.NilUUID, err
@@ -63,7 +98,7 @@ func (s *SessionStorageDriver) execSessionInsertOIDC(ctx context.Context, id ccc
 		_ = txn.Rollback(ctx)
 	}()
 
-	if err := s.upsertOIDCUser(ctx, txn, req); err != nil {
+	if err := s.upsertAnchor(ctx, txn, req); err != nil {
 		return err
 	}
 

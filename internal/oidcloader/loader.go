@@ -1,5 +1,5 @@
-// Package loader contains interfaces for safely accessing an OIDC Provider.
-package loader
+// Package oidcloader contains interfaces for safely accessing an OIDC Provider.
+package oidcloader
 
 import (
 	"context"
@@ -19,18 +19,21 @@ type loader struct {
 	clientID     string
 	clientSecret string
 	redirectURL  string
+	scopes       []string
 
 	mu       sync.RWMutex
 	provider *provider
 }
 
-// New creates a new OIDC loader.
-func New(issuerURL, clientID, clientSecret, redirectURL string) Loader {
+// New creates a new OIDC loader. scopes is the OAuth2 scope set requested at
+// authorization time; it must include the openid scope.
+func New(issuerURL, clientID, clientSecret, redirectURL string, scopes []string) Loader {
 	return &loader{
 		issuerURL:    issuerURL,
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		redirectURL:  redirectURL,
+		scopes:       scopes,
 	}
 }
 
@@ -88,7 +91,7 @@ func (l *loader) newProvider(ctx context.Context) error {
 			ClientSecret: l.clientSecret,
 			RedirectURL:  l.redirectURL,
 			Endpoint:     newProvider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile"},
+			Scopes:       l.scopes,
 		},
 	}
 

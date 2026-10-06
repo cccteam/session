@@ -1,7 +1,9 @@
 package cookie
 
 import (
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -49,6 +51,24 @@ type methods []string
 
 func (vals methods) Contain(s string) bool {
 	return slices.Contains(vals, s)
+}
+
+// SanitizeReturnURL constrains a post-login return URL to a path local to the
+// application, falling back to "/" for anything else. Absolute URLs, scheme-relative
+// "//host" forms, and "/\" forms (browsers normalize the backslash into a second
+// slash) would otherwise let a crafted login link turn the redirect into an open
+// redirect to an attacker's site.
+func SanitizeReturnURL(returnURL string) string {
+	if !strings.HasPrefix(returnURL, "/") ||
+		strings.HasPrefix(returnURL, "//") ||
+		strings.HasPrefix(returnURL, `/\`) {
+		return "/"
+	}
+	if u, err := url.Parse(returnURL); err != nil || u.IsAbs() || u.Host != "" {
+		return "/"
+	}
+
+	return returnURL
 }
 
 // ValidSessionID checks that the sessionID is a valid uuid
