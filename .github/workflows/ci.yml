@@ -15,7 +15,7 @@ jobs:
       security-events: write
     uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
     with:
-      golangci-lint-version: 'v2.11.4'
+      golangci-lint-version: 'v2.12.2'
       build-tags: '["","skipAuth"]'
 
   semantic-titles:

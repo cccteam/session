@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc/securehash"
-	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
 )
@@ -12,9 +11,10 @@ import (
 // CookieOption defines a function signature for setting cookie client options.
 type CookieOption cookie.Option
 
-func (CookieOption) isOIDCAzureOption() {}
-func (CookieOption) isPasswordOption()  {}
-func (CookieOption) isPreauthOption()   {}
+func (CookieOption) isOIDCAzureOption()  {}
+func (CookieOption) isOIDCGoogleOption() {}
+func (CookieOption) isPasswordOption()   {}
+func (CookieOption) isPreauthOption()    {}
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
@@ -39,9 +39,10 @@ func WithXSRFHeaderName(name string) CookieOption {
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)
 
-func (BaseSessionOption) isOIDCAzureOption() {}
-func (BaseSessionOption) isPasswordOption()  {}
-func (BaseSessionOption) isPreauthOption()   {}
+func (BaseSessionOption) isOIDCAzureOption()  {}
+func (BaseSessionOption) isOIDCGoogleOption() {}
+func (BaseSessionOption) isPasswordOption()   {}
+func (BaseSessionOption) isPreauthOption()    {}
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
 func WithLogHandler(l LogHandler) BaseSessionOption {
@@ -64,7 +65,8 @@ func WithUserTableName(name string) BaseSessionOption {
 	})
 }
 
-// WithOIDCUserTableName sets the name of the OIDC user anchor table. (default: OIDCUsers)
+// WithOIDCUserTableName sets the name of the OIDC user anchor table.
+// (default: OIDCUsers on Azure OIDC storage, GoogleOIDCUsers on Google OIDC storage)
 func WithOIDCUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
 		b.Storage.SetOIDCUserTableName(name)
@@ -80,14 +82,22 @@ func WithSessionTimeout(d time.Duration) BaseSessionOption {
 	})
 }
 
-// OIDCOption defines a function signature for setting OIDC options.
-type OIDCOption func(*azureoidc.OIDC)
+// loginURLSetter is the surface OIDCOption operates on; every provider's
+// authenticator implements it.
+type loginURLSetter interface {
+	SetLoginURL(string)
+}
 
-func (OIDCOption) isOIDCAzureOption() {}
+// OIDCOption defines a function signature for setting OIDC options shared by
+// every OIDC provider.
+type OIDCOption func(loginURLSetter)
+
+func (OIDCOption) isOIDCAzureOption()  {}
+func (OIDCOption) isOIDCGoogleOption() {}
 
 // WithLoginURL sets the LoginURL for the SPA. (default: /login)
 func WithLoginURL(l string) OIDCOption {
-	return OIDCOption(func(b *azureoidc.OIDC) {
+	return OIDCOption(func(b loginURLSetter) {
 		b.SetLoginURL(l)
 	})
 }

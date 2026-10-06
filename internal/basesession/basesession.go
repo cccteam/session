@@ -201,8 +201,10 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 
 		if set && !internalcookie.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
-			// redirect request to try again now that the XSRF Token Cookie is set
-			http.Redirect(w, r, r.RequestURI, http.StatusTemporaryRedirect)
+			// redirect request to try again now that the XSRF Token Cookie is set.
+			// Sanitized because a crafted "//host/path" request URI would otherwise
+			// become a scheme-relative redirect off-site.
+			http.Redirect(w, r, internalcookie.SanitizeReturnURL(r.RequestURI), http.StatusTemporaryRedirect)
 
 			return nil
 		}

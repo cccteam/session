@@ -64,6 +64,19 @@ type OIDCUser struct {
 	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
 }
 
+// GoogleOIDCUser is a library-managed durable user record for Google OIDC logins, keyed
+// by the immutable, globally unique Sub claim with a surrogate UUID primary key. Hd and
+// Username are mutable attributes, updated in place at login when the IdP reports new
+// values.
+type GoogleOIDCUser struct {
+	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
+	Sub       string    `spanner:"Sub"       db:"Sub"`
+	Hd        string    `spanner:"Hd"        db:"Hd"`
+	Username  string    `spanner:"Username"  db:"Username"`
+	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
+	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
+}
+
 // SessionIDColumn is the primary-key column of the custom session data table, referencing the session table's primary key.
 const SessionIDColumn = "SessionId"
 

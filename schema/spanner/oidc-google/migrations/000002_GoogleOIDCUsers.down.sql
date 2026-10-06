@@ -1,0 +1,3 @@
+DROP INDEX GoogleOIDCUsersBySub;
+
+DROP TABLE GoogleOIDCUsers;
