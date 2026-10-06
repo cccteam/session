@@ -12,6 +12,7 @@ package sessionstorage
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	ccc "github.com/cccteam/ccc"
 	securehash "github.com/cccteam/ccc/securehash"
@@ -56,6 +57,21 @@ func (m *Mockdb) ActivateUser(ctx context.Context, id ccc.UUID) error {
 func (mr *MockdbMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*Mockdb)(nil).ActivateUser), ctx, id)
+}
+
+// ActiveImpersonations mocks base method.
+func (m *Mockdb) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*dbtype.Impersonation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
+	ret0, _ := ret[0].([]*dbtype.Impersonation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ActiveImpersonations indicates an expected call of ActiveImpersonations.
+func (mr *MockdbMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*Mockdb)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
 // CreateUser mocks base method.
@@ -158,6 +174,34 @@ func (mr *MockdbMockRecorder) DestroyAllUserSessions(ctx, username any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyAllUserSessions", reflect.TypeOf((*Mockdb)(nil).DestroyAllUserSessions), ctx, username)
 }
 
+// DestroyImpersonatedSession mocks base method.
+func (m *Mockdb) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSession", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSession indicates an expected call of DestroyImpersonatedSession.
+func (mr *MockdbMockRecorder) DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSession", reflect.TypeOf((*Mockdb)(nil).DestroyImpersonatedSession), ctx, sessionID, reason)
+}
+
+// DestroyImpersonatedSessions mocks base method.
+func (m *Mockdb) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
+func (mr *MockdbMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*Mockdb)(nil).DestroyImpersonatedSessions), ctx, actor)
+}
+
 // DestroySession mocks base method.
 func (m *Mockdb) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
 	m.ctrl.T.Helper()
@@ -184,6 +228,20 @@ func (m *Mockdb) DestroySessionOIDC(ctx context.Context, oidcSID string) error {
 func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*Mockdb)(nil).DestroySessionOIDC), ctx, oidcSID)
+}
+
+// EndImpersonation mocks base method.
+func (m *Mockdb) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EndImpersonation indicates an expected call of EndImpersonation.
+func (mr *MockdbMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*Mockdb)(nil).EndImpersonation), ctx, sessionID, reason)
 }
 
 // GoogleOIDCUser mocks base method.
@@ -214,6 +272,50 @@ func (m *Mockdb) GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.G
 func (mr *MockdbMockRecorder) GoogleOIDCUserBySub(ctx, sub any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoogleOIDCUserBySub", reflect.TypeOf((*Mockdb)(nil).GoogleOIDCUserBySub), ctx, sub)
+}
+
+// ImpersonationEnabled mocks base method.
+func (m *Mockdb) ImpersonationEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ImpersonationEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
+func (mr *MockdbMockRecorder) ImpersonationEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*Mockdb)(nil).ImpersonationEnabled))
+}
+
+// InsertImpersonatedSession mocks base method.
+func (m *Mockdb) InsertImpersonatedSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertImpersonatedSession", ctx, insertSession, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertImpersonatedSession indicates an expected call of InsertImpersonatedSession.
+func (mr *MockdbMockRecorder) InsertImpersonatedSession(ctx, insertSession, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertImpersonatedSession", reflect.TypeOf((*Mockdb)(nil).InsertImpersonatedSession), ctx, insertSession, req, imp)
+}
+
+// InsertImpersonatedSessionOIDC mocks base method.
+func (m *Mockdb) InsertImpersonatedSessionOIDC(ctx context.Context, session *dbtype.InsertOIDCSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertImpersonatedSessionOIDC", ctx, session, req, imp)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertImpersonatedSessionOIDC indicates an expected call of InsertImpersonatedSessionOIDC.
+func (mr *MockdbMockRecorder) InsertImpersonatedSessionOIDC(ctx, session, req, imp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertImpersonatedSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertImpersonatedSessionOIDC), ctx, session, req, imp)
 }
 
 // InsertSession mocks base method.

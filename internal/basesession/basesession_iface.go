@@ -10,4 +10,6 @@ type Handlers interface {
 	ValidateSession(next http.Handler) http.Handler
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	EnforceReadOnlyMask(next http.Handler) http.Handler
+	EndImpersonation() http.HandlerFunc
 }

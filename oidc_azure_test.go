@@ -3,11 +3,9 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -17,6 +15,7 @@ import (
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/testkey"
 	"github.com/cccteam/session/mock/mock_azureoidc"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/mock/mock_session"
@@ -27,7 +26,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-const cookieKey = "Rsgb6WsDvBsMQ5IJr2WJjVLCPO+o9WW6SdVktdaaq9O0WFA0Hc/EmJeOwCGV6LIqG8ue3iSZ/lycpv8ZNKvWjWU42hZnlO15vYANZG89R1ncjmu4KStldFuP/r0RFhZa"
+const cookieKey = testkey.CookieKey
 
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
@@ -47,7 +46,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			},
 			wantErr:         true,
 			wantStatusCode:  http.StatusFound,
-			wantRedirectURL: "/login?message=Internal+Server+Error",
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
 			name: "success initiating login",
@@ -105,6 +104,9 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 				if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 					t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
 				}
+				if tt.wantErr {
+					assertRefusalQuery(t, rr.Header().Get("Location"))
+				}
 			}
 		})
 	}
@@ -113,10 +115,12 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 	t.Parallel()
 
+	global := accesstypes.GlobalPolicyScope()
+	every := accesstypes.EveryDomainPolicyScope()
+	tenant := accesstypes.DomainPolicyScope("testDomain1")
+
 	tests := []struct {
 		name            string
-		domains         []accesstypes.Domain
-		domainsErr      error
 		disableRoleSync bool
 		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_azureoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
 		wantErr         bool
@@ -126,10 +130,10 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name: "fails to verify callback request",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", httpio.NewForbiddenMessage("failed to verify callback")).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("failed to verify callback")),
+			wantRedirectURL: "/login?code=invalid_state",
 		},
 		{
 			name: "fails to unmarshal claims",
@@ -139,125 +143,125 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "fails to create new session",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "fails to create new session",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("testRole1")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("testRole1")).Return(true, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 		},
 		{
-			name:    "custom session data resolver abort surfaces its client message with no cookies",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {}}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("testRole1")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.Role("testRole1")).Return(true, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				// No cookie-handler expectations: a resolver abort must not write cookies.
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
 					Return(ccc.NilUUID, httpio.NewBadRequestMessage("user is not provisioned")).Times(1)
 			},
 			wantErr:         true,
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("user is not provisioned")),
+			wantRedirectURL: "/login?code=login_refused",
 		},
 		{
-			name:       "fails to get domains from the provider",
-			domainsErr: errors.New("failed to get domains"),
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			name: "custom session data resolver refuses with its own code, which rides to the login page",
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username"}`)).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				// No cookie-handler expectations: a resolver abort must not write cookies.
+				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
+					Return(ccc.NilUUID, sessioninfo.NewLoginRefusal(sessioninfo.LoginRefusalCode("not_provisioned"), httpio.NewBadRequestMessage("user is not provisioned"))).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
 			wantErr:         true,
+			wantRedirectURL: "/login?code=not_provisioned",
 		},
 		{
-			name:    "fails to get existing user roles",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "fails to get existing user roles",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(nil, errors.New("failed to get user roles")).Times(1)
+				// The sync asks with no scopes: every membership the user holds, wherever held.
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(nil, errors.New("failed to get user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
-			name:    "aborts the sync when RoleExists returns an error",
-			domains: []accesstypes.Domain{"testDomain1"},
+			name: "aborts the sync when RoleExists returns an error",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1")}).Return(accesstypes.RoleCollection{accesstypes.DomainScope("testDomain1"): {"testRole0"}}, nil).Times(1)
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{every: {"testRole0"}}, nil).Times(1)
 				// A store error must abort the sync: no AddUserRoles/DeleteUserRoles
-				// expectations — flattening the error to false would sweep testRole0.
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), accesstypes.Role("testRole1")).Return(false, errors.New("store blip")).Times(1)
+				// expectations — flattening the error to false would remove testRole0.
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, errors.New("store blip")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
-			name:    "fails to add user roles",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "fails to add user roles",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(accesstypes.RoleCollection{
-					accesstypes.DomainScope("testDomain1"):   {"testRole0", "testRole1", "testRole2"},
-					accesstypes.DomainScope("test domain 2"): {"testRole2", "testRole4"},
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
+					every: {"testRole0", "testRole1", "testRole2"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), gomock.Any()).Return(false, nil).Times(4)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), gomock.Any()).Return(true, nil).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(errors.New("failed to add user roles")).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, gomock.Any()).Return(false, nil).Times(4)
+				u.EXPECT().RoleExists(gomock.Any(), every, gomock.Any()).Return(true, nil).Times(4)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(errors.New("failed to add user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
-			name:    "fails to delete user roles",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "fails to delete user roles",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(accesstypes.RoleCollection{
-					accesstypes.DomainScope("testDomain1"):   {"testRole0", "testRole1", "testRole2"},
-					accesstypes.DomainScope("test domain 2"): {"testRole2", "testRole4"},
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
+					every: {"testRole0", "testRole1", "testRole2"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), gomock.Any()).Return(false, nil).Times(4)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), gomock.Any()).Return(true, nil).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(errors.New("failed to delete user roles")).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, gomock.Any()).Return(false, nil).Times(4)
+				u.EXPECT().RoleExists(gomock.Any(), every, gomock.Any()).Return(true, nil).Times(4)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(errors.New("failed to delete user roles")).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Internal Server Error")),
+			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
 		},
 		{
-			name:    "unauthorized due to no assigned roles",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "unauthorized due to no assigned roles",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(accesstypes.RoleCollection{
-					accesstypes.DomainScope("testDomain1"):   {"testRole0", "testRole1", "testRole2"},
-					accesstypes.DomainScope("test domain 2"): {"testRole2", "testRole4"},
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
+					every:  {"testRole0", "testRole1", "testRole2"},
+					tenant: {"testRole2", "testRole4"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).Times(12)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
+				// Nothing the token names is a role in either place, so every membership
+				// goes, the one held in a single tenant domain too, and the login is refused.
+				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).Times(8)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), every, accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), tenant, accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 			},
-			wantRedirectURL: fmt.Sprintf("/login?message=%s", url.QueryEscape("Unauthorized: user has no roles")),
+			wantRedirectURL: "/login?code=no_roles",
 			wantErr:         true,
 		},
 		{
@@ -274,8 +278,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			wantRedirectURL: "/testReturnUrl",
 		},
 		{
-			name:    "success authenticating via OIDC callback",
-			domains: []accesstypes.Domain{"testDomain1", "test domain 2"},
+			name: "success authenticating via OIDC callback",
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				rawClaims := `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
@@ -296,26 +299,32 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 					}).Times(1)
 				c.EXPECT().NewAuthCookie(w, false, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return(cookie.NewValues().Set(internalcookie.SessionID, "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")).Times(1)
 				c.EXPECT().CreateXSRFTokenCookie(w, ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))).Return().Times(1)
-				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username"), []accesstypes.Scope{accesstypes.GlobalScope(), accesstypes.DomainScope("testDomain1"), accesstypes.DomainScope("test domain 2")}).Return(accesstypes.RoleCollection{
-					accesstypes.DomainScope("testDomain1"):   {"testRole0", "testRole1", "testRole2"},
-					accesstypes.DomainScope("test domain 2"): {"testRole2", "testRole4"},
+				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
+					global: {"testRole0"},
+					every:  {"testRole1", "testRole2"},
+					tenant: {"testRole2", "testRole4"},
 				}, nil).Times(1)
 
-				// global (implicitly swept; none of the token roles exist there)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.GlobalScope(), gomock.Any()).Return(false, nil).Times(4)
+				// The global partition: testRole1 is a global role and is added there;
+				// testRole0 is not in the token and goes.
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole2")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole3")).Return(false, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole5")).Return(false, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), global, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
+				u.EXPECT().DeleteUserRoles(gomock.Any(), global, accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(nil).Times(1)
 
-				// testDomain1
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("testDomain1"), gomock.Any()).Return(true, nil).Times(4)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), []accesstypes.Role{"testRole3", "testRole5"}).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("testDomain1"), accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(nil).Times(1)
+				// Every tenant domain: testRole1 is a domain role as well and lands in both
+				// places; testRole2 is already held; testRole3 is added; testRole5 is no role.
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole2")).Return(true, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole3")).Return(true, nil).Times(1)
+				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole5")).Return(false, nil).Times(1)
+				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole3"}).Return(nil).Times(1)
 
-				// test domain 2
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("testRole1")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("testRole2")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("testRole3")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.Role("testRole5")).Return(false, nil).Times(1)
-				u.EXPECT().AddUserRoles(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
-				u.EXPECT().DeleteUserRoles(gomock.Any(), accesstypes.DomainScope("test domain 2"), accesstypes.User("test username"), accesstypes.Role("testRole4")).Return(nil).Times(1)
+				// One tenant domain: the sync never asks RoleExists there, and the
+				// memberships held there are not the directory's, so both go.
+				u.EXPECT().DeleteUserRoles(gomock.Any(), tenant, accesstypes.User("test username"), []accesstypes.Role{"testRole2", "testRole4"}).Return(nil).Times(1)
 			},
 			wantRedirectURL: "/testReturnUrl",
 		},
@@ -331,12 +340,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			c := mock_cookie.NewMockHandler(ctrl)
 			var rs *roleSyncConfig
 			if !tt.disableRoleSync {
-				rs = &roleSyncConfig{
-					manager: user,
-					domains: func(context.Context) ([]accesstypes.Domain, error) {
-						return tt.domains, tt.domainsErr
-					},
-				}
+				rs = &roleSyncConfig{manager: user}
 			}
 			a := &OIDCAzure[NoCustomData, NoCustomData]{
 				roleSync: rs,
@@ -370,6 +374,9 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			}
 			if got := rr.Header().Get("Location"); got != tt.wantRedirectURL {
 				t.Errorf("response.Location = %v, want %v", got, tt.wantRedirectURL)
+			}
+			if tt.wantErr {
+				assertRefusalQuery(t, rr.Header().Get("Location"))
 			}
 		})
 	}

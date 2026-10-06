@@ -65,10 +65,15 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 		return nil, errors.Wrap(err, "db.Session()")
 	}
 
-	return &sessioninfo.SessionData{
+	sessData := &sessioninfo.SessionData{
 		SessionInfo: (*sessioninfo.SessionInfo)(si.Session),
 		CustomData:  si.CustomData,
-	}, nil
+	}
+	if si.Impersonation != nil {
+		sessData.Impersonation = si.Impersonation.ToSessionInfo()
+	}
+
+	return sessData, nil
 }
 
 // UpdateSessionActivity updates the database with the current time for the session activity

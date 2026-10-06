@@ -11,8 +11,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 	"github.com/gofrs/uuid"
 )
@@ -107,7 +109,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
 	}
 	if !ok {
-		return "", "", errors.New("No OIDC cookie")
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
 	}
 	o.cookieClient.DeleteOidcCookie(w)
 

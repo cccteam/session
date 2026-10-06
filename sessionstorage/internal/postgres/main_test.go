@@ -56,12 +56,12 @@ func runAssertions(ctx context.Context, t *testing.T, q Queryer, assertions []st
 	for i, query := range assertions {
 		var isTrue bool
 		if err := q.QueryRow(ctx, query).Scan(&isTrue); err != nil {
-			t.Errorf("pgx.Row.Scan(): Assertion %d for test %q failed. %v", i+1, t.Name(), err)
+			t.Errorf("pgx.Row.Scan(): Assertion %d for test %q failed. %v\n%s", i+1, t.Name(), err, query)
 
 			continue
 		}
 		if !isTrue {
-			t.Errorf("Assertion %d for test %q failed", i+1, t.Name())
+			t.Errorf("Assertion %d for test %q failed: the query returned false\n%s", i+1, t.Name(), query)
 		}
 	}
 }

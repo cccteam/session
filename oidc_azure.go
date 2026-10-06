@@ -3,9 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
@@ -44,21 +42,14 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // is removed. The login is rejected as Unauthorized unless the token yields at least
 // one recognized role.
 //
-// DESIGN LIMITATION — role synchronization is domain-blind: the token's roles are
-// applied identically in every swept domain where the role name exists (the sweep
-// covers the global scope plus the domains from the configured
-// DomainsProvider — see RoleSync).
-//
-// Use this flow when:
-//   - the application is single-tenant, or
-//   - the application is multi-tenant but a user's roles should apply uniformly
-//     across all tenants.
-//
-// Do NOT rely on this flow's role synchronization when strict multi-tenancy is
-// required (different roles per domain, e.g. Admin in tenant A but Viewer in tenant
-// B). Encoding tenancy into AD groups (Admin_TenantA, …) leads to an unmaintainable
-// explosion of groups; per-domain roles should instead be managed inside the
-// application, with OIDC role synchronization disabled.
+// A person's directory roles apply in every tenant alike: a global role is held in
+// the global partition and a domain default role is held in every tenant domain, so
+// the sync writes each membership once, where the role is held, and it reaches every
+// tenant, the ones that exist today and the ones created later. A tenant-specific
+// role (Admin in tenant A but Viewer in tenant B) is the application's business: a
+// custom role and a membership held in one domain, written by the application. The
+// sync removes any membership the directory does not name, a membership held in one
+// domain included.
 //
 // Because the reconciliation removes roles absent from the token, application-side
 // role assignment cannot coexist with this flow — any manually assigned role would be
@@ -66,11 +57,10 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // IdP-driven (this flow) or application-driven, never both for the same app.
 //
 // Role synchronization is configured through the required RoleSyncConfig
-// constructor slot: RoleSync(manager, domains) enables the flow above, sweeping
-// the global scope plus the domains returned by the application's
-// DomainsProvider; DisableRoleSync() disables role maintenance during login
-// entirely — no roles are read, written, or removed, and the at-least-one-role
-// login gate does not apply (application-managed roles, or no roles at all).
+// constructor slot: RoleSync(manager) enables the flow above; DisableRoleSync()
+// disables role maintenance during login entirely — no roles are read, written,
+// or removed, and the at-least-one-role login gate does not apply
+// (application-managed roles, or no roles at all).
 type OIDCAzure[SessionData, UserData any] struct {
 	roleSync    *roleSyncConfig
 	oidc        azureoidc.Authenticator
@@ -86,8 +76,8 @@ type OIDCAzure[SessionData, UserData any] struct {
 // mismatch is a construction error. Custom user data on OIDC storage requires the OIDC
 // user anchor (sessionstorage.WithOIDCUsers) — without it there is no durable user
 // record to attach the data to.
-// roleSync: role-synchronization configuration — session.RoleSync(manager, domains)
-// to enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
+// roleSync: role-synchronization configuration — session.RoleSync(manager) to
+// enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewOIDCAzure[SessionData, UserData any](
@@ -97,7 +87,7 @@ func NewOIDCAzure[SessionData, UserData any](
 	options ...OIDCAzureOption,
 ) (*OIDCAzure[SessionData, UserData], error) {
 	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.RoleSync(manager, domains) or session.DisableRoleSync()")
+		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")
 	}
 	roleSyncCfg := roleSync.config()
 	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
@@ -182,6 +172,21 @@ func (o *OIDCAzure[T, U]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return o.baseSession.ValidateXSRFToken(next)
 }
 
+// EnforceReadOnlyMask refuses non-safe requests from a read-only impersonated session
+// with 403 Forbidden, evidenced as a WriteBlocked event; every other request passes.
+// Place it after ValidateSession. See the "Impersonated sessions" section of the README.
+func (o *OIDCAzure[T, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return o.baseSession.EnforceReadOnlyMask(next)
+}
+
+// EndImpersonation ends the impersonated session (record ended Released) and, for a
+// local actor whose own session is still live, returns the browser to that session; the
+// body's restored flag says whether it did. Route it inside the validated group. See the
+// "Impersonated sessions" section of the README.
+func (o *OIDCAzure[T, U]) EndImpersonation() http.HandlerFunc {
+	return o.baseSession.EndImpersonation()
+}
+
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
 	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -191,7 +196,7 @@ func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
 		returnURL := r.URL.Query().Get("returnUrl")
 		authCodeURL, err := o.oidc.AuthCodeURL(ctx, w, returnURL)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "azureoidc.Authenticator.AuthCodeURL()")
 		}
@@ -223,14 +228,14 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		var rawClaims json.RawMessage
 		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
 		claims := &claims{}
 		if err := json.Unmarshal(rawClaims, claims); err != nil {
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "json.Unmarshal()")
 		}
@@ -241,13 +246,13 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		if o.roleSync != nil {
 			hasRole, err := o.roleSync.reconcile(ctx, accesstypes.User(claims.Username), claims.Roles)
 			if err != nil {
-				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape("Internal Server Error")), http.StatusFound)
+				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 				return errors.Wrap(err, "roleSyncConfig.reconcile()")
 			}
 			if !hasRole {
-				err := httpio.NewUnauthorizedMessage("Unauthorized: user has no roles")
-				http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(httpio.Message(err))), http.StatusFound)
+				err := sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoRoles, httpio.NewUnauthorizedMessage("Unauthorized: user has no roles"))
+				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 				return err
 			}
@@ -259,11 +264,7 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		// written.
 		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID, rawClaims)
 		if err != nil {
-			message := httpio.Message(err)
-			if message == "" {
-				message = "Internal Server Error"
-			}
-			http.Redirect(w, r, fmt.Sprintf("%s?message=%s", o.oidc.LoginURL(), url.QueryEscape(message)), http.StatusFound)
+			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
 
 			return errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}

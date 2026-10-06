@@ -23,6 +23,11 @@ const (
 	// ReasonPreauth indicates a trust-the-caller stepping-stone session with no user
 	// record (e.g. MFA-pending enrollment flows).
 	ReasonPreauth NewSessionReason = "Preauth"
+	// ReasonImpersonation indicates an impersonated session being established
+	// (StartImpersonatedSession): Username is the session's effective identity — the
+	// impersonated user, or the actor for a role principal — and UserID is the
+	// impersonated user's record ID, or the zero UUID for a role principal.
+	ReasonImpersonation NewSessionReason = "Impersonation"
 )
 
 // NewSessionRequest carries the inputs to a new-session creation. It is a struct so

@@ -9,8 +9,8 @@ CREATE TABLE "Sessions"
     "Id" UUID NOT NULL,
     "OidcSid" character varying NOT NULL,
     "Username" character varying NOT NULL,
-    "CreatedAt" timestamp without time zone NOT NULL,
-    "UpdatedAt" timestamp without time zone NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "UpdatedAt" timestamp with time zone NOT NULL,
     "Expired" boolean NOT NULL,
     CONSTRAINT "Sessions_pkey" PRIMARY KEY ("Id")
 );
