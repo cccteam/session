@@ -3,31 +3,14 @@
 package azureoidc
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/oidctest"
 	"github.com/gofrs/uuid"
 	"github.com/google/go-cmp/cmp"
 )
-
-func newTestCookieClient(t *testing.T) *internalcookie.Client {
-	t.Helper()
-
-	key := make([]byte, 64)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatalf("rand.Read() error = %v", err)
-	}
-	client, err := internalcookie.NewCookieClient(base64.StdEncoding.EncodeToString(key))
-	if err != nil {
-		t.Fatalf("internalcookie.NewCookieClient() error = %v", err)
-	}
-
-	return client
-}
 
 func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 	type claims struct {
@@ -74,7 +57,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 			t.Setenv("APP_USERNAME", tt.username)
 			t.Setenv("APP_ROLES", tt.roles)
 
-			o := New(newTestCookieClient(t), "", "", "", "/auth/callback")
+			o := New(oidctest.NewCookieClient(t), "", "", "", "/auth/callback")
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()

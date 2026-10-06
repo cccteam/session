@@ -59,6 +59,7 @@ linters:
             - $all
           allow:
             - aidanwoods.dev/go-paseto
+            - cloud.google.com/go/compute/metadata
             - cloud.google.com/go/spanner
             - github.com/cccteam
             - github.com/coreos/go-oidc/v3
@@ -71,10 +72,16 @@ linters:
             - github.com/gorilla/securecookie
             - github.com/jackc/pgerrcode
             - github.com/jackc/pgx/v5
+            - go.opentelemetry.io/otel
+            - go.opentelemetry.io/otel/attribute
+            - go.opentelemetry.io/otel/sdk/trace
+            - go.opentelemetry.io/otel/sdk/trace/tracetest
+            - go.opentelemetry.io/otel/trace
             - go.uber.org/mock
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
-            - google.golang.org/api/admin/directory/v1
+            - golang.org/x/sync/errgroup
+            - google.golang.org/api/cloudidentity/v1
             - google.golang.org/api/iterator
             - google.golang.org/api/option
             - google.golang.org/grpc/codes
@@ -119,6 +126,9 @@ linters:
       ignore-sigs:
         - .Errorf(
         - errors.New(
+        # A coded login refusal is the module's own error type; attaching the code IS the
+        # wrapping, and the redirect helper reads it back with errors.As.
+        - sessioninfo.NewLoginRefusal(
         - errors.Unwrap(
         - .Wrap(
         - .Wrapf(
@@ -142,13 +152,26 @@ linters:
           - nlreturn
           - scopelint
         path: _test\.go
+      # drivertest is test code shared by the driver packages; it gets the test-file
+      # allowances even though it cannot be a _test.go file.
+      - linters:
+          - funlen
+          - gochecknoglobals
+          - gochecknoinits
+          - goconst
+          - gocyclo
+          - lll
+          - mnd
+          - nlreturn
+          - scopelint
+        path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc_skipAuth(_test)?\.go
+        path: oidc_azure\.go|internal/azureoidc/azureoidc(_skipAuth)?(_test)?\.go
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc\.go|internal/googleoidc/googleoidc_skipAuth\.go
+        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go
         text: email_verified
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
