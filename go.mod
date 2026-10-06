@@ -7,8 +7,6 @@ retract (
 	v0.5.6 // Deprecated due to breaking changes to public interface
 )
 
-replace github.com/golang-migrate/migrate/v4 v4.19.1 => github.com/jtwatson/migrate/v4 v4.19.2-beta.0
-
 require (
 	aidanwoods.dev/go-paseto v1.6.0
 	cloud.google.com/go/spanner v1.95.1
