@@ -74,4 +74,10 @@ type NewSessionRequest struct {
 	// event first and these after it. An event with a zero At records the session's
 	// creation time. Events are written only when the storage has an auth events table.
 	AuthEvents []AuthEvent
+	// Account is the account an Auth sign-in resolved to and how it was resolved. The
+	// storage sets it once the account is known: the sign-in policy and the custom
+	// session data resolver receive it, and it is left on the request when the session
+	// insert returns, whatever its outcome. It is nil while the account resolver runs and
+	// for the legacy session types.
+	Account *SignInAccount
 }

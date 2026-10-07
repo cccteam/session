@@ -42,14 +42,17 @@ type IdentityOutcome int
 
 const (
 	// RejectIdentity refuses the sign-in; Resolution.Refusal says why. It is the zero
-	// value, so an empty Resolution never grants access.
+	// value, so an empty Resolution never grants access. The resolver's own writes in
+	// its transaction are committed (for example a record of the refused attempt).
 	RejectIdentity IdentityOutcome = iota
 	// LinkIdentity links the identity to Resolution.UserID and signs in. The library
 	// refuses this outcome for an account that has a password unless the connection
 	// opted in with Resolution.TrustedForLinking; use RequireConfirmation instead.
 	LinkIdentity
 	// ProvisionAccount creates the account in Resolution.NewUser (password optional),
-	// links the identity to it, runs Resolution.OnProvisioned, and signs in.
+	// links the identity to it, runs Resolution.OnProvisioned, and signs in. The
+	// account and its link are committed before the sign-in policy decides, so they
+	// stay when the policy denies the sign-in or holds it for MFA.
 	ProvisionAccount
 	// RequireConfirmation holds the identity as pending until the user confirms the
 	// password of the existing account Resolution.UserID; then it is linked.
@@ -63,9 +66,10 @@ type Resolution struct {
 	UserID ccc.UUID
 	// NewUser is the account to create for ProvisionAccount.
 	NewUser *InsertSessionUser
-	// OnProvisioned runs inside the session transaction after the account is created,
-	// so the application can create its own rows for the new account. The resolver
-	// closure captures its transaction.
+	// OnProvisioned runs inside the resolver's transaction after the account is
+	// created, so the application can create its own rows for the new account; they
+	// commit with the account, before the sign-in policy and the custom session data
+	// resolver run, which read them. The resolver closure captures its transaction.
 	OnProvisioned func(ctx context.Context, userID ccc.UUID) error
 	// Tenant is the application's tenant key, stored on the identity link.
 	Tenant string
@@ -80,12 +84,14 @@ type Resolution struct {
 type PolicyOutcome int
 
 const (
-	// DenySignIn refuses the sign-in; SignInDecision.Refusal says why. Zero value.
+	// DenySignIn refuses the sign-in; SignInDecision.Refusal says why. Zero value. The
+	// policy's own writes in its transaction are committed (for example an audit row).
 	DenySignIn PolicyOutcome = iota
 	// AllowSignIn establishes the session.
 	AllowSignIn
 	// RequireMFA holds the sign-in as pending until the application completes its MFA
-	// step and calls CompletePending.
+	// step and calls CompletePending. The pending identity names the account, including
+	// one this sign-in provisioned.
 	RequireMFA
 )
 
@@ -97,13 +103,23 @@ type SignInDecision struct {
 }
 
 // SpannerAccountResolver resolves an unlinked external identity (req.Identity) inside
-// the session transaction.
+// the account resolution transaction, the first of a sign-in's two. The transaction
+// commits unless the resolver, OnProvisioned or the storage fails with an error: a
+// RejectIdentity or RequireConfirmation answer commits the resolver's own writes and no
+// session. On Spanner the transaction may be retried, so the resolver may run more than
+// once for one sign-in and must not have side effects outside it.
 type SpannerAccountResolver func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // PostgresAccountResolver is the Postgres variant of SpannerAccountResolver.
 type PostgresAccountResolver func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
-// SpannerSignInPolicy decides a sign-in once req.UserID and req.Identity are known.
+// SpannerSignInPolicy decides a sign-in once req.UserID, req.Identity and req.Account
+// are known, inside the transaction that then inserts the session. The account
+// resolution has committed by then, so the policy reads the account and the rows the
+// resolver and OnProvisioned wrote; req.Account says how the account was found
+// (Provisioned() for one this sign-in created) and the link's tenant. The transaction
+// commits unless the policy or the storage fails with an error: a DenySignIn or
+// RequireMFA answer commits the policy's own writes and no session.
 type SpannerSignInPolicy func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*SignInDecision, error)
 
 // PostgresSignInPolicy is the Postgres variant of SpannerSignInPolicy.

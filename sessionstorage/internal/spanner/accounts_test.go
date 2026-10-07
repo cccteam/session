@@ -2,6 +2,7 @@ package spanner
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -10,6 +11,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/drivertest"
 	"github.com/go-playground/errors/v5"
+	"google.golang.org/grpc/codes"
 )
 
 // TestAccounts runs the shared accounts conformance suite against the Spanner driver,
@@ -21,6 +23,7 @@ func TestAccounts(t *testing.T) {
 		New:             newAccountsInstance,
 		CountAuthEvents: countAuthEvents,
 		DeleteSession:   deleteSession,
+		Recorded:        recorded,
 	})
 }
 
@@ -32,6 +35,8 @@ func accountsSources(schema drivertest.AccountsSchema) []string {
 		return legacy
 	case drivertest.Accounts:
 		return append(legacy, "file://../../../schema/spanner/accounts/migrations")
+	case drivertest.AccountsWithAppTables:
+		return append(legacy, "file://../../../schema/spanner/accounts/migrations", "file://testdata/accounts_test/app_tables")
 	default:
 		panic("unknown schema")
 	}
@@ -58,20 +63,29 @@ func newAccountsInstance(ctx context.Context, t *testing.T, schema drivertest.Ac
 	if cfg.Identities {
 		identities := &IdentitiesConfig{
 			TableName: "SessionIdentities",
-			Resolve: func(ctx context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+			Resolve: func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 				if cfg.Resolve == nil {
 					return nil, nil
 				}
 
-				return cfg.Resolve(ctx, req)
+				return cfg.Resolve(ctx, hookTx{txn}, req)
 			},
 		}
 		if cfg.Policy != nil {
-			identities.Policy = func(ctx context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
-				return cfg.Policy(ctx, req)
+			identities.Policy = func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
+				return cfg.Policy(ctx, hookTx{txn}, req)
 			}
 		}
 		d.SetIdentities(identities)
+	}
+	if cfg.CustomData != nil {
+		d.SetCustomSessionData(&CustomSessionDataConfig{
+			TableName: "SessionCustomData",
+			Codec:     mustCodec(reflect.TypeFor[drivertest.CustomStringData]()),
+			Resolver: func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (any, error) {
+				return cfg.CustomData(ctx, hookTx{txn}, req)
+			},
+		})
 	}
 
 	return &drivertest.AccountsInstance{Driver: d, Raw: conn.Client}
@@ -105,4 +119,64 @@ func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUI
 	if err != nil {
 		t.Fatalf("ReadWriteTransaction() error = %v", err)
 	}
+}
+
+// hookTx is drivertest.HookTx over a hook's read-write transaction.
+type hookTx struct {
+	txn *spanner.ReadWriteTransaction
+}
+
+func (x hookTx) Record(_ context.Context, key, value string) error {
+	m := spanner.InsertOrUpdate("HookRecords", []string{"RecordKey", "RecordValue"}, []any{key, value})
+	if err := x.txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+		return errors.Wrap(err, "txn.BufferWrite()")
+	}
+
+	return nil
+}
+
+func (x hookTx) Recorded(ctx context.Context, key string) (string, bool, error) {
+	row, err := x.txn.ReadRow(ctx, "HookRecords", spanner.Key{key}, []string{"RecordValue"})
+	if spanner.ErrCode(err) == codes.NotFound {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, errors.Wrap(err, "txn.ReadRow()")
+	}
+	var value string
+	if err := row.Column(0, &value); err != nil {
+		return "", false, errors.Wrap(err, "row.Column()")
+	}
+
+	return value, true, nil
+}
+
+func (x hookTx) UserExists(ctx context.Context, userID ccc.UUID) (bool, error) {
+	_, err := x.txn.ReadRow(ctx, "SessionUsers", spanner.Key{userID.String()}, []string{"Id"})
+	if spanner.ErrCode(err) == codes.NotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "txn.ReadRow()")
+	}
+
+	return true, nil
+}
+
+func recorded(ctx context.Context, t *testing.T, raw any, key string) (string, bool) {
+	t.Helper()
+
+	row, err := client(t, raw).Single().ReadRow(ctx, "HookRecords", spanner.Key{key}, []string{"RecordValue"})
+	if spanner.ErrCode(err) == codes.NotFound {
+		return "", false
+	}
+	if err != nil {
+		t.Fatalf("ReadRow() error = %v", err)
+	}
+	var value string
+	if err := row.Column(0, &value); err != nil {
+		t.Fatalf("Column() error = %v", err)
+	}
+
+	return value, true
 }

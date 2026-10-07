@@ -29,11 +29,12 @@ type IdentitiesConfig struct {
 	// TableName is the name of the identities table.
 	TableName string
 	// Resolve decides an external identity that is not linked yet. It runs inside the
-	// session transaction, which retries when Spanner aborts it, so it may run more than
-	// once for one sign-in.
+	// account resolution transaction, which retries when Spanner aborts it, so it may
+	// run more than once for one sign-in.
 	Resolve func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
-	// Policy, when set, decides every sign-in once its account is known (see
-	// dbtype.PolicyApplies). Nil allows.
+	// Policy, when set, decides every sign-in once its account is known and committed
+	// (see dbtype.PolicyApplies), inside the transaction that inserts the session. Nil
+	// allows.
 	Policy func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
 }
 
@@ -171,11 +172,20 @@ func (s *SessionStorageDriver) readAccount(ctx context.Context, txn *spanner.Rea
 }
 
 // insertAccountSession establishes a session for a request that carries a verified
-// identity, in one read-write transaction: it resolves the account (resolveAccount),
-// then inserts the session row with the account's UserId and username, its first auth
-// event, and its custom session data. A refusal or a pending outcome writes nothing.
-// When two first sign-ins of one identity race, the loser's link insert fails on the
-// identities key and the sign-in runs once more, finding the winner's link.
+// identity, in two read-write transactions.
+//
+// The first resolves an external identity's account (resolveIdentity): a linked
+// identity is its account's; an unknown one goes to the account resolver, whose
+// Resolution is acted on. The second decides and inserts (decideAndInsert): it reads the
+// account, refuses a disabled one, runs the sign-in policy, and inserts the session row
+// with its auth events and custom session data. Each commits unless a hook or the
+// driver fails: a refusal or a pending outcome commits the hooks' own writes (and the
+// account resolution) and writes no session. Because the resolution commits first, the
+// policy and the custom session data resolver read the account a sign-in provisioned and
+// the rows OnProvisioned wrote, which a buffered Spanner write would hide from them.
+//
+// req.UserID, req.Username and req.Account are set to the resolved account whatever the
+// outcome, once it is known.
 func (s *SessionStorageDriver) insertAccountSession(ctx context.Context, id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) error {
 	if s.identities == nil {
 		return dbtype.ErrIdentitiesNotConfigured
@@ -184,42 +194,138 @@ func (s *SessionStorageDriver) insertAccountSession(ctx context.Context, id ccc.
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
-	for attempt := 1; ; attempt++ {
+	resolved := *req
+	resolved.Account = nil
+	defer func() { req.UserID, req.Username, req.Account = resolved.UserID, resolved.Username, resolved.Account }()
+
+	source, tenant := sessioninfo.AccountNamed, ""
+	switch {
+	case dbtype.IsExternal(req.Identity):
 		var (
-			pending  *dbtype.PendingSignInError
-			resolved sessioninfo.NewSessionRequest
+			stop error
+			err  error
 		)
-		_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		source, tenant, stop, err = s.resolveIdentity(ctx, &resolved)
+		if err != nil {
+			return err
+		}
+		if stop != nil {
+			return stop
+		}
+		// The resolution is committed: an account it linked or provisioned is reported
+		// even when the decision fails.
+		resolved.Account = &sessioninfo.SignInAccount{ID: resolved.UserID, Username: resolved.Username, Source: source, Tenant: tenant}
+	case req.UserID.IsNil():
+		return errors.New("a password sign-in names its account in req.UserID")
+	}
+
+	return s.decideAndInsert(ctx, id, insertSession, &resolved, source, tenant)
+}
+
+// resolveIdentity is the first transaction of insertAccountSession: it resolves req's
+// external identity to an account, setting req.UserID (and req.Username and
+// req.Account once known), and reports how and the link's tenant. stop is a refusal or a
+// pending confirmation, which commits. When two first sign-ins of one identity race,
+// the loser's link insert fails on the identities key and the resolution runs once
+// more, finding the winner's link.
+func (s *SessionStorageDriver) resolveIdentity(
+	ctx context.Context, req *sessioninfo.NewSessionRequest,
+) (source sessioninfo.AccountSource, tenant string, stop, err error) {
+	base := *req
+	for attempt := 1; ; attempt++ {
+		_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			// Each attempt starts from the caller's request.
-			resolved, pending = *req, nil
+			*req = base
+			var err error
+			source, tenant, stop, err = s.resolveIdentityIn(ctx, txn, req)
 
-			p, err := s.resolveAccount(ctx, txn, &resolved)
-			if err != nil {
-				return err
-			}
-			if p != nil {
-				pending = p
-
-				return p
-			}
-
-			return s.bufferAccountSession(ctx, txn, id, insertSession, &resolved)
+			return err
 		})
 		switch {
-		case pending != nil:
-			return pending
 		case err == nil:
-			req.UserID, req.Username = resolved.UserID, resolved.Username
-
-			return nil
+			return source, tenant, stop, nil
 		case spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername"):
-			return httpio.NewConflictMessagef("username %q already exists", resolved.Username)
+			return "", "", nil, httpio.NewConflictMessagef("username %q already exists", req.Username)
 		case spanner.ErrCode(err) == codes.AlreadyExists && attempt == 1:
 			continue
 		default:
-			return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+			return "", "", nil, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 		}
 	}
+}
+
+// resolveIdentityIn resolves req's external identity inside txn: a linked identity is
+// its account's (its LastUsedAt is touched); an unknown one goes to the account
+// resolver, whose Resolution is acted on (applyResolution).
+func (s *SessionStorageDriver) resolveIdentityIn(
+	ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest,
+) (source sessioninfo.AccountSource, tenant string, stop, err error) {
+	now := time.Now()
+
+	link, err := s.lookupIdentity(ctx, txn, req.Identity.Method, req.Identity.Connection, req.Identity.Subject)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if link != nil {
+		req.UserID = link.UserID
+		touch := spanner.UpdateMap(s.identities.TableName, map[string]any{idColumn: link.ID, "LastUsedAt": now})
+		if err := txn.BufferWrite([]*spanner.Mutation{touch}); err != nil {
+			return "", "", nil, errors.Wrap(err, "txn.BufferWrite()")
+		}
+		if link.Tenant != nil {
+			tenant = *link.Tenant
+		}
+
+		return sessioninfo.AccountExistingLink, tenant, nil, nil
+	}
+
+	res, err := s.identities.Resolve(ctx, txn, req)
+	if err != nil {
+		return "", "", nil, errors.Wrap(err, "IdentitiesConfig.Resolve()")
+	}
+
+	return s.applyResolution(ctx, txn, req, res, now)
+}
+
+// decideAndInsert is the second transaction of insertAccountSession, for req's resolved
+// account: it reads the account, sets req.Account, decides the sign-in
+// (dbtype.DecideSignIn) and, when it goes ahead, buffers the session row, its auth
+// events and its custom session data. A refusal or an MFA wait commits the policy's own
+// writes and is returned.
+func (s *SessionStorageDriver) decideAndInsert(
+	ctx context.Context, id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, source sessioninfo.AccountSource, tenant string,
+) error {
+	base := *req
+	var stop error
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		// Each attempt starts from the resolved request.
+		*req, stop = base, nil
+
+		acct, err := s.readAccount(ctx, txn, req.UserID)
+		if err != nil {
+			return err
+		}
+		req.Account = dbtype.SignInAccount(req, acct, source, tenant)
+
+		var policy func(ctx context.Context) (*dbtype.SignInDecision, error)
+		if s.identities.Policy != nil {
+			policy = func(ctx context.Context) (*dbtype.SignInDecision, error) { return s.identities.Policy(ctx, txn, req) }
+		}
+		stop, err = dbtype.DecideSignIn(ctx, req, acct, policy)
+		switch {
+		case err != nil:
+			return errors.Wrap(err, "dbtype.DecideSignIn()")
+		case stop != nil:
+			return nil
+		}
+
+		return s.bufferAccountSession(ctx, txn, id, insertSession, req)
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return stop
 }
 
 // bufferAccountSession buffers the session row, its first auth event and its custom
@@ -258,132 +364,68 @@ func (s *SessionStorageDriver) bufferAccountSession(
 	return nil
 }
 
-// resolveAccount resolves the account a sign-in establishes a session for, inside txn,
-// and sets req.UserID and req.Username to it. An external identity is looked up by
-// (Method, Connection, Subject): a linked identity is that account's (its LastUsedAt is
-// touched); an unknown one goes to the account resolver, whose Resolution is acted on.
-// A password identity names its account in req.UserID. The account must be enabled.
-// The sign-in policy then decides, when it applies. A pending outcome is returned as
-// the first result; a refusal as an error.
-func (s *SessionStorageDriver) resolveAccount(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.PendingSignInError, error) {
-	var (
-		acct        *dbtype.Account
-		provisioned bool
-		tenant      string
-	)
-	now := time.Now()
-
-	switch {
-	case dbtype.IsExternal(req.Identity):
-		link, err := s.lookupIdentity(ctx, txn, req.Identity.Method, req.Identity.Connection, req.Identity.Subject)
-		if err != nil {
-			return nil, err
-		}
-		if link != nil {
-			req.UserID = link.UserID
-			touch := spanner.UpdateMap(s.identities.TableName, map[string]any{idColumn: link.ID, "LastUsedAt": now})
-			if err := txn.BufferWrite([]*spanner.Mutation{touch}); err != nil {
-				return nil, errors.Wrap(err, "txn.BufferWrite()")
-			}
-
-			break
-		}
-
-		res, err := s.identities.Resolve(ctx, txn, req)
-		if err != nil {
-			return nil, errors.Wrap(err, "IdentitiesConfig.Resolve()")
-		}
-		pending, newAccount, err := s.applyResolution(ctx, txn, req, res, now)
-		if err != nil || pending != nil {
-			return pending, err
-		}
-		acct, provisioned, tenant = newAccount, newAccount != nil, res.Tenant
-	case req.UserID.IsNil():
-		return nil, errors.New("a password sign-in names its account in req.UserID")
-	}
-
-	if acct == nil {
-		var err error
-		if acct, err = s.readAccount(ctx, txn, req.UserID); err != nil {
-			return nil, err
-		}
-	}
-
-	var policy func(ctx context.Context) (*dbtype.SignInDecision, error)
-	if s.identities.Policy != nil {
-		policy = func(ctx context.Context) (*dbtype.SignInDecision, error) { return s.identities.Policy(ctx, txn, req) }
-	}
-
-	pending, err := dbtype.DecideSignIn(ctx, req, acct, provisioned, tenant, policy)
-	if err != nil {
-		return nil, errors.Wrap(err, "dbtype.DecideSignIn()")
-	}
-
-	return pending, nil
-}
-
-// applyResolution acts on the account resolver's answer for an unlinked identity:
-// it links or provisions (buffering the writes and setting req.UserID), or returns the
-// pending confirmation or the refusal. For a provisioned account it returns the new
-// account, which a read inside txn would not yet see.
+// applyResolution acts on the account resolver's answer for an unlinked identity: it
+// links or provisions (buffering the writes and setting req.UserID and, for a
+// provisioned account, req.Username), and reports how and with which tenant; or it
+// returns the pending confirmation or the refusal as stop.
 func (s *SessionStorageDriver) applyResolution(
 	ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest, res *dbtype.Resolution, now time.Time,
-) (*dbtype.PendingSignInError, *dbtype.Account, error) {
+) (source sessioninfo.AccountSource, tenant string, stop, err error) {
 	if res == nil {
 		res = &dbtype.Resolution{}
 	}
 
 	switch res.Outcome {
 	case dbtype.RejectIdentity:
-		return nil, nil, errors.Wrap(dbtype.Refusal(res.Refusal, sessioninfo.RefusedIdentityRejected, dbtype.ErrIdentityRejected, "identity rejected"), "RejectIdentity")
+		return "", "", dbtype.Refusal(res.Refusal, sessioninfo.RefusedIdentityRejected, dbtype.ErrIdentityRejected, "identity rejected"), nil
 	case dbtype.LinkIdentity:
 		acct, err := s.readAccount(ctx, txn, res.UserID)
 		if err != nil {
-			return nil, nil, err
+			return "", "", nil, err
 		}
 		if acct.HasPassword && !res.TrustedForLinking {
-			return nil, nil, errors.Wrap(dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, dbtype.ErrLinkRequiresConfirmation, "identity requires confirmation"), "LinkIdentity")
+			return "", "", dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, dbtype.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 		}
 		if err := s.bufferLink(txn, res.UserID, req.Identity, res.Tenant, now); err != nil {
-			return nil, nil, err
+			return "", "", nil, err
 		}
 		req.UserID = res.UserID
 
-		return nil, acct, nil
+		return sessioninfo.AccountNewLink, res.Tenant, nil, nil
 	case dbtype.ProvisionAccount:
 		if res.NewUser == nil {
-			return nil, nil, errors.New("the account resolver provisioned no account: Resolution.NewUser is nil")
+			return "", "", nil, errors.New("the account resolver provisioned no account: Resolution.NewUser is nil")
 		}
 		user, mutation, err := newUserMutation(s.userTableName, res.NewUser)
 		if err != nil {
-			return nil, nil, err
+			return "", "", nil, err
 		}
 		req.Username = user.Username
 		if err := txn.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
-			return nil, nil, errors.Wrap(err, "txn.BufferWrite()")
+			return "", "", nil, errors.Wrap(err, "txn.BufferWrite()")
 		}
 		if err := s.bufferLink(txn, user.ID, req.Identity, res.Tenant, now); err != nil {
-			return nil, nil, err
+			return "", "", nil, err
 		}
 		req.UserID = user.ID
 		if res.OnProvisioned != nil {
 			if err := res.OnProvisioned(ctx, user.ID); err != nil {
-				return nil, nil, errors.Wrap(err, "Resolution.OnProvisioned()")
+				return "", "", nil, errors.Wrap(err, "Resolution.OnProvisioned()")
 			}
 		}
 
-		return nil, &dbtype.Account{Username: user.Username, HasPassword: user.PasswordHash != nil, Disabled: user.Disabled}, nil
+		return sessioninfo.AccountProvisioned, res.Tenant, nil, nil
 	case dbtype.RequireConfirmation:
 		acct, err := s.readAccount(ctx, txn, res.UserID)
 		if err != nil {
-			return nil, nil, err
+			return "", "", nil, err
 		}
 
-		return &dbtype.PendingSignInError{
+		return "", "", &dbtype.PendingSignInError{
 			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: acct.Username, Tenant: res.Tenant,
-		}, nil, nil
+		}, nil
 	default:
-		return nil, nil, errors.Newf("unknown account resolver outcome %d", res.Outcome)
+		return "", "", nil, errors.Newf("unknown account resolver outcome %d", res.Outcome)
 	}
 }
 

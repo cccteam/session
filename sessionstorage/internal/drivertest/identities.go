@@ -93,7 +93,7 @@ func assertRefused(t *testing.T, err error, code sessioninfo.LoginRefusalCode, c
 
 func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AccountsHarness) {
 	var resolverCalls atomic.Int32
-	in := h.New(ctx, t, Accounts, AccountsConfig{AuthEvents: true, Identities: true, Resolve: func(context.Context, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+	in := h.New(ctx, t, Accounts, AccountsConfig{AuthEvents: true, Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		resolverCalls.Add(1)
 
 		return nil, nil
@@ -284,7 +284,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 				provisioned                []ccc.UUID
 				mu                         sync.Mutex
 			)
-			in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+			in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 				mu.Lock()
 				defer mu.Unlock()
 
@@ -367,32 +367,40 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			},
 		},
 		{
-			name:      "a denied sign-in leaves no provisioned account or link behind",
+			name:      "a denied provisioning sign-in keeps the account and its link: the resolver's decision stands",
 			decision:  &dbtype.SignInDecision{Outcome: dbtype.DenySignIn},
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
 			check: func(t *testing.T, d AccountsDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedByPolicy, dbtype.ErrSignInDenied)
-				if _, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu"); !httpio.HasNotFound(uerr) {
-					t.Errorf("UserByUserName() error = %v, want NotFound", uerr)
+				user, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu")
+				if uerr != nil {
+					t.Fatalf("UserByUserName() error = %v, want the provisioned account", uerr)
 				}
-				assertNoLink(t.Context(), t, d, lakeside("idp_fresh"))
+				if link, lerr := d.Identity(t.Context(), sessioninfo.MethodWorkOS, "conn_lakeside", "idp_fresh"); lerr != nil || link.UserID != user.ID {
+					t.Errorf("Identity() = %+v, %v; want the link to the provisioned account %v", link, lerr, user.ID)
+				}
 			},
 		},
 		{
-			name:      "an MFA wait on a provisioning sign-in names no account and writes nothing",
+			name:      "an MFA wait on a provisioning sign-in names the account it provisioned, so the application can send its code",
 			decision:  &dbtype.SignInDecision{Outcome: dbtype.RequireMFA},
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
 			check: func(t *testing.T, d AccountsDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				var pending *dbtype.PendingSignInError
-				if !errors.As(err, &pending) || pending.Reason != sessioninfo.PendingMFA || pending.UserID.Valid {
-					t.Fatalf("sign-in error = %v, want a PendingSignInError for MFA with no account", err)
+				if !errors.As(err, &pending) || pending.Reason != sessioninfo.PendingMFA {
+					t.Fatalf("sign-in error = %v, want a PendingSignInError for MFA", err)
 				}
-				if _, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu"); !httpio.HasNotFound(uerr) {
-					t.Errorf("UserByUserName() error = %v, want NotFound", uerr)
+				user, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu")
+				if uerr != nil {
+					t.Fatalf("UserByUserName() error = %v, want the provisioned account", uerr)
+				}
+				want := dbtype.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username}
+				if *pending != want {
+					t.Errorf("PendingSignInError = %+v, want %+v", *pending, want)
 				}
 			},
 		},
@@ -415,10 +423,10 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 
 			in := h.New(ctx, t, Accounts, AccountsConfig{
 				Identities: true,
-				Resolve: func(context.Context, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+				Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 					return &dbtype.Resolution{Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: "fresh@lakeside.edu"}}, nil
 				},
-				Policy: func(_ context.Context, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
+				Policy: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
 					if req.UserID.IsNil() {
 						return nil, errors.New("the policy ran before the account was known")
 					}
@@ -473,7 +481,7 @@ func testIdentitiesNotConfigured(ctx context.Context, t *testing.T, h *AccountsH
 
 func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AccountsHarness) {
 	var user *dbtype.SessionUser
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		// Hold the window between the lookup and the link open, so the sign-ins race.
 		time.Sleep(100 * time.Millisecond)
 
