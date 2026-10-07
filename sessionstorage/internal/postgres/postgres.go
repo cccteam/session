@@ -34,6 +34,9 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
+	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
+	accounts   bool
+	authEvents *AuthEventsConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -74,6 +77,24 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	sessData, err := s.sessionRow(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.authEvents != nil {
+		events, err := s.readAuthEvents(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		sessData.AuthEvents = events
+	}
+
+	return sessData, nil
+}
+
+// sessionRow reads the session row with its joined custom data and impersonation record.
+func (s *SessionStorageDriver) sessionRow(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	query, args := s.sessionQuery(sessionID)
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -91,13 +112,19 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	session := &dbtype.Session{}
 	baseDests := []any{&session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired}
+	account := &accountScan{}
+	if s.accounts {
+		baseDests = append(baseDests, account.dests()...)
+	}
 
 	if s.customData == nil && s.impersonation == nil {
 		if err := rows.Scan(baseDests...); err != nil {
 			return nil, errors.Wrap(err, "rows.Scan()")
 		}
+		sessData := &dbtype.SessionData{Session: session}
+		account.apply(sessData)
 
-		return &dbtype.SessionData{Session: session}, nil
+		return sessData, nil
 	}
 
 	// Phase 1: scan base columns plus each joined row's SessionId row-presence
@@ -118,6 +145,7 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	if err := rows.Scan(scanDests...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
+	account.apply(sessData)
 
 	if impScan != nil {
 		imp, err := impScan.row()
@@ -217,15 +245,9 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO "%s"
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
-		VALUES
-			($1, $2, $3, $4, $5)
-		`, s.sessionTableName)
-	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+	query, args := s.sessionInsertStatement(id, insertSession, req)
 
-	if err := s.execSessionInsert(ctx, id, query, args, req, nil); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, nil, insertSession.CreatedAt, nil)); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -756,6 +778,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, args []any) {
 	var columns strings.Builder
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
+	columns.WriteString(s.accountColumns())
 
 	joinClause := ""
 	if s.customData != nil {

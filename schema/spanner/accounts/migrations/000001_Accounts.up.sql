@@ -23,12 +23,14 @@ CREATE TABLE SessionIdentities (
 CREATE UNIQUE INDEX SessionIdentitiesByKey ON SessionIdentities(Method, Connection, Subject);
 CREATE INDEX SessionIdentitiesByUserId ON SessionIdentities(UserId);
 
+-- Not interleaved: an interleaved child's key must begin with the parent's key column
+-- (Id), so the events reference their session through a cascading foreign key instead.
 CREATE TABLE SessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
     Seq        INT64 NOT NULL,
     Method     STRING(32) NOT NULL,
     Connection STRING(MAX),
     IdpAmr     ARRAY<STRING(MAX)>,
-    At         TIMESTAMP NOT NULL,
-) PRIMARY KEY (SessionId, Seq),
-  INTERLEAVE IN PARENT Sessions ON DELETE CASCADE;
+    OccurredAt TIMESTAMP NOT NULL,
+    CONSTRAINT FK_SessionAuthEvents_Sessions FOREIGN KEY (SessionId) REFERENCES Sessions (Id) ON DELETE CASCADE,
+) PRIMARY KEY (SessionId, Seq);

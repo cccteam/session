@@ -41,8 +41,11 @@ Layers, from the outside in:
 
 | # | Invariant | Proven by | Layer |
 | --- | --- | --- | --- |
-| A1 | A password-less account (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the account's sessions; the hasher never sees a nil hash ; such an account is stored and read with no hash on both backends | `TestPasswordAuth_PasswordLessAccount`; `TestPasswordAuth_Login_PasswordLessAccount`; `TestSessionStorageDriver_PasswordLessAccount` (spanner, postgres) | root, driver |
+| A1 | A password-less account (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the account's sessions; the hasher never sees a nil hash; such an account is stored and read with no hash on both backends | `TestPasswordAuth_PasswordLessAccount`; `TestPasswordAuth_Login_PasswordLessAccount`; `TestSessionStorageDriver_PasswordLessAccount` (spanner, postgres) | root, driver |
 | A2 | An external identity whose key is longer than a GUID (a WorkOS `idp_id`) is anchored whole on both backends' shipped OIDC schema; Spanner `OIDCUsers.Tid`/`Oid` are `STRING(MAX)` | `TestSessionStorageDriver_OIDCUsers_LongKey` (spanner, postgres) | driver |
+| A3 | The accounts schema is opt-in: a driver without it never names `Sessions.UserId`, `AuthenticatedAt` or the auth events table, so a legacy schema keeps working | drivertest `TestAccounts/a legacy schema keeps working…` | driver |
+| A4 | A session records the account it belongs to and when it was authenticated; a preauth stepping stone has neither, and a role-principal impersonation has no account | drivertest `TestAccounts/account sessions record…`, `…impersonated session records its account…` | driver |
+| A5 | A session's auth events are written with it, read with it oldest first, and deleted with it; an impersonated session's event names the actor | drivertest `TestAccounts/the first auth event…`, `…impersonated session records…`, `…auth events go with it`; `sessionstorage` `TestSessionStorage_Session_Account` | driver, storage contract |
 
 ## Impersonation
 

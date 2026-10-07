@@ -132,22 +132,15 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
-	}
-
-	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+		return ccc.NilUUID, err
 	}
 
 	impMutation := spanner.InsertMap(s.impersonation.TableName, impersonationRow(id, imp))
+	mutations := append([]*spanner.Mutation{sessionMutation, impMutation}, s.initialAuthEventMutations(id, req, imp, insertSession.CreatedAt)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation, impMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -190,8 +183,9 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	}
 
 	impMutation := spanner.InsertMap(s.impersonation.TableName, impersonationRow(id, imp))
+	mutations := append([]*spanner.Mutation{sessionMutation, impMutation}, s.initialAuthEventMutations(id, req, imp, insertSession.CreatedAt)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation, impMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 

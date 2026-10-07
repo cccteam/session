@@ -68,6 +68,11 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 	sessData := &sessioninfo.SessionData{
 		SessionInfo: (*sessioninfo.SessionInfo)(si.Session),
 		CustomData:  si.CustomData,
+		UserID:      si.UserID,
+		AuthEvents:  si.AuthEvents,
+	}
+	if si.AuthenticatedAt != nil {
+		sessData.AuthenticatedAt = *si.AuthenticatedAt
 	}
 	if si.Impersonation != nil {
 		sessData.Impersonation = si.Impersonation.ToSessionInfo()

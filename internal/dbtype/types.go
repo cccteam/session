@@ -6,6 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // Session defines the structure for storing session data in the database.
@@ -18,11 +19,16 @@ type Session struct {
 }
 
 // SessionData pairs a Session with optional custom session data and, for an
-// impersonated session, its impersonation record (nil otherwise).
+// impersonated session, its impersonation record (nil otherwise). UserID and
+// AuthenticatedAt are read only when the driver has the accounts columns enabled, and
+// AuthEvents only when it has an auth events table; they are zero otherwise.
 type SessionData struct {
 	*Session
-	CustomData    any
-	Impersonation *Impersonation
+	CustomData      any
+	Impersonation   *Impersonation
+	UserID          ccc.NullUUID
+	AuthenticatedAt *time.Time
+	AuthEvents      []sessioninfo.AuthEvent
 }
 
 // InsertSession defines the structure for inserting new session data into the database.

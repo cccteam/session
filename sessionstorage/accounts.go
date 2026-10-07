@@ -160,13 +160,22 @@ type AuthEventsTable struct {
 
 // NewAuthEventsTable validates the auth events table name.
 func NewAuthEventsTable(tableName string) (*AuthEventsTable, error) {
-	return nil, errNotImplemented
+	if !validIdentifier.MatchString(tableName) {
+		return nil, errors.Newf("invalid table name: %s. Table names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", tableName)
+	}
+
+	return &AuthEventsTable{tableName: tableName}, nil
 }
 
 type authEventsOption struct{ table *AuthEventsTable }
 
-func (authEventsOption) applySpanner(_ *spanner.SessionStorageDriver)   {}
-func (authEventsOption) applyPostgres(_ *postgres.SessionStorageDriver) {}
+func (o authEventsOption) applySpanner(driver *spanner.SessionStorageDriver) {
+	driver.SetAuthEvents(&spanner.AuthEventsConfig{TableName: o.table.tableName})
+}
+
+func (o authEventsOption) applyPostgres(driver *postgres.SessionStorageDriver) {
+	driver.SetAuthEvents(&postgres.AuthEventsConfig{TableName: o.table.tableName})
+}
 
 // WithAuthEvents enables recording auth events in the given table.
 func WithAuthEvents(table *AuthEventsTable) Option {
@@ -204,12 +213,12 @@ type Accounts struct {
 
 // NewSpannerAccounts creates Spanner account storage.
 func NewSpannerAccounts(client *cloudspanner.Client, opts ...SpannerOption) *Accounts {
-	return &Accounts{PasswordAuth: NewSpannerPasswordAuth(client, opts...)}
+	return &Accounts{PasswordAuth: NewSpannerPasswordAuth(client, append([]SpannerOption{accountsOption{}}, opts...)...)}
 }
 
 // NewPostgresAccounts creates Postgres account storage.
 func NewPostgresAccounts(pg postgres.Queryer, opts ...PostgresOption) *Accounts {
-	return &Accounts{PasswordAuth: NewPostgresPassword(pg, opts...)}
+	return &Accounts{PasswordAuth: NewPostgresPassword(pg, append([]PostgresOption{accountsOption{}}, opts...)...)}
 }
 
 // Identity implements AccountStore.

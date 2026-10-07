@@ -117,18 +117,12 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO "%s"
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
-		VALUES
-			($1, $2, $3, $4, $5)
-		`, s.sessionTableName)
-	args := []any{id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+	query, args := s.sessionInsertStatement(id, insertSession, req)
 
 	insertRecord := func(ctx context.Context, txn pgx.Tx) error {
 		return s.insertImpersonation(ctx, txn, id, imp)
 	}
-	if err := s.execSessionInsert(ctx, id, query, args, req, insertRecord); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertSession.CreatedAt, insertRecord)); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -168,7 +162,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	insertRecord := func(ctx context.Context, txn pgx.Tx) error {
 		return s.insertImpersonation(ctx, txn, id, imp)
 	}
-	if err := s.execSessionInsert(ctx, id, query, args, req, insertRecord); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertSession.CreatedAt, insertRecord)); err != nil {
 		return ccc.NilUUID, err
 	}
 

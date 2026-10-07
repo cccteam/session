@@ -35,6 +35,9 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
+	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
+	accounts   bool
+	authEvents *AuthEventsConfig
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -78,8 +81,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// With auth events the session row and its events are read at one timestamp.
+	txn := s.spanner.Single()
+	if s.authEvents != nil {
+		txn = s.spanner.ReadOnlyTransaction()
+		defer txn.Close()
+	}
+
 	qryStmt := s.sessionQuery(sessionID)
-	iter := s.spanner.Single().Query(ctx, qryStmt)
+	iter := txn.Query(ctx, qryStmt)
 	defer iter.Stop()
 
 	row, err := iter.Next()
@@ -114,6 +124,14 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	sessData := &dbtype.SessionData{Session: session}
 
+	if s.accounts {
+		next, err := readAccount(row, idx, sessData)
+		if err != nil {
+			return nil, err
+		}
+		idx = next
+	}
+
 	if s.customData != nil {
 		data, next, err := s.readCustomData(row, idx)
 		if err != nil {
@@ -129,6 +147,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 			return nil, err
 		}
 		sessData.Impersonation = imp
+	}
+
+	if s.authEvents != nil {
+		iter.Stop()
+		events, err := s.readAuthEvents(ctx, txn, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		sessData.AuthEvents = events
 	}
 
 	return sessData, nil
@@ -221,20 +248,13 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
-	}
-
-	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+		return ccc.NilUUID, err
 	}
+	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil, insertSession.CreatedAt)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -829,6 +849,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statement {
 	var columns strings.Builder
 	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
+	columns.WriteString(s.accountColumns())
 
 	joinClause := ""
 	if s.customData != nil {
