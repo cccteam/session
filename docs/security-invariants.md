@@ -10,7 +10,7 @@ Layers, from the outside in:
 | Layer | Package | What is real | Runs where |
 | --- | --- | --- | --- |
 | Seam suite | `internal/e2e` | A public session type on a chi router, real cookies over HTTPS, the public PostgreSQL storage on the shipped migrations | Docker |
-| Public surface | root `session` (`surface_test.go`) | Every handler and middleware on all four types, real cookies, mocked store | anywhere |
+| Public surface | root `session` (`surface_test.go`) | Every handler and middleware on all five types, real cookies, mocked store | anywhere |
 | Engine | `internal/basesession` | The shared middleware and impersonation lifecycle, mocked store and cookies | anywhere |
 | Storage contract | `sessionstorage` | The public store over a generated mock of the driver | anywhere |
 | Driver conformance | `sessionstorage/internal/drivertest`, run by both drivers | Real PostgreSQL and Spanner containers, one case table | Docker |
@@ -55,6 +55,27 @@ Layers, from the outside in:
 | A12 | The last means of sign-in of a password-less account can't be unlinked (`ErrLastSignInMethod`, Conflict); an identity can't be linked twice | drivertest `TestAccounts/links are managed outside sign-in…` | driver |
 | A13 | Revoking an account's sessions works by UserId: its own sessions under any username, user-principal impersonations of it, and sessions it holds as a local actor end (records Revoked); another account's session under the same username survives | drivertest `TestAccounts/DestroyUserSessions…` | driver |
 | A14 | An external identity is never signed in without an identities configuration (`ErrIdentitiesNotConfigured`) | drivertest `TestAccounts/an external identity needs…`; `sessionstorage` `TestAccounts_IdentitiesEnabled` | driver, storage contract |
+| A15 | A session insert records every auth event it carries, in order, in the same write as the session row; one without events records its sign-in method | drivertest `TestAccounts/a session insert records every auth event…`, `…the first auth event…` | driver |
+| A16 | Deleting an account deletes its identity links in the same transaction, so no link outlives its account | drivertest `TestAccounts/deleting an account deletes its identity links…` | driver |
+
+## Auth sessions
+
+| # | Invariant | Proven by | Layer |
+| --- | --- | --- | --- |
+| U1 | An external method can't be configured on storage without identities (`ErrIdentitiesNotConfigured`), and misconfigured methods and options are refused at construction | `TestNewAuth` | root |
+| U2 | Every sign-in, confirmation and MFA completion issues a new session ID, and its cookies are written only after the session row, its auth events and role synchronization succeeded: a refusal writes no session cookie | `TestAuth_PasswordLogin`; `TestAuth_AzureCallback/role sync that leaves no recognized role…`; `TestAuthAPI_CompletePending`; `TestAuthSeams_PasswordAndWorkOS/a password sign-in establishes a session under a new ID…`, `…the application's MFA step completes it under a new session ID` | root, seam |
+| U3 | A sign-in that waits (confirmation or MFA) starts no session; a pending identity's row belongs to no account and never validates | `TestAuth_ValidateSession/a session that belongs to no account…`; `TestAuthSeams_PasswordAndWorkOS/…waits for that password…`, `…requires MFA holds the password sign-in…` | root, seam |
+| U4 | A pending identity is single-use and unforgeable: completing, cancelling or replacing it expires its row, a copy of its cookie then answers `pending_expired`, and a cookie the key did not seal is ignored | `TestAuth_PendingConfirmWithPassword/a pending identity whose row is no longer live…`; `TestAuth_PendingStatusAndCancel`; `TestAuthSeams_PasswordAndWorkOS/…waits for that password…`, `…requires MFA…` | root, seam |
+| U5 | A link confirmation requires the existing account's password: a wrong one links nothing and leaves the pending identity; an identity linked meanwhile to another account is refused | `TestAuth_PendingConfirmWithPassword`; `TestAuthSeams_PasswordAndWorkOS/…waits for that password…` | root, seam |
+| U6 | An MFA completion is not decided by the policy again, and must resolve to the account it waited on | `TestAuthAPI_CompletePending`; `TestAuthSeams_PasswordAndWorkOS/a confirmed link the policy still holds for MFA…` | root, seam |
+| U7 | `ValidateSession` loads the session's account by `UserId` on every request and refuses a session whose account is missing or disabled | `TestAuth_ValidateSession`; `TestSessionTypes_PublicSurface/Auth/…`; `TestAuthSeams_PasswordAndWorkOS/a disabled account's session is refused…` | root, public surface, seam |
+| U8 | A sign-in's return path never leaves the application: a login whose `returnUrl` is absolute, `//host` or `/\host` is refused with 400, and the callback sanitizes it again | `TestAuth_ExternalLogin`; `internal/workossso` `TestClient_Verify/…off-site return URL…`; `TestAuthSeams_PasswordAndWorkOS/the WorkOS login refuses a returnUrl…` | root, verifier, seam |
+| U9 | A WorkOS callback is bound to the login this browser started: its `OIDC-workos` state cookie must be present and match, and is single-use; the code exchange authenticates with the API key in a JSON body | `internal/workossso` `TestClient_Verify`, `TestClient_AuthorizationURL`; `TestAuthSeams_PasswordAndWorkOS/a WorkOS callback that does not match…` | verifier, seam |
+| U10 | Refusals reach the page as codes only: `?code=` on a redirect, `{"code"}` in JSON; a pending sign-in as `?pending=<reason>` | `TestAuth_AzureCallback`; `TestAuth_PasswordLogin`; `TestPendingRedirectURL`; `TestAuthSeams_PasswordAndWorkOS/a refused WorkOS sign-in…` | root, seam |
+| U11 | External identities reach their accounts by (method, connection, subject), never by email: the same subject in another connection is another identity | `TestAuthSeams_AzureAndGoogle/Azure and Google identities reach one account…`; `TestAuth_GoogleCallback` | seam, root |
+| U12 | Every identity link is reported to the `IdentityLinked` hook (a confirmation's and the resolver's), and the hook's failure does not undo the link | `TestAuth_IdentityLinkedHook`; `TestAuth_PendingConfirmWithPassword`; `TestAuthSeams_PasswordAndWorkOS/a first WorkOS sign-in provisions…` | root, seam |
+| U13 | Role synchronization reconciles the roles of the account the identity resolved to, never before an unconfirmed identity is linked | `TestAuth_AzureCallback` | root |
+| U14 | A user-principal impersonation belongs to the impersonated account and a role principal's to none; the session's event names the actor | `TestAuthAPI_StartImpersonatedSession`; `TestAuthSeams_PasswordAndWorkOS/…a user-principal impersonation belongs to the impersonated account` | root, seam |
 
 ## Impersonation
 

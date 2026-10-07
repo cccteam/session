@@ -10,6 +10,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Database Support`: Seamless integration with multiple databases.
   - PostgreSQL
   - Google Cloud Spanner
+- `Auth Sessions`: One session that password, Azure, Google Workspace and WorkOS SSO sign-in can all establish, with accounts, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
 - `Login Types`: Supports multiple authentication methods.
   - Azure OIDC
   - Google Workspace OIDC (restricted to one hosted domain — see the "Google Workspace OIDC" section)
@@ -30,7 +31,8 @@ application that uses neither instantiates with the `NoCustomData` sentinel:
 
 The DDL for every table the library owns ships as golang-migrate files under
 `schema/spanner/` and `schema/postgresql/`: `migrations` (sessions and password-auth
-users), `oidc` (Azure OIDC), `oidc-google` (Google Workspace OIDC), and `impersonation`.
+users), `oidc` (Azure OIDC), `oidc-google` (Google Workspace OIDC), `impersonation`, and
+`accounts` (Auth sessions: session accounts, identity links and auth events).
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -49,6 +51,160 @@ ALTER TABLE "Sessions"
     ALTER COLUMN "CreatedAt" TYPE timestamptz USING "CreatedAt" AT TIME ZONE 'UTC',
     ALTER COLUMN "UpdatedAt" TYPE timestamptz USING "UpdatedAt" AT TIME ZONE 'UTC';
 ```
+
+## Auth sessions (multiple sign-in methods)
+
+`Auth[SessionData, UserData]` is one session that any configured sign-in method can
+establish: password, Microsoft Entra ID (Azure), Google Workspace and WorkOS SSO. An
+application mounts one cookie, one session table and one middleware chain, and every
+session belongs to an **account**, a `SessionUsers` record, by its ID. The password
+method checks the account's password; an external method produces a verified
+**identity** that is linked to an account through the identities table, keyed by
+`(method, connection, subject)` and **never by email**.
+
+| Method | Constructor | Identity key (connection, subject) | Login parameters | Roles |
+| --- | --- | --- | --- | --- |
+| `password` | `PasswordSignIn(options...)` | account ID | JSON `{"username", "password"}` | — |
+| `azure` | `AzureSignIn(roleSync, issuer, clientID, secret, redirectURL, ...)` | (`tid`, `oid`) | `?returnUrl=` | `RoleSync(manager)` or `DisableRoleSync()` |
+| `google` | `GoogleSignIn(roleSync, clientID, secret, redirectURL, hostedDomain, ...)` | (`""`, `sub`) | `?returnUrl=` | `GoogleRoleSync(...)` or `DisableRoleSync()` |
+| `workos` | `WorkOSSignIn(apiKey, clientID, redirectURL, ...)` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+
+### Storage and schema
+
+Apply the base migrations (`schema/*/migrations`) and the accounts migrations
+(`schema/*/accounts/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
+`SessionIdentities`, `SessionAuthEvents`), plus `impersonation` if you use it. Build the
+storage with `NewSpannerAccounts` / `NewPostgresAccounts`; any external method needs an
+identities configuration, which carries the application's **account resolver** (what to
+do with an identity that is not linked yet: `LinkIdentity`, `ProvisionAccount`,
+`RequireConfirmation` or `RejectIdentity`) and its optional **sign-in policy** (`AllowSignIn`,
+`RequireMFA` or `DenySignIn`, for every method once the account is known). Both run inside
+the session transaction; on Spanner they may run more than once when the transaction
+retries, so they must not have side effects outside it.
+
+```go
+identities, err := sessionstorage.NewSpannerIdentities("SessionIdentities", resolveAccount, signInPolicy)
+events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
+store := sessionstorage.NewSpannerAccounts(client,
+    sessionstorage.WithSpannerIdentities(identities),
+    sessionstorage.WithAuthEvents(events))
+
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, []session.SignInMethod{
+    session.PasswordSignIn(),
+    session.WorkOSSignIn(cfg.WorkOSAPIKey, cfg.WorkOSClientID, cfg.SSORedirectURL, session.WithLoginURL("/login")),
+},
+    session.WithCookieName("partner_auth"),
+    session.WithIdentityLinked(notifyLinked), // called after every identity link
+    session.WithPendingTimeout(10*time.Minute),
+    session.WithPendingCookieName("auth-pending"),
+)
+```
+
+`NewAuth` refuses an external method on storage without identities
+(`sessionstorage.ErrIdentitiesNotConfigured`), a method configured twice, cookie or
+session options passed to `PasswordSignIn` instead of `NewAuth`, and the OIDC-only storage
+features (`WithOIDCUsers`, the custom user data login hook).
+
+### Routes
+
+```go
+r.Use(auth.StartSession, auth.SetXSRFToken)
+r.Get("/api/user/authenticated", auth.Authenticated())
+r.Get("/api/user/sso/login", auth.WorkOS().Login())       // ?organization=…&returnUrl=…
+r.Get("/api/user/sso/callback", auth.WorkOS().Callback())
+r.Get("/api/user/pending", auth.Pending().Status())
+r.Group(func(r chi.Router) {
+    r.Use(auth.ValidateXSRFToken)
+    r.Post("/api/user/session", auth.Password().Login())
+    r.Post("/api/user/pending/confirm", auth.Pending().ConfirmWithPassword())
+    r.Post("/api/user/pending/cancel", auth.Pending().Cancel())
+    r.Post("/api/user/mfa", app.CompleteMFA) // checks the app's code, then auth.API().CompletePending
+    r.Group(func(r chi.Router) {
+        r.Use(auth.ValidateSession)
+        r.Post("/api/user/logout", auth.Logout())
+        r.Post("/api/user/password", auth.Password().ChangeUserPassword())
+        // …protected routes
+    })
+})
+```
+
+The pending handlers and the API's pending methods read the pending identity
+`StartSession` found, so they must run behind it; the POSTs belong behind
+`ValidateXSRFToken` like the password login.
+
+### The redirect and response contract
+
+A sign-in ends in one of three ways. External methods answer with a redirect; the
+password login and the pending handlers answer JSON. `<LoginURL>` is the method's
+`WithLoginURL` (default `/login`).
+
+| Outcome | External `Callback()` | `Password().Login()` |
+| --- | --- | --- |
+| Session established (new session ID) | `302 <returnUrl>` (default `/`) | `200 {"mfaIsRequired": false}` |
+| Waits for the account's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]` | — |
+| Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]` | `200 {"mfaIsRequired": true}` |
+| Refused | `302 <LoginURL>?code=<code>` | `401 {"message", "code"}` (403 for a forbidden cause) |
+
+- `returnUrl` is only ever a path in the application. An external `Login()` whose
+  `returnUrl` is an absolute URL, `//host` or `/\host` is refused with **400**, and the
+  callback sanitizes it again. A WorkOS `Login()` without `organization` is also 400.
+- `pending` is the login page's routing marker. The page reads the pending identity from
+  `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"}`, `404` when
+  there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
+- **Confirmation** (`reason` `confirmation`): the page asks for the existing account's
+  password and posts `{"password"}` to `Pending().ConfirmWithPassword()`: `200
+  {"mfaIsRequired": false}` (linked, the hook called, signed in; go to `returnUrl`),
+  `200 {"mfaIsRequired": true}` (linked, but the policy wants MFA: the pending identity
+  remains with reason `mfa`), `401` for a wrong password (the pending identity remains),
+  `409` when the pending identity waits for MFA instead.
+- **MFA** (`reason` `mfa`): the application runs its own step and calls
+  `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "email-otp"})`, which
+  starts the session (the policy is not asked again; the account is resolved afresh and
+  must be the one it waited on) and records the sign-in's events followed by the step's.
+- `Pending().Cancel()` discards the pending identity.
+- The codes are the `sessioninfo.LoginRefusalCode`s of the "Login refusal codes"
+  section, including the resolver's and policy's own; text never travels.
+
+### What a pending identity is
+
+A pending identity is a verified identity waiting for its confirmation or MFA: a preauth
+stepping-stone row in the session table (no account, never authenticated) and the
+`auth-pending` cookie, encrypted and authenticated with the cookie key, that carries the
+identity, the account it waits on, the steps so far and the return path, bound to that
+row. Completing, cancelling or replacing it expires the row, so a copied cookie completes
+nothing, and the row never validates as a session. Two things follow from the design:
+the custom session data resolver runs for the row with `ReasonPreauth`, and an
+identity's claims must fit the cookie once compressed (about 2.8 KB): a larger one is
+refused with `internal_error`.
+
+### Every session
+
+- **The session ID is regenerated** at every sign-in, confirmation and MFA completion:
+  the cookies are written only once the session row, its auth events and role
+  synchronization have succeeded.
+- **The account is loaded by `UserId` on every request.** `ValidateSession` refuses a
+  session with no account or whose account is missing or disabled; the account is
+  `sessioninfo.UserFromCtx(ctx)`. The session's account, authentication time and auth
+  events are on the context's `*sessioninfo.SessionData`
+  (`ctx.Value(sessioninfo.CtxSessionInfo)`): `UserID`, `AuthenticatedAt`, `AuthEvents`.
+- **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
+  method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
+  steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
+  application authenticated itself, recording its events; the policy is not consulted.
+- **Role synchronization** (Azure, Google) reconciles the roles of the account the
+  identity resolved to, from the roles the provider asserted at sign-in, whenever such a
+  sign-in establishes a session (including after a confirmation or MFA). A sign-in left
+  with no recognized role is refused (`no_roles`) and its session expired.
+- **Impersonation** works as on the other types. A user principal's session belongs to
+  the impersonated account; a role principal's belongs to none. The session records an
+  `impersonation` event whose connection is the actor.
+- **Account management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
+  `DeactivateSessionUser` and `DeleteSessionUser` destroy the account's sessions by
+  `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
+  refuses an account's last means of sign-in.
+- **Not yet supported**: provider-initiated (front-channel) logout.
+  `Azure().FrontChannelLogout()` answers 501 until the accounts schema records the
+  provider's session ID.
 
 ## OIDC role synchronization
 
@@ -253,6 +409,11 @@ table is the wire contract:
 | `email_not_verified` | `RefusedEmailNotVerified` | Google: the account's email address is not verified. |
 | `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account resolver rejected the identity (its own code wins when it sets one), linked an account that has a password without confirmation, or the identity resolved to another account than it waited on. |
+| `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
+| `account_disabled` | `RefusedAccountDisabled` | Auth: the sign-in resolved to a disabled account. |
+| `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
+| `no_email` | `RefusedNoEmail` | For an application's resolver: the external identity carries no email address where one is required. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

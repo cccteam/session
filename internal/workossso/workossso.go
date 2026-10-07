@@ -197,7 +197,8 @@ type tokenRequest struct {
 func (c *Client) exchange(ctx context.Context, code string) (json.RawMessage, error) {
 	// The API key travels in the body over TLS to WorkOS: that is how the exchange
 	// authenticates.
-	body, err := json.Marshal(tokenRequest{ClientID: c.clientID, ClientSecret: c.apiKey, GrantType: "authorization_code", Code: code}) //nolint:gosec // G117: the exchange's credential, sent only to WorkOS
+	request := tokenRequest{ClientID: c.clientID, ClientSecret: c.apiKey, GrantType: "authorization_code", Code: code}
+	body, err := json.Marshal(request) //nolint:gosec // G117: the exchange's credential, sent only to WorkOS
 	if err != nil {
 		return nil, errors.Wrap(err, "json.Marshal()")
 	}
