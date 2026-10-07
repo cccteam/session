@@ -67,4 +67,11 @@ type NewSessionRequest struct {
 	// method of an Auth session. Account resolvers and sign-in policies read it; it is
 	// nil for the legacy session types.
 	Identity *Identity
+	// AuthEvents, when not empty, are the auth events the new session records, in order,
+	// in the same write as the session row; they replace the single event otherwise
+	// derived from Identity, so a sign-in completed by a step-up or a link confirmation
+	// records every step at once. An impersonated session records its impersonation
+	// event first and these after it. An event with a zero At records the session's
+	// creation time. Events are written only when the storage has an auth events table.
+	AuthEvents []AuthEvent
 }

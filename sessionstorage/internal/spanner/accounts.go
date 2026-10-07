@@ -79,19 +79,21 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 	return mutation, nil
 }
 
-// initialAuthEventMutations renders the new session's first auth event (see
-// dbtype.InitialAuthEvent) when an auth events table is configured, and nothing
-// otherwise.
+// initialAuthEventMutations renders the new session's auth events (see
+// dbtype.InitialAuthEvents), numbered from 1, when an auth events table is configured,
+// and nothing otherwise.
 func (s *SessionStorageDriver) initialAuthEventMutations(id ccc.UUID, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation, at time.Time) []*spanner.Mutation {
 	if s.authEvents == nil {
 		return nil
 	}
-	event := dbtype.InitialAuthEvent(req, imp, at)
-	if event == nil {
-		return nil
+	events := dbtype.InitialAuthEvents(req, imp, at)
+
+	mutations := make([]*spanner.Mutation, 0, len(events))
+	for i := range events {
+		mutations = append(mutations, s.authEventMutation(id, int64(i+1), &events[i]))
 	}
 
-	return []*spanner.Mutation{s.authEventMutation(id, 1, event)}
+	return mutations
 }
 
 // authEventMutation renders the insert of one auth event row.
