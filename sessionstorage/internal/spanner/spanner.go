@@ -453,7 +453,16 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 		Disabled:     insertUser.Disabled,
 	}
 
-	mutation, err := spanner.InsertStruct(s.userTableName, user)
+	passwordHash, err := passwordHashValue(user.PasswordHash)
+	if err != nil {
+		return nil, err
+	}
+	mutation, err := spanner.InsertStruct(s.userTableName, &struct {
+		ID           ccc.UUID           `spanner:"Id"`
+		Username     string             `spanner:"Username"`
+		PasswordHash spanner.NullString `spanner:"PasswordHash"`
+		Disabled     bool               `spanner:"Disabled"`
+	}{ID: user.ID, Username: user.Username, PasswordHash: passwordHash, Disabled: user.Disabled})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}
@@ -566,17 +575,37 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	return nil
 }
 
-// SetUserPasswordHash updates the user password hash
+// passwordHashValue renders a password hash column value: NULL for a password-less
+// account. securehash.Hash encodes itself with a value receiver, which panics on the nil
+// pointer a password-less account carries, so the driver encodes it here.
+func passwordHashValue(hash *securehash.Hash) (spanner.NullString, error) {
+	if hash == nil {
+		return spanner.NullString{}, nil
+	}
+
+	b, err := hash.MarshalText()
+	if err != nil {
+		return spanner.NullString{}, errors.Wrap(err, "securehash.Hash.MarshalText()")
+	}
+
+	return spanner.NullString{StringVal: string(b), Valid: true}, nil
+}
+
+// SetUserPasswordHash updates the user password hash; a nil hash removes the password.
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	passwordHash, err := passwordHashValue(hash)
+	if err != nil {
+		return err
+	}
 	passwordUpdate := struct {
-		ID           ccc.UUID         `spanner:"Id"`
-		PasswordHash *securehash.Hash `spanner:"PasswordHash"`
+		ID           ccc.UUID           `spanner:"Id"`
+		PasswordHash spanner.NullString `spanner:"PasswordHash"`
 	}{
 		ID:           userID,
-		PasswordHash: hash,
+		PasswordHash: passwordHash,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.userTableName, passwordUpdate)
