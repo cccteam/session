@@ -41,6 +41,7 @@ Layers, from the outside in:
 | # | Invariant | Proven by | Layer |
 | --- | --- | --- | --- |
 | A1 | A password-less account (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the account's sessions; the hasher never sees a nil hash | `TestPasswordAuth_PasswordLessAccount`; `TestPasswordAuth_Login_PasswordLessAccount` | root |
+| A2 | An external identity whose key is longer than a GUID (a WorkOS `idp_id`) is anchored whole on both backends' shipped OIDC schema; Spanner `OIDCUsers.Tid`/`Oid` are `STRING(MAX)` | `TestSessionStorageDriver_OIDCUsers_LongKey` (spanner, postgres) | driver |
 
 ## Impersonation
 
