@@ -78,9 +78,35 @@ storage with `NewSpannerAccounts` / `NewPostgresAccounts`; any external method n
 identities configuration, which carries the application's **account resolver** (what to
 do with an identity that is not linked yet: `LinkIdentity`, `ProvisionAccount`,
 `RequireConfirmation` or `RejectIdentity`) and its optional **sign-in policy** (`AllowSignIn`,
-`RequireMFA` or `DenySignIn`, for every method once the account is known). Both run inside
-the session transaction; on Spanner they may run more than once when the transaction
-retries, so they must not have side effects outside it.
+`RequireMFA` or `DenySignIn`, for every method once the account is known). Each receives
+its transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`), so it can read and write
+the application's own rows; on Spanner it may run more than once when the transaction
+retries, so it must not have side effects outside it.
+
+A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
+
+1. **Account resolution** (external methods): a linked identity is its account's;
+   otherwise the account resolver runs and its outcome is applied: the link, or the new
+   account, its link and the rows `Resolution.OnProvisioned` writes.
+2. **Decision and session**: the account is read (a disabled one is refused), the
+   sign-in policy runs, and the session row is inserted with its auth events and custom
+   session data.
+
+Each transaction **commits unless a hook or the storage returns an error**. A
+`RejectIdentity`, `RequireConfirmation`, `DenySignIn` or `RequireMFA` answer is not an
+error: it commits the hook's own writes (a record of a refused sign-up, an audit row) and
+writes no session. Because the resolution has committed by the time the policy runs:
+
+- the policy (and the custom session data resolver) **reads the account a sign-in just
+  provisioned** and the rows `OnProvisioned` wrote, on both backends;
+- `req.Account` (`*sessioninfo.SignInAccount`) tells them which account was resolved and
+  how: `Source` is `AccountNamed` (password), `AccountExistingLink`, `AccountNewLink` or
+  `AccountProvisioned` (`req.Account.Provisioned()`), with the link's `Tenant`;
+- **an account the resolver provisioned stays, linked, when the policy then denies the
+  sign-in or holds it for MFA**; the next sign-in goes through the link and the policy
+  decides again. Return `RejectIdentity` from the resolver when the account must not be
+  created at all. A hook error rolls back its own transaction only: an `OnProvisioned`
+  failure leaves no account, while a policy error leaves a provisioned account in place.
 
 ```go
 identities, err := sessionstorage.NewSpannerIdentities("SessionIdentities", resolveAccount, signInPolicy)
@@ -95,6 +121,7 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, []s
 },
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
+    session.WithPendingHook(onPending),       // called when a sign-in becomes pending
     session.WithPendingTimeout(10*time.Minute),
     session.WithPendingCookieName("auth-pending"),
 )
@@ -141,8 +168,8 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 | Outcome | External `Callback()` | `Password().Login()` |
 | --- | --- | --- |
 | Session established (new session ID) | `302 <returnUrl>` (default `/`) | `200 {"mfaIsRequired": false}` |
-| Waits for the account's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]` | — |
-| Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]` | `200 {"mfaIsRequired": true}` |
+| Waits for the account's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]`, or the pending hook's URL | — |
+| Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]`, or the pending hook's URL | `200 {"mfaIsRequired": true[, "redirectUrl"]}` |
 | Refused | `302 <LoginURL>?code=<code>` | `401 {"message", "code"}` (403 for a forbidden cause) |
 
 - `returnUrl` is only ever a path in the application. An external `Login()` whose
@@ -161,7 +188,36 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "email-otp"})`, which
   starts the session (the policy is not asked again; the account is resolved afresh and
   must be the one it waited on) and records the sign-in's events followed by the step's.
+  The pending identity always names its account (`UserID`, `Username`), including one the
+  sign-in has just provisioned, which exists by then.
 - `Pending().Cancel()` discards the pending identity.
+- **The pending hook** (`WithPendingHook`) runs when `Password().Login()`, an external
+  `Callback()` or `Pending().ConfirmWithPassword()` has just held a sign-in, after the
+  pending identity is stored and its cookie set. It receives the
+  `*sessioninfo.PendingIdentity` (reason, account, the identity with its email, expiry,
+  return path), so the application can send its MFA code and choose the next page:
+
+  ```go
+  func onPending(ctx context.Context, w http.ResponseWriter, r *http.Request, p *sessioninfo.PendingIdentity) (string, error) {
+      if p.Reason != sessioninfo.PendingMFA {
+          return "", nil // the default: <LoginURL>?pending=confirmation
+      }
+      if err := mfa.SendCode(ctx, p.UserID.UUID); err != nil {
+          return "", err // the pending identity is discarded and the sign-in fails
+      }
+
+      return "/account/mfa", nil
+  }
+  ```
+
+  The callback redirects to the URL it returns, and the JSON handlers answer it as
+  `"redirectUrl"`; an empty URL keeps the default. The hook may instead write the response
+  itself, and nothing more is written. An error discards the pending identity and fails
+  the sign-in (`?code=internal_error` on a redirect). The hook changes nothing about the
+  pending identity (its cookie, its timeout; the session ID is regenerated when it
+  completes). The URL is the application's own: never build it from request input. The
+  `AuthAPI` methods never call the hook: `CompletePending` and
+  `ConfirmPendingWithPassword` return a `*sessionstorage.PendingSignInError` instead.
 - The codes are the `sessioninfo.LoginRefusalCode`s of the "Login refusal codes"
   section, including the resolver's and policy's own; text never travels.
 
@@ -172,10 +228,10 @@ stepping-stone row in the session table (no account, never authenticated) and th
 `auth-pending` cookie, encrypted and authenticated with the cookie key, that carries the
 identity, the account it waits on, the steps so far and the return path, bound to that
 row. Completing, cancelling or replacing it expires the row, so a copied cookie completes
-nothing, and the row never validates as a session. Two things follow from the design:
-the custom session data resolver runs for the row with `ReasonPreauth`, and an
-identity's claims must fit the cookie once compressed (about 2.8 KB): a larger one is
-refused with `internal_error`.
+nothing, and the row never validates as a session. The row is inserted with
+`ReasonPendingIdentity`, for which the custom session data resolver is **not** called: it
+has no account and carries no custom data. An identity's claims must fit the cookie once
+compressed (about 2.8 KB): a larger one is refused with `internal_error`.
 
 ### Every session
 
@@ -186,7 +242,11 @@ refused with `internal_error`.
   session with no account or whose account is missing or disabled; the account is
   `sessioninfo.UserFromCtx(ctx)`. The session's account, authentication time and auth
   events are on the context's `*sessioninfo.SessionData`
-  (`ctx.Value(sessioninfo.CtxSessionInfo)`): `UserID`, `AuthenticatedAt`, `AuthEvents`.
+  (`sessioninfo.DataFromCtx(ctx)`): `UserID`, `AuthenticatedAt`, `AuthEvents`.
+- **Custom session data** is resolved in the transaction that inserts the session, after
+  the account resolution has committed: the resolver reads the account (one just
+  provisioned included) and the application's rows, and `req.Account` says how the
+  account was found. It is never called for a pending identity's row.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
   steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
@@ -461,7 +521,9 @@ How it works:
 - **A resolver writes it — once, at creation.** Your resolver runs **inside the same
   transaction that inserts the session row** (login, external auth, session
   regeneration) and returns the `*T` to store, committed atomically with the session.
-  If it returns an error, the login fails: no session, no cookies.
+  If it returns an error, the login fails: no session, no cookies. For an `Auth`
+  sign-in it runs after the account resolution has committed (see "Auth sessions"), and
+  never for a pending identity's row.
 
 - **Every request reads it — automatically.** Session validation fetches the custom
   row together with the session (a single `LEFT JOIN` query) and your handlers get a
