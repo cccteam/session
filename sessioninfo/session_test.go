@@ -97,3 +97,43 @@ func Test_userInfoFromRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestDataFromCtx(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))
+	data := &SessionData{
+		SessionInfo: &SessionInfo{ID: userID},
+		UserID:      ccc.NullUUIDFromUUID(userID),
+		AuthEvents:  []AuthEvent{{Method: MethodPassword}, {Method: "email-otp"}},
+	}
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		want      *SessionData
+		wantPanic bool
+	}{
+		{name: "a context without a session panics, as FromCtx does", ctx: context.Background(), wantPanic: true},
+		{name: "the validated session's data, with its account and auth events", ctx: context.WithValue(context.Background(), CtxSessionInfo, data), want: data},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			defer func() {
+				if r := recover(); (r != nil) != tt.wantPanic {
+					t.Errorf("DataFromCtx() panic = %v, wantPanic %v", r, tt.wantPanic)
+				}
+			}()
+
+			if got := DataFromCtx(tt.ctx); got != tt.want {
+				t.Errorf("DataFromCtx() = %+v, want %+v", got, tt.want)
+			}
+			r := httptest.NewRequestWithContext(tt.ctx, http.MethodGet, "/", http.NoBody)
+			if got := DataFromRequest(r); got != tt.want {
+				t.Errorf("DataFromRequest() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
