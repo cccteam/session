@@ -202,9 +202,10 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 		state.UserID = ccc.NullUUIDFromUUID(at.userID)
 	}
 
-	id, err := a.storage.NewSession(ctx, wait.Username, nil)
+	// The row's reason keeps the custom session data resolver off it: it has no account.
+	id, err := a.storage.CreateSession(ctx, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: wait.Username})
 	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.NewSession()")
+		return nil, errors.Wrap(err, "sessionstorage.AccountStore.CreateSession()")
 	}
 	state.ID = id
 	encoded, err := encodePending(state)

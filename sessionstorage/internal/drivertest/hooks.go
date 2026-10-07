@@ -197,6 +197,30 @@ func testCustomDataSeesProvisionedAccount(ctx context.Context, t *testing.T, h *
 	}
 }
 
+func testPendingRowSkipsCustomData(ctx context.Context, t *testing.T, h *AccountsHarness) {
+	var calls int
+	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{
+		Identities: true,
+		CustomData: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (any, error) {
+			calls++
+
+			return nil, errors.New("a resolver that looks the account up fails without one")
+		},
+	})
+
+	id, err := in.Driver.InsertSession(ctx, newInsertSession("pat@lakeside.edu"), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: "pat@lakeside.edu"})
+	if err != nil {
+		t.Fatalf("InsertSession() of a pending identity's row error = %v, want it inserted without the resolver", err)
+	}
+	if calls != 0 {
+		t.Errorf("custom session data resolver ran %d times for a pending identity's row, want 0", calls)
+	}
+	sess := mustSession(ctx, t, in.Driver, id)
+	if sess.UserID.Valid || sess.AuthenticatedAt != nil {
+		t.Errorf("pending row = UserID %v, AuthenticatedAt %v; want no account and never authenticated", sess.UserID, sess.AuthenticatedAt)
+	}
+}
+
 func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarness) {
 	tests := []struct {
 		name string

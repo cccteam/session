@@ -94,13 +94,20 @@ func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *sessionstorage
 	t.Helper()
 
 	pendingID := ccc.Must(ccc.NewUUID())
-	f.store.EXPECT().NewSession(gomock.Any(), wait.Username, nil).Return(pendingID, nil)
+	f.store.EXPECT().CreateSession(gomock.Any(), pendingRow(wait.Username)).Return(pendingID, nil)
 	rr := httptest.NewRecorder()
 	if _, err := f.auth.holdPending(context.Background(), rr, at, wait); err != nil {
 		t.Fatalf("holdPending() error = %v", err)
 	}
 
 	return rr.Result().Cookies(), pendingID
+}
+
+// pendingRow matches the insert of a pending identity's stepping-stone row for
+// username: ReasonPendingIdentity, which the storage never resolves custom session data
+// for, and no identity, account or custom data.
+func pendingRow(username string) gomock.Matcher {
+	return gomock.Eq(&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: username})
 }
 
 // livePending expects the stepping-stone row id to be read, live and accountless.
@@ -382,7 +389,7 @@ func TestAuth_PasswordLogin(t *testing.T) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
 			wantStatus:  http.StatusOK,
 			wantMFA:     true,
@@ -560,7 +567,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
 			wantLocation: "/login?pending=confirmation&returnUrl=%2Fnext",
 			wantPending:  true,
@@ -772,7 +779,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
 			},
 			wantStatus:   http.StatusOK,

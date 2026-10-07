@@ -124,6 +124,7 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "a denied or held sign-in keeps the sign-in policy's own writes", run: testHeldOrRefusedKeepsHookWrites},
 		{name: "the policy of a provisioning sign-in reads the new account and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedAccount},
 		{name: "the custom session data resolver of a provisioning sign-in reads the new account and knows it was provisioned", run: testCustomDataSeesProvisionedAccount},
+		{name: "a pending identity's row never calls the custom session data resolver", run: testPendingRowSkipsCustomData},
 		{name: "a sign-in reports the account it resolved to and how", run: testSignInAccountReported},
 		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
