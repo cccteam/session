@@ -527,7 +527,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the account it resolved to",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(&sessionstorage.SessionIdentity{UserID: userID}, nil)
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IdPAMR: []string{"pwd", "mfa"}}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
@@ -546,7 +545,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(&sessionstorage.SessionIdentity{UserID: userID}, nil)
 				createSession(f.store, sessionID, nil, resolved)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
@@ -563,7 +561,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "an identity waiting for its account's password becomes a pending identity, and no roles are touched",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(nil, httpio.NewNotFoundMessage("not linked"))
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
@@ -576,7 +573,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a resolver's refusal sends its code to the login page",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("not linked"))
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "identity rejected")
 				})
@@ -638,7 +634,6 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:   "a Google identity is keyed by sub alone",
 			claims: `{"sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
 			prepare: func(f *authFixture) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodGoogle, "", "sub-1").Return(&sessionstorage.SessionIdentity{}, nil)
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
@@ -695,28 +690,59 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp"}
 
 	tests := []struct {
-		name       string
-		linkBefore error
+		name string
+		// source is how the storage resolved the account.
+		source sessioninfo.AccountSource
+		// stop is the storage's outcome other than a session.
+		stop       error
 		wantLinked []ccc.UUID
 	}{
-		{name: "a sign-in that linked a new identity reports the link, and the hook's error does not undo it", linkBefore: httpio.NewNotFoundMessage("not linked"), wantLinked: []ccc.UUID{userID}},
-		{name: "a sign-in through an existing link reports nothing"},
+		{
+			name:       "a sign-in that provisioned the account reports the link, and the hook's error does not undo it",
+			source:     sessioninfo.AccountProvisioned,
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:       "a sign-in the resolver linked reports the link",
+			source:     sessioninfo.AccountNewLink,
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:   "a sign-in through an existing link reports nothing",
+			source: sessioninfo.AccountExistingLink,
+		},
+		{
+			name:       "a provisioning sign-in held for MFA reports the link it committed",
+			source:     sessioninfo.AccountProvisioned,
+			stop:       &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:       "a provisioning sign-in the policy denied reports the link it committed",
+			source:     sessioninfo.AccountProvisioned,
+			stop:       dbtype.Refusal("", sessioninfo.RefusedByPolicy, sessionstorage.ErrSignInDenied, "sign-in denied"),
+			wantLinked: []ccc.UUID{userID},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl, PasswordSignIn())
-			f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{}, tt.linkBefore)
 			createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 				req.UserID, req.Username = userID, "pat"
+				req.Account = &sessioninfo.SignInAccount{ID: userID, Username: "pat", Source: tt.source}
 
-				return nil
+				return tt.stop
 			})
+			if _, ok := tt.stop.(*sessionstorage.PendingSignInError); ok {
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
+			}
 
-			outcome, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sameSiteNone})
-			if err != nil || outcome.sessionID != sessionID {
-				t.Fatalf("signIn() = %+v, %v; want session %s", outcome, err, sessionID)
+			_, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sameSiteNone})
+			var refusal *sessioninfo.LoginRefusal
+			if (err != nil) != errors.As(tt.stop, &refusal) {
+				t.Fatalf("signIn() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.wantLinked, f.linked, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("IdentityLinked reports mismatch (-want +got):\n%s", diff)

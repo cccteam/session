@@ -54,9 +54,10 @@ type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *s
 
 // WithIdentityLinked sets the hook called after every identity link: a link made by a
 // pending identity's password confirmation, and a link the account resolver made during
-// a sign-in (LinkIdentity or ProvisionAccount). An error from the hook is logged; the
-// link and the sign-in stand. Two first sign-ins of one identity racing each other may
-// both report it.
+// a sign-in (LinkIdentity or ProvisionAccount). The resolver's link is committed before
+// the sign-in policy decides, so it is reported even when the policy then denies the
+// sign-in or holds it for MFA. An error from the hook is logged; the link and the
+// sign-in stand.
 func WithIdentityLinked(hook IdentityLinkedHook) AuthOption {
 	return authOption(func(s *authSettings) { s.identityLinked = hook })
 }
