@@ -36,6 +36,12 @@ Layers, from the outside in:
 | O4 | Google logins outside the hosted domain, or with an unverified email, are refused | `internal/googleoidc` `TestOIDC_Verify/hd…`, `…unverified…` | verifier |
 | O5 | The simulated (`skipAuth`) login fabricates exactly the claims the real one would carry, and the simulated Google groups lookup yields exactly the roles `APP_ROLES` names | `*_skipAuth_test.go` in both packages; `role_sync_google_skipAuth_test.go` | verifier |
 
+## Accounts and sign-in
+
+| # | Invariant | Proven by | Layer |
+| --- | --- | --- | --- |
+| A1 | A password-less account (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the account's sessions; the hasher never sees a nil hash | `TestPasswordAuth_PasswordLessAccount`; `TestPasswordAuth_Login_PasswordLessAccount` | root |
+
 ## Impersonation
 
 | # | Invariant | Proven by | Layer |

@@ -178,7 +178,7 @@ func (p *PasswordAuth[T, U]) loginAPI(ctx context.Context, w http.ResponseWriter
 }
 
 func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sessionstorage.SessionUser, password string) error {
-	upgrade, err := p.hasher.Compare(user.PasswordHash, password)
+	upgrade, err := p.comparePassword(user.PasswordHash, password)
 	if err != nil {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
@@ -195,6 +195,27 @@ func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sess
 	}
 
 	return nil
+}
+
+// errNoPassword is the comparison failure for an account that has no password hash: an
+// account provisioned for external sign-in only.
+var errNoPassword = errors.New("the account has no password")
+
+// comparePassword checks password against hash, reporting whether the hash should be
+// upgraded. An account without a password (a nil hash) never matches: it fails like a
+// wrong password, so a password-less account can't be signed in to with a password and
+// the hasher, which dereferences the hash, never sees nil.
+func (p *PasswordAuth[T, U]) comparePassword(hash *securehash.Hash, password string) (upgrade bool, err error) {
+	if hash == nil {
+		return false, errNoPassword
+	}
+
+	upgrade, err = p.hasher.Compare(hash, password)
+	if err != nil {
+		return false, errors.Wrap(err, "securehash.SecureHasher.Compare()")
+	}
+
+	return upgrade, nil
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
@@ -514,7 +535,7 @@ func (p *PasswordAuth[T, U]) changeSessionUserPassword(ctx context.Context, w ht
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.User()")
 	}
-	if _, err := p.hasher.Compare(user.PasswordHash, req.OldPassword); err != nil {
+	if _, err := p.comparePassword(user.PasswordHash, req.OldPassword); err != nil {
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
