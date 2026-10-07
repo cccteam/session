@@ -286,8 +286,26 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(mfaResponse{MFAIsRequired: outcome.pending != nil})
+		return a.answerSignIn(ctx, w, r, outcome)
 	})
+}
+
+// answerSignIn answers a JSON sign-in handler's outcome: a session, or a pending
+// identity, for which the PendingHook runs first (see WithPendingHook).
+func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
+	if outcome.pending == nil {
+		return httpio.NewEncoder(w).Ok(mfaResponse{})
+	}
+
+	redirectURL, handled, err := a.onPending(ctx, w, r, outcome.pending)
+	switch {
+	case handled:
+		return err
+	case err != nil:
+		return writeSignInError(ctx, w, err)
+	}
+
+	return httpio.NewEncoder(w).Ok(mfaResponse{MFAIsRequired: true, RedirectURL: redirectURL})
 }
 
 // changeUserPasswordHandler is the password method's change-password handler.
@@ -320,9 +338,11 @@ func (a *Auth[S, U]) changeUserPasswordHandler() http.HandlerFunc {
 	})
 }
 
-// mfaResponse answers a sign-in step that may still wait for the application's MFA.
+// mfaResponse answers a sign-in step that may still wait for the application's MFA;
+// RedirectURL is where a PendingHook sends the browser.
 type mfaResponse struct {
-	MFAIsRequired bool `json:"mfaIsRequired"`
+	MFAIsRequired bool   `json:"mfaIsRequired"`
+	RedirectURL   string `json:"redirectUrl,omitempty"`
 }
 
 // refusalResponse is a JSON sign-in handler's answer to a refused sign-in.

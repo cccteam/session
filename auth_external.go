@@ -316,7 +316,20 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 			return err
 		}
 		if outcome.pending != nil {
-			http.Redirect(w, r, pendingRedirectURL(m.loginURL(), outcome.pending.Reason, v.returnURL), http.StatusFound)
+			target, handled, err := a.onPending(ctx, w, r, outcome.pending)
+			switch {
+			case handled:
+				return err
+			case err != nil:
+				redirectRefusedLogin(w, r, m.loginURL(), err)
+
+				return err
+			case target == "":
+				target = pendingRedirectURL(m.loginURL(), outcome.pending.Reason, v.returnURL)
+			}
+			// The target is the login URL from server-side configuration, or the
+			// application's own choice in its PendingHook.
+			http.Redirect(w, r, target, http.StatusFound)
 
 			return nil
 		}

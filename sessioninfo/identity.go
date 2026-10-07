@@ -89,6 +89,9 @@ type PendingIdentity struct {
 	UserID    ccc.NullUUID
 	Username  string
 	ExpiresAt time.Time
+	// ReturnURL is the path in the application the sign-in returns to once it
+	// completes; empty for the root.
+	ReturnURL string
 }
 
 // AccountSource says how an Auth sign-in found its account.

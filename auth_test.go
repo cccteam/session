@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,13 +54,20 @@ type authFixture struct {
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, methods ...SignInMethod) *authFixture {
 	t.Helper()
 
+	return newAuthFixtureWith(t, ctrl, methods)
+}
+
+// newAuthFixtureWith is newAuthFixture with more Auth options.
+func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, methods []SignInMethod, options ...AuthOption) *authFixture {
+	t.Helper()
+
 	f := &authFixture{store: newAccountStoreMock(ctrl, true)}
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
 		return errors.New("notification failed: logged, and the link stands")
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, methods, WithIdentityLinked(hook))
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, methods, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -677,6 +685,139 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
+			}
+		})
+	}
+}
+
+func TestAuth_PendingHook(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	sessionID := ccc.Must(ccc.NewUUID())
+	pendingID := ccc.Must(ccc.NewUUID())
+
+	type hookResult struct {
+		redirectURL string
+		err         error
+		// write makes the hook answer the request itself.
+		write bool
+	}
+	tests := []struct {
+		name string
+		// password signs in with the password Login instead of the Google Callback.
+		password     bool
+		hook         hookResult
+		wantStatus   int
+		wantLocation string
+		wantBody     string
+		// wantDiscarded says the pending identity was discarded: its row expired and,
+		// unless the hook answered, its cookie deleted.
+		wantDiscarded bool
+	}{
+		{
+			name:         "the callback sends the browser where the hook says",
+			hook:         hookResult{redirectURL: "/mfa?step=code"},
+			wantStatus:   http.StatusFound,
+			wantLocation: "/mfa?step=code",
+		},
+		{
+			name:         "a hook that names no URL keeps the default redirect",
+			wantStatus:   http.StatusFound,
+			wantLocation: "/login?pending=mfa&returnUrl=%2Fhome",
+		},
+		{
+			name:         "a hook that answers the request itself is the response",
+			hook:         hookResult{write: true},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/own-page",
+		},
+		{
+			name:          "a hook error discards the pending identity and refuses the sign-in",
+			hook:          hookResult{err: errors.New("the MFA code could not be sent")},
+			wantStatus:    http.StatusFound,
+			wantLocation:  "/login?code=internal_error",
+			wantDiscarded: true,
+		},
+		{
+			name:       "the password login answers the hook's URL as redirectUrl",
+			password:   true,
+			hook:       hookResult{redirectURL: "/mfa"},
+			wantStatus: http.StatusOK,
+			wantBody:   `{"mfaIsRequired":true,"redirectUrl":"/mfa"}`,
+		},
+		{
+			name:          "a hook error fails the password login and discards the pending identity",
+			password:      true,
+			hook:          hookResult{err: errors.New("the MFA code could not be sent")},
+			wantStatus:    http.StatusInternalServerError,
+			wantDiscarded: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			var (
+				rowStored bool
+				got       *sessioninfo.PendingIdentity
+			)
+			hook := func(_ context.Context, w http.ResponseWriter, r *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
+				if !rowStored || !slices.ContainsFunc((&http.Response{Header: w.Header()}).Cookies(), func(c *http.Cookie) bool { return c.Name == defaultPendingCookieName }) {
+					t.Error("the hook ran before the pending identity was stored")
+				}
+				got = pending
+				if tt.hook.write {
+					http.Redirect(w, r, "/own-page", http.StatusSeeOther)
+				}
+
+				return tt.hook.redirectURL, tt.hook.err
+			}
+			f := newAuthFixtureWith(t, ctrl, []SignInMethod{PasswordSignIn()}, WithPendingHook(hook))
+			user := &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
+			createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+				return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+			})
+			f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).DoAndReturn(func(context.Context, *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+				rowStored = true
+
+				return pendingID, nil
+			})
+			if tt.wantDiscarded {
+				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+			}
+
+			var rr *httptest.ResponseRecorder
+			if tt.password {
+				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(user, nil)
+				rr = f.serve(f.auth.Password().Login(), http.MethodPost, "/login", map[string]string{"username": "pat", "password": "pw"}, nil)
+			} else {
+				authn := mock_googleoidc.NewMockAuthenticator(ctrl)
+				authn.EXPECT().LoginURL().Return("/login").AnyTimes()
+				authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
+						return "/home", "access-token", json.Unmarshal([]byte(`{"sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
+					})
+				f.auth.external[sessioninfo.MethodGoogle] = googleMethod(authn, nil)
+				rr = f.serve(f.auth.Google().Callback(), http.MethodGet, "/google/callback", nil, nil)
+			}
+
+			if rr.Code != tt.wantStatus || rr.Header().Get("Location") != tt.wantLocation {
+				t.Errorf("response = %d %q, want %d %q: %s", rr.Code, rr.Header().Get("Location"), tt.wantStatus, tt.wantLocation, rr.Body.String())
+			}
+			if tt.wantBody != "" && strings.TrimSpace(rr.Body.String()) != tt.wantBody {
+				t.Errorf("body = %s, want %s", rr.Body.String(), tt.wantBody)
+			}
+			if got == nil || got.Reason != sessioninfo.PendingMFA || got.UserID != ccc.NullUUIDFromUUID(userID) || got.Username != "pat" || !got.ExpiresAt.After(time.Now()) {
+				t.Errorf("hook received %+v, want the stored MFA pending identity of pat", got)
+			}
+			if !tt.password && (got == nil || got.Identity.Email != "pat@example.com" || got.ReturnURL != "/home") {
+				t.Errorf("hook received %+v, want the identity's email and the return path", got)
+			}
+			if pendingDeleted(rr) != (tt.wantDiscarded && !tt.hook.write) {
+				t.Errorf("pending cookie deleted = %v, want %v", pendingDeleted(rr), tt.wantDiscarded)
 			}
 		})
 	}
