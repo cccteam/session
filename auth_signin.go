@@ -293,19 +293,22 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 // answerSignIn answers a JSON sign-in handler's outcome: a session, or a pending
 // identity, for which the PendingHook runs first (see WithPendingHook).
 func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
-	if outcome.pending == nil {
-		return httpio.NewEncoder(w).Ok(mfaResponse{})
+	var body mfaResponse
+	if outcome.pending != nil {
+		redirectURL, handled, err := a.onPending(ctx, w, r, outcome.pending)
+		switch {
+		case handled:
+			return err
+		case err != nil:
+			return writeSignInError(ctx, w, err)
+		}
+		body = mfaResponse{MFAIsRequired: true, RedirectURL: redirectURL}
+	}
+	if err := httpio.NewEncoder(w).Ok(body); err != nil {
+		return errors.Wrap(err, "httpio.Encoder.Ok()")
 	}
 
-	redirectURL, handled, err := a.onPending(ctx, w, r, outcome.pending)
-	switch {
-	case handled:
-		return err
-	case err != nil:
-		return writeSignInError(ctx, w, err)
-	}
-
-	return httpio.NewEncoder(w).Ok(mfaResponse{MFAIsRequired: true, RedirectURL: redirectURL})
+	return nil
 }
 
 // changeUserPasswordHandler is the password method's change-password handler.

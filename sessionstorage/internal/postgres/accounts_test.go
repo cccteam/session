@@ -124,9 +124,8 @@ func (x hookTx) Record(ctx context.Context, key, value string) error {
 	return nil
 }
 
-func (x hookTx) Recorded(ctx context.Context, key string) (string, bool, error) {
-	var value string
-	err := x.txn.QueryRow(ctx, `SELECT "RecordValue" FROM "HookRecords" WHERE "RecordKey" = $1`, key).Scan(&value)
+func (x hookTx) Recorded(ctx context.Context, key string) (value string, found bool, err error) {
+	err = x.txn.QueryRow(ctx, `SELECT "RecordValue" FROM "HookRecords" WHERE "RecordKey" = $1`, key).Scan(&value)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}

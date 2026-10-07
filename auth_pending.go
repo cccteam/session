@@ -262,7 +262,7 @@ func (t *responseTracker) WriteHeader(statusCode int) {
 func (t *responseTracker) Write(b []byte) (int, error) {
 	t.written = true
 
-	return t.ResponseWriter.Write(b)
+	return t.ResponseWriter.Write(b) //nolint:wrapcheck // a ResponseWriter passes its writer's error through
 }
 
 // Unwrap gives http.ResponseController the underlying writer.

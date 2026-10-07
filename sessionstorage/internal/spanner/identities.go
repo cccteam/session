@@ -316,7 +316,7 @@ func (s *SessionStorageDriver) decideAndInsert(
 		case err != nil:
 			return errors.Wrap(err, "dbtype.DecideSignIn()")
 		case stop != nil:
-			return nil
+			return nil //nolint:nilerr // a refusal or an MFA wait commits the policy's writes
 		}
 
 		return s.bufferAccountSession(ctx, txn, id, insertSession, req)
@@ -325,7 +325,7 @@ func (s *SessionStorageDriver) decideAndInsert(
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
-	return stop
+	return stop //nolint:wrapcheck // the refusal or the wait as the decision made it
 }
 
 // bufferAccountSession buffers the session row, its first auth event and its custom

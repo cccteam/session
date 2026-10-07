@@ -876,7 +876,8 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 
 				return tt.stop
 			})
-			if _, ok := tt.stop.(*sessionstorage.PendingSignInError); ok {
+			var wait *sessionstorage.PendingSignInError
+			if errors.As(tt.stop, &wait) {
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			}
 

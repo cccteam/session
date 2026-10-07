@@ -277,7 +277,7 @@ func (s *SessionStorageDriver) decideAndInsert(
 		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
-	return stop
+	return stop //nolint:wrapcheck // the refusal or the wait as the decision made it
 }
 
 // insertResolvedSession inserts the session row, its first auth event and its custom

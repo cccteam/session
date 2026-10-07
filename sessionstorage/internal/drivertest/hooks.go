@@ -30,7 +30,7 @@ func assertRecorded(ctx context.Context, t *testing.T, h *AccountsHarness, raw a
 func testRejectionKeepsResolverWrites(ctx context.Context, t *testing.T, h *AccountsHarness) {
 	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{Identities: true, Resolve: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		if err := tx.Record(ctx, "attempt:"+req.Identity.Subject, "refused: no invite"); err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "HookTx.Record()")
 		}
 
 		return &dbtype.Resolution{Outcome: dbtype.RejectIdentity, Refusal: "not_invited"}, nil
@@ -86,7 +86,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *Accoun
 
 			in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{Identities: true, Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
 				if err := tx.Record(ctx, "audit:"+req.UserID.String(), "decided"); err != nil {
-					return nil, err
+					return nil, errors.Wrap(err, "HookTx.Record()")
 				}
 
 				return tt.decision, nil
@@ -113,7 +113,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *Accoun
 // provisioningResolver provisions username for every unlinked identity, with tenant,
 // and records the application's membership row for the new account in OnProvisioned.
 func provisioningResolver(username, tenant string) func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
-	return func(ctx context.Context, tx HookTx, _ *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+	return func(_ context.Context, tx HookTx, _ *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		return &dbtype.Resolution{
 			Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: username}, Tenant: tenant,
 			OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
@@ -128,14 +128,14 @@ func provisioningResolver(username, tenant string) func(ctx context.Context, tx 
 func seesProvisioned(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest, tenant string) (string, error) {
 	exists, err := tx.UserExists(ctx, req.UserID)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "HookTx.UserExists()")
 	}
 	if !exists {
 		return "the provisioned account is not readable", nil
 	}
 	member, found, err := tx.Recorded(ctx, "member:"+req.UserID.String())
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "HookTx.Recorded()")
 	}
 	if !found || member != tenant {
 		return "the rows OnProvisioned wrote are not readable", nil
@@ -272,9 +272,11 @@ func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarne
 					Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID,
 					Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: pat.ID.String()},
 				}
-				_, err := d.InsertSession(ctx, newInsertSession(pat.Username), req)
+				if _, err := d.InsertSession(ctx, newInsertSession(pat.Username), req); err != nil {
+					return req, errors.Wrap(err, "InsertSession()")
+				}
 
-				return req, err
+				return req, nil
 			},
 			want: func(_, pat *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount {
 				return &sessioninfo.SignInAccount{ID: pat.ID, Username: pat.Username, HasPassword: true, Source: sessioninfo.AccountNamed}

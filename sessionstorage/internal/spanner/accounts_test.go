@@ -135,7 +135,7 @@ func (x hookTx) Record(_ context.Context, key, value string) error {
 	return nil
 }
 
-func (x hookTx) Recorded(ctx context.Context, key string) (string, bool, error) {
+func (x hookTx) Recorded(ctx context.Context, key string) (value string, found bool, err error) {
 	row, err := x.txn.ReadRow(ctx, "HookRecords", spanner.Key{key}, []string{"RecordValue"})
 	if spanner.ErrCode(err) == codes.NotFound {
 		return "", false, nil
@@ -143,7 +143,6 @@ func (x hookTx) Recorded(ctx context.Context, key string) (string, bool, error) 
 	if err != nil {
 		return "", false, errors.Wrap(err, "txn.ReadRow()")
 	}
-	var value string
 	if err := row.Column(0, &value); err != nil {
 		return "", false, errors.Wrap(err, "row.Column()")
 	}
@@ -152,7 +151,7 @@ func (x hookTx) Recorded(ctx context.Context, key string) (string, bool, error) 
 }
 
 func (x hookTx) UserExists(ctx context.Context, userID ccc.UUID) (bool, error) {
-	_, err := x.txn.ReadRow(ctx, "SessionUsers", spanner.Key{userID.String()}, []string{"Id"})
+	_, err := x.txn.ReadRow(ctx, "SessionUsers", spanner.Key{userID.String()}, []string{idColumn})
 	if spanner.ErrCode(err) == codes.NotFound {
 		return false, nil
 	}

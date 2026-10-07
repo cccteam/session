@@ -329,7 +329,7 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 			}
 			// The target is the login URL from server-side configuration, or the
 			// application's own choice in its PendingHook.
-			http.Redirect(w, r, target, http.StatusFound)
+			http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // G710: not a caller-controlled redirect, see above
 
 			return nil
 		}
