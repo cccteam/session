@@ -35,6 +35,10 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
+	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
+	accounts   bool
+	authEvents *AuthEventsConfig
+	identities *IdentitiesConfig
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -78,8 +82,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// With auth events the session row and its events are read at one timestamp.
+	txn := s.spanner.Single()
+	if s.authEvents != nil {
+		txn = s.spanner.ReadOnlyTransaction()
+		defer txn.Close()
+	}
+
 	qryStmt := s.sessionQuery(sessionID)
-	iter := s.spanner.Single().Query(ctx, qryStmt)
+	iter := txn.Query(ctx, qryStmt)
 	defer iter.Stop()
 
 	row, err := iter.Next()
@@ -114,6 +125,14 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	sessData := &dbtype.SessionData{Session: session}
 
+	if s.accounts {
+		next, err := readAccount(row, idx, sessData)
+		if err != nil {
+			return nil, err
+		}
+		idx = next
+	}
+
 	if s.customData != nil {
 		data, next, err := s.readCustomData(row, idx)
 		if err != nil {
@@ -129,6 +148,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 			return nil, err
 		}
 		sessData.Impersonation = imp
+	}
+
+	if s.authEvents != nil {
+		iter.Stop()
+		events, err := s.readAuthEvents(ctx, txn, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		sessData.AuthEvents = events
 	}
 
 	return sessData, nil
@@ -221,20 +249,24 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
+	// A sign-in that carries a verified identity resolves its account in the session
+	// transaction: always for an external identity, and for a password identity when
+	// identities (and so the sign-in policy) are configured.
+	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
+		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
+			return ccc.NilUUID, err
+		}
+
+		return id, nil
 	}
 
-	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+		return ccc.NilUUID, err
 	}
+	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil, insertSession.CreatedAt)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -441,22 +473,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	id, err := ccc.NewUUID()
+	user, mutation, err := newUserMutation(s.userTableName, insertUser)
 	if err != nil {
-		return nil, errors.Wrap(err, "ccc.NewUUID()")
+		return nil, err
 	}
-
-	user := &dbtype.SessionUser{
-		ID:           id,
-		Username:     insertUser.Username,
-		PasswordHash: insertUser.PasswordHash,
-		Disabled:     insertUser.Disabled,
-	}
-
-	mutation, err := spanner.InsertStruct(s.userTableName, user)
-	if err != nil {
-		return nil, errors.Wrap(err, "spanner.InsertStruct()")
-	}
+	id := user.ID
 
 	mutations := []*spanner.Mutation{mutation}
 	if customData != nil {
@@ -566,17 +587,37 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	return nil
 }
 
-// SetUserPasswordHash updates the user password hash
+// passwordHashValue renders a password hash column value: NULL for a password-less
+// account. securehash.Hash encodes itself with a value receiver, which panics on the nil
+// pointer a password-less account carries, so the driver encodes it here.
+func passwordHashValue(hash *securehash.Hash) (spanner.NullString, error) {
+	if hash == nil {
+		return spanner.NullString{}, nil
+	}
+
+	b, err := hash.MarshalText()
+	if err != nil {
+		return spanner.NullString{}, errors.Wrap(err, "securehash.Hash.MarshalText()")
+	}
+
+	return spanner.NullString{StringVal: string(b), Valid: true}, nil
+}
+
+// SetUserPasswordHash updates the user password hash; a nil hash removes the password.
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	passwordHash, err := passwordHashValue(hash)
+	if err != nil {
+		return err
+	}
 	passwordUpdate := struct {
-		ID           ccc.UUID         `spanner:"Id"`
-		PasswordHash *securehash.Hash `spanner:"PasswordHash"`
+		ID           ccc.UUID           `spanner:"Id"`
+		PasswordHash spanner.NullString `spanner:"PasswordHash"`
 	}{
 		ID:           userID,
-		PasswordHash: hash,
+		PasswordHash: passwordHash,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.userTableName, passwordUpdate)
@@ -800,6 +841,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statement {
 	var columns strings.Builder
 	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
+	columns.WriteString(s.accountColumns())
 
 	joinClause := ""
 	if s.customData != nil {

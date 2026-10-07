@@ -34,8 +34,19 @@ const (
 	// XSRFCookieName is the cookie name of the XSRF Token Cookie
 	XSRFCookieName = "XSRF-TOKEN"
 
-	// OIDCCookieName is the cookie name of the OIDC Cookie
+	// OIDCCookieName is the state cookie name every OIDC provider shared before each got
+	// its own (v0.12 and earlier). A callback still reads it when the provider's own
+	// cookie is absent, so a login started before an upgrade completes after it.
 	OIDCCookieName = "OIDC"
+
+	// AzureStateCookieName is the state cookie of the Azure (Entra ID) OIDC login.
+	AzureStateCookieName = "OIDC-azure"
+
+	// GoogleStateCookieName is the state cookie of the Google Workspace OIDC login.
+	GoogleStateCookieName = "OIDC-google"
+
+	// WorkOSStateCookieName is the state cookie of the WorkOS SSO login.
+	WorkOSStateCookieName = "OIDC-workos"
 
 	// XSRFHeaderName is the header name of the XSRF Token Cookie
 	XSRFHeaderName = "X-XSRF-TOKEN"

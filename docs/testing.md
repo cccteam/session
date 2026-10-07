@@ -76,6 +76,7 @@ go test -tags skipAuth ./...                    # the development authenticator
 go test -tags insecurecookie ./...              # the development cookie configuration
 go test -run TestSeams ./internal/e2e           # the seam suite alone
 go test -run TestImpersonation ./sessionstorage/internal/...   # driver conformance
+go test -run TestAccounts ./sessionstorage/internal/...        # accounts, identities and auth events conformance
 ```
 
 CI runs the suite with the race detector under the default, `skipAuth`, `insecurecookie`

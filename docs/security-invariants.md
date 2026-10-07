@@ -35,6 +35,26 @@ Layers, from the outside in:
 | O3 | PKCE verifier and state are fresh per login | `TestOIDC_AuthCodeURL` in both packages | verifier |
 | O4 | Google logins outside the hosted domain, or with an unverified email, are refused | `internal/googleoidc` `TestOIDC_Verify/hd…`, `…unverified…` | verifier |
 | O5 | The simulated (`skipAuth`) login fabricates exactly the claims the real one would carry, and the simulated Google groups lookup yields exactly the roles `APP_ROLES` names | `*_skipAuth_test.go` in both packages; `role_sync_google_skipAuth_test.go` | verifier |
+| O6 | Each OIDC provider keeps its own state cookie (`OIDC-azure`, `OIDC-google`, `OIDC-workos`), so logins with different providers in one browser never overwrite each other's state; a login started before the upgrade completes with the legacy shared `OIDC` cookie, which is then cleared | `internal/googleoidc` `TestOIDC_StateCookie_ProvidersCoexist`; `TestOIDC_Verify_LegacyStateCookie` in both packages | verifier |
+
+## Accounts and sign-in
+
+| # | Invariant | Proven by | Layer |
+| --- | --- | --- | --- |
+| A1 | A password-less account (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the account's sessions; the hasher never sees a nil hash; such an account is stored and read with no hash on both backends | `TestPasswordAuth_PasswordLessAccount`; `TestPasswordAuth_Login_PasswordLessAccount`; `TestSessionStorageDriver_PasswordLessAccount` (spanner, postgres) | root, driver |
+| A2 | An external identity whose key is longer than a GUID (a WorkOS `idp_id`) is anchored whole on both backends' shipped OIDC schema; Spanner `OIDCUsers.Tid`/`Oid` are `STRING(MAX)` | `TestSessionStorageDriver_OIDCUsers_LongKey` (spanner, postgres) | driver |
+| A3 | The accounts schema is opt-in: a driver without it never names `Sessions.UserId`, `AuthenticatedAt` or the auth events table, so a legacy schema keeps working | drivertest `TestAccounts/a legacy schema keeps working…` | driver |
+| A4 | A session records the account it belongs to and when it was authenticated; a preauth stepping stone has neither, and a role-principal impersonation has no account | drivertest `TestAccounts/account sessions record…`, `…impersonated session records its account…` | driver |
+| A5 | A session's auth events are written with it, read with it oldest first, and deleted with it; an impersonated session's event names the actor | drivertest `TestAccounts/the first auth event…`, `…impersonated session records…`, `…auth events go with it`; `sessionstorage` `TestSessionStorage_Session_Account` | driver, storage contract |
+| A6 | An external identity is keyed by (Method, Connection, Subject), never by email: a linked identity signs in to its account without consulting the account resolver, and the session carries that account's ID and username | drivertest `TestAccounts/a linked identity signs in…` | driver |
+| A7 | The library never links on its own: an unlinked identity is linked or provisioned only on the resolver's outcome, and LinkIdentity to an account that has a password is refused (`ErrLinkRequiresConfirmation`) unless the resolution is TrustedForLinking | drivertest `TestAccounts/the resolver's outcome decides…` | driver |
+| A8 | A refused or pending sign-in writes nothing: RejectIdentity, RequireConfirmation, an OnProvisioned failure, a policy DenySignIn or RequireMFA leave no account, no link and no session; refusals carry their code and cause, pending outcomes a `PendingSignInError` | drivertest `TestAccounts/the resolver's outcome decides…`, `…the sign-in policy decides…` | driver |
+| A9 | The sign-in policy decides every sign-in method (external and password) once the account is known and before any session exists; a step-up completion is not decided again | drivertest `TestAccounts/the sign-in policy decides…` | driver |
+| A10 | A sign-in to a disabled account is refused (`account_disabled`) | drivertest `TestAccounts/a disabled account is refused` | driver |
+| A11 | Concurrent first sign-ins of one identity link it exactly once and all succeed | drivertest `TestAccounts/concurrent first sign-ins…` | driver |
+| A12 | The last means of sign-in of a password-less account can't be unlinked (`ErrLastSignInMethod`, Conflict); an identity can't be linked twice | drivertest `TestAccounts/links are managed outside sign-in…` | driver |
+| A13 | Revoking an account's sessions works by UserId: its own sessions under any username, user-principal impersonations of it, and sessions it holds as a local actor end (records Revoked); another account's session under the same username survives | drivertest `TestAccounts/DestroyUserSessions…` | driver |
+| A14 | An external identity is never signed in without an identities configuration (`ErrIdentitiesNotConfigured`) | drivertest `TestAccounts/an external identity needs…`; `sessionstorage` `TestAccounts_IdentitiesEnabled` | driver, storage contract |
 
 ## Impersonation
 

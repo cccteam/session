@@ -32,7 +32,7 @@ CREATE TABLE "SessionAuthEvents"
     "Method" character varying(32) NOT NULL,
     "Connection" character varying,
     "IdpAmr" character varying[],
-    "At" timestamp with time zone NOT NULL,
+    "OccurredAt" timestamp with time zone NOT NULL,
     CONSTRAINT "SessionAuthEvents_pkey" PRIMARY KEY ("SessionId", "Seq"),
     CONSTRAINT "SessionAuthEvents_SessionId_fkey" FOREIGN KEY ("SessionId") REFERENCES "Sessions" ("Id") ON DELETE CASCADE
 );

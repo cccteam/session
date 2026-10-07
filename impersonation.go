@@ -106,18 +106,14 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // StartAuthenticatedSession's semantics; the configured resolver receives
 // ReasonImpersonation.
 func (p *PasswordAuthAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return startImpersonatedSession(ctx, w, p.passwordAuth.baseSession, req, customData, p.passwordAuth.identity())
+	return p.passwordAuth.shared().startImpersonatedSession(ctx, w, req, customData, p.passwordAuth.identity())
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
 // actor and ends their records with reason Revoked — the offboarding and incident
 // tool. It errors when the storage has no impersonation table.
 func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	if err := p.passwordAuth.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
-	}
-
-	return nil
+	return p.passwordAuth.shared().destroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists the impersonated sessions that are live right now, newest
@@ -127,12 +123,7 @@ func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context,
 // listing by actor and/or principal; nil lists every active impersonation. It errors
 // when the storage has no impersonation table.
 func (p *PasswordAuthAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	imps, err := p.passwordAuth.baseSession.ActiveImpersonations(ctx, q)
-	if err != nil {
-		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
-	}
-
-	return imps, nil
+	return p.passwordAuth.shared().activeImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession ends one live impersonated session — the operator's action
@@ -142,11 +133,7 @@ func (p *PasswordAuthAPI[T, U]) ActiveImpersonations(ctx context.Context, q *Imp
 // left untouched. Who may revoke is the application's guard. It errors when the storage
 // has no impersonation table.
 func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	if err := p.passwordAuth.baseSession.DestroyImpersonatedSession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSession()")
-	}
-
-	return nil
+	return p.passwordAuth.shared().destroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the impersonated session in ctx with reason Released and, for a
@@ -155,12 +142,7 @@ func (p *PasswordAuthAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, 
 // happened. See EndImpersonation on the handler type and the "Impersonated sessions"
 // section of the README.
 func (p *PasswordAuthAPI[T, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	restored, err = p.passwordAuth.baseSession.EndImpersonationAPI(ctx, w)
-	if err != nil {
-		return false, errors.Wrap(err, "basesession.BaseSession.EndImpersonationAPI()")
-	}
-
-	return restored, nil
+	return p.passwordAuth.shared().endImpersonation(ctx, w)
 }
 
 // StartImpersonatedSession establishes a session that operates as req.Principal on
@@ -174,18 +156,14 @@ func (p *PasswordAuthAPI[T, U]) EndImpersonation(ctx context.Context, w http.Res
 // calling context is itself an impersonated session (no chaining). Optional customData
 // (at most one *T) follows Login's semantics.
 func (p *PreauthAPI[T]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return startImpersonatedSession(ctx, w, p.preauth.baseSession, req, customData, identityAsGiven)
+	return p.shared().startImpersonatedSession(ctx, w, req, customData, identityAsGiven)
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
 // actor and ends their records with reason Revoked — the offboarding and incident
 // tool. It errors when the storage has no impersonation table.
 func (p *PreauthAPI[T]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	if err := p.preauth.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists the impersonated sessions that are live right now, newest
@@ -195,12 +173,7 @@ func (p *PreauthAPI[T]) DestroyImpersonatedSessions(ctx context.Context, actor s
 // listing by actor and/or principal; nil lists every active impersonation. It errors
 // when the storage has no impersonation table.
 func (p *PreauthAPI[T]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	imps, err := p.preauth.baseSession.ActiveImpersonations(ctx, q)
-	if err != nil {
-		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
-	}
-
-	return imps, nil
+	return p.shared().activeImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession ends one live impersonated session — the operator's action
@@ -210,11 +183,7 @@ func (p *PreauthAPI[T]) ActiveImpersonations(ctx context.Context, q *Impersonati
 // left untouched. Who may revoke is the application's guard. It errors when the storage
 // has no impersonation table.
 func (p *PreauthAPI[T]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	if err := p.preauth.baseSession.DestroyImpersonatedSession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSession()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the impersonated session in ctx with reason Released and, for a
@@ -223,12 +192,7 @@ func (p *PreauthAPI[T]) DestroyImpersonatedSession(ctx context.Context, sessionI
 // happened. See EndImpersonation on the handler type and the "Impersonated sessions"
 // section of the README.
 func (p *PreauthAPI[T]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	restored, err = p.preauth.baseSession.EndImpersonationAPI(ctx, w)
-	if err != nil {
-		return false, errors.Wrap(err, "basesession.BaseSession.EndImpersonationAPI()")
-	}
-
-	return restored, nil
+	return p.shared().endImpersonation(ctx, w)
 }
 
 // StartImpersonatedSession establishes a session that operates as req.Principal on
@@ -246,18 +210,14 @@ func (p *PreauthAPI[T]) EndImpersonation(ctx context.Context, w http.ResponseWri
 // calling context is itself an impersonated session (no chaining). Optional customData
 // (at most one *T) is written atomically with the session, overriding the resolver.
 func (p *OIDCAzureAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return startImpersonatedSession(ctx, w, p.oidc.baseSession, req, customData, identityAsGiven)
+	return p.shared().startImpersonatedSession(ctx, w, req, customData, identityAsGiven)
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
 // actor and ends their records with reason Revoked — the offboarding and incident
 // tool. It errors when the storage has no impersonation table.
 func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	if err := p.oidc.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists the impersonated sessions that are live right now, newest
@@ -267,12 +227,7 @@ func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, ac
 // listing by actor and/or principal; nil lists every active impersonation. It errors
 // when the storage has no impersonation table.
 func (p *OIDCAzureAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	imps, err := p.oidc.baseSession.ActiveImpersonations(ctx, q)
-	if err != nil {
-		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
-	}
-
-	return imps, nil
+	return p.shared().activeImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession ends one live impersonated session — the operator's action
@@ -282,11 +237,7 @@ func (p *OIDCAzureAPI[T, U]) ActiveImpersonations(ctx context.Context, q *Impers
 // left untouched. Who may revoke is the application's guard. It errors when the storage
 // has no impersonation table.
 func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	if err := p.oidc.baseSession.DestroyImpersonatedSession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSession()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the impersonated session in ctx with reason Released and, for a
@@ -295,12 +246,7 @@ func (p *OIDCAzureAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, ses
 // happened. See EndImpersonation on the handler type and the "Impersonated sessions"
 // section of the README.
 func (p *OIDCAzureAPI[T, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	restored, err = p.oidc.baseSession.EndImpersonationAPI(ctx, w)
-	if err != nil {
-		return false, errors.Wrap(err, "basesession.BaseSession.EndImpersonationAPI()")
-	}
-
-	return restored, nil
+	return p.shared().endImpersonation(ctx, w)
 }
 
 // StartImpersonatedSession establishes a session that operates as req.Principal on
@@ -314,18 +260,14 @@ func (p *OIDCAzureAPI[T, U]) EndImpersonation(ctx context.Context, w http.Respon
 // calling context is itself an impersonated session (no chaining). Optional customData
 // (at most one *T) is written atomically with the session, overriding the resolver.
 func (p *OIDCGoogleAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return startImpersonatedSession(ctx, w, p.oidc.baseSession, req, customData, identityAsGiven)
+	return p.shared().startImpersonatedSession(ctx, w, req, customData, identityAsGiven)
 }
 
 // DestroyImpersonatedSessions expires every live impersonated session established by
 // actor and ends their records with reason Revoked — the offboarding and incident
 // tool. It errors when the storage has no impersonation table.
 func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	if err := p.oidc.baseSession.DestroyImpersonatedSessions(ctx, actor); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSessions()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists the impersonated sessions that are live right now, newest
@@ -335,12 +277,7 @@ func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, a
 // listing by actor and/or principal; nil lists every active impersonation. It errors
 // when the storage has no impersonation table.
 func (p *OIDCGoogleAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	imps, err := p.oidc.baseSession.ActiveImpersonations(ctx, q)
-	if err != nil {
-		return nil, errors.Wrap(err, "basesession.BaseSession.ActiveImpersonations()")
-	}
-
-	return imps, nil
+	return p.shared().activeImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession ends one live impersonated session — the operator's action
@@ -350,11 +287,7 @@ func (p *OIDCGoogleAPI[T, U]) ActiveImpersonations(ctx context.Context, q *Imper
 // left untouched. Who may revoke is the application's guard. It errors when the storage
 // has no impersonation table.
 func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	if err := p.oidc.baseSession.DestroyImpersonatedSession(ctx, sessionID); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.DestroyImpersonatedSession()")
-	}
-
-	return nil
+	return p.shared().destroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the impersonated session in ctx with reason Released and, for a
@@ -363,12 +296,7 @@ func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, se
 // happened. See EndImpersonation on the handler type and the "Impersonated sessions"
 // section of the README.
 func (p *OIDCGoogleAPI[T, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	restored, err = p.oidc.baseSession.EndImpersonationAPI(ctx, w)
-	if err != nil {
-		return false, errors.Wrap(err, "basesession.BaseSession.EndImpersonationAPI()")
-	}
-
-	return restored, nil
+	return p.shared().endImpersonation(ctx, w)
 }
 
 // identityResolver is what a session type contributes to establishment: how a user

@@ -10,6 +10,8 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/tracer"
+	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/postgres"
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
@@ -17,12 +19,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// errNotImplemented marks contract stubs that have no implementation yet.
-var errNotImplemented = errors.New("sessionstorage: not implemented (multi-method sessions contract stub)")
-
 // ErrIdentitiesNotConfigured is returned when an Auth session needs identity
 // resolution but the storage has no identities configuration attached.
-var ErrIdentitiesNotConfigured = errors.New("sessionstorage: identities are not configured: attach WithSpannerIdentities or WithPostgresIdentities")
+var ErrIdentitiesNotConfigured = dbtype.ErrIdentitiesNotConfigured
 
 // SessionIdentity is a stored link from an external identity to an account.
 type SessionIdentity struct {
@@ -120,7 +119,11 @@ type SpannerIdentities struct {
 // NewSpannerIdentities builds the identities configuration: the identities table name,
 // the account resolver (required) and the sign-in policy (nil means allow).
 func NewSpannerIdentities(tableName string, resolve SpannerAccountResolver, policy SpannerSignInPolicy) (*SpannerIdentities, error) {
-	return nil, errNotImplemented
+	if err := validateIdentities(tableName, resolve == nil); err != nil {
+		return nil, err
+	}
+
+	return &SpannerIdentities{tableName: tableName, resolve: resolve, policy: policy}, nil
 }
 
 // PostgresIdentities is the validated identities configuration for Postgres storage.
@@ -132,12 +135,21 @@ type PostgresIdentities struct {
 
 // NewPostgresIdentities is the Postgres variant of NewSpannerIdentities.
 func NewPostgresIdentities(tableName string, resolve PostgresAccountResolver, policy PostgresSignInPolicy) (*PostgresIdentities, error) {
-	return nil, errNotImplemented
+	if err := validateIdentities(tableName, resolve == nil); err != nil {
+		return nil, err
+	}
+
+	return &PostgresIdentities{tableName: tableName, resolve: resolve, policy: policy}, nil
 }
 
 type spannerIdentitiesOption struct{ config *SpannerIdentities }
 
-func (o spannerIdentitiesOption) applySpanner(_ *spanner.SessionStorageDriver) {}
+func (o spannerIdentitiesOption) applySpanner(driver *spanner.SessionStorageDriver) {
+	if o.config == nil {
+		return
+	}
+	driver.SetIdentities(o.config.driverConfig())
+}
 
 // WithSpannerIdentities attaches an identities configuration to Spanner account storage.
 func WithSpannerIdentities(config *SpannerIdentities) SpannerOption {
@@ -146,7 +158,12 @@ func WithSpannerIdentities(config *SpannerIdentities) SpannerOption {
 
 type postgresIdentitiesOption struct{ config *PostgresIdentities }
 
-func (o postgresIdentitiesOption) applyPostgres(_ *postgres.SessionStorageDriver) {}
+func (o postgresIdentitiesOption) applyPostgres(driver *postgres.SessionStorageDriver) {
+	if o.config == nil {
+		return
+	}
+	driver.SetIdentities(o.config.driverConfig())
+}
 
 // WithPostgresIdentities attaches an identities configuration to Postgres account storage.
 func WithPostgresIdentities(config *PostgresIdentities) PostgresOption {
@@ -160,13 +177,22 @@ type AuthEventsTable struct {
 
 // NewAuthEventsTable validates the auth events table name.
 func NewAuthEventsTable(tableName string) (*AuthEventsTable, error) {
-	return nil, errNotImplemented
+	if !validIdentifier.MatchString(tableName) {
+		return nil, errors.Newf("invalid table name: %s. Table names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", tableName)
+	}
+
+	return &AuthEventsTable{tableName: tableName}, nil
 }
 
 type authEventsOption struct{ table *AuthEventsTable }
 
-func (authEventsOption) applySpanner(_ *spanner.SessionStorageDriver)   {}
-func (authEventsOption) applyPostgres(_ *postgres.SessionStorageDriver) {}
+func (o authEventsOption) applySpanner(driver *spanner.SessionStorageDriver) {
+	driver.SetAuthEvents(&spanner.AuthEventsConfig{TableName: o.table.tableName})
+}
+
+func (o authEventsOption) applyPostgres(driver *postgres.SessionStorageDriver) {
+	driver.SetAuthEvents(&postgres.AuthEventsConfig{TableName: o.table.tableName})
+}
 
 // WithAuthEvents enables recording auth events in the given table.
 func WithAuthEvents(table *AuthEventsTable) Option {
@@ -204,45 +230,95 @@ type Accounts struct {
 
 // NewSpannerAccounts creates Spanner account storage.
 func NewSpannerAccounts(client *cloudspanner.Client, opts ...SpannerOption) *Accounts {
-	return &Accounts{PasswordAuth: NewSpannerPasswordAuth(client, opts...)}
+	return &Accounts{PasswordAuth: NewSpannerPasswordAuth(client, append([]SpannerOption{accountsOption{}}, opts...)...)}
 }
 
 // NewPostgresAccounts creates Postgres account storage.
 func NewPostgresAccounts(pg postgres.Queryer, opts ...PostgresOption) *Accounts {
-	return &Accounts{PasswordAuth: NewPostgresPassword(pg, opts...)}
+	return &Accounts{PasswordAuth: NewPostgresPassword(pg, append([]PostgresOption{accountsOption{}}, opts...)...)}
 }
 
 // Identity implements AccountStore.
 func (a *Accounts) Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error) {
-	return nil, errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	link, err := a.db.Identity(ctx, method, connection, subject)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.Identity()")
+	}
+
+	return (*SessionIdentity)(link), nil
 }
 
 // IdentitiesByUser implements AccountStore.
 func (a *Accounts) IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*SessionIdentity, error) {
-	return nil, errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	links, err := a.db.IdentitiesByUser(ctx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.IdentitiesByUser()")
+	}
+
+	identities := make([]*SessionIdentity, len(links))
+	for i, link := range links {
+		identities[i] = (*SessionIdentity)(link)
+	}
+
+	return identities, nil
 }
 
 // LinkIdentity implements AccountStore.
 func (a *Accounts) LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*SessionIdentity, error) {
-	return nil, errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	link, err := a.db.LinkIdentity(ctx, userID, identity, tenant)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.LinkIdentity()")
+	}
+
+	return (*SessionIdentity)(link), nil
 }
 
 // UnlinkIdentity implements AccountStore.
 func (a *Accounts) UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error {
-	return errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.UnlinkIdentity(ctx, identityID); err != nil {
+		return errors.Wrap(err, "db.UnlinkIdentity()")
+	}
+
+	return nil
 }
 
 // DestroyUserSessions implements AccountStore.
 func (a *Accounts) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
-	return errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.DestroyUserSessions(ctx, userID); err != nil {
+		return errors.Wrap(err, "db.DestroyUserSessions()")
+	}
+
+	return nil
 }
 
 // AppendAuthEvent implements AccountStore.
 func (a *Accounts) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event sessioninfo.AuthEvent) error {
-	return errNotImplemented
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.AppendAuthEvent(ctx, sessionID, &event); err != nil {
+		return errors.Wrap(err, "db.AppendAuthEvent()")
+	}
+
+	return nil
 }
 
 // IdentitiesEnabled implements AccountStore.
 func (a *Accounts) IdentitiesEnabled() bool {
-	return false
+	return a.db.IdentitiesEnabled()
 }

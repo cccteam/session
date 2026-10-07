@@ -294,6 +294,25 @@ type db interface {
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	//
+	// Account specific methods
+	//
+
+	// IdentitiesEnabled reports whether an identities configuration is attached.
+	IdentitiesEnabled() bool
+	// Identity returns the link for (method, connection, subject), or a NotFound error.
+	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
+	// IdentitiesByUser lists an account's links, oldest first.
+	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
+	// LinkIdentity links an identity to an account outside the sign-in flow.
+	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
+	// UnlinkIdentity removes a link, refusing to remove an account's last means of sign-in.
+	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
+	// DestroyUserSessions expires every session of an account, by UserId.
+	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	// AppendAuthEvent records an auth event on a live session.
+	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+
+	//
 	// OIDC specific methods
 	//
 
