@@ -38,7 +38,9 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 			return errors.Wrap(err, authenticatorName+".Authenticator.AuthCodeURL()")
 		}
 
-		http.Redirect(w, r, authCodeURL, http.StatusFound)
+		// The target is the provider's authorization URL; the caller's returnUrl only
+		// rides in the state cookie and is sanitized on the callback.
+		http.Redirect(w, r, authCodeURL, http.StatusFound) //nolint:gosec // G710: not a caller-controlled redirect, see above
 
 		return nil
 	})
