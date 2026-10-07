@@ -206,11 +206,17 @@ var errNoPassword = errors.New("the account has no password")
 // wrong password, so a password-less account can't be signed in to with a password and
 // the hasher, which dereferences the hash, never sees nil.
 func (p *PasswordAuth[T, U]) comparePassword(hash *securehash.Hash, password string) (upgrade bool, err error) {
+	return comparePassword(p.hasher, hash, password)
+}
+
+// comparePassword checks password against hash with hasher; see
+// PasswordAuth.comparePassword. A nil hash never matches.
+func comparePassword(hasher *securehash.SecureHasher, hash *securehash.Hash, password string) (upgrade bool, err error) {
 	if hash == nil {
 		return false, errNoPassword
 	}
 
-	upgrade, err = p.hasher.Compare(hash, password)
+	upgrade, err = hasher.Compare(hash, password)
 	if err != nil {
 		return false, errors.Wrap(err, "securehash.SecureHasher.Compare()")
 	}

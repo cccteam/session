@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -407,13 +408,28 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 // SessionUsers, and a role principal for a foreign actor is refused when the actor's
 // name is already an account there.
 func (p *PasswordAuth[T, U]) identity() identityResolver {
-	return identityResolver{user: p.impersonatedUser, actor: p.refuseShadowedActor}
+	return accountIdentity(p.storage)
 }
 
-// impersonatedUser resolves a user principal against SessionUsers: the record's username
-// and ID; a missing user is an error and a disabled one is refused.
-func (p *PasswordAuth[T, U]) impersonatedUser(ctx context.Context, user accesstypes.User) (string, ccc.UUID, error) {
-	record, err := p.storage.UserByUserName(ctx, string(user))
+// accountIdentity is the identity resolver of the session types whose accounts are
+// SessionUsers records (PasswordAuth, Auth): user principals resolve against storage,
+// and a role principal for a foreign actor is refused when the actor's name is already
+// an account there.
+func accountIdentity(storage sessionstorage.PasswordAuthStore) identityResolver {
+	return identityResolver{
+		user: func(ctx context.Context, user accesstypes.User) (string, ccc.UUID, error) {
+			return impersonatedAccount(ctx, storage, user)
+		},
+		actor: func(ctx context.Context, actor string) error {
+			return refuseShadowedActor(ctx, storage, actor)
+		},
+	}
+}
+
+// impersonatedAccount resolves a user principal against SessionUsers: the record's
+// username and ID; a missing user is an error and a disabled one is refused.
+func impersonatedAccount(ctx context.Context, storage sessionstorage.PasswordAuthStore, user accesstypes.User) (string, ccc.UUID, error) {
+	record, err := storage.UserByUserName(ctx, string(user))
 	if err != nil {
 		return "", ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.UserByUserName()")
 	}
@@ -429,8 +445,8 @@ func (p *PasswordAuth[T, U]) impersonatedUser(ctx context.Context, user accessty
 // name, and the store's username-keyed operations could not tell the two apart; the
 // actor logs in as that account or impersonates it as a user principal instead. A local
 // actor's name is their own account and is never checked here.
-func (p *PasswordAuth[T, U]) refuseShadowedActor(ctx context.Context, actor string) error {
-	_, err := p.storage.UserByUserName(ctx, actor)
+func refuseShadowedActor(ctx context.Context, storage sessionstorage.PasswordAuthStore, actor string) error {
+	_, err := storage.UserByUserName(ctx, actor)
 	switch {
 	case err == nil:
 		return httpio.NewForbiddenMessagef("%q is a user of this application: log in as that user or impersonate it as a user principal", actor)
@@ -468,6 +484,11 @@ func (p *PasswordAuth[T, U]) sessionUserInfo(ctx context.Context, sessInfo *sess
 // Other user-management operations are refused only under a mask, which declares the
 // session read-only. Refusals are evidenced as IdentityOperationBlocked events.
 func (p *PasswordAuth[T, U]) refuseImpersonated(ctx context.Context, operation string, selfOperation bool) error {
+	return refuseImpersonated(ctx, p.baseSession, operation, selfOperation)
+}
+
+// refuseImpersonated is PasswordAuth.refuseImpersonated over any session type's base.
+func refuseImpersonated(ctx context.Context, base *basesession.BaseSession, operation string, selfOperation bool) error {
 	imp, ok := impersonationInCtx(ctx)
 	if !ok {
 		return nil
@@ -476,7 +497,7 @@ func (p *PasswordAuth[T, U]) refuseImpersonated(ctx context.Context, operation s
 		return nil
 	}
 
-	if err := p.baseSession.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationIdentityOperationBlocked, imp, operation); err != nil {
+	if err := base.EmitImpersonationEvent(ctx, sessioninfo.ImpersonationIdentityOperationBlocked, imp, operation); err != nil {
 		logger.FromCtx(ctx).Error(err)
 	}
 

@@ -21,9 +21,12 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// issuerURL is Google's OIDC issuer. It is fixed: Google operates a single issuer for
-// all Workspace organizations (tenancy is expressed by the hd claim, not the issuer).
-const issuerURL = "https://accounts.google.com"
+// IssuerURL is Google's OIDC issuer. Google operates a single issuer for all Workspace
+// organizations (tenancy is expressed by the hd claim, not the issuer), so production
+// code never changes it. It is a variable only so this module's end-to-end tests can
+// point a sign-in at a fake identity provider; the package is internal, so nothing
+// outside the module can reach it. New reads it when the authenticator is built.
+var IssuerURL = "https://accounts.google.com"
 
 var _ Authenticator = &OIDC{}
 
@@ -39,7 +42,7 @@ type OIDC struct {
 // enforced against the verified ID token's hd claim. scopes are asked for beside the
 // sign-in's own (openid, email, profile); the access token Verify returns carries them.
 func New(cookieClient *internalcookie.Client, clientID, clientSecret, redirectURL, hostedDomain string, scopes ...string) *OIDC {
-	return newWithIssuer(cookieClient, issuerURL, clientID, clientSecret, redirectURL, hostedDomain, scopes...)
+	return newWithIssuer(cookieClient, IssuerURL, clientID, clientSecret, redirectURL, hostedDomain, scopes...)
 }
 
 // newWithIssuer exists so tests can point the authenticator at a fake IdP; production
