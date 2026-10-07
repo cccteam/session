@@ -39,6 +39,15 @@ type SessionData struct {
 	CustomData    any
 	Impersonation *Impersonation
 	Principal     accesstypes.Principal
+	// UserID is the account (SessionUsers.Id) the session belongs to. It is null for
+	// legacy session types, preauth sessions, and impersonated sessions whose principal
+	// is a role; for a user-principal impersonation it is the impersonated account.
+	UserID ccc.NullUUID
+	// AuthenticatedAt is when the session's most recent authentication step completed.
+	AuthenticatedAt time.Time
+	// AuthEvents lists how the session was authenticated, oldest first. It is empty
+	// unless the storage is configured with an auth events table.
+	AuthEvents []AuthEvent
 }
 
 // UserInfo struct contains information about a user

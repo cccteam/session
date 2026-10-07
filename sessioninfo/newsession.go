@@ -63,4 +63,8 @@ type NewSessionRequest struct {
 	// ID before any resolver or hook runs.
 	Sub string
 	Hd  string
+	// Identity is the verified identity establishing the session, set by every sign-in
+	// method of an Auth session. Account resolvers and sign-in policies read it; it is
+	// nil for the legacy session types.
+	Identity *Identity
 }

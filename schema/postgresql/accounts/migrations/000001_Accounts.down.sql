@@ -1,0 +1,7 @@
+BEGIN;
+DROP TABLE IF EXISTS "SessionAuthEvents";
+DROP TABLE IF EXISTS "SessionIdentities";
+DROP INDEX IF EXISTS "Sessions_UserId_idx";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "AuthenticatedAt";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "UserId";
+COMMIT;
