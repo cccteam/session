@@ -10,7 +10,7 @@ import (
 // NewSessionAccount is what a new session row records about its account when the
 // accounts columns are enabled: the account (null for a preauth session and a
 // role-principal impersonation) and when the session was authenticated (null for a
-// preauth stepping stone, which authenticates nothing).
+// preauth stepping stone or a pending identity's row, which authenticate nothing).
 type NewSessionAccount struct {
 	UserID          ccc.NullUUID
 	AuthenticatedAt *time.Time
@@ -22,11 +22,18 @@ func SessionAccount(req *sessioninfo.NewSessionRequest, at time.Time) NewSession
 	if !req.UserID.IsNil() {
 		account.UserID = ccc.NullUUIDFromUUID(req.UserID)
 	}
-	if req.Reason != sessioninfo.ReasonPreauth {
+	if req.Reason != sessioninfo.ReasonPreauth && req.Reason != sessioninfo.ReasonPendingIdentity {
 		account.AuthenticatedAt = &at
 	}
 
 	return account
+}
+
+// ResolvesCustomData reports whether the custom session data resolver runs for a
+// session created for req: for every session but a pending identity's stepping-stone
+// row, which has no account and carries no custom session data.
+func ResolvesCustomData(req *sessioninfo.NewSessionRequest) bool {
+	return req.Reason != sessioninfo.ReasonPendingIdentity
 }
 
 // InitialAuthEvents are the auth events a new session records when an auth events

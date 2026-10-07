@@ -81,11 +81,61 @@ const (
 // PendingIdentity is a verified identity held server-side for a short time while it
 // waits for confirmation or MFA. It lives in a preauth stepping-stone session.
 type PendingIdentity struct {
-	Identity  Identity
-	Reason    PendingReason
+	Identity Identity
+	Reason   PendingReason
+	// UserID and Username name the account the identity waits on: the account to
+	// confirm against, or the account to complete MFA for, including one the sign-in
+	// has just provisioned.
 	UserID    ccc.NullUUID
 	Username  string
 	ExpiresAt time.Time
+	// ReturnURL is the path in the application the sign-in returns to once it
+	// completes; empty for the root.
+	ReturnURL string
+}
+
+// AccountSource says how an Auth sign-in found its account.
+type AccountSource string
+
+const (
+	// AccountNamed means the sign-in named its account: a password sign-in.
+	AccountNamed AccountSource = "named"
+	// AccountExistingLink means the identity was already linked to the account.
+	AccountExistingLink AccountSource = "existing-link"
+	// AccountNewLink means the account resolver linked the identity to an existing
+	// account in this sign-in (LinkIdentity).
+	AccountNewLink AccountSource = "new-link"
+	// AccountProvisioned means the account resolver created the account in this sign-in
+	// (ProvisionAccount) and linked the identity to it.
+	AccountProvisioned AccountSource = "provisioned"
+)
+
+// SignInAccount is the account an Auth sign-in resolved to, as NewSessionRequest.Account
+// carries it to the sign-in policy and the custom session data resolver.
+type SignInAccount struct {
+	// ID is the account (SessionUsers.Id).
+	ID ccc.UUID
+	// Username is the account's username.
+	Username string
+	// HasPassword reports whether the account has a password.
+	HasPassword bool
+	// Source says how the sign-in found the account.
+	Source AccountSource
+	// Tenant is the application's tenant key of the identity's link: the stored link's
+	// for an existing link, Resolution.Tenant for a link made in this sign-in, and empty
+	// for a password sign-in.
+	Tenant string
+}
+
+// Provisioned reports whether the sign-in created the account.
+func (a *SignInAccount) Provisioned() bool {
+	return a != nil && a.Source == AccountProvisioned
+}
+
+// Linked reports whether the sign-in linked its identity to the account: a new link to
+// an existing account, or the link of an account it provisioned.
+func (a *SignInAccount) Linked() bool {
+	return a != nil && (a.Source == AccountNewLink || a.Source == AccountProvisioned)
 }
 
 const (

@@ -48,7 +48,8 @@ type signInOutcome struct {
 // signIn is how every sign-in method establishes a session: in one store call the
 // account is resolved, the policy decides, and the session is inserted with its auth
 // events; roles are reconciled for the resolved account; and only then are the auth and
-// XSRF cookies for the new session ID written. A sign-in that must wait becomes the
+// XSRF cookies for the new session ID written. A link the storage made is reported to
+// the IdentityLinked hook whatever the outcome. A sign-in that must wait becomes the
 // browser's pending identity, replacing any earlier one; a sign-in that succeeds
 // consumes it. A refusal writes no cookie.
 func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *signInAttempt) (*signInOutcome, error) {
@@ -68,7 +69,6 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 		at.username = user.Username
 	}
 
-	newLink := a.unlinked(ctx, at)
 	req := &sessioninfo.NewSessionRequest{
 		Reason:     at.reason,
 		Username:   at.username,
@@ -93,6 +93,11 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 
 		return id, nil
 	})
+	// The storage commits a link it makes once the account is resolved, before the
+	// policy decides, so the link stands whatever the outcome.
+	if req.Account.Linked() {
+		a.notifyLinked(ctx, req.Account.ID, at.identity)
+	}
 
 	var wait *sessionstorage.PendingSignInError
 	if errors.As(err, &wait) {
@@ -107,9 +112,6 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 		return nil, err
 	}
 
-	if newLink {
-		a.notifyLinked(ctx, req.UserID, at.identity)
-	}
 	a.dropPending(ctx, w)
 	logSessionStarted(ctx, req.Username, id)
 
@@ -135,20 +137,6 @@ func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *se
 	}
 
 	return nil
-}
-
-// unlinked reports whether at's identity is an external identity with no link yet, so
-// a successful sign-in with it has just linked it (the account resolver linked or
-// provisioned). It is only asked when an IdentityLinked hook is configured, and never
-// after a confirmation, whose link was made and reported before.
-func (a *Auth[S, U]) unlinked(ctx context.Context, at *signInAttempt) bool {
-	identity := at.identity
-	if a.settings.identityLinked == nil || !dbtype.IsExternal(identity) || at.reason == sessioninfo.ReasonIdentityLinked {
-		return false
-	}
-	_, err := a.storage.Identity(ctx, identity.Method, identity.Connection, identity.Subject)
-
-	return httpio.HasNotFound(err)
 }
 
 // notifyLinked calls the IdentityLinked hook, logging its error: the link stands.
@@ -298,8 +286,29 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(mfaResponse{MFAIsRequired: outcome.pending != nil})
+		return a.answerSignIn(ctx, w, r, outcome)
 	})
+}
+
+// answerSignIn answers a JSON sign-in handler's outcome: a session, or a pending
+// identity, for which the PendingHook runs first (see WithPendingHook).
+func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
+	var body mfaResponse
+	if outcome.pending != nil {
+		redirectURL, handled, err := a.onPending(ctx, w, r, outcome.pending)
+		switch {
+		case handled:
+			return err
+		case err != nil:
+			return writeSignInError(ctx, w, err)
+		}
+		body = mfaResponse{MFAIsRequired: true, RedirectURL: redirectURL}
+	}
+	if err := httpio.NewEncoder(w).Ok(body); err != nil {
+		return errors.Wrap(err, "httpio.Encoder.Ok()")
+	}
+
+	return nil
 }
 
 // changeUserPasswordHandler is the password method's change-password handler.
@@ -332,9 +341,11 @@ func (a *Auth[S, U]) changeUserPasswordHandler() http.HandlerFunc {
 	})
 }
 
-// mfaResponse answers a sign-in step that may still wait for the application's MFA.
+// mfaResponse answers a sign-in step that may still wait for the application's MFA;
+// RedirectURL is where a PendingHook sends the browser.
 type mfaResponse struct {
-	MFAIsRequired bool `json:"mfaIsRequired"`
+	MFAIsRequired bool   `json:"mfaIsRequired"`
+	RedirectURL   string `json:"redirectUrl,omitempty"`
 }
 
 // refusalResponse is a JSON sign-in handler's answer to a refused sign-in.

@@ -100,14 +100,15 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 
 // PendingSignInError reports a sign-in that resolved to an account but must wait before
 // it becomes a session: the account resolver asked for a password confirmation, or the
-// sign-in policy asked for MFA. Nothing was written: no account, no link, no session.
+// sign-in policy asked for MFA. No session is written. The hooks' own writes and the
+// account resolution are committed: an account the sign-in provisioned exists, linked,
+// and an MFA wait names it.
 type PendingSignInError struct {
 	// Reason is why the sign-in waits.
 	Reason sessioninfo.PendingReason
-	// UserID is the account the sign-in resolved to. It is null for an MFA wait on a
-	// sign-in that would provision a new account.
+	// UserID is the account the sign-in resolved to.
 	UserID ccc.NullUUID
-	// Username is that account's username, when there is one.
+	// Username is that account's username.
 	Username string
 	// Tenant is the resolver's tenant key for the link to be made.
 	Tenant string
@@ -126,16 +127,15 @@ type Account struct {
 }
 
 // DecideSignIn refuses a disabled account, sets req.Username to the account's, and runs
-// the sign-in policy when there is one (policy non-nil) and it applies to req.Reason. A
-// pending outcome is the first result; a refusal is the error. provisioned says the
-// account was created by this sign-in, so an MFA wait names no account: nothing is
-// written while a sign-in waits.
+// the sign-in policy when there is one (policy non-nil) and it applies to req.Reason.
+// A sign-in that does not go ahead is stop: a *PendingSignInError for an MFA wait
+// naming req's account, or a refusal. Both are outcomes the transaction commits; err is
+// a failure (the policy's error) that rolls it back.
 func DecideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *Account, provisioned bool, tenant string,
-	policy func(ctx context.Context) (*SignInDecision, error),
-) (*PendingSignInError, error) {
+	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *Account, policy func(ctx context.Context) (*SignInDecision, error),
+) (stop, err error) {
 	if acct.Disabled {
-		return nil, Refusal("", sessioninfo.RefusedAccountDisabled, ErrAccountDisabled, "Account disabled")
+		return Refusal("", sessioninfo.RefusedAccountDisabled, ErrAccountDisabled, "Account disabled"), nil
 	}
 	req.Username = acct.Username
 
@@ -155,13 +155,20 @@ func DecideSignIn(
 	case AllowSignIn:
 		return nil, nil
 	case RequireMFA:
-		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, Tenant: tenant}
-		if !provisioned {
-			pending.UserID, pending.Username = ccc.NullUUIDFromUUID(req.UserID), acct.Username
+		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: acct.Username}
+		if req.Account != nil {
+			pending.Tenant = req.Account.Tenant
 		}
 
 		return pending, nil
 	default:
-		return nil, Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, ErrSignInDenied, "sign-in denied")
+		return Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, ErrSignInDenied, "sign-in denied"), nil
 	}
+}
+
+// SignInAccount is req's account as the sign-in policy and the custom session data
+// resolver receive it: acct, read in the deciding transaction, found by source with
+// the link's tenant.
+func SignInAccount(req *sessioninfo.NewSessionRequest, acct *Account, source sessioninfo.AccountSource, tenant string) *sessioninfo.SignInAccount {
+	return &sessioninfo.SignInAccount{ID: req.UserID, Username: acct.Username, HasPassword: acct.HasPassword, Source: source, Tenant: tenant}
 }

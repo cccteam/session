@@ -37,6 +37,24 @@ func FromCtx(ctx context.Context) *SessionInfo {
 	return sessionData.SessionInfo
 }
 
+// DataFromRequest returns the validated session's data from the request context.
+func DataFromRequest(r *http.Request) *SessionData {
+	return DataFromCtx(r.Context())
+}
+
+// DataFromCtx returns the validated session's data from the context: the session
+// information, and the account (UserID), authentication time and auth events an Auth
+// session records, its impersonation and its custom data. It panics when the context
+// carries no session, as FromCtx does.
+func DataFromCtx(ctx context.Context) *SessionData {
+	sessionData, ok := ctx.Value(CtxSessionInfo).(*SessionData)
+	if !ok {
+		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
+	}
+
+	return sessionData
+}
+
 // IDFromRequest returns the sessionID from the request
 func IDFromRequest(r *http.Request) ccc.UUID {
 	return IDFromCtx(r.Context())

@@ -272,7 +272,8 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // execSessionInsert executes a session-insert statement, honoring the request's custom
 // session data semantics: per-call data wins and is written with the session insert in
 // one transaction (the configured resolver is not invoked); otherwise a configured
-// resolver runs within the same transaction; otherwise the insert executes alone.
+// resolver runs within the same transaction (except for a pending identity's row, see
+// dbtype.ResolvesCustomData); otherwise the insert executes alone.
 // A non-nil companion runs inside the same transaction right after the session insert,
 // for rows that must land with the session (an impersonation record).
 func (s *SessionStorageDriver) execSessionInsert(
@@ -283,7 +284,8 @@ func (s *SessionStorageDriver) execSessionInsert(
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
-	if companion == nil && !perCallData && (s.customData == nil || s.customData.Resolver == nil) {
+	resolve := !perCallData && s.customData != nil && s.customData.Resolver != nil && dbtype.ResolvesCustomData(req)
+	if companion == nil && !perCallData && !resolve {
 		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
@@ -310,7 +312,7 @@ func (s *SessionStorageDriver) execSessionInsert(
 	}
 
 	data := req.CustomData
-	if !perCallData && s.customData != nil && s.customData.Resolver != nil {
+	if resolve {
 		data, err = s.customData.Resolver(ctx, txn, req)
 		if err != nil {
 			return errors.Wrap(err, "CustomSessionDataConfig.Resolver()")

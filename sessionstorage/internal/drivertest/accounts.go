@@ -43,7 +43,24 @@ const (
 	// Accounts is the shipped sessions schema, the impersonation migration and the
 	// accounts migration.
 	Accounts
+	// AccountsWithAppTables is Accounts plus the driver package's test-only application
+	// tables: HookRecords, which the hooks write and read through HookTx, and a
+	// SessionCustomData table for CustomStringData.
+	AccountsWithAppTables
 )
+
+// HookTx is an application hook's view of the transaction it runs in, adapted by each
+// harness to its backend: the writes and reads an application's own account resolver,
+// sign-in policy and custom session data resolver make. It needs the
+// AccountsWithAppTables schema.
+type HookTx interface {
+	// Record writes key=value to the HookRecords table.
+	Record(ctx context.Context, key, value string) error
+	// Recorded reads key from HookRecords; found is false when it is absent.
+	Recorded(ctx context.Context, key string) (value string, found bool, err error)
+	// UserExists reports whether the SessionUsers row userID exists.
+	UserExists(ctx context.Context, userID ccc.UUID) (bool, error)
+}
 
 // AccountsConfig selects how a driver over a prepared accounts database is configured.
 type AccountsConfig struct {
@@ -57,9 +74,12 @@ type AccountsConfig struct {
 	// harness adapts to the driver's transactional hooks.
 	Identities bool
 	// Resolve is the account resolver; nil rejects every unlinked identity.
-	Resolve func(ctx context.Context, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
+	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
 	// Policy is the sign-in policy; nil allows.
-	Policy func(ctx context.Context, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
+	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
+	// CustomData, when set, attaches the AccountsWithAppTables schema's
+	// SessionCustomData table (CustomStringData) with CustomData as its resolver.
+	CustomData func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error)
 }
 
 // AccountsInstance is a driver over a freshly prepared accounts database, with the
@@ -77,6 +97,8 @@ type AccountsHarness struct {
 	CountAuthEvents func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) int
 	// DeleteSession deletes the session row directly, bypassing the driver.
 	DeleteSession func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID)
+	// Recorded reads key from the HookRecords table directly, as committed.
+	Recorded func(ctx context.Context, t *testing.T, raw any, key string) (value string, found bool)
 }
 
 // RunAccounts runs the accounts conformance suite against h. Every case prepares its
@@ -98,6 +120,12 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
 		{name: "the sign-in policy decides after the account is known", run: testSignInPolicy},
 		{name: "a disabled account is refused", run: testDisabledAccountRefused},
+		{name: "a rejected sign-in keeps the account resolver's own writes", run: testRejectionKeepsResolverWrites},
+		{name: "a denied or held sign-in keeps the sign-in policy's own writes", run: testHeldOrRefusedKeepsHookWrites},
+		{name: "the policy of a provisioning sign-in reads the new account and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedAccount},
+		{name: "the custom session data resolver of a provisioning sign-in reads the new account and knows it was provisioned", run: testCustomDataSeesProvisionedAccount},
+		{name: "a pending identity's row never calls the custom session data resolver", run: testPendingRowSkipsCustomData},
+		{name: "a sign-in reports the account it resolved to and how", run: testSignInAccountReported},
 		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},

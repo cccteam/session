@@ -34,6 +34,7 @@ func (BaseSessionOption) isAuthOption() {}
 // authSettings holds Auth-only settings.
 type authSettings struct {
 	identityLinked IdentityLinkedHook
+	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
 }
@@ -54,11 +55,38 @@ type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *s
 
 // WithIdentityLinked sets the hook called after every identity link: a link made by a
 // pending identity's password confirmation, and a link the account resolver made during
-// a sign-in (LinkIdentity or ProvisionAccount). An error from the hook is logged; the
-// link and the sign-in stand. Two first sign-ins of one identity racing each other may
-// both report it.
+// a sign-in (LinkIdentity or ProvisionAccount). The resolver's link is committed before
+// the sign-in policy decides, so it is reported even when the policy then denies the
+// sign-in or holds it for MFA. An error from the hook is logged; the link and the
+// sign-in stand.
 func WithIdentityLinked(hook IdentityLinkedHook) AuthOption {
 	return authOption(func(s *authSettings) { s.identityLinked = hook })
+}
+
+// PendingHook is called when a sign-in handler has just held a sign-in as a pending
+// identity, so the application can act on it: send its MFA code to the account, record
+// the attempt, choose where the browser goes. pending is the stored identity (the
+// account it waits on in UserID and Username, the asserted email in Identity.Email).
+//
+// The hook may write the response itself (a redirect, a JSON body); the handler then
+// writes nothing more. Otherwise it returns where the browser goes: the external
+// Callback() redirects there, and the JSON handlers answer it as "redirectUrl"; an empty
+// URL keeps the default (<LoginURL>?pending=<reason>[&returnUrl=<path>], or no
+// "redirectUrl"). The URL is the application's own, never built from request input.
+//
+// An error discards the pending identity and fails the sign-in: Callback() redirects to
+// <LoginURL>?code=internal_error, a JSON handler answers the error. The hook runs after
+// the pending identity is stored and its cookie set, and changes nothing about it: the
+// session ID is regenerated only when the pending identity completes, and its timeout
+// and encrypted cookie stand.
+type PendingHook = func(ctx context.Context, w http.ResponseWriter, r *http.Request, pending *sessioninfo.PendingIdentity) (redirectURL string, err error)
+
+// WithPendingHook sets the hook the sign-in handlers call after they hold a sign-in as a
+// pending identity: Password().Login(), every external Callback(), and
+// Pending().ConfirmWithPassword() when the policy then requires MFA. The AuthAPI methods
+// never call it: they return a *sessionstorage.PendingSignInError to their caller.
+func WithPendingHook(hook PendingHook) AuthOption {
+	return authOption(func(s *authSettings) { s.pendingHook = hook })
 }
 
 // WithPendingTimeout sets how long a pending identity waits for confirmation or MFA.
@@ -422,8 +450,8 @@ type PasswordHandlers struct {
 
 // Login accepts {"username", "password"}; on success it applies the sign-in policy and
 // either starts the session or creates a pending identity (MFA). It answers
-// {"mfaIsRequired": bool}; a refusal is 401 with {"message", "code"}, the code a
-// sessioninfo.LoginRefusalCode.
+// {"mfaIsRequired": bool}, with "redirectUrl" when a PendingHook chose one; a refusal is
+// 401 with {"message", "code"}, the code a sessioninfo.LoginRefusalCode.
 func (h *PasswordHandlers) Login() http.HandlerFunc { return h.login }
 
 // ChangeUserPassword changes the signed-in account's password.
@@ -459,7 +487,7 @@ func (h *ExternalHandlers) Login() http.HandlerFunc { return h.login }
 //
 // The redirect contract: a session established → returnUrl (default "/"); a pending
 // identity → <login URL>?pending=<reason>[&returnUrl=<returnUrl>], reason "confirmation"
-// or "mfa"; a refusal → <login URL>?code=<code>.
+// or "mfa", or wherever a PendingHook sends it; a refusal → <login URL>?code=<code>.
 func (h *ExternalHandlers) Callback() http.HandlerFunc { return h.callback }
 
 // FrontChannelLogout handles provider-initiated logout (Azure only). Auth sessions do
@@ -494,8 +522,9 @@ func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 // ConfirmWithPassword accepts {"password"}, links the pending identity to its account
 // on success, and starts the session. It answers {"mfaIsRequired": bool}: true when the
 // sign-in policy requires MFA after the link, in which case the pending identity
-// remains, now with reason "mfa", and the application completes it with
-// AuthAPI.CompletePending. A wrong password is 401 and leaves the pending identity.
+// remains, now with reason "mfa" (the PendingHook runs for it, and "redirectUrl" carries
+// the URL it chose), and the application completes it with AuthAPI.CompletePending. A
+// wrong password is 401 and leaves the pending identity.
 func (h *PendingHandlers) ConfirmWithPassword() http.HandlerFunc { return h.confirmWithPassword }
 
 // Cancel discards the pending identity.

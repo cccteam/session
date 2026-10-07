@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,13 +54,20 @@ type authFixture struct {
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, methods ...SignInMethod) *authFixture {
 	t.Helper()
 
+	return newAuthFixtureWith(t, ctrl, methods)
+}
+
+// newAuthFixtureWith is newAuthFixture with more Auth options.
+func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, methods []SignInMethod, options ...AuthOption) *authFixture {
+	t.Helper()
+
 	f := &authFixture{store: newAccountStoreMock(ctrl, true)}
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
 		return errors.New("notification failed: logged, and the link stands")
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, methods, WithIdentityLinked(hook))
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, methods, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -94,13 +102,20 @@ func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *sessionstorage
 	t.Helper()
 
 	pendingID := ccc.Must(ccc.NewUUID())
-	f.store.EXPECT().NewSession(gomock.Any(), wait.Username, nil).Return(pendingID, nil)
+	f.store.EXPECT().CreateSession(gomock.Any(), pendingRow(wait.Username)).Return(pendingID, nil)
 	rr := httptest.NewRecorder()
 	if _, err := f.auth.holdPending(context.Background(), rr, at, wait); err != nil {
 		t.Fatalf("holdPending() error = %v", err)
 	}
 
 	return rr.Result().Cookies(), pendingID
+}
+
+// pendingRow matches the insert of a pending identity's stepping-stone row for
+// username: ReasonPendingIdentity, which the storage never resolves custom session data
+// for, and no identity, account or custom data.
+func pendingRow(username string) gomock.Matcher {
+	return gomock.Eq(&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: username})
 }
 
 // livePending expects the stepping-stone row id to be read, live and accountless.
@@ -382,7 +397,7 @@ func TestAuth_PasswordLogin(t *testing.T) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
 			wantStatus:  http.StatusOK,
 			wantMFA:     true,
@@ -520,7 +535,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the account it resolved to",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(&sessionstorage.SessionIdentity{UserID: userID}, nil)
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IdPAMR: []string{"pwd", "mfa"}}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
@@ -539,7 +553,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(&sessionstorage.SessionIdentity{UserID: userID}, nil)
 				createSession(f.store, sessionID, nil, resolved)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
@@ -556,11 +569,10 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "an identity waiting for its account's password becomes a pending identity, and no roles are touched",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodAzure, "tenant-1", "oid-1").Return(nil, httpio.NewNotFoundMessage("not linked"))
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
 			wantLocation: "/login?pending=confirmation&returnUrl=%2Fnext",
 			wantPending:  true,
@@ -569,7 +581,6 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a resolver's refusal sends its code to the login page",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
-				f.store.EXPECT().Identity(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, httpio.NewNotFoundMessage("not linked"))
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "identity rejected")
 				})
@@ -631,7 +642,6 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			name:   "a Google identity is keyed by sub alone",
 			claims: `{"sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
 			prepare: func(f *authFixture) {
-				f.store.EXPECT().Identity(gomock.Any(), sessioninfo.MethodGoogle, "", "sub-1").Return(&sessionstorage.SessionIdentity{}, nil)
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
@@ -680,6 +690,139 @@ func TestAuth_GoogleCallback(t *testing.T) {
 	}
 }
 
+func TestAuth_PendingHook(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	sessionID := ccc.Must(ccc.NewUUID())
+	pendingID := ccc.Must(ccc.NewUUID())
+
+	type hookResult struct {
+		redirectURL string
+		err         error
+		// write makes the hook answer the request itself.
+		write bool
+	}
+	tests := []struct {
+		name string
+		// password signs in with the password Login instead of the Google Callback.
+		password     bool
+		hook         hookResult
+		wantStatus   int
+		wantLocation string
+		wantBody     string
+		// wantDiscarded says the pending identity was discarded: its row expired and,
+		// unless the hook answered, its cookie deleted.
+		wantDiscarded bool
+	}{
+		{
+			name:         "the callback sends the browser where the hook says",
+			hook:         hookResult{redirectURL: "/mfa?step=code"},
+			wantStatus:   http.StatusFound,
+			wantLocation: "/mfa?step=code",
+		},
+		{
+			name:         "a hook that names no URL keeps the default redirect",
+			wantStatus:   http.StatusFound,
+			wantLocation: "/login?pending=mfa&returnUrl=%2Fhome",
+		},
+		{
+			name:         "a hook that answers the request itself is the response",
+			hook:         hookResult{write: true},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/own-page",
+		},
+		{
+			name:          "a hook error discards the pending identity and refuses the sign-in",
+			hook:          hookResult{err: errors.New("the MFA code could not be sent")},
+			wantStatus:    http.StatusFound,
+			wantLocation:  "/login?code=internal_error",
+			wantDiscarded: true,
+		},
+		{
+			name:       "the password login answers the hook's URL as redirectUrl",
+			password:   true,
+			hook:       hookResult{redirectURL: "/mfa"},
+			wantStatus: http.StatusOK,
+			wantBody:   `{"mfaIsRequired":true,"redirectUrl":"/mfa"}`,
+		},
+		{
+			name:          "a hook error fails the password login and discards the pending identity",
+			password:      true,
+			hook:          hookResult{err: errors.New("the MFA code could not be sent")},
+			wantStatus:    http.StatusInternalServerError,
+			wantDiscarded: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			var (
+				rowStored bool
+				got       *sessioninfo.PendingIdentity
+			)
+			hook := func(_ context.Context, w http.ResponseWriter, r *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
+				if !rowStored || !slices.ContainsFunc((&http.Response{Header: w.Header()}).Cookies(), func(c *http.Cookie) bool { return c.Name == defaultPendingCookieName }) {
+					t.Error("the hook ran before the pending identity was stored")
+				}
+				got = pending
+				if tt.hook.write {
+					http.Redirect(w, r, "/own-page", http.StatusSeeOther)
+				}
+
+				return tt.hook.redirectURL, tt.hook.err
+			}
+			f := newAuthFixtureWith(t, ctrl, []SignInMethod{PasswordSignIn()}, WithPendingHook(hook))
+			user := &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
+			createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+				return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+			})
+			f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).DoAndReturn(func(context.Context, *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+				rowStored = true
+
+				return pendingID, nil
+			})
+			if tt.wantDiscarded {
+				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+			}
+
+			var rr *httptest.ResponseRecorder
+			if tt.password {
+				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(user, nil)
+				rr = f.serve(f.auth.Password().Login(), http.MethodPost, "/login", map[string]string{"username": "pat", "password": "pw"}, nil)
+			} else {
+				authn := mock_googleoidc.NewMockAuthenticator(ctrl)
+				authn.EXPECT().LoginURL().Return("/login").AnyTimes()
+				authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
+						return "/home", "access-token", json.Unmarshal([]byte(`{"sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
+					})
+				f.auth.external[sessioninfo.MethodGoogle] = googleMethod(authn, nil)
+				rr = f.serve(f.auth.Google().Callback(), http.MethodGet, "/google/callback", nil, nil)
+			}
+
+			if rr.Code != tt.wantStatus || rr.Header().Get("Location") != tt.wantLocation {
+				t.Errorf("response = %d %q, want %d %q: %s", rr.Code, rr.Header().Get("Location"), tt.wantStatus, tt.wantLocation, rr.Body.String())
+			}
+			if tt.wantBody != "" && strings.TrimSpace(rr.Body.String()) != tt.wantBody {
+				t.Errorf("body = %s, want %s", rr.Body.String(), tt.wantBody)
+			}
+			if got == nil || got.Reason != sessioninfo.PendingMFA || got.UserID != ccc.NullUUIDFromUUID(userID) || got.Username != "pat" || !got.ExpiresAt.After(time.Now()) {
+				t.Errorf("hook received %+v, want the stored MFA pending identity of pat", got)
+			}
+			if !tt.password && (got == nil || got.Identity.Email != "pat@example.com" || got.ReturnURL != "/home") {
+				t.Errorf("hook received %+v, want the identity's email and the return path", got)
+			}
+			if pendingDeleted(rr) != (tt.wantDiscarded && !tt.hook.write) {
+				t.Errorf("pending cookie deleted = %v, want %v", pendingDeleted(rr), tt.wantDiscarded)
+			}
+		})
+	}
+}
+
 func TestAuth_IdentityLinkedHook(t *testing.T) {
 	t.Parallel()
 
@@ -688,28 +831,60 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp"}
 
 	tests := []struct {
-		name       string
-		linkBefore error
+		name string
+		// source is how the storage resolved the account.
+		source sessioninfo.AccountSource
+		// stop is the storage's outcome other than a session.
+		stop       error
 		wantLinked []ccc.UUID
 	}{
-		{name: "a sign-in that linked a new identity reports the link, and the hook's error does not undo it", linkBefore: httpio.NewNotFoundMessage("not linked"), wantLinked: []ccc.UUID{userID}},
-		{name: "a sign-in through an existing link reports nothing"},
+		{
+			name:       "a sign-in that provisioned the account reports the link, and the hook's error does not undo it",
+			source:     sessioninfo.AccountProvisioned,
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:       "a sign-in the resolver linked reports the link",
+			source:     sessioninfo.AccountNewLink,
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:   "a sign-in through an existing link reports nothing",
+			source: sessioninfo.AccountExistingLink,
+		},
+		{
+			name:       "a provisioning sign-in held for MFA reports the link it committed",
+			source:     sessioninfo.AccountProvisioned,
+			stop:       &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
+			wantLinked: []ccc.UUID{userID},
+		},
+		{
+			name:       "a provisioning sign-in the policy denied reports the link it committed",
+			source:     sessioninfo.AccountProvisioned,
+			stop:       dbtype.Refusal("", sessioninfo.RefusedByPolicy, sessionstorage.ErrSignInDenied, "sign-in denied"),
+			wantLinked: []ccc.UUID{userID},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl, PasswordSignIn())
-			f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{}, tt.linkBefore)
 			createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 				req.UserID, req.Username = userID, "pat"
+				req.Account = &sessioninfo.SignInAccount{ID: userID, Username: "pat", Source: tt.source}
 
-				return nil
+				return tt.stop
 			})
+			var wait *sessionstorage.PendingSignInError
+			if errors.As(tt.stop, &wait) {
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
+			}
 
-			outcome, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sameSiteNone})
-			if err != nil || outcome.sessionID != sessionID {
-				t.Fatalf("signIn() = %+v, %v; want session %s", outcome, err, sessionID)
+			_, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sameSiteNone})
+			var refusal *sessioninfo.LoginRefusal
+			if (err != nil) != errors.As(tt.stop, &refusal) {
+				t.Fatalf("signIn() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.wantLinked, f.linked, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("IdentityLinked reports mismatch (-want +got):\n%s", diff)
@@ -772,7 +947,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().NewSession(gomock.Any(), "pat", nil).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
 			},
 			wantStatus:   http.StatusOK,

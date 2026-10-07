@@ -37,13 +37,13 @@ var (
 // PendingSignInError is the error a session insert returns when the sign-in resolved
 // but must wait: the account resolver returned RequireConfirmation (Reason
 // sessioninfo.PendingConfirmation, UserID the account to confirm against) or the sign-in
-// policy returned RequireMFA (Reason sessioninfo.PendingMFA, UserID the account, or null
-// when the sign-in would provision one). Nothing is written while a sign-in waits: no
-// account, no link, no session. Completing it inserts the session again: with
-// ReasonStepUp after MFA, which the policy does not decide (the account is resolved
-// afresh, so a provisioning resolver runs then), or, after a password confirmation, by
-// linking the identity (AccountStore.LinkIdentity) and inserting with
-// ReasonIdentityLinked. Use errors.As to read it.
+// policy returned RequireMFA (Reason sessioninfo.PendingMFA, UserID the account). No
+// session is written while a sign-in waits; the hooks' own writes and the account
+// resolution are committed, so an account the sign-in provisioned exists, linked, and an
+// MFA wait names it. Completing it inserts the session again: with ReasonStepUp after
+// MFA, which the policy does not decide (the identity is linked by then), or, after a
+// password confirmation, by linking the identity (AccountStore.LinkIdentity) and
+// inserting with ReasonIdentityLinked. Use errors.As to read it.
 type PendingSignInError = dbtype.PendingSignInError
 
 // validateIdentities checks an identities configuration's table name and resolver.

@@ -68,7 +68,7 @@ type pendingState struct {
 
 // public is the PendingIdentity the API reports.
 func (p *pendingState) public() *sessioninfo.PendingIdentity {
-	return &sessioninfo.PendingIdentity{Identity: p.Identity, Reason: p.Reason, UserID: p.UserID, Username: p.Username, ExpiresAt: p.ExpiresAt}
+	return &sessioninfo.PendingIdentity{Identity: p.Identity, Reason: p.Reason, UserID: p.UserID, Username: p.Username, ExpiresAt: p.ExpiresAt, ReturnURL: p.ReturnURL}
 }
 
 // encodePending renders state for the pending cookie: compressed JSON, base64.
@@ -202,9 +202,10 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 		state.UserID = ccc.NullUUIDFromUUID(at.userID)
 	}
 
-	id, err := a.storage.NewSession(ctx, wait.Username, nil)
+	// The row's reason keeps the custom session data resolver off it: it has no account.
+	id, err := a.storage.CreateSession(ctx, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: wait.Username})
 	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.NewSession()")
+		return nil, errors.Wrap(err, "sessionstorage.AccountStore.CreateSession()")
 	}
 	state.ID = id
 	encoded, err := encodePending(state)
@@ -222,6 +223,51 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 	a.pendingCookies.Cookie().WritePersistentCookie(w, a.settings.pendingCookie, a.pendingCookies.Domain, true, http.SameSiteLaxMode, 2*a.settings.pendingTimeout, cval)
 
 	return state, nil
+}
+
+// onPending runs the PendingHook, if one is configured, for the pending identity state a
+// handler just held. handled reports that the hook wrote the response itself, so the
+// handler writes nothing more; redirectURL is where the hook sends the browser, "" for
+// the handler's default. An error discards the pending identity.
+func (a *Auth[S, U]) onPending(ctx context.Context, w http.ResponseWriter, r *http.Request, state *pendingState) (redirectURL string, handled bool, err error) {
+	if a.settings.pendingHook == nil {
+		return "", false, nil
+	}
+
+	tracked := &responseTracker{ResponseWriter: w}
+	redirectURL, err = a.settings.pendingHook(ctx, tracked, r, state.public())
+	if err != nil {
+		a.destroyPendingRow(ctx, state.ID)
+		if !tracked.written {
+			a.pendingCookies.Cookie().Delete(w, a.settings.pendingCookie, a.pendingCookies.Domain)
+		}
+
+		return "", tracked.written, errors.Wrap(err, "PendingHook()")
+	}
+
+	return redirectURL, tracked.written, nil
+}
+
+// responseTracker records whether a hook wrote the response.
+type responseTracker struct {
+	http.ResponseWriter
+	written bool
+}
+
+func (t *responseTracker) WriteHeader(statusCode int) {
+	t.written = true
+	t.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (t *responseTracker) Write(b []byte) (int, error) {
+	t.written = true
+
+	return t.ResponseWriter.Write(b) //nolint:wrapcheck // a ResponseWriter passes its writer's error through
+}
+
+// Unwrap gives http.ResponseController the underlying writer.
+func (t *responseTracker) Unwrap() http.ResponseWriter {
+	return t.ResponseWriter
 }
 
 // dropPending discards the browser's pending identity, if it has one: its row is
@@ -339,31 +385,7 @@ func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.R
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	a := p.auth
-	state, err := a.pending(ctx)
-	if err != nil {
-		return ccc.NilUUID, err
-	}
-	if state.Reason != sessioninfo.PendingConfirmation || !state.UserID.Valid {
-		return ccc.NilUUID, httpio.NewConflictMessage("the pending sign-in does not wait for a password confirmation")
-	}
-
-	user, err := a.storage.User(ctx, state.UserID.UUID)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AccountStore.User()")
-	}
-	if _, err := comparePassword(a.hasher, user.PasswordHash, password); err != nil {
-		return ccc.NilUUID, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
-	}
-	if user.Disabled {
-		return ccc.NilUUID, dbtype.Refusal("", sessioninfo.RefusedAccountDisabled, sessionstorage.ErrAccountDisabled, "Account disabled")
-	}
-
-	if err := a.linkPending(ctx, user.ID, state); err != nil {
-		return ccc.NilUUID, err
-	}
-
-	outcome, err := a.completePending(ctx, w, state, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation, At: time.Now()})
+	outcome, err := p.auth.confirmPending(ctx, w, password)
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -372,6 +394,34 @@ func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.R
 	}
 
 	return outcome.sessionID, nil
+}
+
+// confirmPending is ConfirmPendingWithPassword, answering the sign-in's outcome.
+func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, password string) (*signInOutcome, error) {
+	state, err := a.pending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if state.Reason != sessioninfo.PendingConfirmation || !state.UserID.Valid {
+		return nil, httpio.NewConflictMessage("the pending sign-in does not wait for a password confirmation")
+	}
+
+	user, err := a.storage.User(ctx, state.UserID.UUID)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AccountStore.User()")
+	}
+	if _, err := comparePassword(a.hasher, user.PasswordHash, password); err != nil {
+		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+	if user.Disabled {
+		return nil, dbtype.Refusal("", sessioninfo.RefusedAccountDisabled, sessionstorage.ErrAccountDisabled, "Account disabled")
+	}
+
+	if err := a.linkPending(ctx, user.ID, state); err != nil {
+		return nil, err
+	}
+
+	return a.completePending(ctx, w, state, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation, At: time.Now()})
 }
 
 // linkPending links a confirmed pending identity to userID and reports the link. An
@@ -433,16 +483,12 @@ func (a *Auth[S, U]) pendingConfirm() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		_, err = a.API().ConfirmPendingWithPassword(ctx, w, req.Password)
-		var wait *sessionstorage.PendingSignInError
-		switch {
-		case errors.As(err, &wait):
-			return httpio.NewEncoder(w).Ok(mfaResponse{MFAIsRequired: true})
-		case err != nil:
+		outcome, err := a.confirmPending(ctx, w, req.Password)
+		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(mfaResponse{})
+		return a.answerSignIn(ctx, w, r, outcome)
 	})
 }
 
