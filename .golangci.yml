@@ -129,6 +129,8 @@ linters:
         # A coded login refusal is the module's own error type; attaching the code IS the
         # wrapping, and the redirect helper reads it back with errors.As.
         - sessioninfo.NewLoginRefusal(
+        # The drivers' coded refusal: a sessioninfo.LoginRefusal over its cause.
+        - dbtype.Refusal(
         - errors.Unwrap(
         - .Wrap(
         - .Wrapf(
@@ -171,8 +173,12 @@ linters:
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go
+        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go|auth_external\.go
         text: email_verified
+      # The WorkOS API's wire format is snake_case.
+      - linters:
+          - tagliatelle
+        path: internal/workossso/|internal/e2e/auth_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
