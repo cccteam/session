@@ -22,6 +22,7 @@ type AccountsDriver interface {
 	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	DeleteUser(ctx context.Context, id ccc.UUID) error
 	IdentitiesEnabled() bool
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
@@ -90,6 +91,7 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "a legacy schema keeps working: the accounts columns and events are never named", run: testLegacySchemaUnchanged},
 		{name: "account sessions record and read UserId and AuthenticatedAt", run: testSessionAccountColumns},
 		{name: "the first auth event is the sign-in method, read with the session", run: testInitialAuthEvent},
+		{name: "a session insert records every auth event it carries, in order, in one write", run: testInitialAuthEvents},
 		{name: "an impersonated session records its account and an impersonation event naming the actor", run: testImpersonatedSessionAccount},
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
 		{name: "a linked identity signs in to its account without the resolver", run: testLinkedIdentitySignsIn},
@@ -99,6 +101,7 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "deleting an account deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the account's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 	}
@@ -251,6 +254,87 @@ func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness)
 			}
 			if diff := cmp.Diff(tt.wantEvents, mustSession(ctx, t, in.Driver, id).AuthEvents, eventsOpts); diff != "" {
 				t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness) {
+	signedInAt := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	tests := []struct {
+		name       string
+		cfg        AccountsConfig
+		identity   func(user *dbtype.SessionUser) *sessioninfo.Identity
+		events     []sessioninfo.AuthEvent
+		wantEvents []sessioninfo.AuthEvent
+	}{
+		{
+			name: "a step-up completion records the sign-in and the step-up, keeping the sign-in's time",
+			cfg:  AccountsConfig{Accounts: true, AuthEvents: true},
+			identity: func(user *dbtype.SessionUser) *sessioninfo.Identity {
+				return &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
+			},
+			events: []sessioninfo.AuthEvent{
+				{Method: sessioninfo.MethodPassword, At: signedInAt},
+				{Method: "email-otp"},
+			},
+			wantEvents: []sessioninfo.AuthEvent{
+				{Method: sessioninfo.MethodPassword, At: signedInAt},
+				{Method: "email-otp"},
+			},
+		},
+		{
+			name: "an identity resolved in the session transaction records the events it carries",
+			cfg:  AccountsConfig{Accounts: true, AuthEvents: true, Identities: true},
+			identity: func(user *dbtype.SessionUser) *sessioninfo.Identity {
+				return &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
+			},
+			events: []sessioninfo.AuthEvent{
+				{Method: sessioninfo.MethodPassword},
+				{Method: sessioninfo.MethodLinkConfirmation},
+				{Method: "email-otp", IdPAMR: []string{"otp"}},
+			},
+			wantEvents: []sessioninfo.AuthEvent{
+				{Method: sessioninfo.MethodPassword},
+				{Method: sessioninfo.MethodLinkConfirmation},
+				{Method: "email-otp", IdPAMR: []string{"otp"}},
+			},
+		},
+		{
+			name:   "a session started by the application records the events it was given, with no identity",
+			cfg:    AccountsConfig{Accounts: true, AuthEvents: true},
+			events: []sessioninfo.AuthEvent{{Method: "magic-link", Connection: "app"}},
+			wantEvents: []sessioninfo.AuthEvent{
+				{Method: "magic-link", Connection: "app"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := h.New(ctx, t, Accounts, tt.cfg)
+			user := createUser(ctx, t, in.Driver, "steps@example.com")
+
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Username: user.Username, UserID: user.ID, AuthEvents: tt.events}
+			if tt.identity != nil {
+				req.Identity = tt.identity(user)
+			}
+			insert := newInsertSession(user.Username)
+			id, err := in.Driver.InsertSession(ctx, insert, req)
+			if err != nil {
+				t.Fatalf("InsertSession() error = %v", err)
+			}
+
+			for i := range tt.wantEvents {
+				if tt.wantEvents[i].At.IsZero() {
+					tt.wantEvents[i].At = insert.CreatedAt
+				}
+			}
+			if diff := cmp.Diff(tt.wantEvents, mustSession(ctx, t, in.Driver, id).AuthEvents, eventsOpts); diff != "" {
+				t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
+			}
+			if got := h.CountAuthEvents(ctx, t, in.Raw, id); got != len(tt.wantEvents) {
+				t.Errorf("auth event rows = %d, want %d", got, len(tt.wantEvents))
 			}
 		})
 	}

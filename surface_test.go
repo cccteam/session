@@ -37,7 +37,7 @@ type storeRecorder interface {
 	DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call
 }
 
-// sessionAPI is the impersonation surface of the four API types that this file
+// sessionAPI is the impersonation surface of the five API types that this file
 // exercises directly.
 type sessionAPI interface {
 	EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error)
@@ -52,6 +52,9 @@ type surface struct {
 	// validating adds the store expectations the type makes, beyond Session(), when it
 	// validates a session for username.
 	validating func(username string)
+	// live is an ordinary, just-active session row for username as the type stores it:
+	// an Auth session belongs to an account.
+	live func(id ccc.UUID, username string) *sessioninfo.SessionData
 	// startImpersonated calls the type's StartImpersonatedSession without custom data.
 	startImpersonated func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error
 }
@@ -140,6 +143,40 @@ func surfaceBuilders() []struct {
 			},
 		},
 		{
+			name: "Auth",
+			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
+				storage := newAccountStoreMock(ctrl, true)
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, []SignInMethod{
+					PasswordSignIn(),
+					WorkOSSignIn("sk_test", "client", "https://app.example/sso/callback"),
+				}, WithImpersonationAudit(hook))
+				if err != nil {
+					t.Fatalf("NewAuth() error = %v", err)
+				}
+
+				return &surface{
+					handlers: a,
+					api:      a.API(),
+					base:     a.baseSession,
+					store:    storage.EXPECT(),
+					validating: func(username string) {
+						storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil).AnyTimes()
+					},
+					live: func(id ccc.UUID, username string) *sessioninfo.SessionData {
+						data := liveSession(id, username)
+						data.UserID = ccc.NullUUIDFromUUID(userID)
+
+						return data
+					},
+					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
+						_, err := a.API().StartImpersonatedSession(ctx, w, req)
+
+						return err
+					},
+				}
+			},
+		},
+		{
 			name: "OIDCGoogle",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newGoogleOIDCStoreMock(ctrl)
@@ -201,6 +238,16 @@ func localActorImpersonation() *sessioninfo.Impersonation {
 	return &sessioninfo.Impersonation{SessionID: surfaceSessionID, Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: surfaceSourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: time.Now().Add(time.Hour)}
 }
 
+// liveSession is an ordinary, just-active session row for username as the surface's
+// type stores it.
+func (s *surface) liveSession(id ccc.UUID, username string) *sessioninfo.SessionData {
+	if s.live != nil {
+		return s.live(id, username)
+	}
+
+	return liveSession(id, username)
+}
+
 // nextRecorder is a terminal handler that records whether it ran and the context it saw.
 type nextRecorder struct {
 	called bool
@@ -259,7 +306,7 @@ func sessionScenarios() []surfaceScenario {
 		{
 			name: "ValidateSession admits a live session and exposes it to the handler",
 			run: func(t *testing.T, s *surface, _ *[]sessioninfo.ImpersonationEventKind) {
-				s.store.Session(gomock.Any(), sessionID).Return(liveSession(sessionID, "alice"), nil)
+				s.store.Session(gomock.Any(), sessionID).Return(s.liveSession(sessionID, "alice"), nil)
 				s.validating("alice")
 
 				rec := &nextRecorder{}
@@ -295,7 +342,7 @@ func sessionScenarios() []surfaceScenario {
 		{
 			name: "Authenticated reports the validated session",
 			run: func(t *testing.T, s *surface, _ *[]sessioninfo.ImpersonationEventKind) {
-				s.store.Session(gomock.Any(), sessionID).Return(liveSession(sessionID, "alice"), nil)
+				s.store.Session(gomock.Any(), sessionID).Return(s.liveSession(sessionID, "alice"), nil)
 				s.validating("alice")
 
 				rr := httptest.NewRecorder()

@@ -84,12 +84,9 @@ func NewOIDCAzure[SessionData, UserData any](
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) (*OIDCAzure[SessionData, UserData], error) {
-	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")
-	}
-	roleSyncCfg := roleSync.config()
-	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
-		return nil, errors.New("session.RoleSync() requires a non-nil UserRoleManager")
+	roleSyncCfg, err := azureRoleSync(roleSync)
+	if err != nil {
+		return nil, err
 	}
 	if err := verifyOIDCStorage[SessionData, UserData](storage); err != nil {
 		return nil, err
@@ -113,6 +110,20 @@ func NewOIDCAzure[SessionData, UserData any](
 		baseSession: baseSession,
 		storage:     storage,
 	}, nil
+}
+
+// azureRoleSync validates the required role-synchronization slot of an Azure sign-in:
+// nil when role sync is disabled.
+func azureRoleSync(roleSync RoleSyncConfig) (*roleSyncConfig, error) {
+	if roleSync == nil {
+		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")
+	}
+	roleSyncCfg := roleSync.config()
+	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
+		return nil, errors.New("session.RoleSync() requires a non-nil UserRoleManager")
+	}
+
+	return roleSyncCfg, nil
 }
 
 // Authenticated is the handler reports if the session is authenticated

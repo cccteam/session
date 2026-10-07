@@ -10,10 +10,13 @@ code lives.
 session type mounted on a chi router, real cookies over an HTTPS test server, and the
 public PostgreSQL storage on the shipped migrations. One scenario per security invariant.
 Add a scenario when a property only holds if several layers agree, such as "the old cookie
-is dead after the end". Needs Docker.
+is dead after the end". The Auth scenarios run password and WorkOS sign-in on one `Auth`
+against a fake WorkOS code exchange (`TestAuthSeams_PasswordAndWorkOS`), and Azure and
+Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoogle`, production
+verifiers only, so not under `skipAuth`). Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
-against all four session types, built through their constructors, with real cookies and a
+against all five session types (including `Auth`), built through their constructors, with real cookies and a
 mocked store. It exists because the types satisfy `basesession.Handlers` through
 delegates, and a delegate forwarded to the wrong base method compiles. Add a scenario
 whenever a handler or middleware is added to the shared interface.
@@ -33,8 +36,9 @@ divergence the suite exists to catch. Driver behaviour that is not impersonation
 lives in each driver's own `*_test.go`, which is where new conformance tables should be
 carved from next. Needs Docker.
 
-**Verifiers** (`internal/azureoidc`, `internal/googleoidc`). Real login round trips
-against `internal/oidctest.FakeIDP`, which signs real RS256 tokens. Both build tags are
+**Verifiers** (`internal/azureoidc`, `internal/googleoidc`, `internal/workossso`). Real
+login round trips against `internal/oidctest.FakeIDP`, which signs real RS256 tokens, and,
+for WorkOS, against a fake code exchange. Both build tags are
 tested: the production verifier under the default tag and the `skipAuth` simulator under
 its own. The Google groups lookup has the same split: `googlegroups` is the Admin SDK
 adapter under the default tag and, under `skipAuth`, the simulated directory that answers
@@ -75,6 +79,7 @@ go test ./...                                   # everything, needs Docker for t
 go test -tags skipAuth ./...                    # the development authenticator
 go test -tags insecurecookie ./...              # the development cookie configuration
 go test -run TestSeams ./internal/e2e           # the seam suite alone
+go test -run TestAuthSeams ./internal/e2e       # the Auth seam scenarios
 go test -run TestImpersonation ./sessionstorage/internal/...   # driver conformance
 go test -run TestAccounts ./sessionstorage/internal/...        # accounts, identities and auth events conformance
 ```

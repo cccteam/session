@@ -39,6 +39,19 @@ data have different *destinations*.
 | Custom user data | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `GoogleOIDCUsers.Id` | unsupported (no user record) |
 | Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a today | n/a |
 
+**Auth sessions** (`NewAuth`, see the README's "Auth sessions" section) use the
+`SessionUsers` account for every sign-in method. The stable anchor is `SessionUsers.Id`,
+which every session carries as `SessionData.UserID` and every resolver receives as
+`req.UserID` once the account is resolved; external identities are rows of
+`SessionIdentities` that point at it, so durable user data keys off the account, never
+off an identity's subject or email. Custom session data is resolved with `ReasonLogin`,
+`ReasonIdentityLinked` (a confirmed link), `ReasonStepUp` (an MFA completion),
+`ReasonExternalAuth` (`StartAuthenticatedSession`) or `ReasonRegeneration`, with
+`req.Identity` and `req.Claims` for the external methods, and with `ReasonPreauth` for
+the stepping-stone row of a pending identity, which belongs to no account. Custom user
+data works as for username/password; provision it in the account resolver's
+`OnProvisioned`, inside the session transaction.
+
 ## Patterns
 
 ### P-1: Extend the user record off the stable key, never the username

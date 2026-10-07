@@ -73,17 +73,17 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 		`, s.sessionTableName), append(args, userID, account.AuthenticatedAt)
 }
 
-// initialAuthEvent returns a companion that records the new session's first auth event
-// (see dbtype.InitialAuthEvent) when an auth events table is configured, chained after
-// next (which may be nil); next alone otherwise.
+// initialAuthEvent returns a companion that records the new session's auth events (see
+// dbtype.InitialAuthEvents), numbered from 1, when an auth events table is configured,
+// chained after next (which may be nil); next alone otherwise.
 func (s *SessionStorageDriver) initialAuthEvent(
 	id ccc.UUID, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation, at time.Time, next func(ctx context.Context, txn pgx.Tx) error,
 ) func(ctx context.Context, txn pgx.Tx) error {
 	if s.authEvents == nil {
 		return next
 	}
-	event := dbtype.InitialAuthEvent(req, imp, at)
-	if event == nil {
+	events := dbtype.InitialAuthEvents(req, imp, at)
+	if len(events) == 0 {
 		return next
 	}
 
@@ -93,8 +93,13 @@ func (s *SessionStorageDriver) initialAuthEvent(
 				return err
 			}
 		}
+		for i := range events {
+			if err := s.insertAuthEvent(ctx, txn, id, int64(i+1), &events[i]); err != nil {
+				return err
+			}
+		}
 
-		return s.insertAuthEvent(ctx, txn, id, 1, event)
+		return nil
 	}
 }
 

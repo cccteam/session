@@ -29,19 +29,30 @@ func SessionAccount(req *sessioninfo.NewSessionRequest, at time.Time) NewSession
 	return account
 }
 
-// InitialAuthEvent is the auth event a new session records first when an auth events
-// table is configured: the sign-in method that verified req.Identity, or, for an
-// impersonated session, the impersonation with the actor as its connection. It is nil
-// for a session that carries neither.
-func InitialAuthEvent(req *sessioninfo.NewSessionRequest, imp *InsertImpersonation, at time.Time) *sessioninfo.AuthEvent {
-	switch {
-	case imp != nil:
-		return &sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: imp.ActorUsername, At: at}
-	case req.Identity != nil:
-		return &sessioninfo.AuthEvent{Method: req.Identity.Method, Connection: req.Identity.Connection, IdPAMR: req.Identity.IdPAMR, At: at}
-	default:
-		return nil
+// InitialAuthEvents are the auth events a new session records when an auth events
+// table is configured, oldest first: for an impersonated session the impersonation, with
+// the actor as its connection, then req.AuthEvents; otherwise req.AuthEvents when the
+// request carries any, or else the sign-in method that verified req.Identity. An event
+// with a zero At takes at. It is empty for a session that carries none of them.
+func InitialAuthEvents(req *sessioninfo.NewSessionRequest, imp *InsertImpersonation, at time.Time) []sessioninfo.AuthEvent {
+	events := make([]sessioninfo.AuthEvent, 0, len(req.AuthEvents)+1)
+	if imp != nil {
+		events = append(events, sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: imp.ActorUsername, At: at})
 	}
+
+	switch {
+	case len(req.AuthEvents) > 0:
+		for _, event := range req.AuthEvents {
+			if event.At.IsZero() {
+				event.At = at
+			}
+			events = append(events, event)
+		}
+	case imp == nil && req.Identity != nil:
+		events = append(events, sessioninfo.AuthEvent{Method: req.Identity.Method, Connection: req.Identity.Connection, IdPAMR: req.Identity.IdPAMR, At: at})
+	}
+
+	return events
 }
 
 // OptionalString is nil for the empty string: an optional text column's NULL.

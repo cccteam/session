@@ -665,7 +665,8 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
-// DeleteUser deletes a user
+// DeleteUser deletes a user. With identities configured, the user's identity links are
+// deleted with it, in the same transaction.
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -676,6 +677,14 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 	stmt.Params["id"] = id
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if s.identities != nil {
+			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identities.TableName))
+			links.Params["userId"] = id.String()
+			if _, err := txn.Update(ctx, links); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+		}
+
 		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		} else if deleteCount == 0 {

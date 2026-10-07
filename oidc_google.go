@@ -95,23 +95,9 @@ func NewOIDCGoogle[SessionData, UserData any](
 	clientID, clientSecret, redirectURL, hostedDomain string,
 	options ...OIDCGoogleOption,
 ) (*OIDCGoogle[SessionData, UserData], error) {
-	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, groupPrefix, lookup) or session.DisableRoleSync()")
-	}
-	roleSyncCfg := roleSync.googleConfig()
-	if roleSyncCfg != nil {
-		if roleSyncCfg.manager == nil {
-			return nil, errors.New("session.GoogleRoleSync() requires a non-nil UserRoleManager")
-		}
-		if roleSyncCfg.groupPrefix == "" {
-			return nil, errors.New("session.GoogleRoleSync() requires a non-empty groupPrefix: it is the only filter separating role groups from the rest of the directory")
-		}
-		if roleSyncCfg.lookup == lookupUnset {
-			return nil, errors.New("session.GoogleRoleSync() requires a group lookup: session.DirectGroups() or session.NestedGroups()")
-		}
-	}
-	if hostedDomain == "" {
-		return nil, errors.New("hostedDomain is required: it is enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
+	roleSyncCfg, err := googleRoleSync(roleSync, hostedDomain)
+	if err != nil {
+		return nil, err
 	}
 	if err := verifyOIDCStorage[SessionData, UserData](storage); err != nil {
 		return nil, err
@@ -141,6 +127,31 @@ func NewOIDCGoogle[SessionData, UserData any](
 		baseSession: baseSession,
 		storage:     storage,
 	}, nil
+}
+
+// googleRoleSync validates the required role-synchronization slot and the hosted domain
+// of a Google sign-in: the role sync configuration is nil when role sync is disabled.
+func googleRoleSync(roleSync GoogleRoleSyncConfig, hostedDomain string) (*googleRoleSyncConfig, error) {
+	if roleSync == nil {
+		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, groupPrefix, lookup) or session.DisableRoleSync()")
+	}
+	roleSyncCfg := roleSync.googleConfig()
+	if roleSyncCfg != nil {
+		if roleSyncCfg.manager == nil {
+			return nil, errors.New("session.GoogleRoleSync() requires a non-nil UserRoleManager")
+		}
+		if roleSyncCfg.groupPrefix == "" {
+			return nil, errors.New("session.GoogleRoleSync() requires a non-empty groupPrefix: it is the only filter separating role groups from the rest of the directory")
+		}
+		if roleSyncCfg.lookup == lookupUnset {
+			return nil, errors.New("session.GoogleRoleSync() requires a group lookup: session.DirectGroups() or session.NestedGroups()")
+		}
+	}
+	if hostedDomain == "" {
+		return nil, errors.New("hostedDomain is required: it is enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
+	}
+
+	return roleSyncCfg, nil
 }
 
 // Authenticated is the handler reports if the session is authenticated
