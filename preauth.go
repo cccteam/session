@@ -6,12 +6,8 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
-	"github.com/cccteam/httpio"
-	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
-	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
@@ -52,26 +48,10 @@ func NewPreauth[SessionData any](storage sessionstorage.PreauthStore, cookieKey 
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only")
 	}
 
-	baseSession := &basesession.BaseSession{
-		Handle:         httpio.Log,
-		SessionTimeout: defaultSessionTimeout,
-		Storage:        storage,
-	}
-
-	var cookieOpts []internalcookie.Option
-	for _, opt := range options {
-		switch o := any(opt).(type) {
-		case CookieOption:
-			cookieOpts = append(cookieOpts, internalcookie.Option(o))
-		case BaseSessionOption:
-			o(baseSession)
-		}
-	}
-	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
+	baseSession, _, err := newBaseSession(storage, cookieKey, options)
 	if err != nil {
-		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+		return nil, err
 	}
-	baseSession.CookieHandler = cookieClient
 
 	return &Preauth[SessionData]{
 		baseSession: baseSession,
@@ -150,6 +130,12 @@ func newPreauthAPI[T any](preauth *Preauth[T]) *PreauthAPI[T] {
 	}
 }
 
+// shared returns the API methods every session type shares, over this session's fields.
+// Preauth has no user record, so its custom user data surface is left nil.
+func (p *PreauthAPI[T]) shared() sharedAPI[T, NoCustomData] {
+	return sharedAPI[T, NoCustomData]{base: p.preauth.baseSession, store: p.preauth.storage, storeName: "PreauthStore"}
+}
+
 // Login creates a new session for a pre-authenticated user.
 //
 // Preauth is trust-the-caller: no user record is required or consulted, which makes it
@@ -174,20 +160,19 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 		data = customData[0]
 	}
 
-	// Create new Session in database
-	sessionID, err := p.preauth.storage.NewSession(ctx, username, data)
+	sessionID, err := establishSession(ctx, w, p.preauth.baseSession, sameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
+		id, err := p.preauth.storage.NewSession(ctx, username, data)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
+		}
+
+		return id, nil
+	})
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
+		return ccc.NilUUID, err
 	}
 
-	// Write new Auth Cookie
-	p.preauth.baseSession.CookieHandler.NewAuthCookie(w, true, sessionID)
-
-	// Write new XSRF Token Cookie to match the new SessionID
-	p.preauth.baseSession.CookieHandler.CreateXSRFTokenCookie(w, sessionID)
-
-	// Log the association between the sessionID and Username
-	logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+	logSessionStarted(ctx, username, sessionID)
 
 	return sessionID, nil
 }
@@ -200,61 +185,33 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 // the session insert. See the "Custom session data" section of the README for the full
 // lifecycle.
 func (p *PreauthAPI[T]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := p.preauth.storage.UpdateCustomSessionData(ctx, sessionID, eraseMutate(mutate)); err != nil {
-		return errors.Wrap(err, "sessionstorage.PreauthStore.UpdateCustomSessionData()")
-	}
-
-	return nil
+	return p.shared().updateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
 func (p *PreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
-	data, err := sessioninfo.CustomDataFromCtx[*T](ctx)
-	if err != nil {
-		var zero T
-
-		return zero, errors.Wrap(err, "sessioninfo.CustomDataFromCtx()")
-	}
-
-	return *data, nil
+	return p.shared().customData(ctx)
 }
 
 // Logout destroys the current session. For an impersonated session the end is
 // announced as an Ended event, as on every other session type.
 func (p *PreauthAPI[T]) Logout(ctx context.Context) error {
-	if err := p.preauth.baseSession.LogoutAPI(ctx); err != nil {
-		return errors.Wrap(err, "basesession.BaseSession.LogoutAPI()")
-	}
-
-	return nil
+	return p.shared().logout(ctx)
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
 // that fails, initializing a new session. The session cookie is then updated and
 // the sessionID is inserted into the context.
 func (p *PreauthAPI[T]) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
-	ctx, err := p.preauth.baseSession.StartSessionAPI(ctx, w, r)
-	if err != nil {
-		return ctx, errors.Wrap(err, "basesession.BaseSession.StartSessionAPI()")
-	}
-
-	return ctx, nil
+	return p.shared().startSession(ctx, w, r)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
 func (p *PreauthAPI[T]) ValidateSession(ctx context.Context) (context.Context, error) {
-	ctx, err := p.preauth.baseSession.ValidateSessionAPI(ctx)
-	if err != nil {
-		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
-	}
-
-	return ctx, nil
+	return p.shared().validateSession(ctx)
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user
@@ -268,5 +225,5 @@ func (p *PreauthAPI[T]) DestroyAllUserSessions(ctx context.Context, username str
 
 // Cookie returns the underlying cookie.Client
 func (p *PreauthAPI[T]) Cookie() *cookie.Client {
-	return p.preauth.baseSession.CookieHandler.Cookie()
+	return p.shared().cookie()
 }

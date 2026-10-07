@@ -13,8 +13,6 @@ import (
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
-	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
@@ -93,40 +91,18 @@ func NewOIDCAzure[SessionData, UserData any](
 	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
 		return nil, errors.New("session.RoleSync() requires a non-nil UserRoleManager")
 	}
-	if err := verifyCustomDataType[SessionData](storage); err != nil {
+	if err := verifyOIDCStorage[SessionData, UserData](storage); err != nil {
 		return nil, err
-	}
-	if err := verifyCustomUserDataType[UserData](storage); err != nil {
-		return nil, err
-	}
-	if storage.CustomUserDataType() != nil && !storage.OIDCUsersEnabled() {
-		return nil, errors.New("custom user data on OIDC storage requires the OIDC user anchor: pass sessionstorage.WithOIDCUsers() to the storage constructor")
-	}
-	var cookieOpts []internalcookie.Option
-	for _, opt := range options {
-		if o, ok := opt.(CookieOption); ok {
-			cookieOpts = append(cookieOpts, internalcookie.Option(o))
-		}
 	}
 
-	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
+	baseSession, cookieClient, err := newBaseSession(storage, cookieKey, options)
 	if err != nil {
-		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+		return nil, err
 	}
 
 	oidc := azureoidc.New(cookieClient, issuerURL, clientID, clientSecret, redirectURL)
-	baseSession := &basesession.BaseSession{
-		Handle:         httpio.Log,
-		CookieHandler:  cookieClient,
-		SessionTimeout: defaultSessionTimeout,
-		Storage:        storage,
-	}
-
 	for _, opt := range options {
-		switch o := any(opt).(type) {
-		case BaseSessionOption:
-			o(baseSession)
-		case OIDCOption:
+		if o, ok := any(opt).(OIDCOption); ok {
 			o(oidc)
 		}
 	}
@@ -189,22 +165,7 @@ func (o *OIDCAzure[T, U]) EndImpersonation() http.HandlerFunc {
 
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
-	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
-		returnURL := r.URL.Query().Get("returnUrl")
-		authCodeURL, err := o.oidc.AuthCodeURL(ctx, w, returnURL)
-		if err != nil {
-			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-			return errors.Wrap(err, "azureoidc.Authenticator.AuthCodeURL()")
-		}
-
-		http.Redirect(w, r, authCodeURL, http.StatusFound)
-
-		return nil
-	})
+	return oidcLogin(o.baseSession, o.oidc, "azureoidc")
 }
 
 // CallbackOIDC is the handler for the callback from the OIDC auth provider.
@@ -219,42 +180,26 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		Roles    []string `json:"roles"`
 	}
 
-	return o.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, span := tracer.Start(r.Context())
-		defer span.End()
-
+	return oidcCallback(o.baseSession, o.oidc, func(ctx context.Context, w http.ResponseWriter, r *http.Request) (string, error) {
 		// Capture the full verified claims payload so a configured custom session data
 		// resolver receives every claim, then decode the fields this handler needs.
 		var rawClaims json.RawMessage
 		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
-			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-			return errors.Wrap(err, "azureoidc.Authenticator.Verify()")
+			return "", errors.Wrap(err, "azureoidc.Authenticator.Verify()")
 		}
 
-		claims := &claims{}
-		if err := json.Unmarshal(rawClaims, claims); err != nil {
-			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-			return errors.Wrap(err, "json.Unmarshal()")
+		claims, err := decodeClaims[claims](rawClaims)
+		if err != nil {
+			return "", err
 		}
 
 		// Reconcile roles BEFORE creating the session so a rejected login never
 		// leaves a live session or auth cookie behind. With role sync disabled the
 		// reconciliation and its at-least-one-role gate are skipped entirely.
 		if o.roleSync != nil {
-			hasRole, err := o.roleSync.reconcile(ctx, accesstypes.User(claims.Username), claims.Roles)
-			if err != nil {
-				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-				return errors.Wrap(err, "roleSyncConfig.reconcile()")
-			}
-			if !hasRole {
-				err := sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoRoles, httpio.NewUnauthorizedMessage("Unauthorized: user has no roles"))
-				redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-				return err
+			if err := o.roleSync.requireRoles(ctx, accesstypes.User(claims.Username), claims.Roles); err != nil {
+				return "", err
 			}
 		}
 
@@ -264,17 +209,12 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		// written.
 		sessionID, err := o.startNewSession(ctx, w, claims.Username, oidcSID, rawClaims)
 		if err != nil {
-			redirectRefusedLogin(w, r, o.oidc.LoginURL(), err)
-
-			return errors.Wrap(err, "OIDCAzure.startNewSession()")
+			return "", errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}
 
-		// Log the association between the sessionID and Username
-		logger.FromCtx(ctx).AddRequestAttribute("Username", claims.Username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
+		logSessionStarted(ctx, claims.Username, sessionID)
 
-		http.Redirect(w, r, returnURL, http.StatusFound)
-
-		return nil
+		return returnURL, nil
 	})
 }
 
@@ -302,18 +242,14 @@ func (o *OIDCAzure[T, U]) FrontChannelLogout() http.HandlerFunc {
 // resolver, which runs inside the session-insert transaction; a resolver error aborts the
 // session creation and no cookies are written.
 func (o *OIDCAzure[T, U]) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
-	// Create new Session in database
-	id, err := o.storage.NewSession(ctx, username, oidcSID, claims)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
-	}
+	return establishSession(ctx, w, o.baseSession, sameSiteNone, func(ctx context.Context) (ccc.UUID, error) {
+		id, err := o.storage.NewSession(ctx, username, oidcSID, claims)
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
+		}
 
-	o.baseSession.CookieHandler.NewAuthCookie(w, false, id)
-
-	// write new XSRF Token Cookie to match the new SessionID
-	o.baseSession.CookieHandler.CreateXSRFTokenCookie(w, id)
-
-	return id, nil
+		return id, nil
+	})
 }
 
 // API provides programatic access to OIDCAzure
@@ -332,19 +268,19 @@ func newOIDCAzureAPI[T, U any](oidc *OIDCAzure[T, U]) *OIDCAzureAPI[T, U] {
 	}
 }
 
+// shared returns the API methods every session type shares, over this session's fields.
+func (p *OIDCAzureAPI[T, U]) shared() sharedAPI[T, U] {
+	return sharedAPI[T, U]{base: p.oidc.baseSession, store: p.oidc.storage, users: p.oidc.storage, storeName: "OIDCStore"}
+}
+
 // ValidateSession checks the session cookie and if it is valid, stores the session data into the context
 func (p *OIDCAzureAPI[T, U]) ValidateSession(ctx context.Context) (context.Context, error) {
-	ctx, err := p.oidc.baseSession.ValidateSessionAPI(ctx)
-	if err != nil {
-		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
-	}
-
-	return ctx, nil
+	return p.shared().validateSession(ctx)
 }
 
 // Cookie returns the underlying cookie.Client
 func (p *OIDCAzureAPI[T, U]) Cookie() *cookie.Client {
-	return p.oidc.baseSession.CookieHandler.Cookie()
+	return p.shared().cookie()
 }
 
 // UpdateCustomSessionData updates the custom session data for an active session via a
@@ -355,27 +291,13 @@ func (p *OIDCAzureAPI[T, U]) Cookie() *cookie.Client {
 // configured resolver), which is atomic with the session insert. See the "Custom
 // session data" section of the README for the full lifecycle.
 func (p *OIDCAzureAPI[T, U]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := p.oidc.storage.UpdateCustomSessionData(ctx, sessionID, eraseMutate(mutate)); err != nil {
-		return errors.Wrap(err, "sessionstorage.OIDCStore.UpdateCustomSessionData()")
-	}
-
-	return nil
+	return p.shared().updateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
 func (p *OIDCAzureAPI[T, U]) CustomData(ctx context.Context) (T, error) {
-	data, err := sessioninfo.CustomDataFromCtx[*T](ctx)
-	if err != nil {
-		var zero T
-
-		return zero, errors.Wrap(err, "sessioninfo.CustomDataFromCtx()")
-	}
-
-	return *data, nil
+	return p.shared().customData(ctx)
 }
 
 // OIDCUser returns the OIDC user anchor record for the given ID. It requires the OIDC
@@ -415,20 +337,7 @@ func (p *OIDCAzureAPI[T, U]) OIDCUserByKey(ctx context.Context, tid, oid string)
 // it lives and dies with the anchor record — and is read on demand, never from the
 // session context.
 func (p *OIDCAzureAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	var zero U
-	data, err := p.oidc.storage.CustomUserData(ctx, userID)
-	if err != nil {
-		return zero, errors.Wrap(err, "sessionstorage.OIDCStore.CustomUserData()")
-	}
-	typed, ok := data.(*U)
-	if !ok {
-		return zero, errors.Newf("custom user data type mismatch: storage decoded %T, session type expects %T", data, (*U)(nil))
-	}
-
-	return *typed, nil
+	return p.shared().customUserData(ctx, userID)
 }
 
 // UpdateCustomUserData updates the custom user data for an existing user via a
@@ -438,12 +347,5 @@ func (p *OIDCAzureAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.UUID
 // is for genuine app-driven updates. See the "Custom user data" section of the README
 // for the full lifecycle.
 func (p *OIDCAzureAPI[T, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if err := p.oidc.storage.UpdateCustomUserData(ctx, userID, eraseMutate(mutate)); err != nil {
-		return errors.Wrap(err, "sessionstorage.OIDCStore.UpdateCustomUserData()")
-	}
-
-	return nil
+	return p.shared().updateCustomUserData(ctx, userID, mutate)
 }
