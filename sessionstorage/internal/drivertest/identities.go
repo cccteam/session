@@ -548,6 +548,30 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AccountsHarness) {
 	}
 }
 
+func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AccountsHarness) {
+	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true})
+	sso := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
+	other := createUser(ctx, t, in.Driver, "stays@lakeside.edu")
+	mustLink(ctx, t, in.Driver, sso.ID, lakeside("idp_gone"))
+	mustLink(ctx, t, in.Driver, sso.ID, &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-gone"})
+	kept := mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_stays"))
+
+	if err := in.Driver.DeleteUser(ctx, sso.ID); err != nil {
+		t.Fatalf("DeleteUser() of a linked account error = %v", err)
+	}
+
+	assertNoLink(ctx, t, in.Driver, lakeside("idp_gone"))
+	if links, err := in.Driver.IdentitiesByUser(ctx, sso.ID); err != nil || len(links) != 0 {
+		t.Errorf("IdentitiesByUser() of the deleted account = %v, %v; want none", links, err)
+	}
+	if link, err := in.Driver.Identity(ctx, sessioninfo.MethodWorkOS, "conn_lakeside", "idp_stays"); err != nil || link.ID != kept.ID {
+		t.Errorf("Identity() of another account's link = %v, %v; want it kept", link, err)
+	}
+	if err := in.Driver.DeleteUser(ctx, sso.ID); !httpio.HasNotFound(err) {
+		t.Errorf("DeleteUser() of a deleted account error = %v, want NotFound", err)
+	}
+}
+
 func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AccountsHarness) {
 	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true, Impersonation: true})
 	jane := createUser(ctx, t, in.Driver, "jane@lakeside.edu")

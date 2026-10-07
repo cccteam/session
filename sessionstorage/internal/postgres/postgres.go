@@ -614,7 +614,8 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
-// DeleteUser deletes a user
+// DeleteUser deletes a user. With identities configured, the user's identity links are
+// deleted with it, in the same transaction.
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -623,10 +624,35 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 		DELETE FROM "%s"
 		WHERE "Id" = $1`, s.userTableName)
 
-	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	if s.identities == nil {
+		if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		} else if cmdTag.RowsAffected() == 0 {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+		}
+
+		return nil
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	if _, err := txn.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE "UserId" = $1`, s.identitiesTable()), id); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if cmdTag, err := txn.Exec(ctx, query, id); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", id)
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil

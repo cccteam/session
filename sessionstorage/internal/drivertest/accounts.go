@@ -22,6 +22,7 @@ type AccountsDriver interface {
 	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	DeleteUser(ctx context.Context, id ccc.UUID) error
 	IdentitiesEnabled() bool
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
@@ -100,6 +101,7 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "deleting an account deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the account's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 	}
