@@ -74,6 +74,20 @@ func (mr *MockdbMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*Mockdb)(nil).ActiveImpersonations), ctx, activeSince, q)
 }
 
+// AppendAuthEvent mocks base method.
+func (m *Mockdb) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendAuthEvent", ctx, sessionID, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendAuthEvent indicates an expected call of AppendAuthEvent.
+func (mr *MockdbMockRecorder) AppendAuthEvent(ctx, sessionID, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*Mockdb)(nil).AppendAuthEvent), ctx, sessionID, event)
+}
+
 // CreateUser mocks base method.
 func (m *Mockdb) CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -230,6 +244,20 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*Mockdb)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
+// DestroyUserSessions mocks base method.
+func (m *Mockdb) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroyUserSessions", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroyUserSessions indicates an expected call of DestroyUserSessions.
+func (mr *MockdbMockRecorder) DestroyUserSessions(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyUserSessions", reflect.TypeOf((*Mockdb)(nil).DestroyUserSessions), ctx, userID)
+}
+
 // EndImpersonation mocks base method.
 func (m *Mockdb) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason string) error {
 	m.ctrl.T.Helper()
@@ -272,6 +300,50 @@ func (m *Mockdb) GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.G
 func (mr *MockdbMockRecorder) GoogleOIDCUserBySub(ctx, sub any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoogleOIDCUserBySub", reflect.TypeOf((*Mockdb)(nil).GoogleOIDCUserBySub), ctx, sub)
+}
+
+// IdentitiesByUser mocks base method.
+func (m *Mockdb) IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdentitiesByUser", ctx, userID)
+	ret0, _ := ret[0].([]*dbtype.SessionIdentity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IdentitiesByUser indicates an expected call of IdentitiesByUser.
+func (mr *MockdbMockRecorder) IdentitiesByUser(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdentitiesByUser", reflect.TypeOf((*Mockdb)(nil).IdentitiesByUser), ctx, userID)
+}
+
+// IdentitiesEnabled mocks base method.
+func (m *Mockdb) IdentitiesEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdentitiesEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IdentitiesEnabled indicates an expected call of IdentitiesEnabled.
+func (mr *MockdbMockRecorder) IdentitiesEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdentitiesEnabled", reflect.TypeOf((*Mockdb)(nil).IdentitiesEnabled))
+}
+
+// Identity mocks base method.
+func (m *Mockdb) Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Identity", ctx, method, connection, subject)
+	ret0, _ := ret[0].(*dbtype.SessionIdentity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Identity indicates an expected call of Identity.
+func (mr *MockdbMockRecorder) Identity(ctx, method, connection, subject any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Identity", reflect.TypeOf((*Mockdb)(nil).Identity), ctx, method, connection, subject)
 }
 
 // ImpersonationEnabled mocks base method.
@@ -361,6 +433,21 @@ func (m *Mockdb) InsertSessionOIDC(ctx context.Context, session *dbtype.InsertOI
 func (mr *MockdbMockRecorder) InsertSessionOIDC(ctx, session, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertSessionOIDC), ctx, session, req)
+}
+
+// LinkIdentity mocks base method.
+func (m *Mockdb) LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LinkIdentity", ctx, userID, identity, tenant)
+	ret0, _ := ret[0].(*dbtype.SessionIdentity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LinkIdentity indicates an expected call of LinkIdentity.
+func (mr *MockdbMockRecorder) LinkIdentity(ctx, userID, identity, tenant any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkIdentity", reflect.TypeOf((*Mockdb)(nil).LinkIdentity), ctx, userID, identity, tenant)
 }
 
 // OIDCUser mocks base method.
@@ -484,6 +571,20 @@ func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername s
 func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, newUsername)
+}
+
+// UnlinkIdentity mocks base method.
+func (m *Mockdb) UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnlinkIdentity", ctx, identityID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnlinkIdentity indicates an expected call of UnlinkIdentity.
+func (mr *MockdbMockRecorder) UnlinkIdentity(ctx, identityID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnlinkIdentity", reflect.TypeOf((*Mockdb)(nil).UnlinkIdentity), ctx, identityID)
 }
 
 // UpdateCustomSessionData mocks base method.

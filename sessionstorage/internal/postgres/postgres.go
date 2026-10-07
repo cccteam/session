@@ -20,6 +20,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// usernameIndex is the unique index on the user table's normalized username.
+const usernameIndex = "SessionUsers_NormalizedUsername_idx"
+
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
 	conn             Queryer
@@ -37,6 +40,7 @@ type SessionStorageDriver struct {
 	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
 	accounts   bool
 	authEvents *AuthEventsConfig
+	identities *IdentitiesConfig
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -245,6 +249,17 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	// A sign-in that carries a verified identity resolves its account in the session
+	// transaction: always for an external identity, and for a password identity when
+	// identities (and so the sign-in policy) are configured.
+	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
+		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
+			return ccc.NilUUID, err
+		}
+
+		return id, nil
+	}
+
 	query, args := s.sessionInsertStatement(id, insertSession, req)
 
 	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, nil, insertSession.CreatedAt, nil)); err != nil {
@@ -435,17 +450,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 		return nil, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO "%s"
-			("Id", "Username", "PasswordHash", "Disabled")
-		VALUES
-			($1, $2, $3, $4)
-		`, s.userTableName)
-	args := []any{id, user.Username, user.PasswordHash, user.Disabled}
+	query, args := s.userInsertStatement(id, user)
 
 	if err := s.execUserInsert(ctx, id, query, args, customData); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == usernameIndex {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
@@ -453,6 +462,16 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	}
 
 	return s.User(ctx, id)
+}
+
+// userInsertStatement renders the insert of a new account row.
+func (s *SessionStorageDriver) userInsertStatement(id ccc.UUID, user *dbtype.InsertSessionUser) (query string, args []any) {
+	return fmt.Sprintf(`
+		INSERT INTO "%s"
+			("Id", "Username", "PasswordHash", "Disabled")
+		VALUES
+			($1, $2, $3, $4)
+		`, s.userTableName), []any{id, user.Username, user.PasswordHash, user.Disabled}
 }
 
 // execUserInsert executes a user-insert statement; when customData is non-nil the
@@ -523,7 +542,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 
 	if _, err := tx.Exec(ctx, userQuery, userID, newUsername); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == "SessionUsers_NormalizedUsername_idx" {
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == usernameIndex {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 

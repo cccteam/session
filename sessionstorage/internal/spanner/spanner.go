@@ -38,6 +38,7 @@ type SessionStorageDriver struct {
 	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
 	accounts   bool
 	authEvents *AuthEventsConfig
+	identities *IdentitiesConfig
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -246,6 +247,17 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+
+	// A sign-in that carries a verified identity resolves its account in the session
+	// transaction: always for an external identity, and for a password identity when
+	// identities (and so the sign-in policy) are configured.
+	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
+		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
+			return ccc.NilUUID, err
+		}
+
+		return id, nil
 	}
 
 	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
@@ -461,31 +473,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	id, err := ccc.NewUUID()
-	if err != nil {
-		return nil, errors.Wrap(err, "ccc.NewUUID()")
-	}
-
-	user := &dbtype.SessionUser{
-		ID:           id,
-		Username:     insertUser.Username,
-		PasswordHash: insertUser.PasswordHash,
-		Disabled:     insertUser.Disabled,
-	}
-
-	passwordHash, err := passwordHashValue(user.PasswordHash)
+	user, mutation, err := newUserMutation(s.userTableName, insertUser)
 	if err != nil {
 		return nil, err
 	}
-	mutation, err := spanner.InsertStruct(s.userTableName, &struct {
-		ID           ccc.UUID           `spanner:"Id"`
-		Username     string             `spanner:"Username"`
-		PasswordHash spanner.NullString `spanner:"PasswordHash"`
-		Disabled     bool               `spanner:"Disabled"`
-	}{ID: user.ID, Username: user.Username, PasswordHash: passwordHash, Disabled: user.Disabled})
-	if err != nil {
-		return nil, errors.Wrap(err, "spanner.InsertStruct()")
-	}
+	id := user.ID
 
 	mutations := []*spanner.Mutation{mutation}
 	if customData != nil {

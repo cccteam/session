@@ -6,6 +6,8 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/drivertest"
 	"github.com/go-playground/errors/v5"
 )
@@ -52,6 +54,24 @@ func newAccountsInstance(ctx context.Context, t *testing.T, schema drivertest.Ac
 	}
 	if cfg.Impersonation {
 		d.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
+	}
+	if cfg.Identities {
+		identities := &IdentitiesConfig{
+			TableName: "SessionIdentities",
+			Resolve: func(ctx context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+				if cfg.Resolve == nil {
+					return nil, nil
+				}
+
+				return cfg.Resolve(ctx, req)
+			},
+		}
+		if cfg.Policy != nil {
+			identities.Policy = func(ctx context.Context, _ *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
+				return cfg.Policy(ctx, req)
+			}
+		}
+		d.SetIdentities(identities)
 	}
 
 	return &drivertest.AccountsInstance{Driver: d, Raw: conn.Client}

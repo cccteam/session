@@ -20,6 +20,15 @@ type AccountsDriver interface {
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	InsertImpersonatedSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error)
 	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
+	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	DeactivateUser(ctx context.Context, id ccc.UUID) error
+	IdentitiesEnabled() bool
+	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
+	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
+	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
+	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
+	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 }
 
 // AccountsSchema names the migration set an accounts database is prepared with.
@@ -43,6 +52,13 @@ type AccountsConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
+	// Identities attaches the SessionIdentities table with Resolve and Policy, which the
+	// harness adapts to the driver's transactional hooks.
+	Identities bool
+	// Resolve is the account resolver; nil rejects every unlinked identity.
+	Resolve func(ctx context.Context, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
+	// Policy is the sign-in policy; nil allows.
+	Policy func(ctx context.Context, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
 }
 
 // AccountsInstance is a driver over a freshly prepared accounts database, with the
@@ -76,6 +92,15 @@ func RunAccounts(t *testing.T, h *AccountsHarness) {
 		{name: "the first auth event is the sign-in method, read with the session", run: testInitialAuthEvent},
 		{name: "an impersonated session records its account and an impersonation event naming the actor", run: testImpersonatedSessionAccount},
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
+		{name: "a linked identity signs in to its account without the resolver", run: testLinkedIdentitySignsIn},
+		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
+		{name: "the sign-in policy decides after the account is known", run: testSignInPolicy},
+		{name: "a disabled account is refused", run: testDisabledAccountRefused},
+		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
+		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
+		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "DestroyUserSessions expires the account's sessions by UserId", run: testDestroyUserSessions},
+		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
