@@ -214,10 +214,10 @@ func TestOIDC_Verify(t *testing.T) {
 			if decoded.PreferredUsername != "user@example.com" || decoded.Tid != "tenant-1" || decoded.Oid != "object-1" || len(decoded.Roles) != 1 {
 				t.Errorf("verified claims = %+v", decoded)
 			}
-			// The single-use OIDC cookie is cleared on the response: emptied and expired.
+			// The single-use state cookie is cleared on the response: emptied and expired.
 			cleared := false
 			for _, c := range rec.Result().Cookies() {
-				if c.Name == internalcookie.OIDCCookieName && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
+				if c.Name == internalcookie.AzureStateCookieName && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
 					cleared = true
 				}
 			}

@@ -68,7 +68,7 @@ func (o *OIDC) LoginURL() string {
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
 
-	o.cookieClient.WriteOidcCookie(w, cval)
+	o.cookieClient.WriteStateCookie(w, internalcookie.AzureStateCookieName, cval)
 
 	return o.redirectURL, nil
 }
@@ -104,14 +104,14 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		return "", "", errors.Wrap(err, "json.Unmarshal()")
 	}
 
-	cval, ok, err := o.cookieClient.ReadOidcCookie(r)
+	cval, cookieName, err := o.cookieClient.ReadStateCookie(r, internalcookie.AzureStateCookieName)
 	if err != nil {
-		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
+		return "", "", errors.Wrap(err, "cookie.Client.ReadStateCookie()")
 	}
-	if !ok {
+	if cookieName == "" {
 		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
 	}
-	o.cookieClient.DeleteOidcCookie(w)
+	o.cookieClient.DeleteStateCookie(w, cookieName)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
 	returnURL = internalcookie.SanitizeReturnURL(returnURL)

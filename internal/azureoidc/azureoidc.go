@@ -55,7 +55,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 		SetString(internalcookie.OIDCPkceVerifier, pkceVerifier).
 		SetString(internalcookie.ReturnURL, returnURL)
 
-	o.cookieClient.WriteOidcCookie(w, cval)
+	o.cookieClient.WriteStateCookie(w, internalcookie.AzureStateCookieName, cval)
 
 	return provider.AuthCodeURL(state.String(), oauth2.S256ChallengeOption(pkceVerifier)), nil
 }
@@ -70,14 +70,14 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", errors.Wrap(err, "loader.Loader.Provider()")
 	}
 
-	cval, ok, err := o.cookieClient.ReadOidcCookie(r)
+	cval, cookieName, err := o.cookieClient.ReadStateCookie(r, internalcookie.AzureStateCookieName)
 	if err != nil {
-		return "", "", errors.Wrap(err, "cookie.Client.ReadOidcCookie()")
+		return "", "", errors.Wrap(err, "cookie.Client.ReadStateCookie()")
 	}
-	if !ok {
+	if cookieName == "" {
 		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
 	}
-	o.cookieClient.DeleteOidcCookie(w)
+	o.cookieClient.DeleteStateCookie(w, cookieName)
 
 	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
 	returnURL = internalcookie.SanitizeReturnURL(returnURL)

@@ -143,24 +143,34 @@ func (c *Client) readXSRFHeader(r *http.Request) (values *cookie.Values, found b
 	return cval, true
 }
 
-// WriteOidcCookie writes the OIDC cookie to the response
-func (c *Client) WriteOidcCookie(w http.ResponseWriter, values *cookie.Values) {
-	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
+// WriteStateCookie writes an OIDC login's state cookie, named for its provider (e.g.
+// AzureStateCookieName), so logins with different providers in one browser never
+// overwrite each other's state.
+func (c *Client) WriteStateCookie(w http.ResponseWriter, name string, values *cookie.Values) {
+	c.cookie.WritePersistentCookie(w, name, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
 }
 
-// ReadOidcCookie reads the OIDC cookie from the request
-func (c *Client) ReadOidcCookie(r *http.Request) (values *cookie.Values, found bool, err error) {
-	cval, found, err := c.cookie.Read(r, OIDCCookieName)
-	if err != nil {
-		return nil, found, errors.Wrap(err, "cookie.Client.Read()")
+// ReadStateCookie reads the state cookie named name. When the browser has none it reads
+// the legacy shared OIDCCookieName cookie instead, written by a login started before the
+// upgrade. readName is the name of the cookie read, "" when neither was present; pass it
+// to DeleteStateCookie.
+func (c *Client) ReadStateCookie(r *http.Request, name string) (values *cookie.Values, readName string, err error) {
+	for _, n := range []string{name, OIDCCookieName} {
+		cval, found, err := c.cookie.Read(r, n)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "cookie.Client.Read()")
+		}
+		if found {
+			return cval, n, nil
+		}
 	}
 
-	return cval, found, nil
+	return nil, "", nil
 }
 
-// DeleteOidcCookie deletes the OIDC cookie from the response
-func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
-	c.cookie.Delete(w, OIDCCookieName, c.Domain)
+// DeleteStateCookie deletes the state cookie named name: it is single-use.
+func (c *Client) DeleteStateCookie(w http.ResponseWriter, name string) {
+	c.cookie.Delete(w, name, c.Domain)
 }
 
 // Cookie returns the underlying cookie.Client

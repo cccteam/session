@@ -35,6 +35,7 @@ Layers, from the outside in:
 | O3 | PKCE verifier and state are fresh per login | `TestOIDC_AuthCodeURL` in both packages | verifier |
 | O4 | Google logins outside the hosted domain, or with an unverified email, are refused | `internal/googleoidc` `TestOIDC_Verify/hd…`, `…unverified…` | verifier |
 | O5 | The simulated (`skipAuth`) login fabricates exactly the claims the real one would carry, and the simulated Google groups lookup yields exactly the roles `APP_ROLES` names | `*_skipAuth_test.go` in both packages; `role_sync_google_skipAuth_test.go` | verifier |
+| O6 | Each OIDC provider keeps its own state cookie (`OIDC-azure`, `OIDC-google`, `OIDC-workos`), so logins with different providers in one browser never overwrite each other's state; a login started before the upgrade completes with the legacy shared `OIDC` cookie, which is then cleared | `internal/googleoidc` `TestOIDC_StateCookie_ProvidersCoexist`; `TestOIDC_Verify_LegacyStateCookie` in both packages | verifier |
 
 ## Accounts and sign-in
 
