@@ -229,7 +229,7 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 		Account:   sessioninfo.UserFromRequest(r).ID.String(),
 	}
 	if data.UserID.Valid {
-		view.UserID = data.UserID.UUID.String()
+		view.UserID = data.UserID.String()
 	}
 	for _, e := range data.AuthEvents {
 		view.Events = append(view.Events, strings.TrimSuffix(string(e.Method)+":"+e.Connection, ":"))
@@ -691,7 +691,7 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
 	v := b.view(ctx)
-	if v.UserID != pending.UserID.UUID.String() || v.SessionID == anonymous {
+	if v.UserID != pending.UserID.String() || v.SessionID == anonymous {
 		t.Errorf("session = %+v, want account %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
 	}
 	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp")
