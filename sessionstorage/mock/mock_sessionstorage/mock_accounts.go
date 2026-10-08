@@ -75,7 +75,7 @@ func (mr *MockAccountStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q
 }
 
 // AppendAuthEvent mocks base method.
-func (m *MockAccountStore) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event sessioninfo.AuthEvent) error {
+func (m *MockAccountStore) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppendAuthEvent", ctx, sessionID, event)
 	ret0, _ := ret[0].(error)

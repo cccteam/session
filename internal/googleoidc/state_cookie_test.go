@@ -51,9 +51,7 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 		return map[string]any{"preferred_username": "user@example.com", "tid": "tenant-1", "oid": "object-1"}
 	}
 	googleIDP := newFakeIDP(t)
-	googleIDP.TokenClaims = func() map[string]any {
-		return map[string]any{"sub": "google-sub-1", "email": "user@example.com", "email_verified": true, "hd": testHostedDomain}
-	}
+	googleIDP.TokenClaims = workspaceClaims
 
 	azure := azureoidc.New(cookies, azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
 	google := newWithIssuer(cookies, googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", testHostedDomain)
@@ -112,9 +110,7 @@ func TestOIDC_Verify_LegacyStateCookie(t *testing.T) {
 	ctx := t.Context()
 
 	idp := newFakeIDP(t)
-	idp.TokenClaims = func() map[string]any {
-		return map[string]any{"sub": "google-sub-1", "email": "user@example.com", "email_verified": true, "hd": testHostedDomain}
-	}
+	idp.TokenClaims = workspaceClaims
 	o := newWithIssuer(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 	_, callback := startLogin(t, o)

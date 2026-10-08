@@ -229,7 +229,7 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 		Account:   sessioninfo.UserFromRequest(r).ID.String(),
 	}
 	if data.UserID.Valid {
-		view.UserID = data.UserID.UUID.String()
+		view.UserID = data.UserID.String()
 	}
 	for _, e := range data.AuthEvents {
 		view.Events = append(view.Events, strings.TrimSuffix(string(e.Method)+":"+e.Connection, ":"))
@@ -243,19 +243,19 @@ func newPasswordWorkOSApp(ctx context.Context, t *testing.T, workos *fakeWorkOS)
 
 	h := &hooks{}
 	db, store := newAuthStore(ctx, t, h)
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, []session.SignInMethod{
-		session.PasswordSignIn(),
-		session.WorkOSSignIn("sk_test", workosClientID, "https://app.example/sso/callback", session.WithWorkOSBaseURL(workos.server.URL)),
-	}, session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey,
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
+	password := session.PasswordSignIn(auth)
+	sso := session.WorkOSSignIn(auth, "sk_test", workosClientID, "https://app.example/sso/callback", session.WithWorkOSBaseURL(workos.server.URL))
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
-		r.Get("/sso/login", auth.WorkOS().Login())
-		r.Get("/sso/callback", auth.WorkOS().Callback())
-		r.With(auth.ValidateXSRFToken).Post("/login", auth.Password().Login())
+		r.Get("/sso/login", sso.Login())
+		r.Get("/sso/callback", sso.Callback())
+		r.With(auth.ValidateXSRFToken).Post("/login", password.Login())
 	})
 
 	server := httptest.NewTLSServer(r)
@@ -691,7 +691,7 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
 	v := b.view(ctx)
-	if v.UserID != pending.UserID.UUID.String() || v.SessionID == anonymous {
+	if v.UserID != pending.UserID.String() || v.SessionID == anonymous {
 		t.Errorf("session = %+v, want account %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
 	}
 	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp")

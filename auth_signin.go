@@ -128,7 +128,7 @@ func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *se
 	if at.roleNames == nil {
 		return nil
 	}
-	m, ok := a.external[at.identity.Method]
+	m, ok := a.registered().external[at.identity.Method]
 	if !ok || m.syncRoles == nil {
 		return nil
 	}
@@ -234,15 +234,16 @@ func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password st
 	if err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
-	upgrade, err := comparePassword(a.hasher, user.PasswordHash, password)
+	methods := a.registered()
+	upgrade, err := comparePassword(methods.hasher, user.PasswordHash, password)
 	if err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
-	if upgrade && a.autoUpgrade {
+	if upgrade && methods.autoUpgrade {
 		if err := a.setPasswordHash(ctx, user.ID, password); err != nil {
 			logger.FromCtx(ctx).Error(err)
 		} else {
-			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), a.hasher.KeyType())
+			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), methods.hasher.KeyType())
 		}
 	}
 	if user.Disabled {
@@ -253,7 +254,7 @@ func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password st
 }
 
 func (a *Auth[S, U]) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
-	hash, err := a.hasher.Hash(password)
+	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}

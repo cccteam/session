@@ -46,25 +46,24 @@ func newOIDCApp(ctx context.Context, t *testing.T) *oidcApp {
 	azure := oidctest.NewFakeIDP(t, "azure-client")
 	google := oidctest.NewFakeIDP(t, "google-client")
 
-	googleIssuerMu.Lock()
-	issuer := googleoidc.IssuerURL
-	googleoidc.IssuerURL = google.Server.URL
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, []session.SignInMethod{
-		session.AzureSignIn(session.DisableRoleSync(), azure.Server.URL, "azure-client", "secret", "https://app.example/azure/callback"),
-		session.GoogleSignIn(session.DisableRoleSync(), "google-client", "secret", "https://app.example/google/callback", hostedDomain),
-	}, session.WithIdentityLinked(h.identityLinked))
-	googleoidc.IssuerURL = issuer
-	googleIssuerMu.Unlock()
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
+	azureMethod := session.AzureSignIn(auth, session.DisableRoleSync(), azure.Server.URL, "azure-client", "secret", "https://app.example/azure/callback")
+	googleIssuerMu.Lock()
+	issuer := googleoidc.IssuerURL
+	googleoidc.IssuerURL = google.Server.URL
+	googleMethod := session.GoogleSignIn(auth, session.DisableRoleSync(), "google-client", "secret", "https://app.example/google/callback", hostedDomain)
+	googleoidc.IssuerURL = issuer
+	googleIssuerMu.Unlock()
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
-		r.Get("/azure/login", auth.Azure().Login())
-		r.Get("/azure/callback", auth.Azure().Callback())
-		r.Get("/google/login", auth.Google().Login())
-		r.Get("/google/callback", auth.Google().Callback())
+		r.Get("/azure/login", azureMethod.Login())
+		r.Get("/azure/callback", azureMethod.Callback())
+		r.Get("/google/login", googleMethod.Login())
+		r.Get("/google/callback", googleMethod.Callback())
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)

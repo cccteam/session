@@ -187,7 +187,9 @@ func TestAccounts_StoreMethods(t *testing.T) {
 		{
 			name:    "AppendAuthEvent forwards the event",
 			prepare: func(db *Mockdb) { db.EXPECT().AppendAuthEvent(gomock.Any(), userID, &event).Return(nil) },
-			call:    func(ctx context.Context, a *Accounts) (any, error) { return nil, a.AppendAuthEvent(ctx, userID, event) },
+			call: func(ctx context.Context, a *Accounts) (any, error) {
+				return nil, a.AppendAuthEvent(ctx, userID, &event)
+			},
 		},
 	}
 	for _, tt := range tests {

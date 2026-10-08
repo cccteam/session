@@ -232,7 +232,7 @@ type AccountStore interface {
 	// DestroyUserSessions expires every session of an account, by UserId.
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records a step-up or confirmation on an existing session.
-	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event sessioninfo.AuthEvent) error
+	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 	// IdentitiesEnabled reports whether an identities configuration is attached.
 	IdentitiesEnabled() bool
 }
@@ -323,11 +323,11 @@ func (a *Accounts) DestroyUserSessions(ctx context.Context, userID ccc.UUID) err
 }
 
 // AppendAuthEvent implements AccountStore.
-func (a *Accounts) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event sessioninfo.AuthEvent) error {
+func (a *Accounts) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.AppendAuthEvent(ctx, sessionID, &event); err != nil {
+	if err := a.db.AppendAuthEvent(ctx, sessionID, event); err != nil {
 		return errors.Wrap(err, "db.AppendAuthEvent()")
 	}
 

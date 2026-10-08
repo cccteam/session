@@ -79,17 +79,18 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	}
 }
 
+// workspaceClaims are the ID token claims of a verified user of the test Workspace.
+func workspaceClaims() map[string]any {
+	return map[string]any{
+		"sub":            "google-sub-1",
+		"email":          "user@example.com",
+		"email_verified": true,
+		"hd":             testHostedDomain,
+	}
+}
+
 func TestOIDC_Verify(t *testing.T) {
 	t.Parallel()
-
-	goodClaims := func() map[string]any {
-		return map[string]any{
-			"sub":            "google-sub-1",
-			"email":          "user@example.com",
-			"email_verified": true,
-			"hd":             testHostedDomain,
-		}
-	}
 
 	tests := []struct {
 		name        string
@@ -103,11 +104,11 @@ func TestOIDC_Verify(t *testing.T) {
 	}{
 		{
 			name:        "happy path",
-			tokenClaims: goodClaims,
+			tokenClaims: workspaceClaims,
 		},
 		{
 			name:        "missing OIDC cookie",
-			tokenClaims: goodClaims,
+			tokenClaims: workspaceClaims,
 			dropCookie:  true,
 			wantErr:     true,
 			wantErrPart: "No OIDC cookie",
@@ -115,7 +116,7 @@ func TestOIDC_Verify(t *testing.T) {
 		},
 		{
 			name:        "state mismatch",
-			tokenClaims: goodClaims,
+			tokenClaims: workspaceClaims,
 			mutateReq: func(r *http.Request) {
 				q := r.URL.Query()
 				q.Set("state", "tampered-state")
@@ -127,7 +128,7 @@ func TestOIDC_Verify(t *testing.T) {
 		},
 		{
 			name:        "token exchange failure",
-			tokenClaims: goodClaims,
+			tokenClaims: workspaceClaims,
 			tokenStatus: http.StatusInternalServerError,
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
@@ -136,7 +137,7 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name: "wrong audience fails verification",
 			tokenClaims: func() map[string]any {
-				c := goodClaims()
+				c := workspaceClaims()
 				c["aud"] = "other-client"
 
 				return c
@@ -148,7 +149,7 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name: "hd claim absent (consumer account) fails closed",
 			tokenClaims: func() map[string]any {
-				c := goodClaims()
+				c := workspaceClaims()
 				delete(c, "hd")
 
 				return c
@@ -160,7 +161,7 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name: "hd claim for another domain is rejected",
 			tokenClaims: func() map[string]any {
-				c := goodClaims()
+				c := workspaceClaims()
 				c["hd"] = "attacker.example.net"
 
 				return c
@@ -172,7 +173,7 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name: "hd claim comparison is case-insensitive",
 			tokenClaims: func() map[string]any {
-				c := goodClaims()
+				c := workspaceClaims()
 				c["hd"] = "Example.COM"
 
 				return c
@@ -181,7 +182,7 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name: "unverified email is rejected",
 			tokenClaims: func() map[string]any {
-				c := goodClaims()
+				c := workspaceClaims()
 				c["email_verified"] = false
 
 				return c

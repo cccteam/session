@@ -20,10 +20,22 @@ schema), which is how the scenarios prove a hook's write survives a refusal and 
 reads the account a sign-in provisioned. Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
-against all five session types (including `Auth`), built through their constructors, with real cookies and a
+against all five session types (including `Auth`, with password and WorkOS sign-in
+registered on it), built through their constructors, with real cookies and a
 mocked store. It exists because the types satisfy `basesession.Handlers` through
 delegates, and a delegate forwarded to the wrong base method compiles. Add a scenario
 whenever a handler or middleware is added to the shared interface.
+
+**Auth unit tests** (`auth_test.go`, `auth_methods_test.go` in the root package). The
+Auth's flows against a mocked store. The fixture registers password sign-in with
+`PasswordSignIn`; a test registers an external method over a mocked authenticator with
+`azureSignIn` or `googleSignIn`, the same registration path `AzureSignIn` and
+`GoogleSignIn` take with the real authenticator, so every flow test wires its handler
+from the value the registration returned and the registration rules apply to it. The
+registration rules themselves (a method twice, a method once the Auth is in use, an
+external method without identities) are a table of panics in
+`TestAuth_RegistrationRefused`; the handler sets of the method types are asserted at
+compile time in `auth_methods_test.go`.
 
 **Engine** (`internal/basesession`). The shared middleware and the impersonation
 lifecycle against mocked store and cookies. This is where a rule is exercised in its

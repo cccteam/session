@@ -53,7 +53,7 @@ type Identity struct {
 	// IdPAMR carries upstream authentication-method evidence (OIDC amr values or SAML
 	// AuthnContextClassRef) when the method provides it. The library never
 	// interprets it; policy hooks decide what it is worth.
-	IdPAMR []string
+	IdPAMR []string //nolint:revive // var-naming: IdP is the identity provider, not an ID; the name is the agreed contract
 }
 
 // AuthEvent records one step that authenticated a session: the initial sign-in and
@@ -62,7 +62,7 @@ type Identity struct {
 type AuthEvent struct {
 	Method     AuthMethod
 	Connection string
-	IdPAMR     []string
+	IdPAMR     []string //nolint:revive // var-naming: IdP is the identity provider, not an ID; the name is the agreed contract
 	At         time.Time
 }
 
