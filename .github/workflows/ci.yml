@@ -2,6 +2,11 @@ name: CI
 on:
   pull_request:
     types: [opened, synchronize, reopened] # these are the defaults - synchronize means 'commits pushed to PR'
+  push:
+    branches: [master]
+    # The merge result is checked whole, and the caches its jobs save are the ones the next
+    # pull requests restore: a pull request can read entries saved on its own branch and on
+    # its base, nothing else.
 
 concurrency:
   group: ${{ github.ref }}
@@ -13,48 +18,18 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
+    uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@9e5bf053976f0aef9f3c770cd83c6113b2f35da6 # v8.2.1
     with:
       golangci-lint-version: 'v2.12.2'
       # insecurecookie is the development configuration for Chrome, alone and together
       # with skipAuth; every configuration a developer runs is one CI tests.
       build-tags: '["", "skipAuth", "insecurecookie", "skipAuth,insecurecookie"]'
-
-  coverage:
-    name: Coverage report
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - name: Run tests with coverage
-        run: go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=cover.out ./...
-      - name: Summarize coverage per package
-        # Generated mocks are excluded: they are never executed and would dilute the
-        # figures. A package whose coverage drops shows up here, on the PR.
-        run: |
-          {
-            echo '## Test coverage (statements, generated mocks excluded)'
-            echo
-            echo '| Package | Covered | Statements |'
-            echo '| --- | ---: | ---: |'
-            tail -n +2 cover.out | grep -v '/mock' | awk '
-              { key=$1; stm[key]=$2; if ($3>cnt[key]) cnt[key]=$3 }
-              END {
-                for (k in stm) {
-                  split(k, a, ":"); n=split(a[1], parts, "/"); pkg=a[1]; sub(/\/[^\/]*$/, "", pkg)
-                  tot[pkg]+=stm[k]; if (cnt[k]>0) cov[pkg]+=stm[k]; T+=stm[k]; if (cnt[k]>0) C+=stm[k]
-                }
-                for (p in tot) printf "| %s | %.1f%% | %d |\n", p, 100*cov[p]/tot[p], tot[p]
-                printf "| **total** | **%.1f%%** | **%d** |\n", 100*C/T, T
-              }' | sort
-          } >> "$GITHUB_STEP_SUMMARY"
+      # The untagged test leg measures coverage and writes the per-package table to the job
+      # summary; generated mocks are left out, they are never executed and would dilute the figures.
+      coverage: true
+      coverage-exclude: '/mock'
 
   semantic-titles:
     permissions:
       pull-requests: read
-    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
+    uses: cccteam/github-workflows/.github/workflows/semantic-pull-request-title.yml@9e5bf053976f0aef9f3c770cd83c6113b2f35da6 # v8.2.1
