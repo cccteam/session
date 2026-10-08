@@ -54,7 +54,7 @@ ALTER TABLE "Sessions"
 
 ## Auth sessions (multiple sign-in methods)
 
-`Auth[SessionData, UserData]` is one session that any configured sign-in method can
+`Auth[SessionData, UserData]` is one session that any registered sign-in method can
 establish: password, Microsoft Entra ID (Azure), Google Workspace and WorkOS SSO. An
 application mounts one cookie, one session table and one middleware chain, and every
 session belongs to an **account**, a `SessionUsers` record, by its ID. The password
@@ -62,12 +62,12 @@ method checks the account's password; an external method produces a verified
 **identity** that is linked to an account through the identities table, keyed by
 `(method, connection, subject)` and **never by email**.
 
-| Method | Constructor | Identity key (connection, subject) | Login parameters | Roles |
+| Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
-| `password` | `PasswordSignIn(options...)` | account ID | JSON `{"username", "password"}` | — |
-| `azure` | `AzureSignIn(roleSync, issuer, clientID, secret, redirectURL, ...)` | (`tid`, `oid`) | `?returnUrl=` | `RoleSync(manager)` or `DisableRoleSync()` |
-| `google` | `GoogleSignIn(roleSync, clientID, secret, redirectURL, hostedDomain, ...)` | (`""`, `sub`) | `?returnUrl=` | `GoogleRoleSync(...)` or `DisableRoleSync()` |
-| `workos` | `WorkOSSignIn(apiKey, clientID, redirectURL, ...)` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | account ID | JSON `{"username", "password"}` | — |
+| `azure` | `AzureSignIn(auth, roleSync, issuer, clientID, secret, redirectURL, ...)` → `*AzureMethod`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `RoleSync(manager)` or `DisableRoleSync()` |
+| `google` | `GoogleSignIn(auth, roleSync, clientID, secret, redirectURL, hostedDomain, ...)` → `*GoogleMethod`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `GoogleRoleSync(...)` or `DisableRoleSync()` |
+| `workos` | `WorkOSSignIn(auth, apiKey, clientID, redirectURL, ...)` → `*WorkOSMethod`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 ### Storage and schema
 
@@ -115,41 +115,65 @@ store := sessionstorage.NewSpannerAccounts(client,
     sessionstorage.WithSpannerIdentities(identities),
     sessionstorage.WithAuthEvents(events))
 
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, []session.SignInMethod{
-    session.PasswordSignIn(),
-    session.WorkOSSignIn(cfg.WorkOSAPIKey, cfg.WorkOSClientID, cfg.SSORedirectURL, session.WithLoginURL("/login")),
-},
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
     session.WithPendingHook(onPending),       // called when a sign-in becomes pending
     session.WithPendingTimeout(10*time.Minute),
     session.WithPendingCookieName("auth-pending"),
 )
+
+// Register the sign-in methods before serving; each returns its own handlers.
+password := session.PasswordSignIn(auth) // *session.PasswordMethod
+workos := session.WorkOSSignIn(auth, cfg.WorkOSAPIKey, cfg.WorkOSClientID, cfg.SSORedirectURL,
+    session.WithLoginURL("/login")) // *session.WorkOSMethod
 ```
 
-`NewAuth` refuses an external method on storage without identities
-(`sessionstorage.ErrIdentitiesNotConfigured`), a method configured twice, cookie or
-session options passed to `PasswordSignIn` instead of `NewAuth`, and the OIDC-only storage
-features (`WithOIDCUsers`, the custom user data login hook).
+`NewAuth` refuses the OIDC-only storage features (`WithOIDCUsers`, the custom user data
+login hook).
+
+### Registering sign-in methods
+
+A sign-in method is registered on the `Auth`, and its registration returns the method's
+own handlers; routes are wired from that value. The handler is the proof of
+registration: a method that was not registered has no handlers to wire, and each method
+is its own type, so a handler exists only on the method it belongs to
+(`FrontChannelLogout` only on `*AzureMethod`). A registered method with no route is
+harmless.
+
+Registration is refused, with a panic, in one place, the way `http.ServeMux` refuses a
+duplicate pattern: these are wiring mistakes, found when the application starts.
+
+- **A method registered twice** on one `Auth`.
+- **A method registered once the `Auth` is in use**: after it has served a request
+  through any of its handlers or middleware, or read its methods to check or hash a
+  password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
+  HashAlgorithm(...))` would have hashed with the default). Register every method, then
+  build the router and serve.
+- **An external method on storage without identities**
+  (`sessionstorage.ErrIdentitiesNotConfigured`, which the panic value wraps).
+- **A misconfigured method**: Azure or Google without its role sync slot, Google without
+  its hosted domain, cookie or session options passed to `PasswordSignIn` instead of
+  `NewAuth`.
 
 ### Routes
 
 ```go
 r.Use(auth.StartSession, auth.SetXSRFToken)
 r.Get("/api/user/authenticated", auth.Authenticated())
-r.Get("/api/user/sso/login", auth.WorkOS().Login())       // ?organization=…&returnUrl=…
-r.Get("/api/user/sso/callback", auth.WorkOS().Callback())
+r.Get("/api/user/sso/login", workos.Login())       // ?organization=…&returnUrl=…
+r.Get("/api/user/sso/callback", workos.Callback())
 r.Get("/api/user/pending", auth.Pending().Status())
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
-    r.Post("/api/user/session", auth.Password().Login())
+    r.Post("/api/user/session", password.Login())
     r.Post("/api/user/pending/confirm", auth.Pending().ConfirmWithPassword())
     r.Post("/api/user/pending/cancel", auth.Pending().Cancel())
     r.Post("/api/user/mfa", app.CompleteMFA) // checks the app's code, then auth.API().CompletePending
     r.Group(func(r chi.Router) {
         r.Use(auth.ValidateSession)
         r.Post("/api/user/logout", auth.Logout())
-        r.Post("/api/user/password", auth.Password().ChangeUserPassword())
+        r.Post("/api/user/password", password.ChangeUserPassword())
         // …protected routes
     })
 })
@@ -165,7 +189,7 @@ A sign-in ends in one of three ways. External methods answer with a redirect; th
 password login and the pending handlers answer JSON. `<LoginURL>` is the method's
 `WithLoginURL` (default `/login`).
 
-| Outcome | External `Callback()` | `Password().Login()` |
+| Outcome | External `Callback()` | `password.Login()` |
 | --- | --- | --- |
 | Session established (new session ID) | `302 <returnUrl>` (default `/`) | `200 {"mfaIsRequired": false}` |
 | Waits for the account's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]`, or the pending hook's URL | — |
@@ -191,7 +215,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   The pending identity always names its account (`UserID`, `Username`), including one the
   sign-in has just provisioned, which exists by then.
 - `Pending().Cancel()` discards the pending identity.
-- **The pending hook** (`WithPendingHook`) runs when `Password().Login()`, an external
+- **The pending hook** (`WithPendingHook`) runs when `password.Login()`, an external
   `Callback()` or `Pending().ConfirmWithPassword()` has just held a sign-in, after the
   pending identity is stored and its cookie set. It receives the
   `*sessioninfo.PendingIdentity` (reason, account, the identity with its email, expiry,
@@ -263,7 +287,7 @@ compressed (about 2.8 KB): a larger one is refused with `internal_error`.
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
   refuses an account's last means of sign-in.
 - **Not yet supported**: provider-initiated (front-channel) logout.
-  `Azure().FrontChannelLogout()` answers 501 until the accounts schema records the
+  `AzureMethod.FrontChannelLogout()` answers 501 until the accounts schema records the
   provider's session ID.
 
 ## OIDC role synchronization
