@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/cccteam/session/compare/v0.12.0...v0.12.1) (2026-10-08)
+
+
+### Code Upgrade
+
+* **deps:** Go 1.26.9 and golang.org/x/net v0.60.0; net/http GO-2026-6612, GO-2026-6613 and GO-2026-6617 fixed ([#257](https://github.com/cccteam/session/issues/257)) ([83b39c9](https://github.com/cccteam/session/commit/83b39c9790a91cc0a6f4c31c4c32174a6e7e1dd9))
+* **deps:** the security scan runs golang-security-scan v8.2.1 and names its Grype switch ([#220](https://github.com/cccteam/session/issues/220)) ([a529179](https://github.com/cccteam/session/commit/a5291792947e4f2985d0c42ea82d48cd89ef5729))
+
 ## [0.12.0](https://github.com/cccteam/session/compare/v0.11.1...v0.12.0) (2026-10-06)
 
 
