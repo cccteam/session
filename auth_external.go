@@ -10,7 +10,6 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/azureoidc"
-	"github.com/cccteam/session/internal/cloudidentity"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/googleoidc"
 	"github.com/cccteam/session/internal/workossso"
@@ -33,8 +32,6 @@ type externalMethod struct {
 	// asserted, refusing (no_roles) when no recognized role results. Nil when the method
 	// synchronizes no roles.
 	syncRoles func(ctx context.Context, username string, roleNames []string) error
-	// frontChannelLogout says whether the provider has provider-initiated logout.
-	frontChannelLogout bool
 }
 
 // verifiedSignIn is what a method's callback verified: the identity, where the browser
@@ -44,47 +41,6 @@ type verifiedSignIn struct {
 	identity  *sessioninfo.Identity
 	returnURL string
 	roleNames []string
-}
-
-// newExternalMethod builds the external method cfg describes over the session's cookie
-// client, which writes the method's state cookie.
-func newExternalMethod(cookieClient *internalcookie.Client, cfg *signInMethodConfig) (*externalMethod, error) {
-	switch cfg.method {
-	case sessioninfo.MethodAzure:
-		roleSync, err := azureRoleSync(cfg.azure.roleSync)
-		if err != nil {
-			return nil, err
-		}
-		authn := azureoidc.New(cookieClient, cfg.azure.issuerURL, cfg.azure.clientID, cfg.azure.clientSecret, cfg.azure.redirectURL)
-		applyLoginOptions(authn, cfg.oidcOptions)
-
-		return azureMethod(authn, roleSync), nil
-	case sessioninfo.MethodGoogle:
-		roleSync, err := googleRoleSync(cfg.google.roleSync, cfg.google.hostedDomain)
-		if err != nil {
-			return nil, err
-		}
-		// With role sync on, the sign-in also asks for the groups scope, so the access
-		// token Verify hands back can read the person's own groups.
-		var scopes []string
-		if roleSync != nil {
-			scopes = []string{cloudidentity.Scope}
-		}
-		authn := googleoidc.New(cookieClient, cfg.google.clientID, cfg.google.clientSecret, cfg.google.redirectURL, cfg.google.hostedDomain, scopes...)
-		applyLoginOptions(authn, cfg.oidcOptions)
-
-		return googleMethod(authn, roleSync), nil
-	case sessioninfo.MethodWorkOS:
-		authn := workossso.New(cookieClient, cfg.workos.apiKey, cfg.workos.clientID, cfg.workos.redirectURL)
-		if cfg.workos.settings.baseURL != "" {
-			authn.SetBaseURL(cfg.workos.settings.baseURL)
-		}
-		applyLoginOptions(authn, cfg.oidcOptions)
-
-		return workOSMethod(authn), nil
-	default:
-		return nil, errors.Newf("unknown sign-in method %q", cfg.method)
-	}
 }
 
 func applyLoginOptions(authn loginURLSetter, options []OIDCOption) {
@@ -137,7 +93,6 @@ func azureMethod(authn azureoidc.Authenticator, roleSync *roleSyncConfig) *exter
 
 			return v, nil
 		},
-		frontChannelLogout: true,
 	}
 	if roleSync != nil {
 		m.syncRoles = func(ctx context.Context, username string, roleNames []string) error {
@@ -247,16 +202,6 @@ func nonNil(names []string) []string {
 	return names
 }
 
-// externalHandlers returns the handlers of the configured external method.
-func (a *Auth[S, U]) externalHandlers(method sessioninfo.AuthMethod) *ExternalHandlers {
-	m, ok := a.external[method]
-	if !ok {
-		panic("session: the " + string(method) + " sign-in method is not configured: pass it to NewAuth")
-	}
-
-	return &ExternalHandlers{login: a.externalLogin(m), callback: a.externalCallback(m), frontChannelLogout: a.frontChannelLogout(m)}
-}
-
 // externalLogin redirects the browser to the provider. The returnUrl query parameter
 // must be a path in this application: anything else (an absolute URL, //host, /\host)
 // is refused with 400 rather than carried, so a crafted login link can't become an open
@@ -290,7 +235,7 @@ func (a *Auth[S, U]) externalLogin(m *externalMethod) http.HandlerFunc {
 }
 
 // externalCallback completes the provider round trip and redirects per the contract on
-// ExternalHandlers.Callback.
+// AzureMethod.Callback.
 func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -338,18 +283,6 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 		http.Redirect(w, r, v.returnURL, http.StatusFound)
 
 		return nil
-	})
-}
-
-// frontChannelLogout answers provider-initiated logout. Auth sessions do not record the
-// provider's session ID yet, so Azure's answers 501; the other providers have none.
-func (a *Auth[S, U]) frontChannelLogout(m *externalMethod) http.HandlerFunc {
-	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if !m.frontChannelLogout {
-			return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewNotFoundMessagef("%s has no front-channel logout", m.method))
-		}
-
-		return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewNotImplementedMessage("front-channel logout is not supported by Auth sessions yet"))
 	})
 }
 

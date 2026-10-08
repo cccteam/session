@@ -146,13 +146,12 @@ func surfaceBuilders() []struct {
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newAccountStoreMock(ctrl, true)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, []SignInMethod{
-					PasswordSignIn(),
-					WorkOSSignIn("sk_test", "client", "https://app.example/sso/callback"),
-				}, WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}
+				PasswordSignIn(a)
+				WorkOSSignIn(a, "sk_test", "client", "https://app.example/sso/callback")
 
 				return &surface{
 					handlers: a,

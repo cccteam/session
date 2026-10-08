@@ -410,7 +410,7 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AccountStore.User()")
 	}
-	if _, err := comparePassword(a.hasher, user.PasswordHash, password); err != nil {
+	if _, err := comparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
 	if user.Disabled {

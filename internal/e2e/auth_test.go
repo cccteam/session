@@ -243,19 +243,19 @@ func newPasswordWorkOSApp(ctx context.Context, t *testing.T, workos *fakeWorkOS)
 
 	h := &hooks{}
 	db, store := newAuthStore(ctx, t, h)
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, []session.SignInMethod{
-		session.PasswordSignIn(),
-		session.WorkOSSignIn("sk_test", workosClientID, "https://app.example/sso/callback", session.WithWorkOSBaseURL(workos.server.URL)),
-	}, session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey,
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
+	password := session.PasswordSignIn(auth)
+	sso := session.WorkOSSignIn(auth, "sk_test", workosClientID, "https://app.example/sso/callback", session.WithWorkOSBaseURL(workos.server.URL))
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
-		r.Get("/sso/login", auth.WorkOS().Login())
-		r.Get("/sso/callback", auth.WorkOS().Callback())
-		r.With(auth.ValidateXSRFToken).Post("/login", auth.Password().Login())
+		r.Get("/sso/login", sso.Login())
+		r.Get("/sso/callback", sso.Callback())
+		r.With(auth.ValidateXSRFToken).Post("/login", password.Login())
 	})
 
 	server := httptest.NewTLSServer(r)

@@ -105,7 +105,7 @@ func (p *AuthAPI[S, U]) CreateSessionUser(ctx context.Context, req *CreateUserRe
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
-		if hash, err = p.auth.hasher.Hash(*req.Password); err != nil {
+		if hash, err = p.auth.registered().hasher.Hash(*req.Password); err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "securehash.SecureHasher.Hash()")
 		}
 	}
@@ -148,7 +148,7 @@ func (p *AuthAPI[S, U]) ChangeSessionUserPassword(ctx context.Context, w http.Re
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AccountStore.User()")
 	}
-	if _, err := comparePassword(a.hasher, user.PasswordHash, req.OldPassword); err != nil {
+	if _, err := comparePassword(a.registered().hasher, user.PasswordHash, req.OldPassword); err != nil {
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
