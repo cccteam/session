@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/resource"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
@@ -504,9 +503,10 @@ func (p *PasswordAuth[T, U]) setPasswordHash(ctx context.Context, userID ccc.UUI
 	return nil
 }
 
-// newDecoder returns an httpio.Decoder to simplify the validator call to a single location
-func newDecoder[T any]() *resource.StructDecoder[T] {
-	decoder, err := resource.NewStructDecoder[T]()
+// newDecoder builds the decoder for a handler's request body. Construction fails only
+// for a malformed request struct, a programming error, so it panics at startup.
+func newDecoder[T any]() *httpio.StructDecoder[T] {
+	decoder, err := httpio.NewStructDecoder[T]()
 	if err != nil {
 		panic(err)
 	}
