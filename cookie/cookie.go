@@ -58,6 +58,10 @@ func (c *Client) Read(r *http.Request, cookieName string) (values *Values, found
 
 // WriteSessionCookie writes a session cookie to the response
 func (c *Client) WriteSessionCookie(w http.ResponseWriter, cookieName, domain string, httpOnly bool, sameSite http.SameSite, values *Values) {
+	// Secure is SecureCookie(), true in every build except the insecurecookie development
+	// build. HttpOnly is the caller's choice: true for the session cookie, false for the
+	// XSRF cookie, which the browser reads and sends back as a header.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly, go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Expires:  time.Time{},
@@ -73,6 +77,10 @@ func (c *Client) WriteSessionCookie(w http.ResponseWriter, cookieName, domain st
 // WritePersistentCookie writes a persistent cookie to the response
 func (c *Client) WritePersistentCookie(w http.ResponseWriter, cookieName, domain string, httpOnly bool, sameSite http.SameSite, expiration time.Duration, values *Values) {
 	expirationTime := time.Now().Add(expiration)
+	// Secure is SecureCookie(), true in every build except the insecurecookie development
+	// build. HttpOnly is the caller's choice; the OIDC sign-in cookie, the one persistent
+	// cookie the session package writes, sets it true.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly, go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Expires:  expirationTime,
@@ -89,6 +97,8 @@ func (c *Client) WritePersistentCookie(w http.ResponseWriter, cookieName, domain
 // attribute the cookie was written with; browsers key cookies by
 // (name, domain, path), so a mismatched tombstone deletes nothing.
 func (c *Client) Delete(w http.ResponseWriter, cookieName, domain string) {
+	// Secure is SecureCookie(), true in every build except the insecurecookie development build.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Expires:  time.Unix(0, 0),

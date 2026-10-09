@@ -201,6 +201,10 @@ func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
 			return errors.Wrap(err, "azureoidc.Authenticator.AuthCodeURL()")
 		}
 
+		// authCodeURL is the identity provider's authorization address, built from the
+		// configured issuer; the user's returnUrl rides in the OIDC cookie and is no part
+		// of the redirect target.
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 		http.Redirect(w, r, authCodeURL, http.StatusFound)
 
 		return nil
