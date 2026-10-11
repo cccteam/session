@@ -143,9 +143,13 @@ func (c *Client) readXSRFHeader(r *http.Request) (values *cookie.Values, found b
 	return cval, true
 }
 
-// WriteOidcCookie writes the OIDC cookie to the response
+// WriteOidcCookie writes the OIDC cookie to the response. It carries the sign-in round
+// trip's state, PKCE verifier and return URL between the redirect to the identity
+// provider and the callback: no script reads it, and the server reads it once at the
+// callback and deletes it, so it is HttpOnly. SameSite stays the default: a strict
+// setting would keep the cookie from coming back with the provider's redirect.
 func (c *Client) WriteOidcCookie(w http.ResponseWriter, values *cookie.Values) {
-	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
+	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, true, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
 }
 
 // ReadOidcCookie reads the OIDC cookie from the request

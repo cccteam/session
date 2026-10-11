@@ -311,7 +311,10 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set.
 			// Sanitized because a crafted "//host/path" request URI would otherwise
-			// become a scheme-relative redirect off-site.
+			// become a scheme-relative redirect off-site: SanitizeReturnURL keeps only a
+			// path on this site and answers "/" for anything else, so the target cannot
+			// leave the site.
+			// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 			http.Redirect(w, r, internalcookie.SanitizeReturnURL(r.RequestURI), http.StatusTemporaryRedirect)
 
 			return nil

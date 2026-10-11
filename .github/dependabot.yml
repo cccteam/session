@@ -1,6 +1,9 @@
 # Dependabot version updates.
 # Please see the documentation for all configuration options:
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+#
+# A release is taken up only after it has been out a week, so a version pulled or
+# superseded within days never lands.
 
 version: 2
 updates:
@@ -8,6 +11,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
@@ -16,6 +21,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       go-dependencies:
         patterns:
