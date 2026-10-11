@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.3](https://github.com/cccteam/session/compare/v0.12.2...v0.12.3) (2026-10-11)
+
+
+### Bug Fixes
+
+* the OIDC sign-in cookie is HttpOnly, dependabot waits a week, and the by-design Semgrep findings are annotated ([#262](https://github.com/cccteam/session/issues/262)) ([15bf6f1](https://github.com/cccteam/session/commit/15bf6f18edb5030f79f248ce0c3815b4539eefec))
+
+
+### Code Upgrade
+
+* **deps:** bump golang.org/x/sync from 0.23.0 to 0.24.0 in the go-dependencies group ([#264](https://github.com/cccteam/session/issues/264)) ([447e800](https://github.com/cccteam/session/commit/447e800a36cc8ce0a534c272f9d3b4831f90cc15))
+
 ## [0.12.2](https://github.com/cccteam/session/compare/v0.12.1...v0.12.2) (2026-10-09)
 
 
