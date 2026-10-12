@@ -29,17 +29,17 @@ type IdentitiesConfig struct {
 	// TableName is the name of the identities table.
 	TableName string
 	// Resolve decides an external identity that is not linked yet. It runs inside the
-	// account resolution transaction, which retries when Spanner aborts it, so it may
-	// run more than once for one sign-in.
+	// account resolution transaction, which Spanner may retry, so it may run more than
+	// once for one sign-in.
 	Resolve func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
-	// Policy, when set, decides every sign-in once its account is known and committed
-	// (see dbtype.PolicyApplies), inside the transaction that inserts the session. Nil
-	// allows.
+	// Policy, when set, decides every sign-in once its account is known (see
+	// dbtype.PolicyApplies). It runs inside the transaction that inserts the session.
+	// Nil allows every sign-in.
 	Policy func(ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
 }
 
-// SetIdentities attaches the identities configuration. Identity links key sessions by
-// account, so it enables the accounts columns as well.
+// SetIdentities attaches the identities configuration. Sessions of linked identities
+// belong to an account, so it also enables the accounts columns.
 func (s *SessionStorageDriver) SetIdentities(config *IdentitiesConfig) {
 	s.identities = config
 	s.accounts = true
@@ -82,8 +82,7 @@ func (r *identityRow) identity() (*dbtype.SessionIdentity, error) {
 	}, nil
 }
 
-// querier is what a read needs: a single-use read, a read-only or a read-write
-// transaction.
+// querier is a single-use read, a read-only transaction or a read-write transaction.
 type querier interface {
 	Query(ctx context.Context, statement spanner.Statement) *spanner.RowIterator
 }
@@ -148,7 +147,7 @@ func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessio
 	}), nil
 }
 
-// readAccount reads userID's account inside txn; a missing account is NotFound.
+// readAccount reads userID's account inside txn. A missing account is NotFound.
 func (s *SessionStorageDriver) readAccount(ctx context.Context, txn *spanner.ReadWriteTransaction, userID ccc.UUID) (*dbtype.Account, error) {
 	row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn, "PasswordHash", "Disabled"})
 	if err != nil {
@@ -172,20 +171,16 @@ func (s *SessionStorageDriver) readAccount(ctx context.Context, txn *spanner.Rea
 }
 
 // insertAccountSession establishes a session for a request that carries a verified
-// identity, in two read-write transactions.
+// identity, in two read-write transactions (see the README's "Storage and schema"):
+// resolveIdentity resolves an external identity's account, then decideAndInsert decides
+// the sign-in and inserts the session. Each transaction commits unless a hook or the
+// driver fails, so a refusal or a pending outcome keeps the hooks' own writes and writes
+// no session. The resolution commits first because Spanner hides buffered writes from
+// reads in the same transaction: the policy and the custom session data resolver must
+// see a provisioned account and the rows OnProvisioned wrote.
 //
-// The first resolves an external identity's account (resolveIdentity): a linked
-// identity is its account's; an unknown one goes to the account resolver, whose
-// Resolution is acted on. The second decides and inserts (decideAndInsert): it reads the
-// account, refuses a disabled one, runs the sign-in policy, and inserts the session row
-// with its auth events and custom session data. Each commits unless a hook or the
-// driver fails: a refusal or a pending outcome commits the hooks' own writes (and the
-// account resolution) and writes no session. Because the resolution commits first, the
-// policy and the custom session data resolver read the account a sign-in provisioned and
-// the rows OnProvisioned wrote, which a buffered Spanner write would hide from them.
-//
-// req.UserID, req.Username and req.Account are set to the resolved account whatever the
-// outcome, once it is known.
+// Once the account is known, req.UserID, req.Username and req.Account are set to it,
+// whatever the outcome.
 func (s *SessionStorageDriver) insertAccountSession(ctx context.Context, id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) error {
 	if s.identities == nil {
 		return dbtype.ErrIdentitiesNotConfigured
@@ -212,8 +207,8 @@ func (s *SessionStorageDriver) insertAccountSession(ctx context.Context, id ccc.
 		if stop != nil {
 			return stop
 		}
-		// The resolution is committed: an account it linked or provisioned is reported
-		// even when the decision fails.
+		// The resolution has committed, so a link or a provisioned account is reported
+		// even when the decision then fails.
 		resolved.Account = &sessioninfo.SignInAccount{ID: resolved.UserID, Username: resolved.Username, Source: source, Tenant: tenant}
 	case req.UserID.IsNil():
 		return errors.New("a password sign-in names its account in req.UserID")
@@ -222,12 +217,11 @@ func (s *SessionStorageDriver) insertAccountSession(ctx context.Context, id ccc.
 	return s.decideAndInsert(ctx, id, insertSession, &resolved, source, tenant)
 }
 
-// resolveIdentity is the first transaction of insertAccountSession: it resolves req's
-// external identity to an account, setting req.UserID (and req.Username and
-// req.Account once known), and reports how and the link's tenant. stop is a refusal or a
-// pending confirmation, which commits. When two first sign-ins of one identity race,
-// the loser's link insert fails on the identities key and the resolution runs once
-// more, finding the winner's link.
+// resolveIdentity is the first transaction of insertAccountSession. It sets req.UserID
+// (and req.Username for a provisioned account) and reports how the account was found
+// and the link's tenant. stop is a refusal or a pending confirmation; it still commits.
+// When two first sign-ins of one identity race, the loser's link insert fails on the
+// identities key, and its resolution runs once more and finds the winner's link.
 func (s *SessionStorageDriver) resolveIdentity(
 	ctx context.Context, req *sessioninfo.NewSessionRequest,
 ) (source sessioninfo.AccountSource, tenant string, stop, err error) {
@@ -254,9 +248,9 @@ func (s *SessionStorageDriver) resolveIdentity(
 	}
 }
 
-// resolveIdentityIn resolves req's external identity inside txn: a linked identity is
-// its account's (its LastUsedAt is touched); an unknown one goes to the account
-// resolver, whose Resolution is acted on (applyResolution).
+// resolveIdentityIn resolves req's external identity inside txn. A linked identity
+// resolves to its account and its LastUsedAt is touched. An unlinked one goes to the
+// account resolver (applyResolution).
 func (s *SessionStorageDriver) resolveIdentityIn(
 	ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest,
 ) (source sessioninfo.AccountSource, tenant string, stop, err error) {
@@ -287,11 +281,10 @@ func (s *SessionStorageDriver) resolveIdentityIn(
 	return s.applyResolution(ctx, txn, req, res, now)
 }
 
-// decideAndInsert is the second transaction of insertAccountSession, for req's resolved
-// account: it reads the account, sets req.Account, decides the sign-in
-// (dbtype.DecideSignIn) and, when it goes ahead, buffers the session row, its auth
-// events and its custom session data. A refusal or an MFA wait commits the policy's own
-// writes and is returned.
+// decideAndInsert is the second transaction of insertAccountSession. It reads req's
+// account, sets req.Account and decides the sign-in (dbtype.DecideSignIn). When the
+// sign-in goes ahead it buffers the session. A refusal or an MFA wait is returned after
+// the policy's own writes commit.
 func (s *SessionStorageDriver) decideAndInsert(
 	ctx context.Context, id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, source sessioninfo.AccountSource, tenant string,
 ) error {
@@ -364,10 +357,10 @@ func (s *SessionStorageDriver) bufferAccountSession(
 	return nil
 }
 
-// applyResolution acts on the account resolver's answer for an unlinked identity: it
-// links or provisions (buffering the writes and setting req.UserID and, for a
-// provisioned account, req.Username), and reports how and with which tenant; or it
-// returns the pending confirmation or the refusal as stop.
+// applyResolution acts on the account resolver's answer for an unlinked identity. A link
+// or a new account buffers its writes, sets req.UserID (and req.Username for a new
+// account) and reports how the account was found and its tenant. A pending confirmation
+// or a refusal is returned as stop.
 func (s *SessionStorageDriver) applyResolution(
 	ctx context.Context, txn *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest, res *dbtype.Resolution, now time.Time,
 ) (source sessioninfo.AccountSource, tenant string, stop, err error) {
@@ -584,10 +577,9 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID cc
 	return nil
 }
 
-// DestroyUserSessions expires every live session of an account, by UserId: its own
-// sessions and the user-principal impersonations of it, together with the live
-// impersonation records of those sessions and of the sessions it holds as a local actor,
-// which end Revoked.
+// DestroyUserSessions expires every live session of an account by UserId. That covers
+// its own sessions, user-principal impersonations of it, and the sessions it holds as a
+// local actor. Their live impersonation records end Revoked.
 func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

@@ -37,21 +37,21 @@ type AccountsSchema int
 
 const (
 	// LegacySessions is the shipped sessions schema (Sessions, SessionUsers) and the
-	// impersonation migration, without the accounts migration: no Sessions.UserId, no
-	// AuthenticatedAt, no identities or auth events tables.
+	// impersonation migration, without the accounts migration. It lacks
+	// Sessions.UserId and AuthenticatedAt and the identities and auth events tables.
 	LegacySessions AccountsSchema = iota
 	// Accounts is the shipped sessions schema, the impersonation migration and the
 	// accounts migration.
 	Accounts
 	// AccountsWithAppTables is Accounts plus the driver package's test-only application
-	// tables: HookRecords, which the hooks write and read through HookTx, and a
-	// SessionCustomData table for CustomStringData.
+	// tables: HookRecords, which hooks use through HookTx, and SessionCustomData for
+	// CustomStringData.
 	AccountsWithAppTables
 )
 
-// HookTx is an application hook's view of the transaction it runs in, adapted by each
-// harness to its backend: the writes and reads an application's own account resolver,
-// sign-in policy and custom session data resolver make. It needs the
+// HookTx is an application hook's view of its transaction, adapted by each harness to
+// its backend. It stands in for the application rows an account resolver, sign-in
+// policy or custom session data resolver writes and reads. It needs the
 // AccountsWithAppTables schema.
 type HookTx interface {
 	// Record writes key=value to the HookRecords table.

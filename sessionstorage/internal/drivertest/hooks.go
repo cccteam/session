@@ -11,11 +11,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// The application's hooks run inside the sign-in's transactions, and an application
-// relies on what they write and read there. These cases pin that down: a refused or
-// held sign-in keeps the hooks' own writes, and the policy and the custom session data
-// resolver see the account a sign-in provisioned, and how it was resolved, on every
-// backend.
+// The application's hooks run inside the sign-in's transactions. These cases check
+// that a refused or held sign-in keeps the hooks' own writes, and that the policy and
+// the custom session data resolver see a provisioned account and how it was resolved,
+// on every backend.
 
 // assertRecorded fails unless the hooks' write key=want was committed.
 func assertRecorded(ctx context.Context, t *testing.T, h *AccountsHarness, raw any, key, want string) {

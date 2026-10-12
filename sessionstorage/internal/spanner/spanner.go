@@ -249,9 +249,9 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	// A sign-in that carries a verified identity resolves its account in the session
-	// transaction: always for an external identity, and for a password identity when
-	// identities (and so the sign-in policy) are configured.
+	// A sign-in that carries a verified identity resolves its account first. An external
+	// identity always does. A password identity does when identities, and so the sign-in
+	// policy, are configured.
 	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
 		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
 			return ccc.NilUUID, err

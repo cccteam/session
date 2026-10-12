@@ -21,10 +21,10 @@ type AuthEventsConfig struct {
 	TableName string
 }
 
-// EnableAccounts enables the accounts schema's session columns: every non-OIDC session
-// insert writes UserId and AuthenticatedAt, and every session read returns them.
-// Without it the driver never names those columns, so a session table without them
-// keeps working.
+// EnableAccounts enables the accounts schema's session columns, UserId and
+// AuthenticatedAt. Non-OIDC session inserts write them and session reads return them.
+// Without it the driver never names those columns, so a legacy session table keeps
+// working.
 func (s *SessionStorageDriver) EnableAccounts() {
 	s.accounts = true
 }
@@ -34,8 +34,8 @@ func (s *SessionStorageDriver) AccountsEnabled() bool {
 	return s.accounts
 }
 
-// SetAuthEvents attaches the auth events table: new sessions record their first auth
-// event and every session read returns the session's events, oldest first.
+// SetAuthEvents attaches the auth events table. New sessions record their auth events,
+// and session reads return them oldest first.
 func (s *SessionStorageDriver) SetAuthEvents(config *AuthEventsConfig) {
 	s.authEvents = config
 }
@@ -45,8 +45,8 @@ func (s *SessionStorageDriver) AuthEventsEnabled() bool {
 	return s.authEvents != nil
 }
 
-// sessionInsertStatement renders the insert of a non-OIDC session row: the base columns
-// and, when the accounts columns are enabled, the account's UserId and AuthenticatedAt.
+// sessionInsertStatement renders the insert of a non-OIDC session row. With the
+// accounts columns enabled it also writes UserId and AuthenticatedAt.
 func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (query string, args []any) {
 	args = make([]any, 0, 7)
 	args = append(args, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired)
@@ -73,9 +73,9 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 		`, s.sessionTableName), append(args, userID, account.AuthenticatedAt)
 }
 
-// initialAuthEvent returns a companion that records the new session's auth events (see
-// dbtype.InitialAuthEvents), numbered from 1, when an auth events table is configured,
-// chained after next (which may be nil); next alone otherwise.
+// initialAuthEvent chains the insert of the new session's auth events
+// (dbtype.InitialAuthEvents), numbered from 1, after next, which may be nil. Without an
+// auth events table it returns next.
 func (s *SessionStorageDriver) initialAuthEvent(
 	id ccc.UUID, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation, at time.Time, next func(ctx context.Context, txn pgx.Tx) error,
 ) func(ctx context.Context, txn pgx.Tx) error {
@@ -118,8 +118,8 @@ func (s *SessionStorageDriver) insertAuthEvent(ctx context.Context, txn pgx.Tx, 
 	return nil
 }
 
-// accountColumns renders the accounts columns of the session query, after the base
-// columns.
+// accountColumns renders the accounts columns that follow the base columns in the
+// session query.
 func (s *SessionStorageDriver) accountColumns() string {
 	if !s.accounts {
 		return ""
