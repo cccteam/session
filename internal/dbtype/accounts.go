@@ -7,16 +7,15 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 )
 
-// NewSessionAccount is what a new session row records about its account when the
-// accounts columns are enabled: the account (null for a preauth session and a
-// role-principal impersonation) and when the session was authenticated (null for a
-// preauth stepping stone or a pending identity's row, which authenticate nothing).
+// NewSessionAccount holds the accounts columns of a new session row. UserID is null
+// for a preauth session and a role-principal impersonation. AuthenticatedAt is null for
+// a preauth session and a pending identity's row, which authenticate nothing.
 type NewSessionAccount struct {
 	UserID          ccc.NullUUID
 	AuthenticatedAt *time.Time
 }
 
-// SessionAccount renders the account columns of a new session for req, created at.
+// SessionAccount returns the accounts columns of a new session for req, created at at.
 func SessionAccount(req *sessioninfo.NewSessionRequest, at time.Time) NewSessionAccount {
 	var account NewSessionAccount
 	if !req.UserID.IsNil() {
@@ -29,18 +28,16 @@ func SessionAccount(req *sessioninfo.NewSessionRequest, at time.Time) NewSession
 	return account
 }
 
-// ResolvesCustomData reports whether the custom session data resolver runs for a
-// session created for req: for every session but a pending identity's stepping-stone
-// row, which has no account and carries no custom session data.
+// ResolvesCustomData reports whether the custom session data resolver runs for req. It
+// runs for every session except a pending identity's row, which has no account.
 func ResolvesCustomData(req *sessioninfo.NewSessionRequest) bool {
 	return req.Reason != sessioninfo.ReasonPendingIdentity
 }
 
-// InitialAuthEvents are the auth events a new session records when an auth events
-// table is configured, oldest first: for an impersonated session the impersonation, with
-// the actor as its connection, then req.AuthEvents; otherwise req.AuthEvents when the
-// request carries any, or else the sign-in method that verified req.Identity. An event
-// with a zero At takes at. It is empty for a session that carries none of them.
+// InitialAuthEvents returns the auth events a new session records, oldest first. An
+// impersonated session records its impersonation first, with the actor as the
+// connection. Then come req.AuthEvents or, when there are none and the session is not
+// impersonated, the method that verified req.Identity. An event with a zero At takes at.
 func InitialAuthEvents(req *sessioninfo.NewSessionRequest, imp *InsertImpersonation, at time.Time) []sessioninfo.AuthEvent {
 	events := make([]sessioninfo.AuthEvent, 0, len(req.AuthEvents)+1)
 	if imp != nil {
@@ -62,7 +59,7 @@ func InitialAuthEvents(req *sessioninfo.NewSessionRequest, imp *InsertImpersonat
 	return events
 }
 
-// OptionalString is nil for the empty string: an optional text column's NULL.
+// OptionalString returns nil for the empty string, so an optional column stores NULL.
 func OptionalString(s string) *string {
 	if s == "" {
 		return nil

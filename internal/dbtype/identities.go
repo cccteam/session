@@ -11,8 +11,8 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// SessionIdentity is an identity link row: an external identity linked to an account.
-// Its fields match sessionstorage.SessionIdentity, which converts from it.
+// SessionIdentity is an identity link row. Its fields match
+// sessionstorage.SessionIdentity, which converts from it.
 type SessionIdentity struct {
 	ID          ccc.UUID               `spanner:"Id"          db:"Id"`
 	UserID      ccc.UUID               `spanner:"UserId"      db:"UserId"`
@@ -63,17 +63,16 @@ type SignInDecision struct {
 	Refusal sessioninfo.LoginRefusalCode
 }
 
-// IsExternal reports whether identity is an external identity, resolved through the
-// identities table. A password identity names its account directly (req.UserID), and an
-// impersonation identity is the impersonation flow's own.
+// IsExternal reports whether identity is resolved through the identities table. A
+// password identity names its account directly (req.UserID), and an impersonation
+// identity belongs to the impersonation flow.
 func IsExternal(identity *sessioninfo.Identity) bool {
 	return identity != nil && identity.Method != sessioninfo.MethodPassword && identity.Method != sessioninfo.MethodImpersonation
 }
 
 // PolicyApplies reports whether the sign-in policy decides a session created for
-// reason. It decides a sign-in (ReasonLogin) and a sign-in completed by confirming a new
-// link (ReasonIdentityLinked); a session regenerated, completed after a step-up, started
-// by the application itself, or impersonated has already been decided.
+// reason. It decides ReasonLogin and ReasonIdentityLinked. Every other session was
+// already decided or is started by the application itself.
 func PolicyApplies(reason sessioninfo.NewSessionReason) bool {
 	return reason == sessioninfo.ReasonLogin || reason == sessioninfo.ReasonIdentityLinked
 }
@@ -88,8 +87,8 @@ var (
 	ErrLastSignInMethod         = errors.New("sessionstorage: the identity is the account's last means of sign-in")
 )
 
-// Refusal renders a refused sign-in: code (fallback when code is empty) for the login
-// page, cause for errors.Is, and an Unauthorized client message.
+// Refusal returns a refused sign-in's error. It carries code (or fallback when code is
+// empty) for the login page, cause for errors.Is, and an Unauthorized client message.
 func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message string) error {
 	if code == "" {
 		code = fallback
@@ -98,11 +97,8 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
 }
 
-// PendingSignInError reports a sign-in that resolved to an account but must wait before
-// it becomes a session: the account resolver asked for a password confirmation, or the
-// sign-in policy asked for MFA. No session is written. The hooks' own writes and the
-// account resolution are committed: an account the sign-in provisioned exists, linked,
-// and an MFA wait names it.
+// PendingSignInError reports a sign-in that resolved to an account but must wait for a
+// password confirmation or MFA. It is documented on sessionstorage.PendingSignInError.
 type PendingSignInError struct {
 	// Reason is why the sign-in waits.
 	Reason sessioninfo.PendingReason
@@ -127,10 +123,9 @@ type Account struct {
 }
 
 // DecideSignIn refuses a disabled account, sets req.Username to the account's, and runs
-// the sign-in policy when there is one (policy non-nil) and it applies to req.Reason.
-// A sign-in that does not go ahead is stop: a *PendingSignInError for an MFA wait
-// naming req's account, or a refusal. Both are outcomes the transaction commits; err is
-// a failure (the policy's error) that rolls it back.
+// the policy when it is non-nil and applies to req.Reason. stop is a sign-in that does
+// not go ahead: a refusal or a *PendingSignInError for MFA. The transaction commits
+// on stop. err is the policy's error, which rolls the transaction back.
 func DecideSignIn(
 	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *Account, policy func(ctx context.Context) (*SignInDecision, error),
 ) (stop, err error) {
@@ -166,9 +161,8 @@ func DecideSignIn(
 	}
 }
 
-// SignInAccount is req's account as the sign-in policy and the custom session data
-// resolver receive it: acct, read in the deciding transaction, found by source with
-// the link's tenant.
+// SignInAccount returns req's account as the sign-in policy and the custom session data
+// resolver receive it.
 func SignInAccount(req *sessioninfo.NewSessionRequest, acct *Account, source sessioninfo.AccountSource, tenant string) *sessioninfo.SignInAccount {
 	return &sessioninfo.SignInAccount{ID: req.UserID, Username: acct.Username, HasPassword: acct.HasPassword, Source: source, Tenant: tenant}
 }

@@ -5,10 +5,9 @@ import (
 	"github.com/cccteam/session/sessionstorage/internal/spanner"
 )
 
-// accountsOption enables the accounts schema's session columns (Sessions.UserId and
-// AuthenticatedAt, shipped in schema/*/accounts/migrations). Account storage applies it
-// itself; the legacy store constructors never name those columns, so a session table
-// without them keeps working.
+// accountsOption enables the session columns of the accounts schema (Sessions.UserId
+// and AuthenticatedAt). Only the account storage constructors apply it, so the legacy
+// stores keep working on a session table without those columns.
 type accountsOption struct{}
 
 func (accountsOption) applySpanner(driver *spanner.SessionStorageDriver)   { driver.EnableAccounts() }

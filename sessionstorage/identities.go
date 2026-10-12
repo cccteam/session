@@ -12,38 +12,39 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// The causes a refused sign-in or identity operation carries, for errors.Is. A refused
-// sign-in is also a sessioninfo.LoginRefusal, whose code (sessioninfo.LoginRefusalCodeOf)
-// the login page receives, and an Unauthorized client message.
+// The causes of a refused sign-in or identity operation, for errors.Is. A refused
+// sign-in is also a sessioninfo.LoginRefusal, which carries the code the login page
+// receives, and an Unauthorized client message.
 var (
-	// ErrIdentityRejected: the account resolver returned RejectIdentity. The refusal code
-	// is Resolution.Refusal, or sessioninfo.RefusedIdentityRejected when it is empty.
+	// ErrIdentityRejected is the cause when the account resolver returned
+	// RejectIdentity. The code is Resolution.Refusal, or
+	// sessioninfo.RefusedIdentityRejected when that is empty.
 	ErrIdentityRejected = dbtype.ErrIdentityRejected
-	// ErrLinkRequiresConfirmation: the account resolver returned LinkIdentity for an
-	// account that has a password, without TrustedForLinking. Code
-	// sessioninfo.RefusedIdentityRejected; the resolver should return RequireConfirmation.
+	// ErrLinkRequiresConfirmation is the cause when the account resolver returned
+	// LinkIdentity for an account that has a password, without TrustedForLinking. The
+	// code is sessioninfo.RefusedIdentityRejected. The resolver should return
+	// RequireConfirmation instead.
 	ErrLinkRequiresConfirmation = dbtype.ErrLinkRequiresConfirmation
-	// ErrSignInDenied: the sign-in policy returned DenySignIn (or no decision). The
-	// refusal code is SignInDecision.Refusal, or sessioninfo.RefusedByPolicy.
+	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
+	// decision. The code is SignInDecision.Refusal, or sessioninfo.RefusedByPolicy.
 	ErrSignInDenied = dbtype.ErrSignInDenied
-	// ErrAccountDisabled: the sign-in resolved to a disabled account. Code
-	// sessioninfo.RefusedAccountDisabled.
+	// ErrAccountDisabled is the cause when the sign-in resolved to a disabled account.
+	// The code is sessioninfo.RefusedAccountDisabled.
 	ErrAccountDisabled = dbtype.ErrAccountDisabled
-	// ErrLastSignInMethod: UnlinkIdentity refused to remove the last identity of an
-	// account that has no password (a Conflict client message).
+	// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last
+	// identity of an account that has no password. It is a Conflict client message.
 	ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 )
 
-// PendingSignInError is the error a session insert returns when the sign-in resolved
-// but must wait: the account resolver returned RequireConfirmation (Reason
-// sessioninfo.PendingConfirmation, UserID the account to confirm against) or the sign-in
-// policy returned RequireMFA (Reason sessioninfo.PendingMFA, UserID the account). No
-// session is written while a sign-in waits; the hooks' own writes and the account
-// resolution are committed, so an account the sign-in provisioned exists, linked, and an
-// MFA wait names it. Completing it inserts the session again: with ReasonStepUp after
-// MFA, which the policy does not decide (the identity is linked by then), or, after a
-// password confirmation, by linking the identity (AccountStore.LinkIdentity) and
-// inserting with ReasonIdentityLinked. Use errors.As to read it.
+// PendingSignInError is returned by a session insert when the sign-in resolved to an
+// account but must wait. Its Reason is sessioninfo.PendingConfirmation when the account
+// resolver returned RequireConfirmation, and sessioninfo.PendingMFA when the sign-in
+// policy returned RequireMFA. UserID is the account it waits on. No session is written,
+// but the account resolution and the hooks' own writes are committed.
+//
+// After a password confirmation, link the identity (AccountStore.LinkIdentity) and
+// insert the session with ReasonIdentityLinked. After MFA, insert it with ReasonStepUp,
+// which the policy does not decide again. Use errors.As to read it.
 type PendingSignInError = dbtype.PendingSignInError
 
 // validateIdentities checks an identities configuration's table name and resolver.

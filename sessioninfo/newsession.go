@@ -28,9 +28,9 @@ const (
 	// impersonated user, or the actor for a role principal — and UserID is the
 	// impersonated user's record ID, or the zero UUID for a role principal.
 	ReasonImpersonation NewSessionReason = "Impersonation"
-	// ReasonPendingIdentity indicates the stepping-stone row of an Auth session's
-	// pending identity: no account, never authenticated. The custom session data
-	// resolver is not called for it, and the row carries no custom session data.
+	// ReasonPendingIdentity indicates the row of an Auth session's pending identity. It
+	// has no account and is never authenticated. The custom session data resolver is
+	// not called for it.
 	ReasonPendingIdentity NewSessionReason = "PendingIdentity"
 )
 
@@ -67,21 +67,18 @@ type NewSessionRequest struct {
 	// ID before any resolver or hook runs.
 	Sub string
 	Hd  string
-	// Identity is the verified identity establishing the session, set by every sign-in
-	// method of an Auth session. Account resolvers and sign-in policies read it; it is
-	// nil for the legacy session types.
+	// Identity is the verified identity establishing an Auth session. It is nil for the
+	// legacy session types.
 	Identity *Identity
-	// AuthEvents, when not empty, are the auth events the new session records, in order,
-	// in the same write as the session row; they replace the single event otherwise
-	// derived from Identity, so a sign-in completed by a step-up or a link confirmation
-	// records every step at once. An impersonated session records its impersonation
-	// event first and these after it. An event with a zero At records the session's
-	// creation time. Events are written only when the storage has an auth events table.
+	// AuthEvents are the auth events the new session records, in order, with the
+	// session row. An impersonated session records its impersonation event first. When
+	// AuthEvents is empty, a session that is not impersonated records one event for
+	// Identity's method. An event with a zero At takes the session's creation time.
+	// Events are written only when the storage has an auth events table.
 	AuthEvents []AuthEvent
-	// Account is the account an Auth sign-in resolved to and how it was resolved. The
-	// storage sets it once the account is known: the sign-in policy and the custom
-	// session data resolver receive it, and it is left on the request when the session
-	// insert returns, whatever its outcome. It is nil while the account resolver runs and
-	// for the legacy session types.
+	// Account is the account an Auth sign-in resolved to and how. The storage sets it
+	// once the account is known, before the sign-in policy and the custom session data
+	// resolver run, and leaves it set after the insert returns. It is nil while the
+	// account resolver runs and for the legacy session types.
 	Account *SignInAccount
 }

@@ -8,8 +8,8 @@ import (
 )
 
 // AuthMethod names a way a person proved who they are. Sign-in methods use the
-// constants below; applications may record their own step-up methods (for example
-// an emailed one-time code) with any other non-empty value.
+// constants below. An application may record its own step-up method (for example an
+// emailed one-time code) under any other non-empty value.
 type AuthMethod string
 
 const (
@@ -22,43 +22,42 @@ const (
 	// MethodWorkOS is WorkOS SSO (SAML or OIDC brokered by WorkOS).
 	MethodWorkOS AuthMethod = "workos"
 	// MethodImpersonation records that a session was established by impersonation.
-	// Its AuthEvent.Connection carries the actor.
+	// Its AuthEvent.Connection is the actor.
 	MethodImpersonation AuthMethod = "impersonation"
 	// MethodLinkConfirmation records a password confirmation that linked a new
 	// external identity to an existing account.
 	MethodLinkConfirmation AuthMethod = "link-confirmation"
 )
 
-// Identity is a verified identity produced by a sign-in method, before (or as) it
-// becomes a session. External identities are linked to an account through the
-// identities table, keyed by (Method, Connection, Subject); Email is an attribute and
+// Identity is a verified identity produced by a sign-in method. An external identity
+// is linked to an account by (Method, Connection, Subject). Email is an attribute and
 // is never used as a key.
 type Identity struct {
 	// Method is the sign-in method that verified this identity.
 	Method AuthMethod
-	// Connection is the upstream configuration the Subject is scoped to: the WorkOS
-	// connection ID for MethodWorkOS, the tenant ID (tid) for MethodAzure, and empty
-	// for MethodGoogle and MethodPassword.
+	// Connection scopes the Subject. It is the WorkOS connection ID for MethodWorkOS
+	// and the tenant ID (tid) for MethodAzure. It is empty for MethodGoogle and
+	// MethodPassword.
 	Connection string
-	// Subject is the upstream subject: the WorkOS profile idp_id, the Azure oid, the
-	// Google sub, or the account ID (as a string) for MethodPassword.
+	// Subject is the upstream subject. It is the WorkOS profile idp_id, the Azure oid,
+	// the Google sub, or the account ID (as a string) for MethodPassword.
 	Subject string
 	// Email is the email address asserted by the method, if any.
 	Email string
 	// EmailVerified reports whether the method asserts the email is verified.
 	EmailVerified bool
-	// Claims is the method's full verified payload (ID-token claims or WorkOS
-	// profile), passed through to resolvers and custom data hooks.
+	// Claims is the method's verified payload (ID-token claims or WorkOS profile). It
+	// is passed to resolvers and custom data hooks.
 	Claims json.RawMessage
-	// IDPAMR carries upstream authentication-method evidence (OIDC amr values or SAML
-	// AuthnContextClassRef) when the method provides it. The library never
-	// interprets it; policy hooks decide what it is worth.
+	// IDPAMR is the identity provider's authentication-method evidence (OIDC amr
+	// values or SAML AuthnContextClassRef), when the method provides it. The library
+	// does not interpret it.
 	IDPAMR []string
 }
 
-// AuthEvent records one step that authenticated a session: the initial sign-in and
-// any later step-up (MFA) or link confirmation. A session's events are stored in the
-// auth events table and read with the session.
+// AuthEvent records one step that authenticated a session, such as the sign-in, a
+// link confirmation or an MFA step. Events are stored in the auth events table and
+// read with the session.
 type AuthEvent struct {
 	Method     AuthMethod
 	Connection string
@@ -71,26 +70,25 @@ type PendingReason string
 
 const (
 	// PendingConfirmation means the identity resolves to an existing account that has a
-	// password; the user must confirm with that password before the identity is linked.
+	// password. The user must enter that password before the identity is linked.
 	PendingConfirmation PendingReason = "confirmation"
 	// PendingMFA means the sign-in policy requires the application's MFA step before
 	// the session is established.
 	PendingMFA PendingReason = "mfa"
 )
 
-// PendingIdentity is a verified identity held server-side for a short time while it
-// waits for confirmation or MFA. It lives in a preauth stepping-stone session.
+// PendingIdentity is a verified identity that waits for a password confirmation or
+// MFA before it becomes a session. See "What a pending identity is" in the README.
 type PendingIdentity struct {
 	Identity Identity
 	Reason   PendingReason
-	// UserID and Username name the account the identity waits on: the account to
-	// confirm against, or the account to complete MFA for, including one the sign-in
-	// has just provisioned.
+	// UserID and Username name the account the identity waits on. This includes an
+	// account the sign-in has just provisioned.
 	UserID    ccc.NullUUID
 	Username  string
 	ExpiresAt time.Time
-	// ReturnURL is the path in the application the sign-in returns to once it
-	// completes; empty for the root.
+	// ReturnURL is the path the sign-in returns to once it completes. It is empty for
+	// the root.
 	ReturnURL string
 }
 
@@ -98,7 +96,7 @@ type PendingIdentity struct {
 type AccountSource string
 
 const (
-	// AccountNamed means the sign-in named its account: a password sign-in.
+	// AccountNamed means the sign-in named its account (a password sign-in).
 	AccountNamed AccountSource = "named"
 	// AccountExistingLink means the identity was already linked to the account.
 	AccountExistingLink AccountSource = "existing-link"
@@ -110,7 +108,7 @@ const (
 	AccountProvisioned AccountSource = "provisioned"
 )
 
-// SignInAccount is the account an Auth sign-in resolved to, as NewSessionRequest.Account
+// SignInAccount is the account an Auth sign-in resolved to. NewSessionRequest.Account
 // carries it to the sign-in policy and the custom session data resolver.
 type SignInAccount struct {
 	// ID is the account (SessionUsers.Id).
@@ -121,8 +119,8 @@ type SignInAccount struct {
 	HasPassword bool
 	// Source says how the sign-in found the account.
 	Source AccountSource
-	// Tenant is the application's tenant key of the identity's link: the stored link's
-	// for an existing link, Resolution.Tenant for a link made in this sign-in, and empty
+	// Tenant is the application's tenant key on the identity's link. It is the stored
+	// link's tenant, or Resolution.Tenant for a link made in this sign-in. It is empty
 	// for a password sign-in.
 	Tenant string
 }
@@ -132,15 +130,15 @@ func (a *SignInAccount) Provisioned() bool {
 	return a != nil && a.Source == AccountProvisioned
 }
 
-// Linked reports whether the sign-in linked its identity to the account: a new link to
-// an existing account, or the link of an account it provisioned.
+// Linked reports whether the sign-in linked its identity to the account, either to an
+// existing account or to one it provisioned.
 func (a *SignInAccount) Linked() bool {
 	return a != nil && (a.Source == AccountNewLink || a.Source == AccountProvisioned)
 }
 
 const (
 	// ReasonIdentityLinked indicates a session created when a new external identity
-	// was linked to an existing account after confirmation.
+	// was linked to an existing account after a password confirmation.
 	ReasonIdentityLinked NewSessionReason = "IdentityLinked"
 	// ReasonStepUp indicates a session regenerated after a step-up (MFA) completed.
 	ReasonStepUp NewSessionReason = "StepUp"
