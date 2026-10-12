@@ -20,20 +20,20 @@ import (
 type signInAttempt struct {
 	identity *sessioninfo.Identity
 	reason   sessioninfo.NewSessionReason
-	// userID and username name the account of a password identity, which the drivers
-	// take from the request rather than resolving it.
+	// userID and username name a password identity's account. The drivers take it
+	// from the request instead of resolving it.
 	userID   ccc.UUID
 	username string
-	// expectUserID, when valid, is the account a completed pending identity resolved to
-	// before: a completion that now resolves elsewhere is refused.
+	// expectUserID is the account a pending identity waited on. When valid, a
+	// completion that now resolves to another account is refused.
 	expectUserID ccc.NullUUID
-	// events are the auth events the session records; nil records the identity's
-	// method alone.
+	// events are the auth events the session records. Nil records only the identity's
+	// method.
 	events []sessioninfo.AuthEvent
 	// returnURL is where an external sign-in sends the browser afterwards.
 	returnURL string
-	// roleNames are the role names the method asserted, reconciled for the account once
-	// it is known; nil when the method synchronizes no roles.
+	// roleNames are the role names the method asserted, reconciled once the account is
+	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
 	sameSite  authCookieSameSite
 }
@@ -45,13 +45,11 @@ type signInOutcome struct {
 	pending   *pendingState
 }
 
-// signIn is how every sign-in method establishes a session: in one store call the
-// account is resolved, the policy decides, and the session is inserted with its auth
-// events; roles are reconciled for the resolved account; and only then are the auth and
-// XSRF cookies for the new session ID written. A link the storage made is reported to
-// the IdentityLinked hook whatever the outcome. A sign-in that must wait becomes the
-// browser's pending identity, replacing any earlier one; a sign-in that succeeds
-// consumes it. A refusal writes no cookie.
+// signIn establishes a session for every sign-in method. One store call resolves the
+// account, asks the policy and inserts the session with its auth events. Roles are then
+// reconciled, and only after that are the cookies for the new session ID written, so a
+// refusal writes no cookie. A sign-in that must wait becomes the browser's pending
+// identity, replacing any earlier one. A sign-in that succeeds consumes it.
 func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *signInAttempt) (*signInOutcome, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -93,8 +91,8 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 
 		return id, nil
 	})
-	// The storage commits a link it makes once the account is resolved, before the
-	// policy decides, so the link stands whatever the outcome.
+	// The storage commits a link before the policy decides, so the link is reported
+	// whatever the outcome.
 	if req.Account.Linked() {
 		a.notifyLinked(ctx, req.Account.ID, at.identity)
 	}
@@ -118,9 +116,9 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
 
-// afterInsert runs inside the establishing step once the session row exists and
-// req carries the resolved account: it refuses a completion that resolved to another
-// account than before, and reconciles the method's roles for the account.
+// afterInsert runs once the session row exists and req carries the resolved account.
+// It refuses a completion that resolved to a different account, and reconciles the
+// method's roles.
 func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) error {
 	if at.expectUserID.Valid && req.UserID != at.expectUserID.UUID {
 		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity no longer resolves to the account it was pending for")
@@ -139,7 +137,7 @@ func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *se
 	return nil
 }
 
-// notifyLinked calls the IdentityLinked hook, logging its error: the link stands.
+// notifyLinked calls the IdentityLinked hook. An error is logged, and the link stands.
 func (a *Auth[S, U]) notifyLinked(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) {
 	if a.settings.identityLinked == nil {
 		return
@@ -149,8 +147,7 @@ func (a *Auth[S, U]) notifyLinked(ctx context.Context, userID ccc.UUID, identity
 	}
 }
 
-// validate validates the session in ctx and loads its account (see sessionAccount),
-// storing the account in the context.
+// validate validates the session in ctx and stores its account in the context.
 func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 	ctx, err := a.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
@@ -169,11 +166,11 @@ func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, sessioninfo.CtxUserInfo, user), nil
 }
 
-// sessionAccount loads the account a validated session belongs to, by UserId. A session
-// with no account (a pending identity's stepping stone, a row from before the accounts
-// schema) or whose account is missing or disabled is refused as unauthorized. A
-// role-principal impersonation has no account: a foreign actor's carries only its
-// username, and a local actor's is checked against the actor's own account.
+// sessionAccount loads a validated session's account by UserId. A session with no
+// account (a pending identity's row, a row from before the accounts schema), or whose
+// account is missing or disabled, is unauthorized. A role-principal impersonation has
+// no account. A foreign actor's carries only its username. A local actor's is checked
+// against the actor's own account.
 func (a *Auth[S, U]) sessionAccount(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
 	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
 		if !imp.IsLocalActor() {
@@ -226,9 +223,9 @@ func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, 
 	})
 }
 
-// checkCredentials returns the account for username when password is its password and
-// it is enabled; a missing account, a wrong password and a password-less account are
-// all invalid credentials. A hash on an outdated algorithm is upgraded when enabled.
+// checkCredentials returns the enabled account for username when password matches. A
+// missing account, a wrong password and a password-less account are all invalid
+// credentials. An outdated hash is upgraded when auto-upgrade is enabled.
 func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password string) (*sessionstorage.SessionUser, error) {
 	user, err := a.storage.UserByUserName(ctx, username)
 	if err != nil {
@@ -291,8 +288,8 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 	})
 }
 
-// answerSignIn answers a JSON sign-in handler's outcome: a session, or a pending
-// identity, for which the PendingHook runs first (see WithPendingHook).
+// answerSignIn writes a JSON sign-in handler's outcome. For a pending identity the
+// PendingHook runs first.
 func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
 	var body mfaResponse
 	if outcome.pending != nil {
@@ -342,7 +339,7 @@ func (a *Auth[S, U]) changeUserPasswordHandler() http.HandlerFunc {
 	})
 }
 
-// mfaResponse answers a sign-in step that may still wait for the application's MFA;
+// mfaResponse answers a sign-in step that may still wait for the application's MFA.
 // RedirectURL is where a PendingHook sends the browser.
 type mfaResponse struct {
 	MFAIsRequired bool   `json:"mfaIsRequired"`
@@ -355,10 +352,9 @@ type refusalResponse struct {
 	Code    sessioninfo.LoginRefusalCode `json:"code"`
 }
 
-// writeSignInError answers a JSON sign-in handler's error: a refused sign-in (a
-// sessioninfo.LoginRefusal) is its status (401, or 403 for a forbidden cause) with
-// {"message", "code"}, so the page can map the code to its own text; anything else is
-// the usual client message.
+// writeSignInError writes a JSON sign-in handler's error. A sessioninfo.LoginRefusal
+// is answered with 401 (403 for a forbidden cause) and {"message", "code"}, so the
+// page can map the code to its own text. Any other error is the usual client message.
 func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) error {
 	var refusal *sessioninfo.LoginRefusal
 	if !errors.As(err, &refusal) {
@@ -380,7 +376,7 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 	return err
 }
 
-// identityEvent is the auth event of a sign-in with identity, at at.
+// identityEvent returns the auth event of a sign-in with identity at time at.
 func identityEvent(identity *sessioninfo.Identity, at time.Time) sessioninfo.AuthEvent {
 	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR), At: at}
 }

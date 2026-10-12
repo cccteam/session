@@ -14,8 +14,8 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// oidcLoginStarter is the part of an OIDC provider's authenticator the shared login and
-// callback shells use. Every provider's authenticator implements it.
+// oidcLoginStarter is the part of an OIDC authenticator that oidcLogin and oidcCallback
+// use.
 type oidcLoginStarter interface {
 	// AuthCodeURL writes the provider's state cookie and returns the authorization URL.
 	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error)
@@ -23,9 +23,9 @@ type oidcLoginStarter interface {
 	LoginURL() string
 }
 
-// oidcLogin is the login handler every OIDC provider shares: it redirects the browser to
-// the provider's authorization URL, or back to the login page with a refusal code.
-// authenticatorName names the authenticator in wrapped errors.
+// oidcLogin is the login handler every OIDC provider shares. It redirects the browser
+// to the provider, or back to the login page with a refusal code. authenticatorName
+// names the authenticator in wrapped errors.
 func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authenticatorName string) http.HandlerFunc {
 	return base.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -39,7 +39,7 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 			return errors.Wrap(err, authenticatorName+".Authenticator.AuthCodeURL()")
 		}
 
-		// The target is the provider's authorization URL; the caller's returnUrl only
+		// The target is the provider's authorization URL. The caller's returnUrl only
 		// rides in the state cookie and is sanitized on the callback.
 		http.Redirect(w, r, authCodeURL, http.StatusFound) //nolint:gosec // G710: not a caller-controlled redirect, see above
 
@@ -47,11 +47,10 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 	})
 }
 
-// oidcCallback is the shell every OIDC provider's callback shares. complete does the
-// provider's work (verify, decode, synchronize roles, establish the session) and
-// returns the URL to send the browser to. Any error it returns, from any step, sends the
-// browser to the login page with the error's refusal code and goes to the log; no step
-// redirects on its own.
+// oidcCallback is the callback handler every OIDC provider shares. complete does the
+// provider's work and returns where the browser goes next. Any error from complete
+// sends the browser to the login page with the error's refusal code. No step redirects
+// on its own.
 func oidcCallback(
 	base *basesession.BaseSession, authn oidcLoginStarter, complete func(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, err error),
 ) http.HandlerFunc {
@@ -66,7 +65,7 @@ func oidcCallback(
 			return err
 		}
 
-		// The verifier sanitized returnURL already; it is sanitized again here so the
+		// The verifier already sanitized returnURL. It is sanitized again so the
 		// Location header is exactly a value SanitizeReturnURL keeps.
 		internalcookie.RedirectToReturnURL(w, returnURL, http.StatusFound)
 
@@ -74,8 +73,7 @@ func oidcCallback(
 	})
 }
 
-// decodeClaims decodes the fields a callback needs from the full verified claims
-// payload.
+// decodeClaims decodes the fields a callback needs from the verified claims.
 func decodeClaims[C any](rawClaims json.RawMessage) (*C, error) {
 	claims := new(C)
 	if err := json.Unmarshal(rawClaims, claims); err != nil {
@@ -85,8 +83,8 @@ func decodeClaims[C any](rawClaims json.RawMessage) (*C, error) {
 	return claims, nil
 }
 
-// requireRoles reconciles username's roles to roleNames and refuses the login, with
-// RefusedNoRoles, when no recognized role results.
+// requireRoles reconciles username's roles to roleNames. It refuses the login with
+// RefusedNoRoles when no recognized role results.
 func (r *roleSyncConfig) requireRoles(ctx context.Context, username accesstypes.User, roleNames []string) error {
 	hasRole, err := r.reconcile(ctx, username, roleNames)
 	if err != nil {

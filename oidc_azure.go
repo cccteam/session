@@ -112,8 +112,8 @@ func NewOIDCAzure[SessionData, UserData any](
 	}, nil
 }
 
-// azureRoleSync validates the required role-synchronization slot of an Azure sign-in:
-// nil when role sync is disabled.
+// azureRoleSync validates an Azure sign-in's required role sync slot. It returns nil
+// when role sync is disabled.
 func azureRoleSync(roleSync RoleSyncConfig) (*roleSyncConfig, error) {
 	if roleSync == nil {
 		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")

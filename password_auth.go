@@ -197,20 +197,19 @@ func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sess
 	return nil
 }
 
-// errNoPassword is the comparison failure for an account that has no password hash: an
-// account provisioned for external sign-in only.
+// errNoPassword is the comparison failure for an account with no password hash, such
+// as one provisioned for external sign-in only.
 var errNoPassword = errors.New("the account has no password")
 
 // comparePassword checks password against hash, reporting whether the hash should be
-// upgraded. An account without a password (a nil hash) never matches: it fails like a
-// wrong password, so a password-less account can't be signed in to with a password and
-// the hasher, which dereferences the hash, never sees nil.
+// upgraded. A nil hash never matches.
 func (p *PasswordAuth[T, U]) comparePassword(hash *securehash.Hash, password string) (upgrade bool, err error) {
 	return comparePassword(p.hasher, hash, password)
 }
 
-// comparePassword checks password against hash with hasher; see
-// PasswordAuth.comparePassword. A nil hash never matches.
+// comparePassword checks password against hash with hasher, reporting whether the hash
+// should be upgraded. A nil hash (an account without a password) fails like a wrong
+// password, so the hasher, which dereferences the hash, never sees nil.
 func comparePassword(hasher *securehash.SecureHasher, hash *securehash.Hash, password string) (upgrade bool, err error) {
 	if hash == nil {
 		return false, errNoPassword

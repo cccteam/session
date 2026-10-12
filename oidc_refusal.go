@@ -15,7 +15,7 @@ import (
 // return. See the "Login refusal codes" section of the README.
 func redirectRefusedLogin(w http.ResponseWriter, _ *http.Request, loginURL string, err error) {
 	code := sessioninfo.LoginRefusalCodeOf(err)
-	// The login URL is the application's configuration and the code is query-escaped;
-	// the result is written as is, never cleaned.
+	// The login URL is configuration and the code is query-escaped, so the result is
+	// written as is, never cleaned.
 	internalcookie.WriteRedirect(w, fmt.Sprintf("%s?code=%s", loginURL, url.QueryEscape(string(code))), http.StatusFound)
 }

@@ -16,16 +16,10 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// This file is the core every session type is built on: construction, session
-// establishment, and the API methods the types share. Each type keeps its own fields
-// (its storage and its *basesession.BaseSession) and builds what it needs from them on
-// demand, so a type assembled field by field behaves exactly like a constructed one.
-
-// newBaseSession assembles the BaseSession a session type runs on: the default log
-// handler and session timeout over storage, the BaseSessionOptions among options applied
-// to it, and a cookie client built from the CookieOptions among options. The cookie
-// client is returned as well, for the OIDC authenticators that write their state cookie
-// through it. Options of any other kind are left to the caller.
+// newBaseSession builds the BaseSession a session type runs on, applying the
+// BaseSessionOptions and CookieOptions among options. Other options are left to the
+// caller. The cookie client is also returned, for the OIDC authenticators that write
+// their state cookie through it.
 func newBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, options []O) (*basesession.BaseSession, *internalcookie.Client, error) {
 	baseSession := &basesession.BaseSession{
 		Handle:         httpio.Log,
@@ -52,8 +46,8 @@ func newBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 	return baseSession, cookieClient, nil
 }
 
-// verifyCustomDataTypes checks at construction that the storage's custom session data
-// and custom user data configurations were built for S and U.
+// verifyCustomDataTypes checks that the storage's custom session data and custom user
+// data configurations were built for S and U.
 func verifyCustomDataTypes[S, U any](storage sessionstorage.BaseStore) error {
 	if err := verifyCustomDataType[S](storage); err != nil {
 		return err
@@ -62,9 +56,9 @@ func verifyCustomDataTypes[S, U any](storage sessionstorage.BaseStore) error {
 	return verifyCustomUserDataType[U](storage)
 }
 
-// verifyOIDCStorage is the construction check every OIDC provider makes: the custom data
-// configurations match S and U, and custom user data has the OIDC user anchor to hang
-// from.
+// verifyOIDCStorage is the storage check every OIDC provider makes at construction. The
+// custom data configurations must match S and U, and custom user data needs the OIDC
+// user anchor.
 func verifyOIDCStorage[S, U any](storage sessionstorage.BaseStore) error {
 	if err := verifyCustomDataTypes[S, U](storage); err != nil {
 		return err
@@ -80,19 +74,19 @@ func verifyOIDCStorage[S, U any](storage sessionstorage.BaseStore) error {
 type authCookieSameSite bool
 
 const (
-	// sameSiteStrict is for a session established by a same-site request: a login form,
-	// an API call.
+	// sameSiteStrict is for a session established by a same-site request, such as a
+	// login form or an API call.
 	sameSiteStrict authCookieSameSite = true
-	// sameSiteNone is for a session established on an OIDC provider's callback, a
-	// cross-site redirect that a Strict cookie would not survive. StartSession upgrades
-	// it to Strict on the next request.
+	// sameSiteNone is for a session established on a provider's callback. That is a
+	// cross-site redirect, which a Strict cookie would not survive. StartSession
+	// upgrades it to Strict on the next request.
 	sameSiteNone authCookieSameSite = false
 )
 
-// establishSession is how every session type creates a session outside impersonation:
-// create inserts the session row, and only once it has succeeded are the auth cookie
-// (written per sameSite) and the XSRF cookie for the new session ID written. An error
-// from create is returned unchanged and leaves the response without cookies.
+// establishSession creates a session for every session type outside impersonation.
+// create inserts the session row. The auth and XSRF cookies for the new session ID are
+// written only after it succeeds. An error from create is returned unchanged, and no
+// cookie is written.
 func establishSession(
 	ctx context.Context, w http.ResponseWriter, base *basesession.BaseSession, sameSite authCookieSameSite, create func(ctx context.Context) (ccc.UUID, error),
 ) (ccc.UUID, error) {
@@ -109,8 +103,7 @@ func establishSession(
 	return id, nil
 }
 
-// logSessionStarted records the association between a new session and its username on
-// the request's log entry.
+// logSessionStarted adds a new session's ID and username to the request's log entry.
 func logSessionStarted(ctx context.Context, username string, sessionID ccc.UUID) {
 	logger.FromCtx(ctx).AddRequestAttribute("Username", username).AddRequestAttribute(string(internalcookie.SessionID), sessionID)
 }
@@ -121,12 +114,12 @@ type userDataStore interface {
 	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
 }
 
-// sharedAPI implements the API methods every session type's API offers alike. A type's
-// API builds one per call from its own fields and delegates to it.
+// sharedAPI implements the API methods every session type shares. A type's API builds
+// one per call from its own fields and delegates to it.
 type sharedAPI[SessionData, UserData any] struct {
 	base  *basesession.BaseSession
 	store sessionstorage.BaseStore
-	// users is the store's custom user data surface; nil for Preauth, which has none.
+	// users is the store's custom user data surface. It is nil for Preauth.
 	users userDataStore
 	// storeName names the store interface in wrapped errors, e.g. "PasswordAuthStore".
 	storeName string
@@ -167,7 +160,7 @@ func (a sharedAPI[S, U]) cookie() *cookie.Client {
 	return a.base.CookieHandler.Cookie()
 }
 
-// customData returns the current session's custom session data from the context; a
+// customData returns the current session's custom session data from the context. A
 // session with no custom data row yields a zero-value S.
 func (a sharedAPI[S, U]) customData(ctx context.Context) (S, error) {
 	data, err := sessioninfo.CustomDataFromCtx[*S](ctx)
@@ -193,7 +186,7 @@ func (a sharedAPI[S, U]) updateCustomSessionData(ctx context.Context, sessionID 
 	return nil
 }
 
-// customUserData returns an account's custom user data; a user with no custom data row
+// customUserData returns an account's custom user data. A user with no custom data row
 // yields a zero-value U.
 func (a sharedAPI[S, U]) customUserData(ctx context.Context, userID ccc.UUID) (U, error) {
 	ctx, span := tracer.Start(ctx)
@@ -225,8 +218,8 @@ func (a sharedAPI[S, U]) updateCustomUserData(ctx context.Context, userID ccc.UU
 	return nil
 }
 
-// startImpersonatedSession establishes an impersonated session; resolve is the type's
-// identity resolver (see identityResolver).
+// startImpersonatedSession establishes an impersonated session. resolve is the type's
+// identity resolver.
 func (a sharedAPI[S, U]) startImpersonatedSession(
 	ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData []*S, resolve identityResolver,
 ) (ccc.UUID, error) {

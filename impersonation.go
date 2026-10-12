@@ -411,10 +411,9 @@ func (p *PasswordAuth[T, U]) identity() identityResolver {
 	return accountIdentity(p.storage)
 }
 
-// accountIdentity is the identity resolver of the session types whose accounts are
-// SessionUsers records (PasswordAuth, Auth): user principals resolve against storage,
-// and a role principal for a foreign actor is refused when the actor's name is already
-// an account there.
+// accountIdentity is the identity resolver of PasswordAuth and Auth, whose accounts are
+// SessionUsers records. A user principal resolves against storage. A foreign actor's
+// role principal is refused when the actor's name is already an account there.
 func accountIdentity(storage sessionstorage.PasswordAuthStore) identityResolver {
 	return identityResolver{
 		user: func(ctx context.Context, user accesstypes.User) (string, ccc.UUID, error) {
@@ -426,8 +425,8 @@ func accountIdentity(storage sessionstorage.PasswordAuthStore) identityResolver 
 	}
 }
 
-// impersonatedAccount resolves a user principal against SessionUsers: the record's
-// username and ID; a missing user is an error and a disabled one is refused.
+// impersonatedAccount returns a user principal's SessionUsers username and ID. A
+// missing user is an error, and a disabled one is refused.
 func impersonatedAccount(ctx context.Context, storage sessionstorage.PasswordAuthStore, user accesstypes.User) (string, ccc.UUID, error) {
 	record, err := storage.UserByUserName(ctx, string(user))
 	if err != nil {

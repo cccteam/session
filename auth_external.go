@@ -17,9 +17,7 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// externalMethod is a redirect-based sign-in method of an Auth session: how it starts
-// the provider round trip, how it turns the callback into a verified identity, and how
-// it reconciles roles once the account is known.
+// externalMethod is a redirect-based sign-in method of an Auth session.
 type externalMethod struct {
 	method sessioninfo.AuthMethod
 	// loginURL is where refused and pending sign-ins are sent.
@@ -28,18 +26,19 @@ type externalMethod struct {
 	start func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error)
 	// verify completes the round trip into a verified sign-in.
 	verify func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*verifiedSignIn, error)
-	// syncRoles reconciles the account username's roles to the role names the provider
-	// asserted, refusing (no_roles) when no recognized role results. Nil when the method
-	// synchronizes no roles.
+	// syncRoles reconciles the account's roles to the role names the provider asserted.
+	// It refuses with no_roles when no recognized role results. It is nil when the
+	// method synchronizes no roles.
 	syncRoles func(ctx context.Context, username string, roleNames []string) error
 }
 
-// verifiedSignIn is what a method's callback verified: the identity, where the browser
-// goes afterwards (a sanitized local path), and the role names the provider asserted
-// for role synchronization (nil when the method synchronizes no roles).
+// verifiedSignIn is the result of a method's callback.
 type verifiedSignIn struct {
-	identity  *sessioninfo.Identity
+	identity *sessioninfo.Identity
+	// returnURL is the sanitized local path the browser goes to afterwards.
 	returnURL string
+	// roleNames are the role names the provider asserted. They are nil when the method
+	// synchronizes no roles.
 	roleNames []string
 }
 
@@ -49,8 +48,8 @@ func applyLoginOptions(authn loginURLSetter, options []OIDCOption) {
 	}
 }
 
-// azureMethod is the Azure (Entra ID) method over authn. The identity is (tid, oid);
-// roleSync, when set, reconciles the token's roles claim.
+// azureMethod is the Azure (Entra ID) method. The identity is (tid, oid). When roleSync
+// is set, the token's roles claim is reconciled.
 func azureMethod(authn azureoidc.Authenticator, roleSync *roleSyncConfig) *externalMethod {
 	type claims struct {
 		Tid   string   `json:"tid"`
@@ -103,10 +102,10 @@ func azureMethod(authn azureoidc.Authenticator, roleSync *roleSyncConfig) *exter
 	return m
 }
 
-// googleMethod is the Google Workspace method over authn. The identity is sub; the
-// hosted-domain and verified-email checks are the authenticator's. roleSync, when set,
-// maps the person's directory groups to role names at the callback, with the access
-// token that is used once and never stored.
+// googleMethod is the Google Workspace method. The identity is sub. The authenticator
+// checks the hosted domain and the verified email. When roleSync is set, the callback
+// maps the person's directory groups to role names using the access token, which is
+// used once and never stored.
 func googleMethod(authn googleoidc.Authenticator, roleSync *googleRoleSyncConfig) *externalMethod {
 	type claims struct {
 		Sub           string   `json:"sub"`
@@ -164,10 +163,10 @@ func googleMethod(authn googleoidc.Authenticator, roleSync *googleRoleSyncConfig
 	return m
 }
 
-// workOSMethod is the WorkOS SSO method over authn. The identity is (connection_id,
-// idp_id); the full profile is the identity's claims. WorkOS asserts emails on the
-// upstream IdP's word, so EmailVerified is false and the account resolver decides what
-// an email is worth. Roles are never synchronized.
+// workOSMethod is the WorkOS SSO method. The identity is (connection_id, idp_id), and
+// the full profile is its claims. WorkOS only relays the upstream IdP's email, so
+// EmailVerified is false and the account resolver decides what the email is worth.
+// Roles are never synchronized.
 func workOSMethod(authn workossso.Authenticator) *externalMethod {
 	return &externalMethod{
 		method:   sessioninfo.MethodWorkOS,
@@ -191,9 +190,8 @@ func workOSMethod(authn workossso.Authenticator) *externalMethod {
 	}
 }
 
-// nonNil is names, or an empty list for nil: a role-synchronizing method always
-// carries a list, so "no roles asserted" and "the method synchronizes no roles" stay
-// apart.
+// nonNil returns names, or an empty list for nil. A role-synchronizing method always
+// carries a list, so "no roles asserted" stays distinct from "no role sync".
 func nonNil(names []string) []string {
 	if names == nil {
 		return []string{}
@@ -202,11 +200,9 @@ func nonNil(names []string) []string {
 	return names
 }
 
-// externalLogin redirects the browser to the provider. The returnUrl query parameter
-// must be a path in this application that internalcookie.SanitizeReturnURL keeps
-// unchanged: anything else (an absolute URL, //host, /\host, a dot segment, a backslash
-// anywhere) is refused with 400 rather than carried, so a crafted login link can't
-// become an open redirect.
+// externalLogin redirects the browser to the provider. A returnUrl that
+// internalcookie.SanitizeReturnURL would change is refused with 400 rather than
+// carried, so a crafted login link can't become an open redirect.
 func (a *Auth[S, U]) externalLogin(m *externalMethod) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -235,8 +231,8 @@ func (a *Auth[S, U]) externalLogin(m *externalMethod) http.HandlerFunc {
 	})
 }
 
-// externalCallback completes the provider round trip and redirects per the contract on
-// AzureMethod.Callback.
+// externalCallback completes the provider round trip. See the README's "The redirect
+// and response contract" for where it redirects.
 func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -273,33 +269,29 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 			case target == "":
 				target = pendingRedirectURL(m.loginURL(), outcome.pending.Reason, v.returnURL)
 			}
-			// The target is the login URL from server-side configuration with the
-			// sanitized return URL as a query value, or the application's own choice in
-			// its PendingHook; either is written as is, never cleaned.
+			// The target is the configured login URL or the PendingHook's choice. It is
+			// written as is, never cleaned.
 			internalcookie.WriteRedirect(w, target, http.StatusFound)
 
 			return nil
 		}
 
-		// The authenticator sanitized returnURL already; it is sanitized again here so
-		// the Location header is exactly a value SanitizeReturnURL keeps.
+		// The authenticator already sanitized returnURL. It is sanitized again so the
+		// Location header is exactly a value SanitizeReturnURL keeps.
 		internalcookie.RedirectToReturnURL(w, v.returnURL, http.StatusFound)
 
 		return nil
 	})
 }
 
-// pendingRedirectURL is where an external sign-in that became a pending identity sends
-// the browser: the login URL with pending=<reason> and, when the sign-in carried one
-// other than the root, returnUrl=<path>, the path sanitized and query-escaped. The login
-// page routes on pending to its confirmation or MFA step and reads the pending identity
-// from Pending().Status().
+// pendingRedirectURL returns where an external sign-in that became a pending identity
+// sends the browser: the login URL with pending=<reason>, plus the sanitized returnUrl
+// when it is not the root.
 func pendingRedirectURL(loginURL string, reason sessioninfo.PendingReason, returnURL string) string {
 	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 	u, err := url.Parse(loginURL)
 	if err != nil {
-		// The login URL is the application's configuration; one that does not parse
-		// still gets the reason, appended as the refusal redirect would append a code.
+		// An unparsable login URL still gets the reason, as a refusal gets its code.
 		u = &url.URL{Path: loginURL}
 	}
 	q := u.Query()

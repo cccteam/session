@@ -129,8 +129,8 @@ func NewOIDCGoogle[SessionData, UserData any](
 	}, nil
 }
 
-// googleRoleSync validates the required role-synchronization slot and the hosted domain
-// of a Google sign-in: the role sync configuration is nil when role sync is disabled.
+// googleRoleSync validates a Google sign-in's required role sync slot and hosted
+// domain. It returns nil when role sync is disabled.
 func googleRoleSync(roleSync GoogleRoleSyncConfig, hostedDomain string) (*googleRoleSyncConfig, error) {
 	if roleSync == nil {
 		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, groupPrefix, lookup) or session.DisableRoleSync()")
