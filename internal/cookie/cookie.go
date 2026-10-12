@@ -150,10 +150,9 @@ func (c *Client) WriteStateCookie(w http.ResponseWriter, name string, values *co
 	c.cookie.WritePersistentCookie(w, name, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
 }
 
-// ReadStateCookie reads the state cookie named name. When the browser has none it reads
-// the legacy shared OIDCCookieName cookie instead, written by a login started before the
-// upgrade. readName is the name of the cookie read, "" when neither was present; pass it
-// to DeleteStateCookie.
+// ReadStateCookie reads the state cookie named name, or the legacy OIDCCookieName cookie
+// when the browser has none. readName is the name of the cookie read, or "" when neither
+// is present. Pass it to DeleteStateCookie.
 func (c *Client) ReadStateCookie(r *http.Request, name string) (values *cookie.Values, readName string, err error) {
 	for _, n := range []string{name, OIDCCookieName} {
 		cval, found, err := c.cookie.Read(r, n)
@@ -168,7 +167,7 @@ func (c *Client) ReadStateCookie(r *http.Request, name string) (values *cookie.V
 	return nil, "", nil
 }
 
-// DeleteStateCookie deletes the state cookie named name: it is single-use.
+// DeleteStateCookie deletes the state cookie named name. A state cookie is single-use.
 func (c *Client) DeleteStateCookie(w http.ResponseWriter, name string) {
 	c.cookie.Delete(w, name, c.Domain)
 }

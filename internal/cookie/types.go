@@ -36,9 +36,9 @@ const (
 	// XSRFCookieName is the cookie name of the XSRF Token Cookie
 	XSRFCookieName = "XSRF-TOKEN"
 
-	// OIDCCookieName is the state cookie name every OIDC provider shared before each got
-	// its own (v0.12 and earlier). A callback still reads it when the provider's own
-	// cookie is absent, so a login started before an upgrade completes after it.
+	// OIDCCookieName is the state cookie every OIDC provider shared in v0.12 and earlier.
+	// A callback still reads it when the provider's own cookie is absent, so a login
+	// started before an upgrade can complete.
 	OIDCCookieName = "OIDC"
 
 	// AzureStateCookieName is the state cookie of the Azure (Entra ID) OIDC login.
@@ -67,25 +67,12 @@ func (vals methods) Contain(s string) bool {
 }
 
 // SanitizeReturnURL constrains a post-login return URL to a path local to the
-// application, falling back to "/" for anything else. The value is kept only when it is
-// already in the form every later step leaves alone, so the Location header carries it
-// byte for byte and no redirect helper, proxy or browser can normalize it into another
-// host (http.Redirect cleans "/./\evil.com" to "/\evil.com", which browsers read as
-// "//evil.com"). A kept value:
-//
-//   - starts with exactly one "/", followed by nothing or by a character other than "/"
-//     and "\";
-//   - is printable ASCII: no control character, space, DEL or non-ASCII byte;
-//   - has no backslash anywhere, raw or percent-encoded (%5C, %5c), in its path, query or
-//     fragment, and every "%" starts a valid escape;
-//   - has a path (the part before the first "?" or "#") made only of RFC 3986 path
-//     characters: letters, digits, "-._~!$&'()*+,;=:@%/";
-//   - has a path in canonical form both as written and once percent-decoded: no empty
-//     segment ("//") and no "." or ".." segment ("%2e" counts as "."), so path.Clean
-//     leaves it unchanged but for a trailing slash, and no control character once
-//     decoded.
-//
-// The query and fragment are otherwise the application's own and pass through.
+// application, falling back to "/" for anything else. A value is kept only when it is
+// already in canonical form, so no redirect helper, proxy or browser can later normalize
+// it into another host. It must start with a single "/", be printable ASCII with no
+// backslash (raw or %5C), use only RFC 3986 path characters in its path, and have no
+// empty, "." or ".." segment, as written or percent-decoded. The query and fragment
+// otherwise pass through. docs/security-invariants.md (S6) lists the full rule.
 func SanitizeReturnURL(returnURL string) string {
 	if !isLocalPath(returnURL) {
 		return "/"
@@ -191,16 +178,15 @@ func isHex(c byte) bool {
 	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
-// RedirectToReturnURL sends the browser to returnURL once sanitized, writing the Location
-// header itself (see WriteRedirect), so the header is exactly the sanitized value.
+// RedirectToReturnURL redirects to returnURL once sanitized, through WriteRedirect.
 func RedirectToReturnURL(w http.ResponseWriter, returnURL string, code int) {
 	WriteRedirect(w, SanitizeReturnURL(returnURL), code)
 }
 
-// WriteRedirect answers with code and a Location header of exactly target. Unlike
-// http.Redirect it neither cleans nor resolves target: a path that http.Redirect cleans
-// can become a different, scheme-relative URL ("/./\host" to "/\host"). target is
-// either a return URL SanitizeReturnURL kept or the application's own configuration.
+// WriteRedirect answers with code and a Location header of exactly target. It does not
+// use http.Redirect, whose path cleaning can turn a local path into a scheme-relative
+// URL ("/./\host" becomes "/\host", which browsers read as "//host"). target must be a
+// return URL SanitizeReturnURL kept or the application's own configuration.
 func WriteRedirect(w http.ResponseWriter, target string, code int) {
 	w.Header().Set("Location", target)
 	w.WriteHeader(code)

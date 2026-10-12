@@ -21,11 +21,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// IssuerURL is Google's OIDC issuer. Google operates a single issuer for all Workspace
-// organizations (tenancy is expressed by the hd claim, not the issuer), so production
-// code never changes it. It is a variable only so this module's end-to-end tests can
-// point a sign-in at a fake identity provider; the package is internal, so nothing
-// outside the module can reach it. New reads it when the authenticator is built.
+// IssuerURL is Google's OIDC issuer. Google uses one issuer for every Workspace
+// organization; the hd claim names the organization. It is a variable only so this
+// module's end-to-end tests can point a sign-in at a fake identity provider. New reads
+// it when the authenticator is built.
 var IssuerURL = "https://accounts.google.com"
 
 var _ Authenticator = &OIDC{}

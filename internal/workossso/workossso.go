@@ -1,10 +1,9 @@
 // Package workossso implements a client for the WorkOS Standalone SSO authorization code
 // flow.
 //
-// WorkOS brokers each upstream identity provider (SAML or OIDC) and returns a normalized
-// profile from a server-to-server code exchange authenticated with the API key, so there
-// is no ID token to verify locally: the exchange itself, over TLS to the configured base
-// URL with the secret API key, is what vouches for the profile.
+// WorkOS brokers the upstream identity provider (SAML or OIDC) and returns a normalized
+// profile from a server-to-server code exchange. There is no ID token to verify locally.
+// The exchange, made over TLS with the secret API key, is what vouches for the profile.
 package workossso
 
 import (
@@ -52,9 +51,9 @@ type Authenticator interface {
 type Profile struct {
 	// ID is the WorkOS profile ID.
 	ID string `json:"id"`
-	// IdpID is the user's identifier as asserted by the upstream IdP (for SAML, the
-	// value WorkOS maps to idp_id, by default the NameID). It is unique within the
-	// connection only.
+	// IdpID is the user's identifier asserted by the upstream IdP. For SAML it is the
+	// NameID unless WorkOS maps idp_id to another attribute. It is unique only within
+	// the connection.
 	IdpID          string `json:"idp_id"`
 	ConnectionID   string `json:"connection_id"`
 	ConnectionType string `json:"connection_type"`
@@ -195,8 +194,7 @@ type tokenRequest struct {
 
 // exchange trades the authorization code for the profile, returning the raw profile JSON.
 func (c *Client) exchange(ctx context.Context, code string) (json.RawMessage, error) {
-	// The API key travels in the body over TLS to WorkOS: that is how the exchange
-	// authenticates.
+	// WorkOS authenticates the exchange by the API key in the JSON body.
 	request := tokenRequest{ClientID: c.clientID, ClientSecret: c.apiKey, GrantType: "authorization_code", Code: code}
 	body, err := json.Marshal(request) //nolint:gosec // G117: the exchange's credential, sent only to WorkOS
 	if err != nil {
