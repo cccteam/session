@@ -56,7 +56,7 @@ func InitialAuthEvents(req *sessioninfo.NewSessionRequest, imp *InsertImpersonat
 			events = append(events, event)
 		}
 	case imp == nil && req.Identity != nil:
-		events = append(events, sessioninfo.AuthEvent{Method: req.Identity.Method, Connection: req.Identity.Connection, IdPAMR: req.Identity.IdPAMR, At: at})
+		events = append(events, sessioninfo.AuthEvent{Method: req.Identity.Method, Connection: req.Identity.Connection, IDPAMR: req.Identity.IDPAMR, At: at})
 	}
 
 	return events

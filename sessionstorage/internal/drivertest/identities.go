@@ -21,7 +21,7 @@ import (
 func lakeside(subject string) *sessioninfo.Identity {
 	return &sessioninfo.Identity{
 		Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", Subject: subject,
-		Email: subject + "@lakeside.edu", EmailVerified: true, IdPAMR: []string{"mfa"},
+		Email: subject + "@lakeside.edu", EmailVerified: true, IDPAMR: []string{"mfa"},
 	}
 }
 
@@ -117,7 +117,7 @@ func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AccountsHar
 	if sess.UserID != ccc.NullUUIDFromUUID(user.ID) || sess.Username != user.Username {
 		t.Errorf("Session() = UserID %v, Username %q; want the linked account %v, %q", sess.UserID, sess.Username, user.ID, user.Username)
 	}
-	want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IdPAMR: []string{"mfa"}, At: time.Now()}}
+	want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: time.Now()}}
 	if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
 		t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 	}
@@ -658,7 +658,7 @@ func testAppendAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness) 
 
 	sess := mustSession(ctx, t, in.Driver, id)
 	want := []sessioninfo.AuthEvent{
-		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IdPAMR: []string{"mfa"}, At: time.Now()},
+		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: time.Now()},
 		{Method: "email-otp", At: stepUp},
 	}
 	if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {

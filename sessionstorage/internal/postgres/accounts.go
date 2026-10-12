@@ -111,7 +111,7 @@ func (s *SessionStorageDriver) insertAuthEvent(ctx context.Context, txn pgx.Tx, 
 		VALUES
 			($1, $2, $3, $4, $5, $6)`, pgx.Identifier{s.authEvents.TableName}.Sanitize())
 
-	if _, err := txn.Exec(ctx, query, sessionID, seq, string(event.Method), dbtype.OptionalString(event.Connection), event.IdPAMR, event.At); err != nil {
+	if _, err := txn.Exec(ctx, query, sessionID, seq, string(event.Method), dbtype.OptionalString(event.Connection), event.IDPAMR, event.At); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -173,7 +173,7 @@ func (s *SessionStorageDriver) readAuthEvents(ctx context.Context, sessionID ccc
 		if err := rows.Scan(&method, &connection, &amr, &at); err != nil {
 			return nil, errors.Wrap(err, "pgx.Rows.Scan()")
 		}
-		event := sessioninfo.AuthEvent{Method: sessioninfo.AuthMethod(method), IdPAMR: amr, At: at}
+		event := sessioninfo.AuthEvent{Method: sessioninfo.AuthMethod(method), IDPAMR: amr, At: at}
 		if connection != nil {
 			event.Connection = *connection
 		}

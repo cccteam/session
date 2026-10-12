@@ -382,7 +382,7 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 
 // identityEvent is the auth event of a sign-in with identity, at at.
 func identityEvent(identity *sessioninfo.Identity, at time.Time) sessioninfo.AuthEvent {
-	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IdPAMR: slices.Clone(identity.IdPAMR), At: at}
+	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR), At: at}
 }
 
 // validateEvents refuses an auth event without a method.

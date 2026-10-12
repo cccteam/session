@@ -22,7 +22,7 @@ func TestSessionStorage_Session_Account(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 	userID := ccc.Must(ccc.NewUUID())
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	events := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", IdPAMR: []string{"mfa"}, At: at}}
+	events := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", IDPAMR: []string{"mfa"}, At: at}}
 
 	tests := []struct {
 		name string

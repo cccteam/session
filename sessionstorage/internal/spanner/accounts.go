@@ -108,7 +108,7 @@ func (s *SessionStorageDriver) authEventMutation(sessionID ccc.UUID, seq int64, 
 		"Seq":                  seq,
 		"Method":               string(event.Method),
 		"Connection":           connection,
-		"IdpAmr":               event.IdPAMR,
+		"IdpAmr":               event.IDPAMR,
 		"OccurredAt":           event.At,
 	})
 }
@@ -182,7 +182,7 @@ func (s *SessionStorageDriver) readAuthEvents(ctx context.Context, txn interface
 		events = append(events, sessioninfo.AuthEvent{
 			Method:     sessioninfo.AuthMethod(r.Method),
 			Connection: r.Connection.StringVal,
-			IdPAMR:     r.IdpAmr,
+			IDPAMR:     r.IdpAmr,
 			At:         r.OccurredAt,
 		})
 

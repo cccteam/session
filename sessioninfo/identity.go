@@ -50,10 +50,10 @@ type Identity struct {
 	// Claims is the method's full verified payload (ID-token claims or WorkOS
 	// profile), passed through to resolvers and custom data hooks.
 	Claims json.RawMessage
-	// IdPAMR carries upstream authentication-method evidence (OIDC amr values or SAML
+	// IDPAMR carries upstream authentication-method evidence (OIDC amr values or SAML
 	// AuthnContextClassRef) when the method provides it. The library never
 	// interprets it; policy hooks decide what it is worth.
-	IdPAMR []string //nolint:revive // var-naming: IdP is the identity provider, not an ID; the name is the agreed contract
+	IDPAMR []string
 }
 
 // AuthEvent records one step that authenticated a session: the initial sign-in and
@@ -62,7 +62,7 @@ type Identity struct {
 type AuthEvent struct {
 	Method     AuthMethod
 	Connection string
-	IdPAMR     []string //nolint:revive // var-naming: IdP is the identity provider, not an ID; the name is the agreed contract
+	IDPAMR     []string
 	At         time.Time
 }
 

@@ -83,7 +83,7 @@ func azureMethod(authn azureoidc.Authenticator, roleSync *roleSyncConfig) *exter
 
 			v := &verifiedSignIn{
 				identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodAzure, Connection: c.Tid, Subject: c.Oid, Email: c.Email, Claims: rawClaims, IdPAMR: c.Amr,
+					Method: sessioninfo.MethodAzure, Connection: c.Tid, Subject: c.Oid, Email: c.Email, Claims: rawClaims, IDPAMR: c.Amr,
 				},
 				returnURL: returnURL,
 			}
@@ -140,7 +140,7 @@ func googleMethod(authn googleoidc.Authenticator, roleSync *googleRoleSyncConfig
 
 			v := &verifiedSignIn{
 				identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodGoogle, Subject: c.Sub, Email: c.Email, EmailVerified: c.EmailVerified, Claims: rawClaims, IdPAMR: c.Amr,
+					Method: sessioninfo.MethodGoogle, Subject: c.Sub, Email: c.Email, EmailVerified: c.EmailVerified, Claims: rawClaims, IDPAMR: c.Amr,
 				},
 				returnURL: returnURL,
 			}

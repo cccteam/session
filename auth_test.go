@@ -688,7 +688,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
-					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IdPAMR: []string{"pwd", "mfa"}}
+					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"}}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
 						t.Errorf("CreateSession() request mismatch (-want +got):\n%s", diff)
 					}
@@ -1212,7 +1212,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			wait: mfa,
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
-					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: "email-otp", IdPAMR: []string{"otp"}}}
+					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: "email-otp", IDPAMR: []string{"otp"}}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonStepUp || req.UserID != userID || !cmp.Equal(req.Identity, password) {
 						t.Errorf("CreateSession() request = %+v, events mismatch (-want +got):\n%s", req, diff)
 					}
@@ -1267,7 +1267,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 				err error
 			)
 			rr := f.serve(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				got, err = f.auth.API().CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp", IdPAMR: []string{"otp"}})
+				got, err = f.auth.API().CompletePending(r.Context(), w, sessioninfo.AuthEvent{Method: "email-otp", IDPAMR: []string{"otp"}})
 			}), http.MethodPost, "/mfa", nil, cookies)
 
 			if tt.wantErr != nil {

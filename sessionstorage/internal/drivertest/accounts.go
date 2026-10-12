@@ -260,9 +260,9 @@ func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness)
 	}{
 		{
 			name:     "a password sign-in records the password method",
-			identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String(), IdPAMR: []string{"pwd"}},
+			identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String(), IDPAMR: []string{"pwd"}},
 			wantEvents: []sessioninfo.AuthEvent{
-				{Method: sessioninfo.MethodPassword, IdPAMR: []string{"pwd"}},
+				{Method: sessioninfo.MethodPassword, IDPAMR: []string{"pwd"}},
 			},
 		},
 		{
@@ -321,12 +321,12 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness
 			events: []sessioninfo.AuthEvent{
 				{Method: sessioninfo.MethodPassword},
 				{Method: sessioninfo.MethodLinkConfirmation},
-				{Method: "email-otp", IdPAMR: []string{"otp"}},
+				{Method: "email-otp", IDPAMR: []string{"otp"}},
 			},
 			wantEvents: []sessioninfo.AuthEvent{
 				{Method: sessioninfo.MethodPassword},
 				{Method: sessioninfo.MethodLinkConfirmation},
-				{Method: "email-otp", IdPAMR: []string{"otp"}},
+				{Method: "email-otp", IDPAMR: []string{"otp"}},
 			},
 		},
 		{
