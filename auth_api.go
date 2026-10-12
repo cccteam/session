@@ -13,9 +13,9 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// ValidateSession validates the session cookie and stores session data in the context,
-// with the session's account (sessioninfo.UserFromCtx): a session whose account is
-// missing or disabled is refused as unauthorized, as Auth.ValidateSession does.
+// ValidateSession validates the session cookie and stores the session data and its
+// account (sessioninfo.UserFromCtx) in the context. Like Auth.ValidateSession, it
+// refuses a session whose account is missing or disabled as unauthorized.
 func (p *AuthAPI[S, U]) ValidateSession(ctx context.Context) (context.Context, error) {
 	return p.auth.validate(ctx)
 }
@@ -32,14 +32,14 @@ func (p *AuthAPI[S, U]) ValidateCredentials(ctx context.Context, username, passw
 	return user.ID, nil
 }
 
-// StartAuthenticatedSession starts a session for an existing account after the
-// application has authenticated it itself, recording events; the sign-in policy is not
+// StartAuthenticatedSession starts a session for an existing account that the
+// application authenticated itself, and records events. The sign-in policy is not
 // consulted. It regenerates the session ID.
 //
-// The account must exist and be enabled. Each event needs a method; one with a zero At
-// records the session's creation time. Optional customData (at most one *S) is written
-// atomically with the session insert and the custom session data resolver is not
-// invoked; otherwise the resolver receives ReasonExternalAuth.
+// The account must exist and be enabled. Each event needs a method. An event with a
+// zero At records the session's creation time. Optional customData (at most one *S) is
+// written atomically with the session insert, and the custom session data resolver is
+// not called. Without it, the resolver receives ReasonExternalAuth.
 func (p *AuthAPI[S, U]) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, events []sessioninfo.AuthEvent, customData ...*S) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -67,8 +67,8 @@ func (p *AuthAPI[S, U]) StartAuthenticatedSession(ctx context.Context, w http.Re
 	return p.auth.startSession(ctx, w, req)
 }
 
-// startSession inserts req's session and writes its cookies: a session the application
-// or an account operation starts, with no identity to resolve.
+// startSession inserts req's session and writes its cookies. It is for sessions the
+// application or an account operation starts, with no identity to resolve.
 func (a *Auth[S, U]) startSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	id, err := establishSession(ctx, w, a.baseSession, sameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.CreateSession(ctx, req)
@@ -182,8 +182,8 @@ func (p *AuthAPI[S, U]) SetSessionUserPassword(ctx context.Context, userID ccc.U
 	return nil
 }
 
-// DeactivateSessionUser disables an account and destroys its sessions. No
-// self-deactivation guard is applied: that is the caller's.
+// DeactivateSessionUser disables an account and destroys its sessions. The caller must
+// guard against self-deactivation.
 func (p *AuthAPI[S, U]) DeactivateSessionUser(ctx context.Context, userID ccc.UUID) error {
 	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AccountStore.DeactivateUser()")
@@ -204,9 +204,9 @@ func (p *AuthAPI[S, U]) ActivateSessionUser(ctx context.Context, userID ccc.UUID
 	return nil
 }
 
-// DeleteSessionUser deletes an account, its identities and sessions. The sessions are
-// destroyed first, by UserId, so a failed delete leaves no live session behind. No
-// self-deletion guard is applied: that is the caller's.
+// DeleteSessionUser deletes an account with its identity links and sessions. The
+// sessions are destroyed first, by UserId, so a failed delete leaves no live session
+// behind. The caller must guard against self-deletion.
 func (p *AuthAPI[S, U]) DeleteSessionUser(ctx context.Context, userID ccc.UUID) error {
 	if _, err := p.auth.storage.User(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AccountStore.User()")
@@ -270,12 +270,13 @@ func (p *AuthAPI[S, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUI
 	return p.auth.shared().updateCustomUserData(ctx, userID, mutate)
 }
 
-// StartImpersonatedSession starts an impersonated session (same semantics as the
-// legacy types): a user principal resolves against the accounts, as on PasswordAuth.
+// StartImpersonatedSession starts an impersonated session, with the same semantics as
+// the other session types. A user principal resolves against the accounts, as on
+// PasswordAuth.
 //
-// For a user principal the session belongs to the impersonated account
-// (SessionData.UserID); for a role principal it belongs to no account (null UserID).
-// The session records an impersonation auth event whose connection is the actor.
+// A user principal's session belongs to the impersonated account (SessionData.UserID).
+// A role principal's session belongs to no account (null UserID). The session records
+// an impersonation auth event whose connection is the actor.
 func (p *AuthAPI[S, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*S) (ccc.UUID, error) {
 	return p.auth.shared().startImpersonatedSession(ctx, w, req, customData, accountIdentity(p.auth.storage))
 }

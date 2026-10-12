@@ -24,19 +24,10 @@ import (
 )
 
 // A pending identity is a verified identity that waits for a password confirmation or
-// the application's MFA step before it becomes a session. It is held in two parts:
-//
-//   - a preauth stepping-stone session row in the session table (no account, never
-//     authenticated), which makes the pending identity single-use and revocable: it is
-//     expired when the identity completes, is canceled or is replaced; and
-//   - the pending cookie (default "auth-pending"), encrypted and authenticated with the
-//     cookie key, which carries the identity itself (method, connection, subject, email,
-//     claims), the account it waits on, the auth events so far, and where the browser
-//     goes afterwards, bound to that row's ID.
-//
-// The identity is accepted only while both agree: the cookie decrypts, its expiry has
-// not passed, and its row is live and accountless. Nothing about it is readable or
-// forgeable by the browser.
+// the application's MFA step. It is held as a stepping-stone row in the session table
+// and an encrypted pending cookie bound to that row's ID. It is accepted only while the
+// cookie decrypts, has not expired, and its row is live and has no account. Expiring
+// the row makes it single-use. See "What a pending identity is" in the README.
 
 // pendingCookieKey is the pending cookie's value holding the encoded pendingState.
 const pendingCookieKey cookie.Key = "pending"
@@ -45,8 +36,8 @@ const pendingCookieKey cookie.Key = "pending"
 // what browsers keep (4096 bytes per cookie, encryption overhead included).
 const maxPendingCookieValue = 2800
 
-// pendingCtxKey is the context key StartSession stores the browser's pending identity
-// under.
+// pendingCtxKey is the context key for the browser's pending identity, set by
+// StartSession.
 type pendingCtxKey struct{}
 
 // pendingState is a pending identity as the pending cookie carries it.
@@ -124,9 +115,8 @@ func decodePending(encoded string) (*pendingState, error) {
 	return state, nil
 }
 
-// withPendingCookie returns the request's context carrying the browser's pending
-// identity, as the pending cookie states it, when it has one. Whether it is still
-// accepted is decided when it is used (pending).
+// withPendingCookie returns the request's context with the pending identity from the
+// pending cookie, if there is one. pending decides whether it is still accepted.
 func (a *Auth[S, U]) withPendingCookie(r *http.Request) context.Context {
 	ctx := r.Context()
 
@@ -148,8 +138,8 @@ func (a *Auth[S, U]) withPendingCookie(r *http.Request) context.Context {
 	return context.WithValue(ctx, pendingCtxKey{}, state)
 }
 
-// pending returns the browser's pending identity from ctx (see StartSession): NotFound
-// when there is none, a pending_expired refusal when it has expired or its row is no
+// pending returns the browser's pending identity from ctx. It returns NotFound when
+// there is none, and a pending_expired refusal when it has expired or its row is no
 // longer live (completed, canceled or replaced).
 func (a *Auth[S, U]) pending(ctx context.Context) (*pendingState, error) {
 	state, ok := ctx.Value(pendingCtxKey{}).(*pendingState)
@@ -179,9 +169,9 @@ func errPendingExpired() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedPendingExpired, httpio.NewUnauthorizedMessage("the pending sign-in has expired"))
 }
 
-// holdPending makes a sign-in that must wait the browser's pending identity: a new
-// stepping-stone row and the pending cookie bound to it, replacing any earlier pending
-// identity.
+// holdPending stores a sign-in that must wait as the browser's pending identity. It
+// inserts a new stepping-stone row and writes the pending cookie bound to it, replacing
+// any earlier pending identity.
 func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *sessionstorage.PendingSignInError) (*pendingState, error) {
 	now := time.Now()
 	events := at.events
@@ -219,17 +209,17 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 	a.dropPendingRow(ctx)
 
 	// Lax, so the cookie also reaches the login page the provider's callback redirects
-	// to; the pending handlers that change anything are POSTs behind the XSRF check.
+	// to. The pending handlers that change anything are POSTs behind the XSRF check.
 	cval := cookie.NewValues().SetString(pendingCookieKey, encoded)
 	a.pendingCookies.Cookie().WritePersistentCookie(w, a.settings.pendingCookie, a.pendingCookies.Domain, true, http.SameSiteLaxMode, 2*a.settings.pendingTimeout, cval)
 
 	return state, nil
 }
 
-// onPending runs the PendingHook, if one is configured, for the pending identity state a
-// handler just held. handled reports that the hook wrote the response itself, so the
-// handler writes nothing more; redirectURL is where the hook sends the browser, "" for
-// the handler's default. An error discards the pending identity.
+// onPending runs the PendingHook, if one is configured, for a pending identity a handler
+// just stored. handled reports that the hook wrote the response itself, so the handler
+// writes nothing more. redirectURL is where the hook sends the browser, or "" for the
+// handler's default. An error discards the pending identity.
 func (a *Auth[S, U]) onPending(ctx context.Context, w http.ResponseWriter, r *http.Request, state *pendingState) (redirectURL string, handled bool, err error) {
 	if a.settings.pendingHook == nil {
 		return "", false, nil
@@ -271,8 +261,8 @@ func (t *responseTracker) Unwrap() http.ResponseWriter {
 	return t.ResponseWriter
 }
 
-// dropPending discards the browser's pending identity, if it has one: its row is
-// expired and its cookie deleted.
+// dropPending discards the browser's pending identity, if it has one. It expires the
+// row and deletes the cookie.
 func (a *Auth[S, U]) dropPending(ctx context.Context, w http.ResponseWriter) {
 	if _, ok := ctx.Value(pendingCtxKey{}).(*pendingState); !ok {
 		return
@@ -294,9 +284,9 @@ func (a *Auth[S, U]) destroyPendingRow(ctx context.Context, id ccc.UUID) {
 	}
 }
 
-// completePending establishes the session of a pending identity with reason and the
-// pending identity's events followed by more: the account is resolved afresh and must
-// be the one it was pending for.
+// completePending establishes the session of a pending identity. The session records
+// the pending identity's events followed by more. The account is resolved again and
+// must be the one the identity waited on.
 func (a *Auth[S, U]) completePending(
 	ctx context.Context, w http.ResponseWriter, state *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
@@ -338,13 +328,13 @@ func (p *AuthAPI[S, U]) PendingIdentity(ctx context.Context) (*sessioninfo.Pendi
 	return state.public(), nil
 }
 
-// CompletePending finishes a pending identity after the application's MFA step:
+// CompletePending finishes a pending identity after the application's MFA step. It
 // records the step-up events, links the identity if needed, starts the session, and
 // regenerates the session ID.
 //
 // The pending identity must wait for MFA (Conflict otherwise). The account is resolved
-// afresh (a provisioning resolver provisions now) and the sign-in policy is not asked
-// again; the session records the sign-in's events followed by stepUp. When the sign-in
+// again and must be the one the identity waited on. The sign-in policy is not asked
+// again. The session records the sign-in's events followed by stepUp. If the sign-in
 // must wait again (the resolver now asks for a confirmation), the error is a
 // *sessionstorage.PendingSignInError and the pending identity is replaced.
 func (p *AuthAPI[S, U]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (ccc.UUID, error) {
@@ -378,10 +368,10 @@ func (p *AuthAPI[S, U]) CompletePending(ctx context.Context, w http.ResponseWrit
 //
 // The pending identity must wait for a password confirmation (Conflict otherwise). A
 // wrong password is Unauthorized and leaves the pending identity in place. The session
-// records the sign-in's event and a link-confirmation event. When the sign-in policy
-// requires MFA after the link, no session starts: the error is a
+// records the sign-in's event and a link-confirmation event. If the sign-in policy
+// requires MFA after the link, no session starts. The error is then a
 // *sessionstorage.PendingSignInError with reason PendingMFA, and the pending identity
-// remains, now waiting for MFA (CompletePending).
+// remains, now waiting for MFA (see CompletePending).
 func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.ResponseWriter, password string) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -397,7 +387,7 @@ func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.R
 	return outcome.sessionID, nil
 }
 
-// confirmPending is ConfirmPendingWithPassword, answering the sign-in's outcome.
+// confirmPending implements ConfirmPendingWithPassword and returns the sign-in's outcome.
 func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, password string) (*signInOutcome, error) {
 	state, err := a.pending(ctx)
 	if err != nil {
@@ -425,8 +415,9 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 	return a.completePending(ctx, w, state, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation, At: time.Now()})
 }
 
-// linkPending links a confirmed pending identity to userID and reports the link. An
-// identity linked meanwhile to the same account is fine; to another account, refused.
+// linkPending links a confirmed pending identity to userID and reports the link. If the
+// identity was linked meanwhile, that is accepted for the same account and refused for
+// another.
 func (a *Auth[S, U]) linkPending(ctx context.Context, userID ccc.UUID, state *pendingState) error {
 	_, err := a.storage.LinkIdentity(ctx, userID, &state.Identity, state.Tenant)
 	switch {
@@ -505,10 +496,10 @@ func (a *Auth[S, U]) pendingCancel() http.HandlerFunc {
 	})
 }
 
-// pendingReturnURL is the return URL a pending identity keeps: none when the sign-in
-// carried none (a password sign-in), else the sanitized path. The external callbacks
-// pass a sanitized one already; the pending identity reaches the PendingHook, the
-// pending redirect and Pending().Status(), so it never holds anything else.
+// pendingReturnURL returns the return URL a pending identity keeps. It is empty when the
+// sign-in had none (a password sign-in), and the sanitized path otherwise. The
+// PendingHook, the pending redirect and Pending().Status() all read it, so it never
+// holds an unsanitized value.
 func pendingReturnURL(returnURL string) string {
 	if returnURL == "" {
 		return ""
