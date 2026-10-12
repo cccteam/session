@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 )
 
@@ -12,7 +13,9 @@ import (
 // loginURL?code=<code>, the code read from err by sessioninfo.LoginRefusalCodeOf. The
 // code is all the URL carries; the error itself goes to the log through the handler's
 // return. See the "Login refusal codes" section of the README.
-func redirectRefusedLogin(w http.ResponseWriter, r *http.Request, loginURL string, err error) {
+func redirectRefusedLogin(w http.ResponseWriter, _ *http.Request, loginURL string, err error) {
 	code := sessioninfo.LoginRefusalCodeOf(err)
-	http.Redirect(w, r, fmt.Sprintf("%s?code=%s", loginURL, url.QueryEscape(string(code))), http.StatusFound)
+	// The login URL is the application's configuration and the code is query-escaped;
+	// the result is written as is, never cleaned.
+	internalcookie.WriteRedirect(w, fmt.Sprintf("%s?code=%s", loginURL, url.QueryEscape(string(code))), http.StatusFound)
 }

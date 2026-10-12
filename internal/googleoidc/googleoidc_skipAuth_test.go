@@ -53,6 +53,14 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 			wantClaims:   claims{Email: "dev@example.com", EmailVerified: true, Hd: "example.com", Sub: "skipauth-dev@example.com"},
 			wantReturn:   "/",
 		},
+		{
+			name:         "a return URL that a redirect would clean into a scheme-relative one is sanitized",
+			username:     "dev@example.com",
+			hostedDomain: "example.com",
+			returnURL:    `/./\evil.example/phish`,
+			wantClaims:   claims{Email: "dev@example.com", EmailVerified: true, Hd: "example.com", Sub: "skipauth-dev@example.com"},
+			wantReturn:   "/",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

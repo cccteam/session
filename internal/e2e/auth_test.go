@@ -845,6 +845,9 @@ func seamWorkOSLoginGuards(ctx context.Context, t *testing.T, a *authApp, _ *fak
 		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape("https://evil.example/"),
 		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape("//evil.example/"),
 		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape(`/\evil.example/`),
+		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape(`/./\evil.example/`),
+		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape(`/a/../\evil.example/`),
+		"/sso/login?organization=org_lakeside&returnUrl=" + url.QueryEscape("/%2e/%5cevil.example/"),
 		"/sso/login",
 	} {
 		b.expect(ctx, http.StatusBadRequest, http.MethodGet, path, nil)

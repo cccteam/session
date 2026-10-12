@@ -203,9 +203,10 @@ func nonNil(names []string) []string {
 }
 
 // externalLogin redirects the browser to the provider. The returnUrl query parameter
-// must be a path in this application: anything else (an absolute URL, //host, /\host)
-// is refused with 400 rather than carried, so a crafted login link can't become an open
-// redirect.
+// must be a path in this application that internalcookie.SanitizeReturnURL keeps
+// unchanged: anything else (an absolute URL, //host, /\host, a dot segment, a backslash
+// anywhere) is refused with 400 rather than carried, so a crafted login link can't
+// become an open redirect.
 func (a *Auth[S, U]) externalLogin(m *externalMethod) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -272,15 +273,17 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 			case target == "":
 				target = pendingRedirectURL(m.loginURL(), outcome.pending.Reason, v.returnURL)
 			}
-			// The target is the login URL from server-side configuration, or the
-			// application's own choice in its PendingHook.
-			http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // G710: not a caller-controlled redirect, see above
+			// The target is the login URL from server-side configuration with the
+			// sanitized return URL as a query value, or the application's own choice in
+			// its PendingHook; either is written as is, never cleaned.
+			internalcookie.WriteRedirect(w, target, http.StatusFound)
 
 			return nil
 		}
 
-		// returnURL was sanitized to a local path by the authenticator.
-		http.Redirect(w, r, v.returnURL, http.StatusFound)
+		// The authenticator sanitized returnURL already; it is sanitized again here so
+		// the Location header is exactly a value SanitizeReturnURL keeps.
+		internalcookie.RedirectToReturnURL(w, v.returnURL, http.StatusFound)
 
 		return nil
 	})
@@ -288,9 +291,11 @@ func (a *Auth[S, U]) externalCallback(m *externalMethod) http.HandlerFunc {
 
 // pendingRedirectURL is where an external sign-in that became a pending identity sends
 // the browser: the login URL with pending=<reason> and, when the sign-in carried one
-// other than the root, returnUrl=<path>. The login page routes on pending to its
-// confirmation or MFA step and reads the pending identity from Pending().Status().
+// other than the root, returnUrl=<path>, the path sanitized and query-escaped. The login
+// page routes on pending to its confirmation or MFA step and reads the pending identity
+// from Pending().Status().
 func pendingRedirectURL(loginURL string, reason sessioninfo.PendingReason, returnURL string) string {
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
 	u, err := url.Parse(loginURL)
 	if err != nil {
 		// The login URL is the application's configuration; one that does not parse
@@ -299,7 +304,7 @@ func pendingRedirectURL(loginURL string, reason sessioninfo.PendingReason, retur
 	}
 	q := u.Query()
 	q.Set("pending", string(reason))
-	if returnURL != "" && returnURL != "/" {
+	if returnURL != "/" {
 		q.Set("returnUrl", returnURL)
 	}
 	u.RawQuery = q.Encode()

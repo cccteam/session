@@ -174,6 +174,13 @@ func TestClient_Verify(t *testing.T) {
 			wantReturnURL: "/",
 		},
 		{
+			name:          "a return URL that a redirect would clean into a scheme-relative one becomes the root",
+			returnURL:     `/./\evil.example/`,
+			query:         func(state string) string { return "code=c&state=" + state },
+			body:          `{"access_token":"at","profile":` + profileJSON + `}`,
+			wantReturnURL: "/",
+		},
+		{
 			name:          "a valid callback keeps a local return URL",
 			returnURL:     "/dashboard?tab=1",
 			query:         func(state string) string { return "code=c&state=" + state },

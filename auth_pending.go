@@ -16,6 +16,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
@@ -194,7 +195,7 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 		Username:  wait.Username,
 		Tenant:    wait.Tenant,
 		ExpiresAt: now.Add(a.settings.pendingTimeout),
-		ReturnURL: at.returnURL,
+		ReturnURL: pendingReturnURL(at.returnURL),
 		Events:    slices.Clone(events),
 		RoleNames: at.roleNames,
 	}
@@ -463,7 +464,7 @@ func (a *Auth[S, U]) pendingStatus() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(response{Reason: state.Reason, Email: state.Identity.Email, ExpiresAt: state.ExpiresAt, ReturnURL: returnURLOrRoot(state.ReturnURL)})
+		return httpio.NewEncoder(w).Ok(response{Reason: state.Reason, Email: state.Identity.Email, ExpiresAt: state.ExpiresAt, ReturnURL: internalcookie.SanitizeReturnURL(state.ReturnURL)})
 	})
 }
 
@@ -504,10 +505,14 @@ func (a *Auth[S, U]) pendingCancel() http.HandlerFunc {
 	})
 }
 
-func returnURLOrRoot(returnURL string) string {
+// pendingReturnURL is the return URL a pending identity keeps: none when the sign-in
+// carried none (a password sign-in), else the sanitized path. The external callbacks
+// pass a sanitized one already; the pending identity reaches the PendingHook, the
+// pending redirect and Pending().Status(), so it never holds anything else.
+func pendingReturnURL(returnURL string) string {
 	if returnURL == "" {
-		return "/"
+		return ""
 	}
 
-	return returnURL
+	return internalcookie.SanitizeReturnURL(returnURL)
 }

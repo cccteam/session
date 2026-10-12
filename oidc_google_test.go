@@ -116,7 +116,7 @@ func googleVerifyWithClaims(t *testing.T, rawClaims string) func(context.Context
 			t.Fatalf("failed to unmarshal claims: %v", err)
 		}
 
-		return "testReturnUrl", "", nil
+		return "/testReturnUrl", "", nil
 	}
 }
 
@@ -148,7 +148,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				// Verify succeeds but never populates the raw claims (nil payload).
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "", nil).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("/testReturnUrl", "", nil).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",

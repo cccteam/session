@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/basesession"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
@@ -65,7 +66,9 @@ func oidcCallback(
 			return err
 		}
 
-		http.Redirect(w, r, returnURL, http.StatusFound)
+		// The verifier sanitized returnURL already; it is sanitized again here so the
+		// Location header is exactly a value SanitizeReturnURL keeps.
+		internalcookie.RedirectToReturnURL(w, returnURL, http.StatusFound)
 
 		return nil
 	})

@@ -619,6 +619,16 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "a backslash scheme-relative return URL is refused",
+			target:     "/azure/login?returnUrl=" + url.QueryEscape(`/\evil.example/`),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "a return URL that a redirect would clean into a backslash scheme-relative one is refused",
+			target:     "/azure/login?returnUrl=" + url.QueryEscape(`/./\evil.example/`),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:   "a provider that cannot start the login sends the browser back with a code",
 			target: "/azure/login",
 			prepare: func(authn *mock_azureoidc.MockAuthenticator) {

@@ -140,7 +140,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				// Verify succeeds but never populates the raw claims (nil payload).
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("testReturnUrl", "a test SID value", nil).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("/testReturnUrl", "a test SID value", nil).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=internal_error",
@@ -287,7 +287,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 						if err != nil {
 							t.Fatalf("failed to unmarshal claims: %v", err)
 						}
-						return "testReturnUrl", "a test SID value", nil
+						return "/testReturnUrl", "a test SID value", nil
 					}).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).DoAndReturn(
 					func(_ context.Context, _, _ string, claims json.RawMessage) (ccc.UUID, error) {
@@ -466,7 +466,7 @@ func verifyWithClaims(t *testing.T, rawClaims string) func(context.Context, http
 			t.Fatalf("failed to unmarshal claims: %v", err)
 		}
 
-		return "testReturnUrl", "a test SID value", nil
+		return "/testReturnUrl", "a test SID value", nil
 	}
 }
 
