@@ -1,9 +1,5 @@
 package session
 
-// CONTRACT (multi-method sessions, v0.13.0): the exported registration functions,
-// method types and their handlers in this file are the agreed contract. See the "Auth
-// sessions (multiple sign-in methods)" section of the README.
-
 import (
 	"fmt"
 	"net/http"
@@ -22,21 +18,9 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// A sign-in method is registered on an Auth, and its registration returns the method's
-// own handlers, from which its routes are wired: a method that is not registered has no
-// handlers to wire, and a handler exists only on the method it belongs to
-// (FrontChannelLogout only on *AzureMethod).
-//
-// Registration is refused, with a panic, in one place (Auth.register): registering a
-// method twice on one Auth, registering after the Auth is in use (it has served a
-// request, or read its methods for a password check or hash), and registering an
-// external method on storage without an identities configuration. These are wiring
-// mistakes, refused at startup the way http.ServeMux refuses a duplicate pattern.
-
-// signInRegistry is the Auth a sign-in method is registered on. *Auth implements it, so
-// the registration functions take an Auth of any SessionData and UserData and return
-// method types that are not generic: a method's handlers close over the Auth, and its
-// type needs nothing else from it.
+// signInRegistry is the Auth a sign-in method is registered on. It lets the
+// registration functions accept an Auth of any SessionData and UserData and return
+// method types that are not generic.
 type signInRegistry interface {
 	register(reg *signInRegistration) methodHandlers
 }
@@ -48,8 +32,8 @@ type signInRegistration struct {
 	method sessioninfo.AuthMethod
 	// password is the password method's settings; nil for an external method.
 	password *passwordAuthSettings
-	// external builds an external method over the session's cookie client, which writes
-	// the method's state cookie; nil for the password method.
+	// external builds an external method over the session's cookie client. It is nil
+	// for the password method.
 	external func(cookies *internalcookie.Client) (*externalMethod, error)
 	// err is a misuse the registration function found in its own arguments.
 	err error
@@ -63,25 +47,25 @@ type methodHandlers struct {
 	changeUserPassword http.HandlerFunc
 }
 
-// signInMethods are an Auth's registered sign-in methods. Registration writes them,
-// under mu, until the Auth is first used; from then on they are read-only, so a request
-// reads them without the lock.
+// signInMethods are an Auth's registered sign-in methods. Registration writes them
+// under mu until the Auth is first used. After that they are read-only, and requests
+// read them without the lock.
 type signInMethods struct {
 	mu    sync.Mutex
 	inUse atomic.Bool
 
 	registered map[sessioninfo.AuthMethod]bool
-	// hasher and autoUpgrade are the password method's settings, or the defaults when
-	// it is not registered (account management still hashes passwords).
+	// hasher and autoUpgrade are the password method's settings. They keep their
+	// defaults when it is not registered, since account management still hashes
+	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
 	// external holds the registered redirect-based methods.
 	external map[sessioninfo.AuthMethod]*externalMethod
 }
 
-// registered returns the Auth's sign-in methods for reading, and closes registration:
-// every read of them goes through here, so none can race a registration, and a method
-// registered after one is refused rather than half-seen.
+// registered returns the Auth's sign-in methods and closes registration. Every read
+// goes through here, so a read never races a registration.
 func (a *Auth[S, U]) registered() *signInMethods {
 	if !a.methods.inUse.Load() {
 		a.methods.mu.Lock()
@@ -92,8 +76,8 @@ func (a *Auth[S, U]) registered() *signInMethods {
 	return &a.methods
 }
 
-// serving marks the Auth in use when h serves its first request (see registered).
-// Every handler and middleware the Auth hands out goes through it.
+// serving wraps every handler and middleware the Auth hands out, so the first request
+// closes registration.
 func (a *Auth[S, U]) serving(h http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a.registered()
@@ -101,8 +85,10 @@ func (a *Auth[S, U]) serving(h http.Handler) http.HandlerFunc {
 	}
 }
 
-// register registers a sign-in method and returns its handlers, or panics when the
-// registration is refused: this is the one place the registration rules are enforced.
+// register registers a sign-in method and returns its handlers. It is the one place
+// the registration rules are enforced. A refused registration panics, because it is a
+// wiring mistake found at startup, the way http.ServeMux refuses a duplicate pattern.
+// See the README's "Registering sign-in methods".
 func (a *Auth[S, U]) register(reg *signInRegistration) methodHandlers {
 	if a == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil *Auth: pass the Auth NewAuth returned", reg.method))
@@ -146,7 +132,7 @@ func (a *Auth[S, U]) register(reg *signInRegistration) methodHandlers {
 	return h
 }
 
-// registerMethod registers reg on auth: the registration functions' one way in.
+// registerMethod registers reg on auth. The registration functions all go through it.
 func registerMethod(auth signInRegistry, reg *signInRegistration) methodHandlers {
 	if auth == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil Auth: pass the Auth NewAuth returned", reg.method))
@@ -155,8 +141,7 @@ func registerMethod(auth signInRegistry, reg *signInRegistration) methodHandlers
 	return auth.register(reg)
 }
 
-// PasswordMethod is the username and password sign-in method registered on an Auth:
-// its handlers.
+// PasswordMethod holds the handlers of the username and password sign-in method.
 type PasswordMethod struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
@@ -185,19 +170,18 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword}
 }
 
-// Login accepts {"username", "password"}; on success it applies the sign-in policy and
-// either starts the session or creates a pending identity (MFA). It answers
-// {"mfaIsRequired": bool}, with "redirectUrl" when a PendingHook chose one; a refusal is
-// 401 with {"message", "code"}, the code a sessioninfo.LoginRefusalCode.
+// Login accepts {"username", "password"}. On success it applies the sign-in policy and
+// either starts the session or creates a pending identity for MFA. It answers
+// {"mfaIsRequired": bool}, plus "redirectUrl" when a PendingHook chose one. A refusal
+// is 401 with {"message", "code"}, where code is a sessioninfo.LoginRefusalCode.
 func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 
-// ChangeUserPassword changes the signed-in account's password.
-// {"oldPassword", "newPassword"}; every session of the account is destroyed and the
-// caller continues in a new one. Route it behind ValidateSession.
+// ChangeUserPassword accepts {"oldPassword", "newPassword"} and changes the signed-in
+// account's password. Every session of the account is destroyed and the caller
+// continues in a new one. Route it behind ValidateSession.
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
 
-// AzureMethod is the Microsoft Entra ID (Azure) OIDC sign-in method registered on an
-// Auth: its handlers.
+// AzureMethod holds the handlers of the Microsoft Entra ID (Azure) OIDC sign-in method.
 type AzureMethod struct {
 	login              http.HandlerFunc
 	callback           http.HandlerFunc
@@ -205,12 +189,13 @@ type AzureMethod struct {
 }
 
 // AzureSignIn registers Microsoft Entra ID (Azure) OIDC sign-in on auth and returns its
-// handlers. The identity key is (tid, oid). roleSync is the required
-// role-synchronization slot: RoleSync(manager) reconciles the account's roles to the
-// token's roles claim whenever an Azure sign-in establishes a session, and refuses it
-// (no_roles) when no recognized role results; DisableRoleSync() leaves roles to the
-// application. WithLoginURL sets where refused and pending sign-ins are sent (default:
-// /login).
+// handlers. The identity key is (tid, oid).
+//
+// roleSync is required. RoleSync(manager) reconciles the account's roles to the token's
+// roles claim whenever an Azure sign-in establishes a session, and refuses the sign-in
+// (no_roles) when no recognized role results. DisableRoleSync() leaves roles to the
+// application. WithLoginURL sets where refused and pending sign-ins are sent.
+// (default: /login)
 //
 // It panics when the method is already registered on auth, when auth has served a
 // request, when auth's storage has no identities configuration
@@ -242,34 +227,31 @@ func azureSignIn(auth signInRegistry, roleSync RoleSyncConfig, newAuthn func(coo
 }
 
 // Login redirects to Microsoft. It accepts ?returnUrl=, which must be a path in this
-// application (an absolute URL is refused with 400).
+// application; any other value is refused with 400.
 func (m *AzureMethod) Login() http.HandlerFunc { return m.login }
 
-// Callback completes the provider round trip, resolves the identity, applies the
-// sign-in policy, and starts the session, creates a pending identity, or redirects to
-// the login URL with ?code=<LoginRefusalCode>.
-//
-// The redirect contract: a session established → returnUrl (default "/"); a pending
-// identity → <login URL>?pending=<reason>[&returnUrl=<returnUrl>], reason "confirmation"
-// or "mfa", or wherever a PendingHook sends it; a refusal → <login URL>?code=<code>.
+// Callback completes the provider round trip, resolves the identity and applies the
+// sign-in policy. It then redirects:
+//   - to returnUrl (default "/") when the session is established;
+//   - to <LoginURL>?pending=<reason>[&returnUrl=<path>], or where a PendingHook sends
+//     it, when the sign-in waits for confirmation or MFA;
+//   - to <LoginURL>?code=<LoginRefusalCode> when it is refused.
 func (m *AzureMethod) Callback() http.HandlerFunc { return m.callback }
 
 // FrontChannelLogout handles Microsoft-initiated logout. Auth sessions do not record the
 // provider's session ID yet, so it answers 501 Not Implemented.
 func (m *AzureMethod) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
-// GoogleMethod is the Google Workspace OIDC sign-in method registered on an Auth: its
-// handlers.
+// GoogleMethod holds the handlers of the Google Workspace OIDC sign-in method.
 type GoogleMethod struct {
 	login    http.HandlerFunc
 	callback http.HandlerFunc
 }
 
 // GoogleSignIn registers Google Workspace OIDC sign-in on auth and returns its handlers.
-// The identity key is sub. roleSync is the required role-synchronization slot
-// (GoogleRoleSync or DisableRoleSync), with the semantics of AzureSignIn's;
-// hostedDomain is required and enforced against the hd claim. WithLoginURL sets where
-// refused and pending sign-ins are sent (default: /login).
+// The identity key is sub. roleSync is required: GoogleRoleSync or DisableRoleSync, as
+// for AzureSignIn. hostedDomain is required and checked against the hd claim.
+// WithLoginURL sets where refused and pending sign-ins are sent. (default: /login)
 //
 // It panics when the method is already registered on auth, when auth has served a
 // request, when auth's storage has no identities configuration
@@ -294,8 +276,7 @@ func googleSignIn(auth signInRegistry, roleSync GoogleRoleSyncConfig, hostedDoma
 			if err != nil {
 				return nil, err
 			}
-			// With role sync on, the sign-in also asks for the groups scope, so the access
-			// token Verify hands back can read the person's own groups.
+			// Role sync reads the person's groups, which needs the groups scope.
 			var scopes []string
 			if rs != nil {
 				scopes = []string{cloudidentity.Scope}
@@ -309,11 +290,11 @@ func googleSignIn(auth signInRegistry, roleSync GoogleRoleSyncConfig, hostedDoma
 }
 
 // Login redirects to Google. It accepts ?returnUrl=, which must be a path in this
-// application (an absolute URL is refused with 400).
+// application; any other value is refused with 400.
 func (m *GoogleMethod) Login() http.HandlerFunc { return m.login }
 
-// Callback completes the provider round trip with the redirect contract of
-// AzureMethod.Callback.
+// Callback completes the provider round trip and redirects as AzureMethod.Callback
+// does.
 func (m *GoogleMethod) Callback() http.HandlerFunc { return m.callback }
 
 // WorkOSSignInOption configures WorkOSSignIn.
@@ -336,7 +317,7 @@ func WithWorkOSBaseURL(baseURL string) WorkOSSignInOption {
 	return workOSSignInOption(func(s *workOSSettings) { s.baseURL = baseURL })
 }
 
-// WorkOSMethod is the WorkOS SSO sign-in method registered on an Auth: its handlers.
+// WorkOSMethod holds the handlers of the WorkOS SSO sign-in method.
 type WorkOSMethod struct {
 	login    http.HandlerFunc
 	callback http.HandlerFunc
@@ -345,7 +326,7 @@ type WorkOSMethod struct {
 // WorkOSSignIn registers WorkOS SSO sign-in on auth and returns its handlers. The login
 // handler reads the "organization" query parameter. The identity key is
 // (connection_id, idp_id). Roles are never synchronized from WorkOS. WithLoginURL sets
-// where refused and pending sign-ins are sent (default: /login).
+// where refused and pending sign-ins are sent. (default: /login)
 //
 // It panics when the method is already registered on auth, when auth has served a
 // request, or when auth's storage has no identities configuration
@@ -388,15 +369,14 @@ func workOSSignIn(auth signInRegistry, newAuthn func(cookies *internalcookie.Cli
 }
 
 // Login redirects to WorkOS. It requires ?organization= and accepts ?returnUrl=, which
-// must be a path in this application (an absolute URL is refused with 400).
+// must be a path in this application; any other value is refused with 400.
 func (m *WorkOSMethod) Login() http.HandlerFunc { return m.login }
 
-// Callback completes the provider round trip with the redirect contract of
-// AzureMethod.Callback.
+// Callback completes the provider round trip and redirects as AzureMethod.Callback
+// does.
 func (m *WorkOSMethod) Callback() http.HandlerFunc { return m.callback }
 
-// frontChannelLogout answers provider-initiated logout. Auth sessions do not record the
-// provider's session ID yet, so it answers 501.
+// frontChannelLogout answers 501 until Auth sessions record the provider's session ID.
 func (a *Auth[S, U]) frontChannelLogout() http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewNotImplementedMessage("front-channel logout is not supported by Auth sessions yet"))

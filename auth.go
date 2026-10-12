@@ -1,9 +1,5 @@
 package session
 
-// CONTRACT (multi-method sessions, v0.13.0): the exported types, constructors and
-// method signatures in this file are the agreed contract. See the "Auth sessions
-// (multiple sign-in methods)" section of the README.
-
 import (
 	"context"
 	"net/http"
@@ -43,48 +39,42 @@ type authOption func(*authSettings)
 
 func (authOption) isAuthOption() {}
 
-// The defaults of the pending-identity settings.
+// Default pending-identity settings.
 const (
 	defaultPendingTimeout    = 10 * time.Minute
 	defaultPendingCookieName = "auth-pending"
 )
 
-// IdentityLinkedHook is called after an external identity is linked to an account, so
-// the application can notify the user.
+// IdentityLinkedHook is called after an external identity is linked to an account,
+// for example to notify the user.
 type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) error
 
-// WithIdentityLinked sets the hook called after every identity link: a link made by a
-// pending identity's password confirmation, and a link the account resolver made during
-// a sign-in (LinkIdentity or ProvisionAccount). The resolver's link is committed before
-// the sign-in policy decides, so it is reported even when the policy then denies the
-// sign-in or holds it for MFA. An error from the hook is logged; the link and the
-// sign-in stand.
+// WithIdentityLinked sets the hook called after every identity link, whether made by a
+// pending identity's password confirmation or by the account resolver during a sign-in
+// (LinkIdentity or ProvisionAccount). A resolver's link is committed before the sign-in
+// policy runs, so it is reported even when the policy then denies the sign-in or holds
+// it for MFA. An error from the hook is logged. The link and the sign-in stand.
 func WithIdentityLinked(hook IdentityLinkedHook) AuthOption {
 	return authOption(func(s *authSettings) { s.identityLinked = hook })
 }
 
-// PendingHook is called when a sign-in handler has just held a sign-in as a pending
-// identity, so the application can act on it: send its MFA code to the account, record
-// the attempt, choose where the browser goes. pending is the stored identity (the
-// account it waits on in UserID and Username, the asserted email in Identity.Email).
+// PendingHook is called after a sign-in handler holds a sign-in as a pending identity,
+// for example to send an MFA code or choose the next page. It runs after the pending
+// identity is stored and its cookie set, and cannot change either.
 //
-// The hook may write the response itself (a redirect, a JSON body); the handler then
-// writes nothing more. Otherwise it returns where the browser goes: the external
-// Callback() redirects there, and the JSON handlers answer it as "redirectUrl"; an empty
-// URL keeps the default (<LoginURL>?pending=<reason>[&returnUrl=<path>], or no
-// "redirectUrl"). The URL is the application's own, never built from request input.
+// The hook may write the response itself, and the handler then writes nothing more.
+// Otherwise it returns where the browser goes: Callback() redirects there and the JSON
+// handlers return it as "redirectUrl". An empty URL keeps the default. The URL must be
+// the application's own, never built from request input.
 //
-// An error discards the pending identity and fails the sign-in: Callback() redirects to
-// <LoginURL>?code=internal_error, a JSON handler answers the error. The hook runs after
-// the pending identity is stored and its cookie set, and changes nothing about it: the
-// session ID is regenerated only when the pending identity completes, and its timeout
-// and encrypted cookie stand.
+// An error discards the pending identity and fails the sign-in. See the README's "The
+// redirect and response contract".
 type PendingHook = func(ctx context.Context, w http.ResponseWriter, r *http.Request, pending *sessioninfo.PendingIdentity) (redirectURL string, err error)
 
-// WithPendingHook sets the hook the sign-in handlers call after they hold a sign-in as a
-// pending identity: PasswordMethod.Login(), every external method's Callback(), and
-// Pending().ConfirmWithPassword() when the policy then requires MFA. The AuthAPI methods
-// never call it: they return a *sessionstorage.PendingSignInError to their caller.
+// WithPendingHook sets the hook called when PasswordMethod.Login(), an external
+// method's Callback() or Pending().ConfirmWithPassword() holds a sign-in as a pending
+// identity. The AuthAPI methods never call it. They return a
+// *sessionstorage.PendingSignInError instead.
 func WithPendingHook(hook PendingHook) AuthOption {
 	return authOption(func(s *authSettings) { s.pendingHook = hook })
 }
@@ -101,42 +91,40 @@ func WithPendingCookieName(name string) AuthOption {
 	return authOption(func(s *authSettings) { s.pendingCookie = name })
 }
 
-// Auth is one session type that any registered sign-in method can establish. It owns
-// accounts, sessions, cookies, XSRF, custom session and user data, impersonation, and
-// the middleware, the same for every method.
+// Auth is one session type that any registered sign-in method can establish. Accounts,
+// sessions, cookies, XSRF, custom data, impersonation and the middleware work the same
+// for every method.
 //
-// Sign-in methods are registered on it after NewAuth, before it serves its first
-// request: PasswordSignIn, AzureSignIn, GoogleSignIn and WorkOSSignIn each return the
-// method's own handlers, from which its routes are wired.
+// Register sign-in methods with PasswordSignIn, AzureSignIn, GoogleSignIn and
+// WorkOSSignIn after NewAuth and before serving the first request. Each returns the
+// method's handlers.
 //
-// Every session belongs to an account (SessionUsers) by UserId, and ValidateSession
-// loads that account on every request, refusing a disabled one. A sign-in either
-// establishes a session (with a new session ID), becomes a pending identity that waits
-// for a password confirmation or the application's MFA step, or is refused with a
-// sessioninfo.LoginRefusalCode. See the "Auth sessions (multiple sign-in methods)"
-// section of the README for the routes and the redirect contract.
+// Every session belongs to an account (SessionUsers). A sign-in either establishes a
+// session under a new session ID, becomes a pending identity that waits for a password
+// confirmation or the application's MFA step, or is refused with a
+// sessioninfo.LoginRefusalCode. See the README's "Auth sessions (multiple sign-in
+// methods)" for the routes and the redirect contract.
 type Auth[SessionData, UserData any] struct {
 	baseSession *basesession.BaseSession
 	storage     sessionstorage.AccountStore
 	settings    authSettings
 
-	// cookies is the session's cookie client, which also writes the external methods'
-	// state cookies.
+	// cookies is the session cookie client. It also writes the external methods' state
+	// cookies.
 	cookies *internalcookie.Client
 	// pendingCookies writes the pending-identity cookie.
 	pendingCookies *internalcookie.Client
-	// methods are the registered sign-in methods. Read them through registered().
+	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods
 }
 
-// NewAuth creates an Auth session for the given storage. Register its sign-in methods
-// on it before it serves a request (PasswordSignIn, AzureSignIn, GoogleSignIn,
-// WorkOSSignIn). The storage's custom session and user data configurations must be
-// built for SessionData and UserData; the OIDC-only storage features (the OIDC user
-// anchor, the custom user data login hook) are refused. An external method needs
-// storage with an identities configuration, which its registration checks.
-// cookieKey: a Base64-encoded string representing at least 32 bytes of
-// cryptographically secure random data.
+// NewAuth creates an Auth session for the given storage. The storage's custom session
+// and user data configurations must be built for SessionData and UserData. The
+// OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
+// are refused. External methods also need an identities configuration, which their
+// registration checks.
+// cookieKey: A Base64-encoded string representing at least 32 bytes
+// of cryptographically secure random data.
 func NewAuth[SessionData, UserData any](storage sessionstorage.AccountStore, cookieKey string, options ...AuthOption) (*Auth[SessionData, UserData], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAccounts or NewPostgresAccounts")
@@ -192,9 +180,8 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AccountStore, coo
 	}, nil
 }
 
-// Authenticated reports whether the session is authenticated: {"authenticated",
-// "username", "impersonation"}. A session whose account is missing or disabled is
-// reported as not authenticated.
+// Authenticated answers {"authenticated", "username", "impersonation"}. A session whose
+// account is missing or disabled is reported as not authenticated.
 func (a *Auth[S, U]) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool                               `json:"authenticated"`
@@ -230,18 +217,19 @@ func (a *Auth[S, U]) Logout() http.HandlerFunc {
 	return a.serving(a.baseSession.Logout())
 }
 
-// StartSession restores or initializes the session, and makes the browser's pending
-// identity, if any, available to the Pending handlers and the AuthAPI pending methods.
+// StartSession restores or initializes the session. It also makes the browser's
+// pending identity, if any, available to the Pending handlers and the AuthAPI pending
+// methods.
 func (a *Auth[S, U]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(a.withPendingCookie(r)))
 	})))
 }
 
-// ValidateSession validates the session and loads the account by UserId: a session
+// ValidateSession validates the session and loads its account by UserId. A session
 // with no account, or whose account is missing or disabled, is refused with 401. The
-// account is available through sessioninfo.UserFromCtx. A foreign actor's role-principal
-// impersonation has no account and carries only its username.
+// account is available through sessioninfo.UserFromCtx. A foreign actor's
+// role-principal impersonation has no account and carries only its username.
 func (a *Auth[S, U]) ValidateSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -286,16 +274,15 @@ type PendingHandlers struct {
 }
 
 // Status returns {"reason", "email", "expiresAt", "returnUrl"} for the current pending
-// identity: 404 when there is none, 401 with {"message", "code": "pending_expired"}
-// when it has expired.
+// identity. It answers 404 when there is none, and 401 with {"message", "code":
+// "pending_expired"} when it has expired.
 func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 
-// ConfirmWithPassword accepts {"password"}, links the pending identity to its account
-// on success, and starts the session. It answers {"mfaIsRequired": bool}: true when the
-// sign-in policy requires MFA after the link, in which case the pending identity
-// remains, now with reason "mfa" (the PendingHook runs for it, and "redirectUrl" carries
-// the URL it chose), and the application completes it with AuthAPI.CompletePending. A
-// wrong password is 401 and leaves the pending identity.
+// ConfirmWithPassword accepts {"password"}. On success it links the pending identity to
+// its account and starts the session. It answers {"mfaIsRequired": bool}. When the
+// sign-in policy requires MFA after the link, the pending identity remains with reason
+// "mfa", the PendingHook runs, and the application completes it with
+// AuthAPI.CompletePending. A wrong password is 401 and leaves the pending identity.
 func (h *PendingHandlers) ConfirmWithPassword() http.HandlerFunc { return h.confirmWithPassword }
 
 // Cancel discards the pending identity.
