@@ -196,9 +196,14 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 | Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]`, or the pending hook's URL | `200 {"mfaIsRequired": true[, "redirectUrl"]}` |
 | Refused | `302 <LoginURL>?code=<code>` | `401 {"message", "code"}` (403 for a forbidden cause) |
 
-- `returnUrl` is only ever a path in the application. An external `Login()` whose
-  `returnUrl` is an absolute URL, `//host` or `/\host` is refused with **400**, and the
-  callback sanitizes it again. A WorkOS `Login()` without `organization` is also 400.
+- `returnUrl` is only ever a path in the application, in canonical form: one leading
+  `/` (not `//` or `/\`), printable ASCII, no backslash anywhere (raw or `%5C`), no
+  empty, `.` or `..` path segment (raw or percent-encoded), and a path made of RFC 3986
+  path characters; its query and fragment pass through (`/settings/sso?test=done`,
+  `/reports#x`). An external `Login()` whose `returnUrl` breaks any of these is refused
+  with **400**, and the callback sanitizes it again, falling back to `/`. The callback
+  writes the `Location` header with exactly that value. Percent-encode a non-ASCII path
+  before passing it. A WorkOS `Login()` without `organization` is also 400.
 - `pending` is the login page's routing marker. The page reads the pending identity from
   `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
