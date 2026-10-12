@@ -182,7 +182,7 @@ func workOSMethod(authn workossso.Authenticator) *externalMethod {
 
 			return &verifiedSignIn{
 				identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodWorkOS, Connection: profile.ConnectionID, Subject: profile.IdpID, Email: profile.Email, Claims: rawProfile,
+					Method: sessioninfo.MethodWorkOS, Connection: profile.ConnectionID, Subject: profile.IDPID, Email: profile.Email, Claims: rawProfile,
 				},
 				returnURL: returnURL,
 			}, nil

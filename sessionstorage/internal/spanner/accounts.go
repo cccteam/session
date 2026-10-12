@@ -154,7 +154,7 @@ func readAccount(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, 
 type authEventRow struct {
 	Method     string             `spanner:"Method"`
 	Connection spanner.NullString `spanner:"Connection"`
-	IdpAmr     []string           `spanner:"IdpAmr"`
+	IDPAMR     []string           `spanner:"IdpAmr"`
 	OccurredAt time.Time          `spanner:"OccurredAt"`
 }
 
@@ -182,7 +182,7 @@ func (s *SessionStorageDriver) readAuthEvents(ctx context.Context, txn interface
 		events = append(events, sessioninfo.AuthEvent{
 			Method:     sessioninfo.AuthMethod(r.Method),
 			Connection: r.Connection.StringVal,
-			IDPAMR:     r.IdpAmr,
+			IDPAMR:     r.IDPAMR,
 			At:         r.OccurredAt,
 		})
 

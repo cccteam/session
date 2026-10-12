@@ -219,7 +219,7 @@ func TestClient_Verify(t *testing.T) {
 			if returnURL != tt.wantReturnURL {
 				t.Errorf("returnURL = %q, want %q", returnURL, tt.wantReturnURL)
 			}
-			if profile.ConnectionID != "conn_1" || profile.IdpID != "pat@idp" || profile.Email != "pat@lakeside.edu" {
+			if profile.ConnectionID != "conn_1" || profile.IDPID != "pat@idp" || profile.Email != "pat@lakeside.edu" {
 				t.Errorf("profile = %+v", profile)
 			}
 			if !strings.Contains(string(raw), "eduPersonPrincipalName") {

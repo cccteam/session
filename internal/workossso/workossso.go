@@ -51,10 +51,10 @@ type Authenticator interface {
 type Profile struct {
 	// ID is the WorkOS profile ID.
 	ID string `json:"id"`
-	// IdpID is the user's identifier asserted by the upstream IdP. For SAML it is the
+	// IDPID is the user's identifier asserted by the upstream IdP. For SAML it is the
 	// NameID unless WorkOS maps idp_id to another attribute. It is unique only within
 	// the connection.
-	IdpID          string `json:"idp_id"`
+	IDPID          string `json:"idp_id"`
 	ConnectionID   string `json:"connection_id"`
 	ConnectionType string `json:"connection_type"`
 	OrganizationID string `json:"organization_id"`
@@ -177,7 +177,7 @@ func (c *Client) Verify(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	if err := json.Unmarshal(rawProfile, profile); err != nil {
 		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse SSO profile"))
 	}
-	if profile.ConnectionID == "" || profile.IdpID == "" {
+	if profile.ConnectionID == "" || profile.IDPID == "" {
 		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessage("SSO profile is missing connection_id or idp_id"))
 	}
 
