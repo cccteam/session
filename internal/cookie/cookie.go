@@ -145,9 +145,12 @@ func (c *Client) readXSRFHeader(r *http.Request) (values *cookie.Values, found b
 
 // WriteStateCookie writes an OIDC login's state cookie, named for its provider (e.g.
 // AzureStateCookieName), so logins with different providers in one browser never
-// overwrite each other's state.
+// overwrite each other's state. It carries the state, PKCE verifier and return URL
+// between the redirect to the identity provider and the callback. No script reads it
+// and the server reads it once at the callback, so it is HttpOnly. SameSite stays the
+// default: a strict setting would keep it from coming back with the provider's redirect.
 func (c *Client) WriteStateCookie(w http.ResponseWriter, name string, values *cookie.Values) {
-	c.cookie.WritePersistentCookie(w, name, c.Domain, false, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
+	c.cookie.WritePersistentCookie(w, name, c.Domain, true, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
 }
 
 // ReadStateCookie reads the state cookie named name, or the legacy OIDCCookieName cookie

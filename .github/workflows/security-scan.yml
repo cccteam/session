@@ -12,9 +12,11 @@ jobs:
       actions: read
       security-events: write
       issues: write
-    uses: cccteam/github-workflows/.github/workflows/golang-security-scan.yml@b3af4a0c584cdd8de66195ac61ef3366d1c1a273 # v6.1.2
+    uses: cccteam/github-workflows/.github/workflows/golang-security-scan.yml@ce3b6a61c4b88c82d3c0c1760dc1a3f5a2731021 # v8.2.3
     with:
-      execute-trivy-scan: false
+      # The whole-repository Semgrep scan, reported by issue; the pull request scan is the gate.
+      execute-semgrep-scan: true
+      execute-grype-scan: false
     secrets:
       SLACK_BOT_TOKEN: ${{ secrets.CCC_SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}

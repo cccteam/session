@@ -41,6 +41,7 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 
 		// The target is the provider's authorization URL. The caller's returnUrl only
 		// rides in the state cookie and is sanitized on the callback.
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 		http.Redirect(w, r, authCodeURL, http.StatusFound) //nolint:gosec // G710: not a caller-controlled redirect, see above
 
 		return nil

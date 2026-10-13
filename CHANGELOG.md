@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.12.3](https://github.com/cccteam/session/compare/v0.12.2...v0.12.3) (2026-10-11)
+
+
+### Bug Fixes
+
+* the OIDC sign-in cookie is HttpOnly, dependabot waits a week, and the by-design Semgrep findings are annotated ([#262](https://github.com/cccteam/session/issues/262)) ([15bf6f1](https://github.com/cccteam/session/commit/15bf6f18edb5030f79f248ce0c3815b4539eefec))
+
+
+### Code Upgrade
+
+* **deps:** bump golang.org/x/sync from 0.23.0 to 0.24.0 in the go-dependencies group ([#264](https://github.com/cccteam/session/issues/264)) ([447e800](https://github.com/cccteam/session/commit/447e800a36cc8ce0a534c272f9d3b4831f90cc15))
+
+## [0.12.2](https://github.com/cccteam/session/compare/v0.12.1...v0.12.2) (2026-10-09)
+
+
+### Bug Fixes
+
+* request bodies decode with httpio's StructDecoder; the module no longer requires resource ([#260](https://github.com/cccteam/session/issues/260)) ([c6b13bb](https://github.com/cccteam/session/commit/c6b13bb87bd0571ab25f57804b1efe182cd94072))
+
+## [0.12.1](https://github.com/cccteam/session/compare/v0.12.0...v0.12.1) (2026-10-08)
+
+
+### Code Upgrade
+
+* **deps:** Go 1.26.9 and golang.org/x/net v0.60.0; net/http GO-2026-6612, GO-2026-6613 and GO-2026-6617 fixed ([#257](https://github.com/cccteam/session/issues/257)) ([83b39c9](https://github.com/cccteam/session/commit/83b39c9790a91cc0a6f4c31c4c32174a6e7e1dd9))
+* **deps:** the security scan runs golang-security-scan v8.2.1 and names its Grype switch ([#220](https://github.com/cccteam/session/issues/220)) ([a529179](https://github.com/cccteam/session/commit/a5291792947e4f2985d0c42ea82d48cd89ef5729))
+
 ## [0.12.0](https://github.com/cccteam/session/compare/v0.11.1...v0.12.0) (2026-10-06)
 
 

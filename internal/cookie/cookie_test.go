@@ -554,3 +554,44 @@ func Test_validate_TokenHeader_to_TokenCookie(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_WriteStateCookie(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cookieName string
+	}{
+		{name: "Azure", cookieName: AzureStateCookieName},
+		{name: "Google", cookieName: GoogleStateCookieName},
+		{name: "WorkOS", cookieName: WorkOSStateCookieName},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := NewCookieClient(cookieKey)
+			if err != nil {
+				t.Fatalf("NewCookieClient() error = %v", err)
+			}
+			w := httptest.NewRecorder()
+			c.WriteStateCookie(w, tt.cookieName, cookie.NewValues().SetString("state", "s"))
+
+			cookies := w.Result().Cookies()
+			if len(cookies) != 1 {
+				t.Fatalf("WriteStateCookie() wrote %d cookies, want 1", len(cookies))
+			}
+			got := cookies[0]
+			if got.Name != tt.cookieName {
+				t.Errorf("WriteStateCookie() cookie name = %q, want %q", got.Name, tt.cookieName)
+			}
+			if !got.HttpOnly {
+				t.Error("WriteStateCookie() cookie is not HttpOnly; the state cookie must not be readable by scripts")
+			}
+			// The default mode writes no SameSite attribute, which a parsed cookie reports as 0.
+			if got.SameSite != 0 {
+				t.Errorf("WriteStateCookie() SameSite = %v, want none so the provider's redirect carries it back", got.SameSite)
+			}
+		})
+	}
+}

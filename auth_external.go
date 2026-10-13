@@ -225,6 +225,7 @@ func (a *Auth[S, U]) externalLogin(m *externalMethod) http.HandlerFunc {
 
 		// The target is the provider's authorization URL, built from server-side
 		// configuration; the caller's returnUrl only rides in the state cookie.
+		// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 		http.Redirect(w, r, providerURL, http.StatusFound)
 
 		return nil

@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.26.6
+go 1.26.9
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface
@@ -12,11 +12,10 @@ require (
 	cloud.google.com/go/spanner v1.95.1
 	github.com/cccteam/ccc v0.3.3
 	github.com/cccteam/ccc/accesstypes v0.6.0
-	github.com/cccteam/ccc/resource v0.10.6
 	github.com/cccteam/ccc/securehash v0.0.14
 	github.com/cccteam/ccc/tracer v0.1.7
 	github.com/cccteam/db-initiator v0.4.0
-	github.com/cccteam/httpio v0.7.19
+	github.com/cccteam/httpio v0.7.21
 	github.com/cccteam/logger v0.1.27
 	github.com/cccteam/spxscan v0.0.16
 	github.com/coreos/go-oidc/v3 v3.21.0
@@ -34,7 +33,7 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.37.0
-	golang.org/x/sync v0.23.0
+	golang.org/x/sync v0.24.0
 	google.golang.org/api v0.300.0
 	google.golang.org/grpc v1.84.0
 )
@@ -87,6 +86,7 @@ require (
 	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/lib/pq v1.12.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -120,7 +120,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
