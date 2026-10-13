@@ -26,7 +26,7 @@ type externalMethod struct {
 	start func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error)
 	// verify completes the round trip into a verified sign-in.
 	verify func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*verifiedSignIn, error)
-	// syncRoles reconciles the account's roles to the role names the provider asserted.
+	// syncRoles reconciles the user's roles to the role names the provider asserted.
 	// It refuses with no_roles when no recognized role results. It is nil when the
 	// method synchronizes no roles.
 	syncRoles func(ctx context.Context, username string, roleNames []string) error
@@ -165,7 +165,7 @@ func googleMethod(authn googleoidc.Authenticator, roleSync *googleRoleSyncConfig
 
 // workOSMethod is the WorkOS SSO method. The identity is (connection_id, idp_id), and
 // the full profile is its claims. WorkOS only relays the upstream IdP's email, so
-// EmailVerified is false and the account resolver decides what the email is worth.
+// EmailVerified is false and the user resolver decides what the email is worth.
 // Roles are never synchronized.
 func workOSMethod(authn workossso.Authenticator) *externalMethod {
 	return &externalMethod{

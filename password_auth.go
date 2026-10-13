@@ -190,15 +190,15 @@ func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sess
 	}
 
 	if user.Disabled {
-		return httpio.NewUnauthorizedMessageWithError(err, "Account disabled")
+		return httpio.NewUnauthorizedMessageWithError(err, "User disabled")
 	}
 
 	return nil
 }
 
-// errNoPassword is the comparison failure for an account with no password hash, such
+// errNoPassword is the comparison failure for a user with no password hash, such
 // as one provisioned for external sign-in only.
-var errNoPassword = errors.New("the account has no password")
+var errNoPassword = errors.New("the user has no password")
 
 // comparePassword checks password against hash, reporting whether the hash should be
 // upgraded. A nil hash never matches.
@@ -207,7 +207,7 @@ func (p *PasswordAuth[T, U]) comparePassword(hash *securehash.Hash, password str
 }
 
 // comparePassword checks password against hash with hasher, reporting whether the hash
-// should be upgraded. A nil hash (an account without a password) fails like a wrong
+// should be upgraded. A nil hash (a user without a password) fails like a wrong
 // password, so the hasher, which dereferences the hash, never sees nil.
 func comparePassword(hasher *securehash.SecureHasher, hash *securehash.Hash, password string) (upgrade bool, err error) {
 	if hash == nil {
@@ -356,7 +356,7 @@ func (p *PasswordAuth[T, U]) ChangeUserPassword() http.HandlerFunc {
 	})
 }
 
-// CreateUser handles creating a user account.
+// CreateUser handles creating a user.
 func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 	type request struct {
 		Username string  `json:"username"`
@@ -392,7 +392,7 @@ func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 	})
 }
 
-// DeactivateUser handles deactivating a user account. The request is rejected with
+// DeactivateUser handles deactivating a user. The request is rejected with
 // 400 Bad Request when the target is the session's own user, so a user cannot
 // deactivate themselves.
 func (p *PasswordAuth[T, U]) DeactivateUser() http.HandlerFunc {
@@ -418,7 +418,7 @@ func (p *PasswordAuth[T, U]) DeactivateUser() http.HandlerFunc {
 	})
 }
 
-// DeleteUser handles deleting a user account. The request is rejected with
+// DeleteUser handles deleting a user. The request is rejected with
 // 400 Bad Request when the target is the session's own user, so a user cannot
 // delete themselves.
 func (p *PasswordAuth[T, U]) DeleteUser() http.HandlerFunc {
@@ -444,7 +444,7 @@ func (p *PasswordAuth[T, U]) DeleteUser() http.HandlerFunc {
 	})
 }
 
-// ActivateUser handles activating a user account.
+// ActivateUser handles activating a user.
 func (p *PasswordAuth[T, U]) ActivateUser() http.HandlerFunc {
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -575,7 +575,7 @@ func (p *PasswordAuth[T, U]) changeSessionUserHash(ctx context.Context, userID c
 	return nil
 }
 
-// createSessionUser handles creating a user account. When customData (*U, may be nil)
+// createSessionUser handles creating a user. When customData (*U, may be nil)
 // is provided it is written atomically with the user insert.
 func (p *PasswordAuth[T, U]) createSessionUser(ctx context.Context, req *CreateUserRequest, customData *U) (ccc.UUID, error) {
 	var hash *securehash.Hash
@@ -607,7 +607,7 @@ func (p *PasswordAuth[T, U]) createSessionUser(ctx context.Context, req *CreateU
 	return user.ID, nil
 }
 
-// deleteSessionUser handles deleting a user account. Performs no self-deletion
+// deleteSessionUser handles deleting a user. Performs no self-deletion
 // check; that is the caller's responsibility.
 func (p *PasswordAuth[T, U]) deleteSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
@@ -626,7 +626,7 @@ func (p *PasswordAuth[T, U]) deleteSessionUser(ctx context.Context, sessionUserI
 	return nil
 }
 
-// deactivateSessionUser handles deactivating a user account. Performs no
+// deactivateSessionUser handles deactivating a user. Performs no
 // self-deactivation check; that is the caller's responsibility.
 func (p *PasswordAuth[T, U]) deactivateSessionUser(ctx context.Context, sessionUserID ccc.UUID) error {
 	user, err := p.storage.User(ctx, sessionUserID)
@@ -645,7 +645,7 @@ func (p *PasswordAuth[T, U]) deactivateSessionUser(ctx context.Context, sessionU
 	return nil
 }
 
-// activateSessionUser handles activating a user account.
+// activateSessionUser handles activating a user.
 func (p *PasswordAuth[T, U]) activateSessionUser(ctx context.Context, sessionUserUUID ccc.UUID) error {
 	if err := p.storage.ActivateUser(ctx, sessionUserUUID); err != nil {
 		return errors.Wrap(err, "sessionstorage.PasswordAuthStore.ActivateUser()")
@@ -742,7 +742,7 @@ func (p *PasswordAuthAPI[T, U]) StartAuthenticatedSession(ctx context.Context, w
 	}
 
 	if user.Disabled {
-		return ccc.NilUUID, httpio.NewUnauthorizedMessage("Account disabled")
+		return ccc.NilUUID, httpio.NewUnauthorizedMessage("User disabled")
 	}
 
 	sessionID, err := p.passwordAuth.startNewSession(ctx, w, sessioninfo.ReasonExternalAuth, user.Username, user.ID, data)
@@ -793,7 +793,7 @@ func (p *PasswordAuthAPI[T, U]) ChangeSessionUserHash(ctx context.Context, userI
 	return p.passwordAuth.changeSessionUserHash(ctx, userID, hash)
 }
 
-// CreateSessionUser handles creating a user account.
+// CreateSessionUser handles creating a user.
 //
 // Optional customData (at most one *U) is the user's initial custom user data, written
 // atomically with the user insert — the user record and its custom data row land
@@ -828,7 +828,7 @@ func (p *PasswordAuthAPI[T, U]) UpdateCustomUserData(ctx context.Context, userID
 	return p.passwordAuth.shared().updateCustomUserData(ctx, userID, mutate)
 }
 
-// DeleteSessionUser handles deleting a user account. The user record is deleted
+// DeleteSessionUser handles deleting a user. The user record is deleted
 // and all of the user's active sessions are destroyed.
 //
 // No self-deletion guard is applied here: this method does not read the acting
@@ -838,7 +838,7 @@ func (p *PasswordAuthAPI[T, U]) DeleteSessionUser(ctx context.Context, sessionUs
 	return p.passwordAuth.deleteSessionUser(ctx, sessionUserID)
 }
 
-// DeactivateSessionUser handles deactivating a user account. The user record is
+// DeactivateSessionUser handles deactivating a user. The user record is
 // deactivated and all of the user's active sessions are destroyed.
 //
 // No self-deactivation guard is applied here: this method does not read the acting

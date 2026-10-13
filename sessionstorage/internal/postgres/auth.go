@@ -21,17 +21,17 @@ type AuthEventsConfig struct {
 	TableName string
 }
 
-// EnableAccounts enables the accounts schema's session columns, UserId and
+// EnableAuth enables the auth schema's session columns, UserId and
 // AuthenticatedAt. Non-OIDC session inserts write them and session reads return them.
 // Without it the driver never names those columns, so a legacy session table keeps
 // working.
-func (s *SessionStorageDriver) EnableAccounts() {
-	s.accounts = true
+func (s *SessionStorageDriver) EnableAuth() {
+	s.users = true
 }
 
-// AccountsEnabled reports whether the accounts schema's session columns are enabled.
-func (s *SessionStorageDriver) AccountsEnabled() bool {
-	return s.accounts
+// AuthEnabled reports whether the auth schema's session columns are enabled.
+func (s *SessionStorageDriver) AuthEnabled() bool {
+	return s.users
 }
 
 // SetAuthEvents attaches the auth events table. New sessions record their auth events,
@@ -46,11 +46,11 @@ func (s *SessionStorageDriver) AuthEventsEnabled() bool {
 }
 
 // sessionInsertStatement renders the insert of a non-OIDC session row. With the
-// accounts columns enabled it also writes UserId and AuthenticatedAt.
+// user columns enabled it also writes UserId and AuthenticatedAt.
 func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (query string, args []any) {
 	args = make([]any, 0, 7)
 	args = append(args, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired)
-	if !s.accounts {
+	if !s.users {
 		return fmt.Sprintf(`
 		INSERT INTO "%s"
 			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
@@ -59,10 +59,10 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 		`, s.sessionTableName), args
 	}
 
-	account := dbtype.SessionAccount(req, insertSession.CreatedAt)
+	user := dbtype.NewSessionUserColumns(req, insertSession.CreatedAt)
 	var userID *ccc.UUID
-	if account.UserID.Valid {
-		userID = &account.UserID.UUID
+	if user.UserID.Valid {
+		userID = &user.UserID.UUID
 	}
 
 	return fmt.Sprintf(`
@@ -70,7 +70,7 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt")
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7)
-		`, s.sessionTableName), append(args, userID, account.AuthenticatedAt)
+		`, s.sessionTableName), append(args, userID, user.AuthenticatedAt)
 }
 
 // initialAuthEvent chains the insert of the new session's auth events
@@ -118,27 +118,27 @@ func (s *SessionStorageDriver) insertAuthEvent(ctx context.Context, txn pgx.Tx, 
 	return nil
 }
 
-// accountColumns renders the accounts columns that follow the base columns in the
+// userColumns renders the user columns that follow the base columns in the
 // session query.
-func (s *SessionStorageDriver) accountColumns() string {
-	if !s.accounts {
+func (s *SessionStorageDriver) userColumns() string {
+	if !s.users {
 		return ""
 	}
 
 	return `, s."UserId", s."AuthenticatedAt"`
 }
 
-// accountScan holds the scan destinations of the accounts columns.
-type accountScan struct {
+// userScan holds the scan destinations of the user columns.
+type userScan struct {
 	userID          *ccc.UUID
 	authenticatedAt *time.Time
 }
 
-func (a *accountScan) dests() []any {
+func (a *userScan) dests() []any {
 	return []any{&a.userID, &a.authenticatedAt}
 }
 
-func (a *accountScan) apply(sessData *dbtype.SessionData) {
+func (a *userScan) apply(sessData *dbtype.SessionData) {
 	if a.userID != nil {
 		sessData.UserID = ccc.NullUUIDFromUUID(*a.userID)
 	}

@@ -23,7 +23,7 @@ type ImpersonationRequest struct {
 	Actor string
 	// ActorRealm names the application or identity provider that authenticated the
 	// actor, when it differs from this application (e.g. "admin-portal"). Leave it empty
-	// for a local actor: an account of this application, logged in here, whose own
+	// for a local actor: a user of this application, logged in here, whose own
 	// session is SourceSessionID.
 	ActorRealm string
 	// SourceSessionID is the actor's own session. For a local actor it is required and
@@ -92,10 +92,10 @@ func WithImpersonationAudit(hook ImpersonationAuditHook) BaseSessionOption {
 // Password auth resolves a user principal against SessionUsers: the session carries the
 // record's username and ID, and a missing or disabled user is refused. A role principal's
 // session carries the actor's own username. For a local actor (no ActorRealm) that name
-// is their own account, and the session is theirs, narrowed to the role. For a foreign
+// is their own user, and the session is theirs, narrowed to the role. For a foreign
 // actor (ActorRealm set) the name is borrowed, so the role principal is refused when it
-// is already a SessionUsers account — one name must never mean two accounts in one
-// session table; the actor logs in as that account or impersonates it as a user
+// is already a SessionUsers row — one name must never mean two users in one
+// session table; the actor logs in as that user or impersonates it as a user
 // principal instead.
 //
 // Establishment is refused when the storage has no impersonation table
@@ -307,15 +307,15 @@ type identityResolver struct {
 	// user resolves a user principal to the session's username and user record ID.
 	user func(ctx context.Context, user accesstypes.User) (username string, userID ccc.UUID, err error)
 	// actor guards a role principal, whose session carries the actor's own username:
-	// it refuses when that name already belongs to an account in this store, so one
-	// name never means two accounts in one session table. Nil when the store has no
-	// username-keyed accounts.
+	// it refuses when that name already belongs to a user in this store, so one
+	// name never means two users in one session table. Nil when the store has no
+	// username-keyed users.
 	actor func(ctx context.Context, actor string) error
 }
 
 // identityAsGiven is the resolver for session types with no username-keyed local user
 // record (Preauth, OIDC): the principal's name is the username, the user ID is zero, and
-// no name can collide with an account.
+// no name can collide with a user.
 var identityAsGiven = identityResolver{
 	user: func(_ context.Context, user accesstypes.User) (string, ccc.UUID, error) {
 		return string(user), ccc.NilUUID, nil
@@ -406,18 +406,18 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 
 // identity is password auth's identity resolver: user principals resolve against
 // SessionUsers, and a role principal for a foreign actor is refused when the actor's
-// name is already an account there.
+// name is already a user there.
 func (p *PasswordAuth[T, U]) identity() identityResolver {
-	return accountIdentity(p.storage)
+	return userIdentity(p.storage)
 }
 
-// accountIdentity is the identity resolver of PasswordAuth and Auth, whose accounts are
+// userIdentity is the identity resolver of PasswordAuth and Auth, whose users are
 // SessionUsers records. A user principal resolves against storage. A foreign actor's
-// role principal is refused when the actor's name is already an account there.
-func accountIdentity(storage sessionstorage.PasswordAuthStore) identityResolver {
+// role principal is refused when the actor's name is already a user there.
+func userIdentity(storage sessionstorage.PasswordAuthStore) identityResolver {
 	return identityResolver{
 		user: func(ctx context.Context, user accesstypes.User) (string, ccc.UUID, error) {
-			return impersonatedAccount(ctx, storage, user)
+			return impersonatedUser(ctx, storage, user)
 		},
 		actor: func(ctx context.Context, actor string) error {
 			return refuseShadowedActor(ctx, storage, actor)
@@ -425,25 +425,25 @@ func accountIdentity(storage sessionstorage.PasswordAuthStore) identityResolver 
 	}
 }
 
-// impersonatedAccount returns a user principal's SessionUsers username and ID. A
+// impersonatedUser returns a user principal's SessionUsers username and ID. A
 // missing user is an error, and a disabled one is refused.
-func impersonatedAccount(ctx context.Context, storage sessionstorage.PasswordAuthStore, user accesstypes.User) (string, ccc.UUID, error) {
+func impersonatedUser(ctx context.Context, storage sessionstorage.PasswordAuthStore, user accesstypes.User) (string, ccc.UUID, error) {
 	record, err := storage.UserByUserName(ctx, string(user))
 	if err != nil {
 		return "", ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.UserByUserName()")
 	}
 	if record.Disabled {
-		return "", ccc.NilUUID, httpio.NewUnauthorizedMessage("Account disabled")
+		return "", ccc.NilUUID, httpio.NewUnauthorizedMessage("User disabled")
 	}
 
 	return record.Username, record.ID, nil
 }
 
 // refuseShadowedActor refuses a role-principal session for a foreign actor whose
-// username is already an account in SessionUsers. The session row would carry that
+// username is already a user in SessionUsers. The session row would carry that
 // name, and the store's username-keyed operations could not tell the two apart; the
-// actor logs in as that account or impersonates it as a user principal instead. A local
-// actor's name is their own account and is never checked here.
+// actor logs in as that user or impersonates it as a user principal instead. A local
+// actor's name is their own user and is never checked here.
 func refuseShadowedActor(ctx context.Context, storage sessionstorage.PasswordAuthStore, actor string) error {
 	_, err := storage.UserByUserName(ctx, actor)
 	switch {

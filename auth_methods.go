@@ -56,7 +56,7 @@ type signInMethods struct {
 
 	registered map[sessioninfo.AuthMethod]bool
 	// hasher and autoUpgrade are the password method's settings. They keep their
-	// defaults when it is not registered, since account management still hashes
+	// defaults when it is not registered, since user management still hashes
 	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
@@ -177,7 +177,7 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 
 // ChangeUserPassword accepts {"oldPassword", "newPassword"} and changes the signed-in
-// account's password. Every session of the account is destroyed and the caller
+// user's password. Every session of the user is destroyed and the caller
 // continues in a new one. Route it behind ValidateSession.
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
 
@@ -191,7 +191,7 @@ type AzureMethod struct {
 // AzureSignIn registers Microsoft Entra ID (Azure) OIDC sign-in on auth and returns its
 // handlers. The identity key is (tid, oid).
 //
-// roleSync is required. RoleSync(manager) reconciles the account's roles to the token's
+// roleSync is required. RoleSync(manager) reconciles the user's roles to the token's
 // roles claim whenever an Azure sign-in establishes a session, and refuses the sign-in
 // (no_roles) when no recognized role results. DisableRoleSync() leaves roles to the
 // application. WithLoginURL sets where refused and pending sign-ins are sent.

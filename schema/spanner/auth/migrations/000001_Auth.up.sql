@@ -1,4 +1,4 @@
--- Accounts schema for Auth sessions (multi-method sessions, v0.13.0).
+-- Auth schema for Auth sessions (multi-method sessions, v0.13.0).
 -- Applies on top of the base migrations set (Sessions, SessionUsers).
 
 ALTER TABLE Sessions ADD COLUMN UserId STRING(36);

@@ -26,7 +26,7 @@ import (
 // A pending identity is a verified identity that waits for a password confirmation or
 // the application's MFA step. It is held as a stepping-stone row in the session table
 // and an encrypted pending cookie bound to that row's ID. It is accepted only while the
-// cookie decrypts, has not expired, and its row is live and has no account. Expiring
+// cookie decrypts, has not expired, and its row is live and has no user. Expiring
 // the row makes it single-use. See "What a pending identity is" in the README.
 
 // pendingCookieKey is the pending cookie's value holding the encoded pendingState.
@@ -156,7 +156,7 @@ func (a *Auth[S, U]) pending(ctx context.Context) (*pendingState, error) {
 			return nil, errPendingExpired()
 		}
 
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.Session()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.Session()")
 	}
 	if row.Expired || row.UserID.Valid {
 		return nil, errPendingExpired()
@@ -193,10 +193,10 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 		state.UserID = ccc.NullUUIDFromUUID(at.userID)
 	}
 
-	// The row's reason keeps the custom session data resolver off it: it has no account.
+	// The row's reason keeps the custom session data resolver off it: it has no user.
 	id, err := a.storage.CreateSession(ctx, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: wait.Username})
 	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.CreateSession()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.CreateSession()")
 	}
 	state.ID = id
 	encoded, err := encodePending(state)
@@ -280,12 +280,12 @@ func (a *Auth[S, U]) dropPendingRow(ctx context.Context) {
 
 func (a *Auth[S, U]) destroyPendingRow(ctx context.Context, id ccc.UUID) {
 	if err := a.storage.DestroySession(ctx, id); err != nil && !httpio.HasNotFound(err) {
-		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AccountStore.DestroySession()"))
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.DestroySession()"))
 	}
 }
 
 // completePending establishes the session of a pending identity. The session records
-// the pending identity's events followed by more. The account is resolved again and
+// the pending identity's events followed by more. The user is resolved again and
 // must be the one the identity waited on.
 func (a *Auth[S, U]) completePending(
 	ctx context.Context, w http.ResponseWriter, state *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
@@ -303,7 +303,7 @@ func (a *Auth[S, U]) completePending(
 	}
 	if identity.Method == sessioninfo.MethodPassword {
 		if !state.UserID.Valid {
-			return nil, errors.New("a pending password sign-in names no account")
+			return nil, errors.New("a pending password sign-in names no user")
 		}
 		at.userID = state.UserID.UUID
 	}
@@ -332,7 +332,7 @@ func (p *AuthAPI[S, U]) PendingIdentity(ctx context.Context) (*sessioninfo.Pendi
 // records the step-up events, links the identity if needed, starts the session, and
 // regenerates the session ID.
 //
-// The pending identity must wait for MFA (Conflict otherwise). The account is resolved
+// The pending identity must wait for MFA (Conflict otherwise). The user is resolved
 // again and must be the one the identity waited on. The sign-in policy is not asked
 // again. The session records the sign-in's events followed by stepUp. If the sign-in
 // must wait again (the resolver now asks for a confirmation), the error is a
@@ -363,7 +363,7 @@ func (p *AuthAPI[S, U]) CompletePending(ctx context.Context, w http.ResponseWrit
 	return outcome.sessionID, nil
 }
 
-// ConfirmPendingWithPassword checks the password of the pending identity's account,
+// ConfirmPendingWithPassword checks the password of the pending identity's user,
 // links the identity, calls the IdentityLinked hook, and starts the session.
 //
 // The pending identity must wait for a password confirmation (Conflict otherwise). A
@@ -399,13 +399,13 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 
 	user, err := a.storage.User(ctx, state.UserID.UUID)
 	if err != nil {
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.User()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 	if _, err := comparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
 	if user.Disabled {
-		return nil, dbtype.Refusal("", sessioninfo.RefusedAccountDisabled, sessionstorage.ErrAccountDisabled, "Account disabled")
+		return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
 	}
 
 	if err := a.linkPending(ctx, user.ID, state); err != nil {
@@ -416,7 +416,7 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 }
 
 // linkPending links a confirmed pending identity to userID and reports the link. If the
-// identity was linked meanwhile, that is accepted for the same account and refused for
+// identity was linked meanwhile, that is accepted for the same user and refused for
 // another.
 func (a *Auth[S, U]) linkPending(ctx context.Context, userID ccc.UUID, state *pendingState) error {
 	_, err := a.storage.LinkIdentity(ctx, userID, &state.Identity, state.Tenant)
@@ -431,9 +431,9 @@ func (a *Auth[S, U]) linkPending(ctx context.Context, userID ccc.UUID, state *pe
 			return nil
 		}
 
-		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity is linked to another account")
+		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity is linked to another user")
 	default:
-		return errors.Wrap(err, "sessionstorage.AccountStore.LinkIdentity()")
+		return errors.Wrap(err, "sessionstorage.AuthStore.LinkIdentity()")
 	}
 }
 

@@ -25,7 +25,7 @@ type Impersonation struct {
 	Actor string
 	// ActorRealm names the application or identity provider that authenticated
 	// the actor, when it differs from this application (e.g. "admin-portal").
-	// Empty means the actor is an account of this application (see IsLocalActor).
+	// Empty means the actor is a user of this application (see IsLocalActor).
 	ActorRealm string
 	// SourceSessionID is the actor's own session: in this application for a local
 	// actor (verified at establishment, kept alive by this session's activity, and
@@ -53,7 +53,7 @@ type Impersonation struct {
 	EndReason ImpersonationEndReason
 }
 
-// IsLocalActor reports whether the actor is an account of this application: no
+// IsLocalActor reports whether the actor is a user of this application: no
 // ActorRealm names another one. A local actor's role-principal session is their own
 // session narrowed to a role, and their name in the session table is theirs; a foreign
 // actor's role-principal session carries a name borrowed from another application.

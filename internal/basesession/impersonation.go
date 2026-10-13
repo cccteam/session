@@ -122,7 +122,7 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 }
 
 // verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an
-// account of this application, so the request must name the actor's own session in
+// user of this application, so the request must name the actor's own session in
 // this store as SourceSessionID, and that session must be live, not itself impersonated,
 // and carry the actor's username. A foreign actor (ActorRealm set) was authenticated
 // elsewhere and has nothing here to check.

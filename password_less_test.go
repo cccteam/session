@@ -16,11 +16,11 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// TestPasswordAuth_PasswordLessAccount proves that an account with no password hash (one
+// TestPasswordAuth_PasswordLessUser proves that a user with no password hash (one
 // provisioned for external sign-in only) fails every password check as invalid
 // credentials: it never panics in the hasher and never yields a session. The strict
 // mocks would fail a CreateSession, SetUserPasswordHash or DestroyAllUserSessions call.
-func TestPasswordAuth_PasswordLessAccount(t *testing.T) {
+func TestPasswordAuth_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
@@ -77,7 +77,7 @@ func TestPasswordAuth_PasswordLessAccount(t *testing.T) {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						t.Fatalf("password check panicked on a password-less account: %v", r)
+						t.Fatalf("password check panicked on a password-less user: %v", r)
 					}
 				}()
 				got = tt.check(t.Context(), p, storage)
@@ -93,9 +93,9 @@ func TestPasswordAuth_PasswordLessAccount(t *testing.T) {
 	}
 }
 
-// TestPasswordAuth_Login_PasswordLessAccount drives the Login handler for a
-// password-less account: 401, no cookies.
-func TestPasswordAuth_Login_PasswordLessAccount(t *testing.T) {
+// TestPasswordAuth_Login_PasswordLessUser drives the Login handler for a
+// password-less user: 401, no cookies.
+func TestPasswordAuth_Login_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 	ctrl := gomock.NewController(t)
 

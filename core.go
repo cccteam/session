@@ -186,7 +186,7 @@ func (a sharedAPI[S, U]) updateCustomSessionData(ctx context.Context, sessionID 
 	return nil
 }
 
-// customUserData returns an account's custom user data. A user with no custom data row
+// customUserData returns a user's custom user data. A user with no custom data row
 // yields a zero-value U.
 func (a sharedAPI[S, U]) customUserData(ctx context.Context, userID ccc.UUID) (U, error) {
 	ctx, span := tracer.Start(ctx)
@@ -205,7 +205,7 @@ func (a sharedAPI[S, U]) customUserData(ctx context.Context, userID ccc.UUID) (U
 	return *typed, nil
 }
 
-// updateCustomUserData is the typed transactional read-modify-write of an account's
+// updateCustomUserData is the typed transactional read-modify-write of a user's
 // custom user data.
 func (a sharedAPI[S, U]) updateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
 	ctx, span := tracer.Start(ctx)

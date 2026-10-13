@@ -13,11 +13,11 @@ Add a scenario when a property only holds if several layers agree, such as "the 
 is dead after the end". The Auth scenarios run password and WorkOS sign-in on one `Auth`
 against a fake WorkOS code exchange (`TestAuthSeams_PasswordAndWorkOS`), and Azure and
 Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoogle`, production
-verifiers only, so not under `skipAuth`). Their account resolver and sign-in policy can
+verifiers only, so not under `skipAuth`). Their user resolver and sign-in policy can
 take the transaction (`hooks.resolveTx`, `hooks.policyTx`) to write and read the
 application's own tables (`PartnerMembers`, `SignInAttempts`, created over the shipped
 schema), which is how the scenarios prove a hook's write survives a refusal and a policy
-reads the account a sign-in provisioned. Needs Docker.
+reads the user a sign-in provisioned. Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
 against all five session types (including `Auth`, with password and WorkOS sign-in
@@ -52,11 +52,11 @@ divergence the suite exists to catch. Driver behaviour that is not impersonation
 lives in each driver's own `*_test.go`, which is where new conformance tables should be
 carved from next. Needs Docker.
 
-The accounts cases (`RunAccounts`) give the application's hooks a `HookTx`, which each
+The users cases (`RunAuth`) give the application's hooks a `HookTx`, which each
 harness adapts to its backend's transaction, so a case can have the resolver, the policy
 and the custom session data resolver write and read rows as an application does. Those
-cases prepare the `AccountsWithAppTables` schema: the shipped accounts migrations plus
-the driver package's `testdata/accounts_test/app_tables` fixture (`HookRecords` and a
+cases prepare the `AuthWithAppTables` schema: the shipped auth migrations plus
+the driver package's `testdata/auth_test/app_tables` fixture (`HookRecords` and a
 `SessionCustomData` table). This is where a difference in transaction visibility between
 the backends shows up: Spanner's buffered writes are invisible to later reads in the same
 transaction, PostgreSQL's are not.
@@ -106,7 +106,7 @@ go test -tags insecurecookie ./...              # the development cookie configu
 go test -run TestSeams ./internal/e2e           # the seam suite alone
 go test -run TestAuthSeams ./internal/e2e       # the Auth seam scenarios
 go test -run TestImpersonation ./sessionstorage/internal/...   # driver conformance
-go test -run TestAccounts ./sessionstorage/internal/...        # accounts, identities and auth events conformance
+go test -run TestAuth ./sessionstorage/internal/...        # users, identities and auth events conformance
 ```
 
 CI runs the suite with the race detector under the default, `skipAuth`, `insecurecookie`

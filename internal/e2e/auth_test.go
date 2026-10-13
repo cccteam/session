@@ -23,9 +23,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const accountsMigrations = "file://../../schema/postgresql/accounts/migrations"
+const authMigrations = "file://../../schema/postgresql/auth/migrations"
 
-// The password every seeded account has.
+// The password every seeded user has.
 const seedPassword = "correct horse battery staple"
 
 // The WorkOS client the fake accepts, and the connection its sign-ins come through.
@@ -34,7 +34,7 @@ const (
 	lakesideConnection = "conn_lakeside"
 )
 
-// hooks are an Auth app's account resolver, sign-in policy, IdentityLinked hook and
+// hooks are an Auth app's user resolver, sign-in policy, IdentityLinked hook and
 // PendingHook, set per scenario. The resolver and the policy run inside the sign-in's
 // transactions; resolveTx and policyTx, when set, receive them to write and read the
 // application's own rows.
@@ -112,7 +112,7 @@ func (h *hooks) counts() (resolved int, linked []ccc.UUID) {
 	return h.resolved, append([]ccc.UUID(nil), h.linked...)
 }
 
-// authApp is an application on one Auth session over PostgreSQL with the accounts,
+// authApp is an application on one Auth session over PostgreSQL with the users,
 // auth events and impersonation schema.
 type authApp struct {
 	db     *dbinitiator.PostgresDatabase
@@ -121,14 +121,14 @@ type authApp struct {
 	hooks  *hooks
 }
 
-// newAuthStore prepares a database with the shipped sessions, impersonation and accounts
-// migrations and returns account storage over it with h's hooks.
-func newAuthStore(ctx context.Context, t *testing.T, h *hooks) (*dbinitiator.PostgresDatabase, *sessionstorage.Accounts) {
+// newAuthStore prepares a database with the shipped sessions, impersonation and users
+// migrations and returns Auth storage over it with h's hooks.
+func newAuthStore(ctx context.Context, t *testing.T, h *hooks) (*dbinitiator.PostgresDatabase, *sessionstorage.Auth) {
 	t.Helper()
 
 	db := prepareDatabase(ctx, t)
-	if err := db.MigrateUp(accountsMigrations); err != nil {
-		t.Fatalf("PostgresDatabase.MigrateUp(accounts) error = %v", err)
+	if err := db.MigrateUp(authMigrations); err != nil {
+		t.Fatalf("PostgresDatabase.MigrateUp(users) error = %v", err)
 	}
 	// The application's own tables, which its hooks write in the sign-in transactions.
 	if _, err := db.Exec(ctx, `
@@ -150,7 +150,7 @@ func newAuthStore(ctx context.Context, t *testing.T, h *hooks) (*dbinitiator.Pos
 		t.Fatalf("sessionstorage.NewImpersonationTable() error = %v", err)
 	}
 
-	return db, sessionstorage.NewPostgresAccounts(db.Pool,
+	return db, sessionstorage.NewPostgresAuth(db.Pool,
 		sessionstorage.WithPostgresIdentities(identities), sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
 }
 
@@ -217,7 +217,7 @@ type sessionView struct {
 	SessionID string   `json:"sessionId"`
 	UserID    string   `json:"userId"`
 	Username  string   `json:"username"`
-	Account   string   `json:"account"`
+	User      string   `json:"user"`
 	Events    []string `json:"events"`
 }
 
@@ -226,7 +226,7 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 	view := sessionView{
 		SessionID: data.ID.String(),
 		Username:  data.Username,
-		Account:   sessioninfo.UserFromRequest(r).ID.String(),
+		User:      sessioninfo.UserFromRequest(r).ID.String(),
 	}
 	if data.UserID.Valid {
 		view.UserID = data.UserID.String()
@@ -271,7 +271,7 @@ func (a *authApp) browser(t *testing.T) *browser {
 	return (&app{db: a.db, server: a.server}).browser(t)
 }
 
-// seed creates an account with seedPassword.
+// seed creates a user with seedPassword.
 func (a *authApp) seed(ctx context.Context, t *testing.T, username string) ccc.UUID {
 	t.Helper()
 
@@ -455,27 +455,27 @@ func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS)
 	}{
 		{
-			name: "a password sign-in establishes a session under a new ID that belongs to the account and records the password method",
+			name: "a password sign-in establishes a session under a new ID that belongs to the user and records the password method",
 			run:  seamPasswordSignIn,
 		},
 		{
-			name: "a first WorkOS sign-in provisions the account the resolver names; the next signs in through the link without the resolver",
+			name: "a first WorkOS sign-in provisions the user the resolver names; the next signs in through the link without the resolver",
 			run:  seamWorkOSProvisionThenLink,
 		},
 		{
-			name: "a first WorkOS sign-in provisions the account, and a policy that reads the account and the application's rows OnProvisioned wrote signs it in",
-			run:  seamWorkOSProvisionPolicyReadsAccount,
+			name: "a first WorkOS sign-in provisions the user, and a policy that reads the user and the application's rows OnProvisioned wrote signs it in",
+			run:  seamWorkOSProvisionPolicyReadsUser,
 		},
 		{
 			name: "a WorkOS sign-in the resolver rejects keeps the resolver's record of the attempt",
 			run:  seamWorkOSRejectedKeepsAttempt,
 		},
 		{
-			name: "a provisioning sign-in held for MFA names the new account to the pending hook, which sends the browser to the application's MFA page",
+			name: "a provisioning sign-in held for MFA names the new user to the pending hook, which sends the browser to the application's MFA page",
 			run:  seamWorkOSProvisionHeldForMFA,
 		},
 		{
-			name: "a WorkOS identity for an account with a password waits for that password, then links, reports the link and signs in",
+			name: "a WorkOS identity for a user with a password waits for that password, then links, reports the link and signs in",
 			run:  seamWorkOSConfirmWithPassword,
 		},
 		{
@@ -499,7 +499,7 @@ func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 			run:  seamWorkOSCallbackBinding,
 		},
 		{
-			name: "a disabled account's session is refused on its next request, and a user-principal impersonation belongs to the impersonated account",
+			name: "a disabled user's session is refused on its next request, and a user-principal impersonation belongs to the impersonated user",
 			run:  seamDisabledAndImpersonation,
 		},
 	}
@@ -526,8 +526,8 @@ func seamPasswordSignIn(ctx context.Context, t *testing.T, a *authApp, _ *fakeWo
 		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 without MFA", status, mfa)
 	}
 	v := b.view(ctx)
-	if v.UserID != pat.String() || v.Account != pat.String() || v.SessionID == anonymous {
-		t.Errorf("session = %+v, want account %s under a session ID other than %s", v, pat, anonymous)
+	if v.UserID != pat.String() || v.User != pat.String() || v.SessionID == anonymous {
+		t.Errorf("session = %+v, want user %s under a session ID other than %s", v, pat, anonymous)
 	}
 	assertEventsSeen(t, v, "password")
 
@@ -541,7 +541,7 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 
 	a.hooks.set(func(h *hooks) {
 		h.resolve = func(req *sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-			return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionAccount, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside"}
+			return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside"}
 		}
 	})
 
@@ -550,7 +550,7 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
-		t.Fatalf("session = %+v, want the provisioned account sam@lakeside.edu", first)
+		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
 	}
 	assertEventsSeen(t, first, "workos:"+lakesideConnection)
 
@@ -558,24 +558,24 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 	other.prime(ctx)
 	assertRedirect(t, other.workOSSignIn(ctx, workos, "", "idp_sam", "sam@lakeside.edu"), "/", url.Values{})
 	if second := other.view(ctx); second.UserID != first.UserID {
-		t.Errorf("second sign-in account = %s, want %s", second.UserID, first.UserID)
+		t.Errorf("second sign-in user = %s, want %s", second.UserID, first.UserID)
 	}
 
 	resolved, linked := a.hooks.counts()
 	if resolved != 1 {
-		t.Errorf("account resolver ran %d times, want once: a linked identity never reaches it", resolved)
+		t.Errorf("user resolver ran %d times, want once: a linked identity never reaches it", resolved)
 	}
 	if len(linked) != 1 || linked[0].String() != first.UserID {
 		t.Errorf("IdentityLinked reports = %v, want one for %s", linked, first.UserID)
 	}
 }
 
-// provisionMember is an account resolver that provisions every unlinked identity under
+// provisionMember is a user resolver that provisions every unlinked identity under
 // its email for the lakeside partner, and records the membership in the application's
 // own table in OnProvisioned, in the resolver's transaction.
 func provisionMember(_ context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error) {
 	return &sessionstorage.Resolution{
-		Outcome: sessionstorage.ProvisionAccount, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside",
+		Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside",
 		OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
 			_, err := tx.Exec(ctx, `INSERT INTO "PartnerMembers" ("UserId", "Partner") VALUES ($1, 'lakeside')`, userID)
 
@@ -584,16 +584,16 @@ func provisionMember(_ context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRe
 	}, nil
 }
 
-func seamWorkOSProvisionPolicyReadsAccount(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
 	t.Helper()
 
-	var sources []sessioninfo.AccountSource
+	var sources []sessioninfo.UserSource
 	a.hooks.set(func(h *hooks) {
 		h.resolveTx = provisionMember
-		// The policy reads the account and its membership, as an application's "members
+		// The policy reads the user and its membership, as an application's "members
 		// of a partner may sign in" rule does, and refuses what it cannot see.
 		h.policyTx = func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.SignInDecision, error) {
-			sources = append(sources, req.Account.Source)
+			sources = append(sources, req.User.Source)
 			var partner string
 			err := tx.QueryRow(ctx, `SELECT m."Partner" FROM "PartnerMembers" m JOIN "SessionUsers" u ON u."Id" = m."UserId" WHERE u."Id" = $1`, req.UserID).Scan(&partner)
 			switch {
@@ -601,7 +601,7 @@ func seamWorkOSProvisionPolicyReadsAccount(ctx context.Context, t *testing.T, a 
 				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "not_a_member"}, nil
 			case err != nil:
 				return nil, err //nolint:wrapcheck // the driver wraps it
-			case partner != req.Account.Tenant:
+			case partner != req.User.Tenant:
 				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "wrong_partner"}, nil
 			}
 
@@ -614,20 +614,20 @@ func seamWorkOSProvisionPolicyReadsAccount(ctx context.Context, t *testing.T, a 
 	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
-		t.Fatalf("session = %+v, want the provisioned account sam@lakeside.edu", first)
+		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
 	}
 
 	other := a.browser(t)
 	other.prime(ctx)
 	assertRedirect(t, other.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	if second := other.view(ctx); second.UserID != first.UserID {
-		t.Errorf("second sign-in account = %s, want %s", second.UserID, first.UserID)
+		t.Errorf("second sign-in user = %s, want %s", second.UserID, first.UserID)
 	}
 
-	var seen []sessioninfo.AccountSource
+	var seen []sessioninfo.UserSource
 	a.hooks.set(func(*hooks) { seen = append(seen, sources...) })
-	if want := []sessioninfo.AccountSource{sessioninfo.AccountProvisioned, sessioninfo.AccountExistingLink}; !slices.Equal(seen, want) {
-		t.Errorf("the policy saw accounts %v, want %v", seen, want)
+	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
+		t.Errorf("the policy saw users %v, want %v", seen, want)
 	}
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0].String() != first.UserID {
 		t.Errorf("IdentityLinked reports = %v, want one for %s", linked, first.UserID)
@@ -682,17 +682,17 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 		}
 	})
 	if pending == nil || pending.Reason != sessioninfo.PendingMFA || !pending.UserID.Valid || pending.Identity.Email != "sam@lakeside.edu" || pending.ReturnURL != "/dashboard" {
-		t.Fatalf("pending hook received %+v, want one MFA wait naming the provisioned account, its email and the return path", pending)
+		t.Fatalf("pending hook received %+v, want one MFA wait naming the provisioned user, its email and the return path", pending)
 	}
 	var username string
 	if err := a.db.QueryRow(ctx, `SELECT "Username" FROM "SessionUsers" WHERE "Id" = $1`, pending.UserID.UUID).Scan(&username); err != nil || username != "sam@lakeside.edu" {
-		t.Errorf("the pending account = %q, %v; want sam@lakeside.edu committed, so the application can send its code", username, err)
+		t.Errorf("the pending user = %q, %v; want sam@lakeside.edu committed, so the application can send its code", username, err)
 	}
 
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
 	v := b.view(ctx)
 	if v.UserID != pending.UserID.String() || v.SessionID == anonymous {
-		t.Errorf("session = %+v, want account %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
+		t.Errorf("session = %+v, want user %s under a session ID other than %s", v, pending.UserID.UUID, anonymous)
 	}
 	assertEventsSeen(t, v, "workos:"+lakesideConnection, "email-otp")
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0] != pending.UserID.UUID {
@@ -739,7 +739,7 @@ func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp
 	}
 	v := b.view(ctx)
 	if v.UserID != pat.String() {
-		t.Errorf("session account = %s, want %s", v.UserID, pat)
+		t.Errorf("session user = %s, want %s", v.UserID, pat)
 	}
 	assertEventsSeen(t, v, "workos:"+lakesideConnection, "link-confirmation")
 	if _, linked := a.hooks.counts(); len(linked) != 1 || linked[0] != pat {
@@ -755,7 +755,7 @@ func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp
 	next.prime(ctx)
 	assertRedirect(t, next.workOSSignIn(ctx, workos, "/dashboard", "idp_pat", "pat@lakeside.edu"), "/dashboard", url.Values{})
 	if got := next.view(ctx).UserID; got != pat.String() {
-		t.Errorf("linked sign-in account = %s, want %s", got, pat)
+		t.Errorf("linked sign-in user = %s, want %s", got, pat)
 	}
 }
 
@@ -784,7 +784,7 @@ func seamPasswordMFA(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkO
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
 	v := b.view(ctx)
 	if v.UserID != pat.String() || v.SessionID == anonymous {
-		t.Errorf("session = %+v, want account %s under a session ID other than %s", v, pat, anonymous)
+		t.Errorf("session = %+v, want user %s under a session ID other than %s", v, pat, anonymous)
 	}
 	assertEventsSeen(t, v, "password", "email-otp")
 
@@ -879,8 +879,8 @@ func seamDisabledAndImpersonation(ctx context.Context, t *testing.T, a *authApp,
 	tab := b.clone()
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/impersonate", map[string]string{"user": "bob@lakeside.edu"})
 	v := b.view(ctx)
-	if v.UserID != bob.String() || v.Account != bob.String() {
-		t.Errorf("impersonated session = %+v, want account %s", v, bob)
+	if v.UserID != bob.String() || v.User != bob.String() {
+		t.Errorf("impersonated session = %+v, want user %s", v, bob)
 	}
 	assertEventsSeen(t, v, "impersonation:pat@lakeside.edu")
 

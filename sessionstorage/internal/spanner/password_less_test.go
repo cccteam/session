@@ -7,10 +7,10 @@ import (
 	"github.com/cccteam/session/internal/dbtype"
 )
 
-// TestSessionStorageDriver_PasswordLessAccount proves a password-less account (an
-// account provisioned for external sign-in) round-trips on the shipped schema: it is
+// TestSessionStorageDriver_PasswordLessUser proves a password-less user (an
+// user provisioned for external sign-in) round-trips on the shipped schema: it is
 // created and read with no hash, gains a password, and loses it again.
-func TestSessionStorageDriver_PasswordLessAccount(t *testing.T) {
+func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 

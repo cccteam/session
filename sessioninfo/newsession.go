@@ -29,7 +29,7 @@ const (
 	// impersonated user's record ID, or the zero UUID for a role principal.
 	ReasonImpersonation NewSessionReason = "Impersonation"
 	// ReasonPendingIdentity indicates the row of an Auth session's pending identity. It
-	// has no account and is never authenticated. The custom session data resolver is
+	// has no user and is never authenticated. The custom session data resolver is
 	// not called for it.
 	ReasonPendingIdentity NewSessionReason = "PendingIdentity"
 )
@@ -76,9 +76,9 @@ type NewSessionRequest struct {
 	// Identity's method. An event with a zero At takes the session's creation time.
 	// Events are written only when the storage has an auth events table.
 	AuthEvents []AuthEvent
-	// Account is the account an Auth sign-in resolved to and how. The storage sets it
-	// once the account is known, before the sign-in policy and the custom session data
+	// User is the user an Auth sign-in resolved to and how. The storage sets it
+	// once the user is known, before the sign-in policy and the custom session data
 	// resolver run, and leaves it set after the insert returns. It is nil while the
-	// account resolver runs and for the legacy session types.
-	Account *SignInAccount
+	// user resolver runs and for the legacy session types.
+	User *SignInUser
 }

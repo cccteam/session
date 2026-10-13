@@ -34,10 +34,10 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// newAccountStoreMock is an AccountStore mock with the constructor's probes answered:
+// newAuthStoreMock is an AuthStore mock with the constructor's probes answered:
 // no custom data, no OIDC-only features, identities as given.
-func newAccountStoreMock(ctrl *gomock.Controller, identities bool) *mock_sessionstorage.MockAccountStore {
-	storage := mock_sessionstorage.NewMockAccountStore(ctrl)
+func newAuthStoreMock(ctrl *gomock.Controller, identities bool) *mock_sessionstorage.MockAuthStore {
+	storage := mock_sessionstorage.NewMockAuthStore(ctrl)
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	storage.EXPECT().UserDataLoginHookConfigured().Return(false).AnyTimes()
 	storage.EXPECT().OIDCUsersEnabled().Return(false).AnyTimes()
@@ -52,7 +52,7 @@ func newAccountStoreMock(ctrl *gomock.Controller, identities bool) *mock_session
 type authFixture struct {
 	auth     *Auth[NoCustomData, NoCustomData]
 	password *PasswordMethod
-	store    *mock_sessionstorage.MockAccountStore
+	store    *mock_sessionstorage.MockAuthStore
 	// linked records the IdentityLinked hook's calls.
 	linked []ccc.UUID
 }
@@ -60,7 +60,7 @@ type authFixture struct {
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	f := &authFixture{store: newAccountStoreMock(ctrl, true)}
+	f := &authFixture{store: newAuthStoreMock(ctrl, true)}
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
@@ -123,12 +123,12 @@ func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *sessionstorage
 
 // pendingRow matches the insert of a pending identity's stepping-stone row for
 // username: ReasonPendingIdentity, which the storage never resolves custom session data
-// for, and no identity, account or custom data.
+// for, and no identity, user or custom data.
 func pendingRow(username string) gomock.Matcher {
 	return gomock.Eq(&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: username})
 }
 
-// livePending expects the stepping-stone row id to be read, live and accountless.
+// livePending expects the stepping-stone row id to be read, live and without a user.
 func (f *authFixture) livePending(id ccc.UUID) {
 	f.store.EXPECT().Session(gomock.Any(), id).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, UpdatedAt: time.Now()}}, nil).AnyTimes()
 }
@@ -174,8 +174,8 @@ func hashed(t *testing.T, password string) *securehash.Hash {
 }
 
 // createSession expects one session insert, checks the request with check, lets resolve
-// play the driver's part (set the account, or fail), and answers id.
-func createSession(store *mock_sessionstorage.MockAccountStore, id ccc.UUID, check func(req *sessioninfo.NewSessionRequest), resolve func(req *sessioninfo.NewSessionRequest) error) {
+// play the driver's part (set the user, or fail), and answers id.
+func createSession(store *mock_sessionstorage.MockAuthStore, id ccc.UUID, check func(req *sessioninfo.NewSessionRequest), resolve func(req *sessioninfo.NewSessionRequest) error) {
 	store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 		if check != nil {
 			check(req)
@@ -197,40 +197,40 @@ func TestNewAuth(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		storage    func(ctrl *gomock.Controller) sessionstorage.AccountStore
+		storage    func(ctrl *gomock.Controller) sessionstorage.AuthStore
 		options    []AuthOption
 		wantErrHas string
 	}{
 		{
 			name:    "an Auth is built before any sign-in method is registered on it",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AccountStore { return newAccountStoreMock(ctrl, false) },
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, false) },
 		},
 		{
 			name:    "the cookie, session and pending-identity options",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AccountStore { return newAccountStoreMock(ctrl, true) },
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
 			options: []AuthOption{WithPendingTimeout(time.Minute), WithPendingCookieName("pending"), WithCookieName("app"), WithSessionTimeout(time.Hour)},
 		},
 		{
 			name:       "no storage",
-			storage:    func(*gomock.Controller) sessionstorage.AccountStore { return nil },
+			storage:    func(*gomock.Controller) sessionstorage.AuthStore { return nil },
 			wantErrHas: "storage is required",
 		},
 		{
 			name:       "a pending cookie named like the session cookie",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AccountStore { return newAccountStoreMock(ctrl, true) },
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
 			options:    []AuthOption{WithCookieName("same"), WithPendingCookieName("same")},
 			wantErrHas: "differ from the session cookie name",
 		},
 		{
 			name:       "a pending timeout that is not positive",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AccountStore { return newAccountStoreMock(ctrl, true) },
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
 			options:    []AuthOption{WithPendingTimeout(0)},
 			wantErrHas: "pending timeout",
 		},
 		{
 			name: "storage with the OIDC user anchor",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AccountStore {
-				s := mock_sessionstorage.NewMockAccountStore(ctrl)
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore {
+				s := mock_sessionstorage.NewMockAuthStore(ctrl)
 				s.EXPECT().UserDataLoginHookConfigured().Return(false).AnyTimes()
 				s.EXPECT().OIDCUsersEnabled().Return(true).AnyTimes()
 
@@ -264,7 +264,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller, identities bool) *Auth[NoCustomData, NoCustomData] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAccountStoreMock(ctrl, identities), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl, identities), cookieKey)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -390,7 +390,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			name: "a method registered after the Auth hashed a password through its API", identities: true,
 			before: func(a *Auth[NoCustomData, NoCustomData]) {
 				pw := "pw"
-				store, ok := a.storage.(*mock_sessionstorage.MockAccountStore)
+				store, ok := a.storage.(*mock_sessionstorage.MockAuthStore)
 				if !ok {
 					panic("the Auth's storage is not the mock")
 				}
@@ -490,7 +490,7 @@ func TestAuth_PasswordLogin(t *testing.T) {
 		wantPending bool
 	}{
 		{
-			name:     "the right password starts a session for the account, recording the password method",
+			name:     "the right password starts a session for the user, recording the password method",
 			password: "pw",
 			prepare: func(f *authFixture) {
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -509,17 +509,17 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "a password-less account fails every password",
+			name:       "a password-less user fails every password",
 			password:   "",
 			user:       &sessionstorage.SessionUser{ID: userID, Username: "pat"},
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "a disabled account is refused with its code",
+			name:       "a disabled user is refused with its code",
 			password:   "pw",
 			user:       &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw"), Disabled: true},
 			wantStatus: http.StatusUnauthorized,
-			wantCode:   sessioninfo.RefusedAccountDisabled,
+			wantCode:   sessioninfo.RefusedUserDisabled,
 		},
 		{
 			name:     "a policy denial is refused with the policy's code and writes no session cookie",
@@ -668,7 +668,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 	every := accesstypes.EveryDomainPolicyScope()
 	claims := `{"tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"]}`
 
-	// resolved plays the driver: the identity resolves to the account pat.
+	// resolved plays the driver: the identity resolves to the user pat.
 	resolved := func(req *sessioninfo.NewSessionRequest) error { //nolint:unparam // the driver's signature
 		req.UserID, req.Username = userID, "pat"
 
@@ -684,7 +684,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 		wantPending  bool
 	}{
 		{
-			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the account it resolved to",
+			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the user it resolved to",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -713,12 +713,12 @@ func TestAuth_AzureCallback(t *testing.T) {
 			wantLocation: "/login?code=no_roles",
 		},
 		{
-			name:         "an ID token without tid and oid is refused before any account is resolved",
+			name:         "an ID token without tid and oid is refused before any user is resolved",
 			claims:       `{"preferred_username":"pat"}`,
 			wantLocation: "/login?code=parse_claims_failed",
 		},
 		{
-			name:   "an identity waiting for its account's password becomes a pending identity, and no roles are touched",
+			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
@@ -984,35 +984,35 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// source is how the storage resolved the account.
-		source sessioninfo.AccountSource
+		// source is how the storage resolved the user.
+		source sessioninfo.UserSource
 		// stop is the storage's outcome other than a session.
 		stop       error
 		wantLinked []ccc.UUID
 	}{
 		{
-			name:       "a sign-in that provisioned the account reports the link, and the hook's error does not undo it",
-			source:     sessioninfo.AccountProvisioned,
+			name:       "a sign-in that provisioned the user reports the link, and the hook's error does not undo it",
+			source:     sessioninfo.UserProvisioned,
 			wantLinked: []ccc.UUID{userID},
 		},
 		{
 			name:       "a sign-in the resolver linked reports the link",
-			source:     sessioninfo.AccountNewLink,
+			source:     sessioninfo.UserNewLink,
 			wantLinked: []ccc.UUID{userID},
 		},
 		{
 			name:   "a sign-in through an existing link reports nothing",
-			source: sessioninfo.AccountExistingLink,
+			source: sessioninfo.UserExistingLink,
 		},
 		{
 			name:       "a provisioning sign-in held for MFA reports the link it committed",
-			source:     sessioninfo.AccountProvisioned,
+			source:     sessioninfo.UserProvisioned,
 			stop:       &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
 			wantLinked: []ccc.UUID{userID},
 		},
 		{
 			name:       "a provisioning sign-in the policy denied reports the link it committed",
-			source:     sessioninfo.AccountProvisioned,
+			source:     sessioninfo.UserProvisioned,
 			stop:       dbtype.Refusal("", sessioninfo.RefusedByPolicy, sessionstorage.ErrSignInDenied, "sign-in denied"),
 			wantLinked: []ccc.UUID{userID},
 		},
@@ -1024,7 +1024,7 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 				req.UserID, req.Username = userID, "pat"
-				req.Account = &sessioninfo.SignInAccount{ID: userID, Username: "pat", Source: tt.source}
+				req.User = &sessioninfo.SignInUser{ID: userID, Username: "pat", Source: tt.source}
 
 				return tt.stop
 			})
@@ -1114,7 +1114,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:     "an identity linked meanwhile to another account is refused",
+			name:     "an identity linked meanwhile to another user is refused",
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, _ ccc.UUID) {
@@ -1222,7 +1222,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			wantSession: true,
 		},
 		{
-			name: "an identity resolving to another account than it waited on is refused and its session expired",
+			name: "an identity resolving to another user than it waited on is refused and its session expired",
 			wait: mfa,
 			prepare: func(f *authFixture, _ ccc.UUID) {
 				createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
@@ -1242,12 +1242,12 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			wantErr: httpio.HasConflict,
 		},
 		{
-			name: "a disabled account is refused at completion",
+			name: "a disabled user is refused at completion",
 			wait: mfa,
 			prepare: func(f *authFixture, _ ccc.UUID) {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, nil)
 			},
-			wantErr: func(err error) bool { return errors.Is(err, sessionstorage.ErrAccountDisabled) },
+			wantErr: func(err error) bool { return errors.Is(err, sessionstorage.ErrUserDisabled) },
 		},
 	}
 	for _, tt := range tests {
@@ -1313,7 +1313,7 @@ func TestAuth_PendingStatusAndCancel(t *testing.T) {
 		t.Errorf("Status() = %+v", status)
 	}
 	if strings.Contains(rr.Body.String(), "pat\"") {
-		t.Errorf("Status() = %s, want no account username", rr.Body.String())
+		t.Errorf("Status() = %s, want no user username", rr.Body.String())
 	}
 
 	f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
@@ -1379,7 +1379,7 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 		wantErr func(error) bool
 	}{
 		{name: "the application's own steps are recorded and no sign-in policy is asked", events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}},
-		{name: "a disabled account is refused", events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantErr: httpio.HasUnauthorized},
+		{name: "a disabled user is refused", events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantErr: httpio.HasUnauthorized},
 		{name: "an event without a method is refused", events: []sessioninfo.AuthEvent{{}}, wantErr: httpio.HasBadRequest},
 	}
 	for _, tt := range tests {
@@ -1421,21 +1421,21 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		principal  accesstypes.Principal
-		prepare    func(store *mock_sessionstorage.MockAccountStore)
+		prepare    func(store *mock_sessionstorage.MockAuthStore)
 		wantUserID ccc.UUID
 	}{
 		{
-			name:      "a user principal's session belongs to the impersonated account",
+			name:      "a user principal's session belongs to the impersonated user",
 			principal: accesstypes.UserPrincipal("bob"),
-			prepare: func(store *mock_sessionstorage.MockAccountStore) {
+			prepare: func(store *mock_sessionstorage.MockAuthStore) {
 				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID: bobID,
 		},
 		{
-			name:      "a role principal's session belongs to no account",
+			name:      "a role principal's session belongs to no user",
 			principal: accesstypes.RolePrincipal("Viewer"),
-			prepare: func(store *mock_sessionstorage.MockAccountStore) {
+			prepare: func(store *mock_sessionstorage.MockAuthStore) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
 		},
@@ -1474,19 +1474,19 @@ func TestAuth_ValidateSession(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		session     *sessioninfo.SessionData
-		user        *sessionstorage.SessionUser
-		userErr     error
-		wantNext    bool
-		wantAccount ccc.UUID
+		name     string
+		session  *sessioninfo.SessionData
+		user     *sessionstorage.SessionUser
+		userErr  error
+		wantNext bool
+		wantUser ccc.UUID
 	}{
-		{name: "a session is admitted with the account it belongs to, loaded by UserId", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}, wantNext: true, wantAccount: userID},
-		{name: "a session whose account is disabled is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}},
-		{name: "a session whose account is gone is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), userErr: httpio.NewNotFoundMessage("gone")},
-		{name: "a session that belongs to no account (a pending identity's row) is refused", session: session(ccc.NullUUID{}, nil)},
+		{name: "a session is admitted with the user it belongs to, loaded by UserId", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}, wantNext: true, wantUser: userID},
+		{name: "a session whose user is disabled is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}},
+		{name: "a session whose user is gone is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), userErr: httpio.NewNotFoundMessage("gone")},
+		{name: "a session that belongs to no user (a pending identity's row) is refused", session: session(ccc.NullUUID{}, nil)},
 		{
-			name:     "a foreign actor's role-principal impersonation has no account to load",
+			name:     "a foreign actor's role-principal impersonation has no user to load",
 			session:  session(ccc.NullUUID{}, &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin", Principal: accesstypes.RolePrincipal("Viewer"), ExpiresAt: time.Now().Add(time.Hour)}),
 			wantNext: true,
 		},
@@ -1512,19 +1512,19 @@ func TestAuth_ValidateSession(t *testing.T) {
 			if !tt.wantNext && rr.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rr.Code)
 			}
-			if tt.wantNext && sessioninfo.UserFromCtx(rec.ctx).ID != tt.wantAccount {
-				t.Errorf("account in context = %s, want %s", sessioninfo.UserFromCtx(rec.ctx).ID, tt.wantAccount)
+			if tt.wantNext && sessioninfo.UserFromCtx(rec.ctx).ID != tt.wantUser {
+				t.Errorf("user in context = %s, want %s", sessioninfo.UserFromCtx(rec.ctx).ID, tt.wantUser)
 			}
 		})
 	}
 }
 
-func TestAuthAPI_AccountManagement(t *testing.T) {
+func TestAuthAPI_UserManagement(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
 
-	t.Run("changing the password destroys the account's sessions by UserId and continues in a new one that records the password", func(t *testing.T) {
+	t.Run("changing the password destroys the user's sessions by UserId and continues in a new one that records the password", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
@@ -1556,7 +1556,7 @@ func TestAuthAPI_AccountManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting an account destroys its sessions before the account and its identities go", func(t *testing.T) {
+	t.Run("deleting a user destroys its sessions before the user and its identities go", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
@@ -1570,7 +1570,7 @@ func TestAuthAPI_AccountManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("deactivating an account destroys its sessions", func(t *testing.T) {
+	t.Run("deactivating a user destroys its sessions", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
@@ -1583,7 +1583,7 @@ func TestAuthAPI_AccountManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("an account's last means of sign-in is not unlinked", func(t *testing.T) {
+	t.Run("a user's last means of sign-in is not unlinked", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)

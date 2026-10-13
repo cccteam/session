@@ -592,7 +592,7 @@ func testDestroyImpersonatedSession(ctx context.Context, t *testing.T, h *Harnes
 	}
 }
 
-// The two username-keyed operations treat every session under a name as that account's:
+// The two username-keyed operations treat every session under a name as that user's:
 // its own login, a user-principal impersonation of it, the role session it holds as a
 // local actor, and the sessions it holds as a local actor under other names, except a
 // foreign actor's role-principal session, which only borrows the name.

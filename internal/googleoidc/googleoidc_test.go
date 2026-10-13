@@ -147,7 +147,7 @@ func TestOIDC_Verify(t *testing.T) {
 			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 		{
-			name: "hd claim absent (consumer account) fails closed",
+			name: "hd claim absent (consumer user) fails closed",
 			tokenClaims: func() map[string]any {
 				c := workspaceClaims()
 				delete(c, "hd")

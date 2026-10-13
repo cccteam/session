@@ -35,8 +35,8 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
-	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
-	accounts   bool
+	// users enables the auth schema's session columns (UserId, AuthenticatedAt).
+	users      bool
 	authEvents *AuthEventsConfig
 	identities *IdentitiesConfig
 }
@@ -125,8 +125,8 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	sessData := &dbtype.SessionData{Session: session}
 
-	if s.accounts {
-		next, err := readAccount(row, idx, sessData)
+	if s.users {
+		next, err := readUser(row, idx, sessData)
 		if err != nil {
 			return nil, err
 		}
@@ -249,11 +249,11 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	// A sign-in that carries a verified identity resolves its account first. An external
+	// A sign-in that carries a verified identity resolves its user first. An external
 	// identity always does. A password identity does when identities, and so the sign-in
 	// policy, are configured.
 	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
-		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
+		if err := s.insertUserSession(ctx, id, insertSession, req); err != nil {
 			return ccc.NilUUID, err
 		}
 
@@ -541,7 +541,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		}
 
 		// A live role-principal impersonation by a foreign actor carrying this name belongs
-		// to that actor, not to the renamed account, and keeps the name its record names.
+		// to that actor, not to the renamed user, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
 				SET Username = @newUsername, UpdatedAt = @updatedAt
@@ -555,7 +555,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 
-		// The live impersonations this account holds as a local actor follow the rename, so
+		// The live impersonations this user holds as a local actor follow the rename, so
 		// they stay reachable by the new name; ended records keep the name of their time.
 		if s.impersonation != nil {
 			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
@@ -589,8 +589,8 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 }
 
 // passwordHashValue renders a password hash column value: NULL for a password-less
-// account. securehash.Hash encodes itself with a value receiver, which panics on the nil
-// pointer a password-less account carries, so the driver encodes it here.
+// user. securehash.Hash encodes itself with a value receiver, which panics on the nil
+// pointer a password-less user carries, so the driver encodes it here.
 func passwordHashValue(hash *securehash.Hash) (spanner.NullString, error) {
 	if hash == nil {
 		return spanner.NullString{}, nil
@@ -851,7 +851,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statement {
 	var columns strings.Builder
 	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
-	columns.WriteString(s.accountColumns())
+	columns.WriteString(s.userColumns())
 
 	joinClause := ""
 	if s.customData != nil {

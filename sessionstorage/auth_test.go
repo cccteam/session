@@ -13,10 +13,10 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// TestSessionStorage_Session_Account proves the account columns and auth events a
-// driver reads reach the public SessionData: the account's ID, when it authenticated,
+// TestSessionStorage_Session_User proves the user columns and auth events a
+// driver reads reach the public SessionData: the user's ID, when it authenticated,
 // and its events; a session without them maps to the zero values.
-func TestSessionStorage_Session_Account(t *testing.T) {
+func TestSessionStorage_Session_User(t *testing.T) {
 	t.Parallel()
 
 	sessionID := ccc.Must(ccc.NewUUID())
@@ -30,7 +30,7 @@ func TestSessionStorage_Session_Account(t *testing.T) {
 		want *sessioninfo.SessionData
 	}{
 		{
-			name: "an account session carries its account, authentication time and events",
+			name: "a user session carries its user, authentication time and events",
 			row:  &dbtype.SessionData{Session: &dbtype.Session{ID: sessionID}, UserID: ccc.NullUUIDFromUUID(userID), AuthenticatedAt: &at, AuthEvents: events},
 			want: &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID}, UserID: ccc.NullUUIDFromUUID(userID), AuthenticatedAt: at, AuthEvents: events},
 		},

@@ -20,7 +20,7 @@ type Session struct {
 
 // SessionData pairs a Session with optional custom session data and, for an
 // impersonated session, its impersonation record (nil otherwise). UserID and
-// AuthenticatedAt are set only when the accounts columns are enabled, and AuthEvents
+// AuthenticatedAt are set only when the user columns are enabled, and AuthEvents
 // only when there is an auth events table.
 type SessionData struct {
 	*Session

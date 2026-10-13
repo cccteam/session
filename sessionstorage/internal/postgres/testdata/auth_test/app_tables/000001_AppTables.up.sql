@@ -1,4 +1,4 @@
--- Test-only application tables for the accounts conformance suite: the rows an
+-- Test-only application tables for the users conformance suite: the rows an
 -- application's own hooks write in the sign-in transactions, and a custom session data
 -- table for drivertest.CustomStringData.
 BEGIN;

@@ -25,12 +25,12 @@ const (
 	// Its AuthEvent.Connection is the actor.
 	MethodImpersonation AuthMethod = "impersonation"
 	// MethodLinkConfirmation records a password confirmation that linked a new
-	// external identity to an existing account.
+	// external identity to an existing user.
 	MethodLinkConfirmation AuthMethod = "link-confirmation"
 )
 
 // Identity is a verified identity produced by a sign-in method. An external identity
-// is linked to an account by (Method, Connection, Subject). Email is an attribute and
+// is linked to a user by (Method, Connection, Subject). Email is an attribute and
 // is never used as a key.
 type Identity struct {
 	// Method is the sign-in method that verified this identity.
@@ -40,7 +40,7 @@ type Identity struct {
 	// MethodPassword.
 	Connection string
 	// Subject is the upstream subject. It is the WorkOS profile idp_id, the Azure oid,
-	// the Google sub, or the account ID (as a string) for MethodPassword.
+	// the Google sub, or the user ID (as a string) for MethodPassword.
 	Subject string
 	// Email is the email address asserted by the method, if any.
 	Email string
@@ -69,7 +69,7 @@ type AuthEvent struct {
 type PendingReason string
 
 const (
-	// PendingConfirmation means the identity resolves to an existing account that has a
+	// PendingConfirmation means the identity resolves to an existing user that has a
 	// password. The user must enter that password before the identity is linked.
 	PendingConfirmation PendingReason = "confirmation"
 	// PendingMFA means the sign-in policy requires the application's MFA step before
@@ -82,8 +82,8 @@ const (
 type PendingIdentity struct {
 	Identity Identity
 	Reason   PendingReason
-	// UserID and Username name the account the identity waits on. This includes an
-	// account the sign-in has just provisioned.
+	// UserID and Username name the user the identity waits on. This includes an
+	// user the sign-in has just provisioned.
 	UserID    ccc.NullUUID
 	Username  string
 	ExpiresAt time.Time
@@ -92,53 +92,53 @@ type PendingIdentity struct {
 	ReturnURL string
 }
 
-// AccountSource says how an Auth sign-in found its account.
-type AccountSource string
+// UserSource says how an Auth sign-in found its user.
+type UserSource string
 
 const (
-	// AccountNamed means the sign-in named its account (a password sign-in).
-	AccountNamed AccountSource = "named"
-	// AccountExistingLink means the identity was already linked to the account.
-	AccountExistingLink AccountSource = "existing-link"
-	// AccountNewLink means the account resolver linked the identity to an existing
-	// account in this sign-in (LinkIdentity).
-	AccountNewLink AccountSource = "new-link"
-	// AccountProvisioned means the account resolver created the account in this sign-in
-	// (ProvisionAccount) and linked the identity to it.
-	AccountProvisioned AccountSource = "provisioned"
+	// UserNamed means the sign-in named its user (a password sign-in).
+	UserNamed UserSource = "named"
+	// UserExistingLink means the identity was already linked to the user.
+	UserExistingLink UserSource = "existing-link"
+	// UserNewLink means the user resolver linked the identity to an existing
+	// user in this sign-in (LinkIdentity).
+	UserNewLink UserSource = "new-link"
+	// UserProvisioned means the user resolver created the user in this sign-in
+	// (ProvisionUser) and linked the identity to it.
+	UserProvisioned UserSource = "provisioned"
 )
 
-// SignInAccount is the account an Auth sign-in resolved to. NewSessionRequest.Account
+// SignInUser is the user an Auth sign-in resolved to. NewSessionRequest.User
 // carries it to the sign-in policy and the custom session data resolver.
-type SignInAccount struct {
-	// ID is the account (SessionUsers.Id).
+type SignInUser struct {
+	// ID is the user (SessionUsers.Id).
 	ID ccc.UUID
-	// Username is the account's username.
+	// Username is the user's username.
 	Username string
-	// HasPassword reports whether the account has a password.
+	// HasPassword reports whether the user has a password.
 	HasPassword bool
-	// Source says how the sign-in found the account.
-	Source AccountSource
+	// Source says how the sign-in found the user.
+	Source UserSource
 	// Tenant is the application's tenant key on the identity's link. It is the stored
 	// link's tenant, or Resolution.Tenant for a link made in this sign-in. It is empty
 	// for a password sign-in.
 	Tenant string
 }
 
-// Provisioned reports whether the sign-in created the account.
-func (a *SignInAccount) Provisioned() bool {
-	return a != nil && a.Source == AccountProvisioned
+// Provisioned reports whether the sign-in created the user.
+func (a *SignInUser) Provisioned() bool {
+	return a != nil && a.Source == UserProvisioned
 }
 
-// Linked reports whether the sign-in linked its identity to the account, either to an
-// existing account or to one it provisioned.
-func (a *SignInAccount) Linked() bool {
-	return a != nil && (a.Source == AccountNewLink || a.Source == AccountProvisioned)
+// Linked reports whether the sign-in linked its identity to the user, either to an
+// existing user or to one it provisioned.
+func (a *SignInUser) Linked() bool {
+	return a != nil && (a.Source == UserNewLink || a.Source == UserProvisioned)
 }
 
 const (
 	// ReasonIdentityLinked indicates a session created when a new external identity
-	// was linked to an existing account after a password confirmation.
+	// was linked to an existing user after a password confirmation.
 	ReasonIdentityLinked NewSessionReason = "IdentityLinked"
 	// ReasonStepUp indicates a session regenerated after a step-up (MFA) completed.
 	ReasonStepUp NewSessionReason = "StepUp"
@@ -146,13 +146,13 @@ const (
 
 const (
 	// RefusedIdentityRejected is the code for an external identity the application's
-	// account resolver rejected (for example, no invite or roster entry).
+	// user resolver rejected (for example, no invite or roster entry).
 	RefusedIdentityRejected LoginRefusalCode = "identity_rejected"
 	// RefusedByPolicy is the code for a sign-in the application's policy denied (for
 	// example, password sign-in for a tenant that requires SSO).
 	RefusedByPolicy LoginRefusalCode = "policy_denied"
-	// RefusedAccountDisabled is the code for a sign-in to a disabled account.
-	RefusedAccountDisabled LoginRefusalCode = "account_disabled"
+	// RefusedUserDisabled is the code for a sign-in to a disabled user.
+	RefusedUserDisabled LoginRefusalCode = "user_disabled"
 	// RefusedPendingExpired is the code for a confirmation or MFA step that arrived
 	// after its pending identity expired.
 	RefusedPendingExpired LoginRefusalCode = "pending_expired"

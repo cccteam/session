@@ -43,7 +43,7 @@ func DataFromRequest(r *http.Request) *SessionData {
 }
 
 // DataFromCtx returns the validated session's data from the context, including the
-// account, authentication time and auth events of an Auth session. It panics when the
+// user, authentication time and auth events of an Auth session. It panics when the
 // context carries no session, as FromCtx does.
 func DataFromCtx(ctx context.Context) *SessionData {
 	sessionData, ok := ctx.Value(CtxSessionInfo).(*SessionData)

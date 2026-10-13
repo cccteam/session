@@ -42,8 +42,8 @@ func TestNewIdentities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var sr SpannerAccountResolver = spannerResolver
-			var pr PostgresAccountResolver = postgresResolver
+			var sr SpannerUserResolver = spannerResolver
+			var pr PostgresUserResolver = postgresResolver
 			if tt.noResolve {
 				sr, pr = nil, nil
 			}
@@ -62,9 +62,9 @@ func TestNewIdentities(t *testing.T) {
 	}
 }
 
-// TestAccounts_IdentitiesEnabled proves WithSpannerIdentities / WithPostgresIdentities
-// attach the configuration to account storage, and that storage without it reports so.
-func TestAccounts_IdentitiesEnabled(t *testing.T) {
+// TestAuth_IdentitiesEnabled proves WithSpannerIdentities / WithPostgresIdentities
+// attach the configuration to Auth storage, and that storage without it reports so.
+func TestAuth_IdentitiesEnabled(t *testing.T) {
 	t.Parallel()
 
 	spannerCfg, err := NewSpannerIdentities("SessionIdentities", spannerResolver, nil)
@@ -78,13 +78,13 @@ func TestAccounts_IdentitiesEnabled(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		store *Accounts
+		store *Auth
 		want  bool
 	}{
-		{name: "Spanner with identities", store: NewSpannerAccounts(nil, WithSpannerIdentities(spannerCfg)), want: true},
-		{name: "Postgres with identities", store: NewPostgresAccounts(nil, WithPostgresIdentities(postgresCfg)), want: true},
-		{name: "Spanner without", store: NewSpannerAccounts(nil)},
-		{name: "Postgres without", store: NewPostgresAccounts(nil)},
+		{name: "Spanner with identities", store: NewSpannerAuth(nil, WithSpannerIdentities(spannerCfg)), want: true},
+		{name: "Postgres with identities", store: NewPostgresAuth(nil, WithPostgresIdentities(postgresCfg)), want: true},
+		{name: "Spanner without", store: NewSpannerAuth(nil)},
+		{name: "Postgres without", store: NewPostgresAuth(nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestResolution_DriverMapping(t *testing.T) {
 
 	outcomes := map[IdentityOutcome]dbtype.IdentityOutcome{
 		RejectIdentity: dbtype.RejectIdentity, LinkIdentity: dbtype.LinkIdentity,
-		ProvisionAccount: dbtype.ProvisionAccount, RequireConfirmation: dbtype.RequireConfirmation,
+		ProvisionUser: dbtype.ProvisionUser, RequireConfirmation: dbtype.RequireConfirmation,
 	}
 	for public, driver := range outcomes {
 		if got := driverResolution(&Resolution{Outcome: public}).Outcome; got != driver {
@@ -120,7 +120,7 @@ func TestResolution_DriverMapping(t *testing.T) {
 
 	userID := ccc.Must(ccc.NewUUID())
 	newUser := &InsertSessionUser{Username: "new@example.com"}
-	got := driverResolution(&Resolution{Outcome: ProvisionAccount, UserID: userID, NewUser: newUser, Tenant: "t", TrustedForLinking: true, Refusal: "x"})
+	got := driverResolution(&Resolution{Outcome: ProvisionUser, UserID: userID, NewUser: newUser, Tenant: "t", TrustedForLinking: true, Refusal: "x"})
 	if got.UserID != userID || got.NewUser != newUser || got.Tenant != "t" || !got.TrustedForLinking || got.Refusal != "x" {
 		t.Errorf("driverResolution() = %+v, want every field carried", got)
 	}
@@ -129,9 +129,9 @@ func TestResolution_DriverMapping(t *testing.T) {
 	}
 }
 
-// TestAccounts_StoreMethods proves each Accounts method maps the driver's rows to the
+// TestAuth_StoreMethods proves each Auth method maps the driver's rows to the
 // public type and propagates the driver's errors with their class.
-func TestAccounts_StoreMethods(t *testing.T) {
+func TestAuth_StoreMethods(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
@@ -143,7 +143,7 @@ func TestAccounts_StoreMethods(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func(db *Mockdb)
-		call    func(ctx context.Context, a *Accounts) (any, error)
+		call    func(ctx context.Context, a *Auth) (any, error)
 		want    any
 		wantErr error
 	}{
@@ -152,7 +152,7 @@ func TestAccounts_StoreMethods(t *testing.T) {
 			prepare: func(db *Mockdb) {
 				db.EXPECT().Identity(gomock.Any(), sessioninfo.MethodWorkOS, "conn", "sub").Return(link, nil)
 			},
-			call: func(ctx context.Context, a *Accounts) (any, error) {
+			call: func(ctx context.Context, a *Auth) (any, error) {
 				return a.Identity(ctx, sessioninfo.MethodWorkOS, "conn", "sub")
 			},
 			want: (*SessionIdentity)(link),
@@ -162,13 +162,13 @@ func TestAccounts_StoreMethods(t *testing.T) {
 			prepare: func(db *Mockdb) {
 				db.EXPECT().IdentitiesByUser(gomock.Any(), userID).Return([]*dbtype.SessionIdentity{link}, nil)
 			},
-			call: func(ctx context.Context, a *Accounts) (any, error) { return a.IdentitiesByUser(ctx, userID) },
+			call: func(ctx context.Context, a *Auth) (any, error) { return a.IdentitiesByUser(ctx, userID) },
 			want: []*SessionIdentity{(*SessionIdentity)(link)},
 		},
 		{
 			name:    "LinkIdentity maps the new link",
 			prepare: func(db *Mockdb) { db.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "tenant").Return(link, nil) },
-			call: func(ctx context.Context, a *Accounts) (any, error) {
+			call: func(ctx context.Context, a *Auth) (any, error) {
 				return a.LinkIdentity(ctx, userID, identity, "tenant")
 			},
 			want: (*SessionIdentity)(link),
@@ -176,18 +176,18 @@ func TestAccounts_StoreMethods(t *testing.T) {
 		{
 			name:    "UnlinkIdentity propagates the last-means-of-sign-in refusal",
 			prepare: func(db *Mockdb) { db.EXPECT().UnlinkIdentity(gomock.Any(), link.ID).Return(refused) },
-			call:    func(ctx context.Context, a *Accounts) (any, error) { return nil, a.UnlinkIdentity(ctx, link.ID) },
+			call:    func(ctx context.Context, a *Auth) (any, error) { return nil, a.UnlinkIdentity(ctx, link.ID) },
 			wantErr: ErrLastSignInMethod,
 		},
 		{
-			name:    "DestroyUserSessions forwards the account",
+			name:    "DestroyUserSessions forwards the user",
 			prepare: func(db *Mockdb) { db.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil) },
-			call:    func(ctx context.Context, a *Accounts) (any, error) { return nil, a.DestroyUserSessions(ctx, userID) },
+			call:    func(ctx context.Context, a *Auth) (any, error) { return nil, a.DestroyUserSessions(ctx, userID) },
 		},
 		{
 			name:    "AppendAuthEvent forwards the event",
 			prepare: func(db *Mockdb) { db.EXPECT().AppendAuthEvent(gomock.Any(), userID, &event).Return(nil) },
-			call: func(ctx context.Context, a *Accounts) (any, error) {
+			call: func(ctx context.Context, a *Auth) (any, error) {
 				return nil, a.AppendAuthEvent(ctx, userID, &event)
 			},
 		},
@@ -199,7 +199,7 @@ func TestAccounts_StoreMethods(t *testing.T) {
 
 			db := NewMockdb(ctrl)
 			tt.prepare(db)
-			a := &Accounts{PasswordAuth: &PasswordAuth{sessionStorage: sessionStorage{db: db}}}
+			a := &Auth{PasswordAuth: &PasswordAuth{sessionStorage: sessionStorage{db: db}}}
 
 			got, err := tt.call(t.Context(), a)
 			if tt.wantErr != nil {

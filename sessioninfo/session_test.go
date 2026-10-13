@@ -115,7 +115,7 @@ func TestDataFromCtx(t *testing.T) {
 		wantPanic bool
 	}{
 		{name: "a context without a session panics, as FromCtx does", ctx: context.Background(), wantPanic: true},
-		{name: "the validated session's data, with its account and auth events", ctx: context.WithValue(context.Background(), CtxSessionInfo, data), want: data},
+		{name: "the validated session's data, with its user and auth events", ctx: context.WithValue(context.Background(), CtxSessionInfo, data), want: data},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

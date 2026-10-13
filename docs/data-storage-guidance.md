@@ -40,16 +40,16 @@ data have different *destinations*.
 | Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a today | n/a |
 
 **Auth sessions** (`NewAuth`, see the README's "Auth sessions" section) use the
-`SessionUsers` account for every sign-in method. The stable anchor is `SessionUsers.Id`,
+`SessionUsers` user for every sign-in method. The stable anchor is `SessionUsers.Id`,
 which every session carries as `SessionData.UserID` and every resolver receives as
-`req.UserID` once the account is resolved; external identities are rows of
-`SessionIdentities` that point at it, so durable user data keys off the account, never
+`req.UserID` once the user is resolved; external identities are rows of
+`SessionIdentities` that point at it, so durable user data keys off the user, never
 off an identity's subject or email. Custom session data is resolved with `ReasonLogin`,
 `ReasonIdentityLinked` (a confirmed link), `ReasonStepUp` (an MFA completion),
 `ReasonExternalAuth` (`StartAuthenticatedSession`) or `ReasonRegeneration`, with
 `req.Identity` and `req.Claims` for the external methods, and with `ReasonPreauth` for
-the stepping-stone row of a pending identity, which belongs to no account. Custom user
-data works as for username/password; provision it in the account resolver's
+the stepping-stone row of a pending identity, which belongs to no user. Custom user
+data works as for username/password; provision it in the user resolver's
 `OnProvisioned`, inside the session transaction.
 
 ## Patterns
@@ -69,7 +69,7 @@ data works as for username/password; provision it in the account resolver's
   which is exactly how `OIDCUsers` treats it.
 - **Google OIDC:** same pattern, simpler key: enable the anchor and key by
   `GoogleOIDCUsers.Id` — a surrogate UUID over the `sub` claim **alone**.
-  Google's `sub` is globally unique among all Google accounts and never
+  Google's `sub` is globally unique among all Google identities and never
   reused, so no composite is needed (Azure's composite exists only because
   `oid` is tenant-scoped). Apps that manage their own user table key it by
   `sub`. The hosted domain (`hd`) and username (`email`) are mutable
@@ -111,7 +111,7 @@ must be the composite `(tid, oid)`. Two reasons:
    *different* `oid` per tenant. `(tid, oid)` makes each tenant-scoped
    identity its own row — which is almost always what a multi-tenant app
    wants. If the product genuinely needs "one human across tenants," that is
-   an account-linking feature the app builds on top, not something any claim
+   a user-linking feature the app builds on top, not something any claim
    gives you.
 
 ### P-2: JIT-provision user data inside the resolver transaction

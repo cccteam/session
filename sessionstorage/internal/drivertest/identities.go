@@ -26,7 +26,7 @@ func lakeside(subject string) *sessioninfo.Identity {
 }
 
 // signIn inserts a session for identity with reason, as a sign-in method would.
-func signIn(ctx context.Context, d AccountsDriver, identity *sessioninfo.Identity, reason sessioninfo.NewSessionReason) (ccc.UUID, *sessioninfo.NewSessionRequest, error) {
+func signIn(ctx context.Context, d AuthDriver, identity *sessioninfo.Identity, reason sessioninfo.NewSessionReason) (ccc.UUID, *sessioninfo.NewSessionRequest, error) {
 	req := &sessioninfo.NewSessionRequest{Reason: reason, Username: identity.Email, Identity: identity}
 
 	id, err := d.InsertSession(ctx, newInsertSession(identity.Email), req)
@@ -37,8 +37,8 @@ func signIn(ctx context.Context, d AccountsDriver, identity *sessioninfo.Identit
 	return id, req, nil
 }
 
-// passwordUser creates an account that has a password.
-func passwordUser(ctx context.Context, t *testing.T, d AccountsDriver, username string) *dbtype.SessionUser {
+// passwordUser creates a user that has a password.
+func passwordUser(ctx context.Context, t *testing.T, d AuthDriver, username string) *dbtype.SessionUser {
 	t.Helper()
 
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -53,7 +53,7 @@ func passwordUser(ctx context.Context, t *testing.T, d AccountsDriver, username 
 	return user
 }
 
-func mustLink(ctx context.Context, t *testing.T, d AccountsDriver, userID ccc.UUID, identity *sessioninfo.Identity) *dbtype.SessionIdentity {
+func mustLink(ctx context.Context, t *testing.T, d AuthDriver, userID ccc.UUID, identity *sessioninfo.Identity) *dbtype.SessionIdentity {
 	t.Helper()
 
 	link, err := d.LinkIdentity(ctx, userID, identity, "")
@@ -65,7 +65,7 @@ func mustLink(ctx context.Context, t *testing.T, d AccountsDriver, userID ccc.UU
 }
 
 // assertNoLink fails unless identity is unlinked.
-func assertNoLink(ctx context.Context, t *testing.T, d AccountsDriver, identity *sessioninfo.Identity) {
+func assertNoLink(ctx context.Context, t *testing.T, d AuthDriver, identity *sessioninfo.Identity) {
 	t.Helper()
 
 	if _, err := d.Identity(ctx, identity.Method, identity.Connection, identity.Subject); !httpio.HasNotFound(err) {
@@ -91,9 +91,9 @@ func assertRefused(t *testing.T, err error, code sessioninfo.LoginRefusalCode, c
 	}
 }
 
-func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AccountsHarness) {
+func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	var resolverCalls atomic.Int32
-	in := h.New(ctx, t, Accounts, AccountsConfig{AuthEvents: true, Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+	in := h.New(ctx, t, Auth, AuthConfig{AuthEvents: true, Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		resolverCalls.Add(1)
 
 		return nil, nil
@@ -108,14 +108,14 @@ func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AccountsHar
 	}
 
 	if resolverCalls.Load() != 0 {
-		t.Errorf("the account resolver ran %d times for a linked identity, want 0", resolverCalls.Load())
+		t.Errorf("the user resolver ran %d times for a linked identity, want 0", resolverCalls.Load())
 	}
 	if req.UserID != user.ID {
-		t.Errorf("req.UserID = %v, want the linked account %v", req.UserID, user.ID)
+		t.Errorf("req.UserID = %v, want the linked user %v", req.UserID, user.ID)
 	}
 	sess := mustSession(ctx, t, in.Driver, id)
 	if sess.UserID != ccc.NullUUIDFromUUID(user.ID) || sess.Username != user.Username {
-		t.Errorf("Session() = UserID %v, Username %q; want the linked account %v, %q", sess.UserID, sess.Username, user.ID, user.Username)
+		t.Errorf("Session() = UserID %v, Username %q; want the linked user %v, %q", sess.UserID, sess.Username, user.ID, user.Username)
 	}
 	want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: time.Now()}}
 	if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
@@ -130,19 +130,19 @@ func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AccountsHar
 	}
 }
 
-func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
+func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 	tests := []struct {
 		name string
-		// resolve answers for the unlinked identity, given the seeded accounts.
+		// resolve answers for the unlinked identity, given the seeded users.
 		resolve func(passwordless, withPassword *dbtype.SessionUser, provisioned *[]ccc.UUID) *dbtype.Resolution
 		// check asserts the outcome.
-		check func(t *testing.T, d AccountsDriver, err error, req *sessioninfo.NewSessionRequest, passwordless, withPassword *dbtype.SessionUser, provisioned []ccc.UUID)
+		check func(t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, passwordless, withPassword *dbtype.SessionUser, provisioned []ccc.UUID)
 	}{
 		{
-			name: "ProvisionAccount creates a password-less account, links the identity with its tenant, and signs in",
+			name: "ProvisionUser creates a password-less user, links the identity with its tenant, and signs in",
 			resolve: func(_, _ *dbtype.SessionUser, provisioned *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{
-					Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"}, Tenant: "partner-1",
+					Outcome: dbtype.ProvisionUser, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"}, Tenant: "partner-1",
 					OnProvisioned: func(_ context.Context, userID ccc.UUID) error {
 						*provisioned = append(*provisioned, userID)
 
@@ -150,27 +150,27 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 					},
 				}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, req *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, provisioned []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, provisioned []ccc.UUID) {
 				t.Helper()
 				if err != nil {
 					t.Fatalf("sign-in error = %v", err)
 				}
 				user, uerr := d.UserByUserName(t.Context(), "new@lakeside.edu")
 				if uerr != nil {
-					t.Fatalf("UserByUserName() error = %v, want the provisioned account", uerr)
+					t.Fatalf("UserByUserName() error = %v, want the provisioned user", uerr)
 				}
 				if user.PasswordHash != nil || req.UserID != user.ID || req.Username != user.Username {
-					t.Errorf("provisioned account = %+v, req = (%v, %q); want password-less, signed in", user, req.UserID, req.Username)
+					t.Errorf("provisioned user = %+v, req = (%v, %q); want password-less, signed in", user, req.UserID, req.Username)
 				}
 				if len(provisioned) == 0 || provisioned[len(provisioned)-1] != user.ID {
-					t.Errorf("OnProvisioned received %v, want the new account %v", provisioned, user.ID)
+					t.Errorf("OnProvisioned received %v, want the new user %v", provisioned, user.ID)
 				}
 				link, lerr := d.Identity(t.Context(), sessioninfo.MethodWorkOS, "conn_lakeside", "idp_unknown")
 				if lerr != nil {
 					t.Fatalf("Identity() error = %v", lerr)
 				}
 				if link.UserID != user.ID || link.Tenant == nil || *link.Tenant != "partner-1" || link.EmailAtLink == nil || *link.EmailAtLink != "idp_unknown@lakeside.edu" {
-					t.Errorf("Identity() = %+v, want the link to the new account with tenant and email", link)
+					t.Errorf("Identity() = %+v, want the link to the new user with tenant and email", link)
 				}
 			},
 		},
@@ -178,27 +178,27 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 			name: "an OnProvisioned failure writes nothing",
 			resolve: func(_, _ *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{
-					Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"},
+					Outcome: dbtype.ProvisionUser, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"},
 					OnProvisioned: func(context.Context, ccc.UUID) error { return errors.New("app rows failed") },
 				}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				if err == nil {
 					t.Fatal("sign-in error = nil, want the OnProvisioned failure")
 				}
 				if _, uerr := d.UserByUserName(t.Context(), "new@lakeside.edu"); !httpio.HasNotFound(uerr) {
-					t.Errorf("UserByUserName() error = %v, want NotFound: the account must not be created", uerr)
+					t.Errorf("UserByUserName() error = %v, want NotFound: the user must not be created", uerr)
 				}
 				assertNoLink(t.Context(), t, d, lakeside("idp_unknown"))
 			},
 		},
 		{
-			name: "LinkIdentity links a password-less account and signs in",
+			name: "LinkIdentity links a password-less user and signs in",
 			resolve: func(passwordless, _ *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{Outcome: dbtype.LinkIdentity, UserID: passwordless.ID}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, req *sessioninfo.NewSessionRequest, passwordless, _ *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, passwordless, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				if err != nil {
 					t.Fatalf("sign-in error = %v", err)
@@ -212,25 +212,25 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 			},
 		},
 		{
-			name: "LinkIdentity is refused for an account that has a password",
+			name: "LinkIdentity is refused for a user that has a password",
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{Outcome: dbtype.LinkIdentity, UserID: withPassword.ID}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedIdentityRejected, dbtype.ErrLinkRequiresConfirmation)
 				assertNoLink(t.Context(), t, d, lakeside("idp_unknown"))
 			},
 		},
 		{
-			name: "LinkIdentity links an account that has a password when the connection is trusted for linking",
+			name: "LinkIdentity links a user that has a password when the connection is trusted for linking",
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{Outcome: dbtype.LinkIdentity, UserID: withPassword.ID, TrustedForLinking: true}
 			},
-			check: func(t *testing.T, _ AccountsDriver, err error, req *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, _ AuthDriver, err error, req *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				if err != nil || req.UserID != withPassword.ID {
-					t.Errorf("sign-in = %v, %v; want the account %v", req.UserID, err, withPassword.ID)
+					t.Errorf("sign-in = %v, %v; want the user %v", req.UserID, err, withPassword.ID)
 				}
 			},
 		},
@@ -239,7 +239,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{Outcome: dbtype.RequireConfirmation, UserID: withPassword.ID, Tenant: "partner-1"}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, _ *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				var pending *dbtype.PendingSignInError
 				if !errors.As(err, &pending) {
@@ -257,7 +257,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 			resolve: func(_, _ *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return &dbtype.Resolution{Outcome: dbtype.RejectIdentity, Refusal: "not_invited"}
 			},
-			check: func(t *testing.T, d AccountsDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				assertRefused(t, err, "not_invited", dbtype.ErrIdentityRejected)
 				assertNoLink(t.Context(), t, d, lakeside("idp_unknown"))
@@ -268,7 +268,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 			resolve: func(_, _ *dbtype.SessionUser, _ *[]ccc.UUID) *dbtype.Resolution {
 				return nil
 			},
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedIdentityRejected, dbtype.ErrIdentityRejected)
 			},
@@ -284,7 +284,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 				provisioned                []ccc.UUID
 				mu                         sync.Mutex
 			)
-			in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+			in := h.New(ctx, t, Auth, AuthConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 				mu.Lock()
 				defer mu.Unlock()
 
@@ -302,7 +302,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AccountsHarness) {
 	}
 }
 
-func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
+func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 	tests := []struct {
 		name     string
 		decision *dbtype.SignInDecision
@@ -310,13 +310,13 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 		password bool
 		// provision makes the identity unlinked and provisioned by the resolver.
 		provision bool
-		check     func(t *testing.T, d AccountsDriver, err error, user *dbtype.SessionUser)
+		check     func(t *testing.T, d AuthDriver, err error, user *dbtype.SessionUser)
 	}{
 		{
 			name:     "AllowSignIn signs in",
 			decision: &dbtype.SignInDecision{Outcome: dbtype.AllowSignIn},
 			reason:   sessioninfo.ReasonLogin,
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				if err != nil {
 					t.Errorf("sign-in error = %v, want allowed", err)
@@ -327,7 +327,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			name:     "DenySignIn refuses with the policy's code",
 			decision: &dbtype.SignInDecision{Outcome: dbtype.DenySignIn, Refusal: "sso_required"},
 			reason:   sessioninfo.ReasonLogin,
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, "sso_required", dbtype.ErrSignInDenied)
 			},
@@ -335,7 +335,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 		{
 			name:   "no decision denies with the default code",
 			reason: sessioninfo.ReasonLogin,
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedByPolicy, dbtype.ErrSignInDenied)
 			},
@@ -345,16 +345,16 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			decision: &dbtype.SignInDecision{Outcome: dbtype.DenySignIn},
 			reason:   sessioninfo.ReasonLogin,
 			password: true,
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedByPolicy, dbtype.ErrSignInDenied)
 			},
 		},
 		{
-			name:     "RequireMFA reports the pending MFA for the account",
+			name:     "RequireMFA reports the pending MFA for the user",
 			decision: &dbtype.SignInDecision{Outcome: dbtype.RequireMFA},
 			reason:   sessioninfo.ReasonLogin,
-			check: func(t *testing.T, _ AccountsDriver, err error, user *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, user *dbtype.SessionUser) {
 				t.Helper()
 				var pending *dbtype.PendingSignInError
 				if !errors.As(err, &pending) {
@@ -367,28 +367,28 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			},
 		},
 		{
-			name:      "a denied provisioning sign-in keeps the account and its link: the resolver's decision stands",
+			name:      "a denied provisioning sign-in keeps the user and its link: the resolver's decision stands",
 			decision:  &dbtype.SignInDecision{Outcome: dbtype.DenySignIn},
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
-			check: func(t *testing.T, d AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				assertRefused(t, err, sessioninfo.RefusedByPolicy, dbtype.ErrSignInDenied)
 				user, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu")
 				if uerr != nil {
-					t.Fatalf("UserByUserName() error = %v, want the provisioned account", uerr)
+					t.Fatalf("UserByUserName() error = %v, want the provisioned user", uerr)
 				}
 				if link, lerr := d.Identity(t.Context(), sessioninfo.MethodWorkOS, "conn_lakeside", "idp_fresh"); lerr != nil || link.UserID != user.ID {
-					t.Errorf("Identity() = %+v, %v; want the link to the provisioned account %v", link, lerr, user.ID)
+					t.Errorf("Identity() = %+v, %v; want the link to the provisioned user %v", link, lerr, user.ID)
 				}
 			},
 		},
 		{
-			name:      "an MFA wait on a provisioning sign-in names the account it provisioned, so the application can send its code",
+			name:      "an MFA wait on a provisioning sign-in names the user it provisioned, so the application can send its code",
 			decision:  &dbtype.SignInDecision{Outcome: dbtype.RequireMFA},
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
-			check: func(t *testing.T, d AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, d AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				var pending *dbtype.PendingSignInError
 				if !errors.As(err, &pending) || pending.Reason != sessioninfo.PendingMFA {
@@ -396,7 +396,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 				}
 				user, uerr := d.UserByUserName(t.Context(), "fresh@lakeside.edu")
 				if uerr != nil {
-					t.Fatalf("UserByUserName() error = %v, want the provisioned account", uerr)
+					t.Fatalf("UserByUserName() error = %v, want the provisioned user", uerr)
 				}
 				want := dbtype.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username}
 				if *pending != want {
@@ -408,7 +408,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			name:     "a step-up completion is not decided again",
 			decision: &dbtype.SignInDecision{Outcome: dbtype.RequireMFA},
 			reason:   sessioninfo.ReasonStepUp,
-			check: func(t *testing.T, _ AccountsDriver, err error, _ *dbtype.SessionUser) {
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				if err != nil {
 					t.Errorf("step-up sign-in error = %v, want the session", err)
@@ -421,14 +421,14 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 			t.Parallel()
 			ctx := t.Context()
 
-			in := h.New(ctx, t, Accounts, AccountsConfig{
+			in := h.New(ctx, t, Auth, AuthConfig{
 				Identities: true,
 				Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
-					return &dbtype.Resolution{Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: "fresh@lakeside.edu"}}, nil
+					return &dbtype.Resolution{Outcome: dbtype.ProvisionUser, NewUser: &dbtype.InsertSessionUser{Username: "fresh@lakeside.edu"}}, nil
 				},
 				Policy: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
 					if req.UserID.IsNil() {
-						return nil, errors.New("the policy ran before the account was known")
+						return nil, errors.New("the policy ran before the user was known")
 					}
 
 					return tt.decision, nil
@@ -455,8 +455,8 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AccountsHarness) {
 	}
 }
 
-func testDisabledAccountRefused(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true})
+func testDisabledUserRefused(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Identities: true})
 	user := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
 	mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_gone"))
 	if err := in.Driver.DeactivateUser(ctx, user.ID); err != nil {
@@ -465,11 +465,11 @@ func testDisabledAccountRefused(ctx context.Context, t *testing.T, h *AccountsHa
 
 	_, _, err := signIn(ctx, in.Driver, lakeside("idp_gone"), sessioninfo.ReasonLogin)
 
-	assertRefused(t, err, sessioninfo.RefusedAccountDisabled, dbtype.ErrAccountDisabled)
+	assertRefused(t, err, sessioninfo.RefusedUserDisabled, dbtype.ErrUserDisabled)
 }
 
-func testIdentitiesNotConfigured(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true})
+func testIdentitiesNotConfigured(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 
 	if in.Driver.IdentitiesEnabled() {
 		t.Error("IdentitiesEnabled() = true without an identities configuration")
@@ -479,9 +479,9 @@ func testIdentitiesNotConfigured(ctx context.Context, t *testing.T, h *AccountsH
 	}
 }
 
-func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AccountsHarness) {
+func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	var user *dbtype.SessionUser
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+	in := h.New(ctx, t, Auth, AuthConfig{Identities: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		// Hold the window between the lookup and the link open, so the sign-ins race.
 		time.Sleep(100 * time.Millisecond)
 
@@ -517,8 +517,8 @@ func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AccountsHar
 	}
 }
 
-func testLinkManagement(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true})
+func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Identities: true})
 	sso := createUser(ctx, t, in.Driver, "sso@lakeside.edu")
 	pat := passwordUser(ctx, t, in.Driver, "pat@lakeside.edu")
 
@@ -532,7 +532,7 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AccountsHarness) {
 
 	err := in.Driver.UnlinkIdentity(ctx, first.ID)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
-		t.Errorf("UnlinkIdentity() of a password-less account's only identity error = %v, want ErrLastSignInMethod (Conflict)", err)
+		t.Errorf("UnlinkIdentity() of a password-less user's only identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
 
 	second := mustLink(ctx, t, in.Driver, sso.ID, &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1"})
@@ -549,15 +549,15 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AccountsHarness) {
 
 	patLink := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
 	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID); err != nil {
-		t.Errorf("UnlinkIdentity() of an account that has a password error = %v, want removed", err)
+		t.Errorf("UnlinkIdentity() of a user that has a password error = %v, want removed", err)
 	}
 	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID); !httpio.HasNotFound(err) {
 		t.Errorf("UnlinkIdentity() of a removed link error = %v, want NotFound", err)
 	}
 }
 
-func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true})
+func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Identities: true})
 	sso := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
 	other := createUser(ctx, t, in.Driver, "stays@lakeside.edu")
 	mustLink(ctx, t, in.Driver, sso.ID, lakeside("idp_gone"))
@@ -565,23 +565,23 @@ func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AccountsHa
 	kept := mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_stays"))
 
 	if err := in.Driver.DeleteUser(ctx, sso.ID); err != nil {
-		t.Fatalf("DeleteUser() of a linked account error = %v", err)
+		t.Fatalf("DeleteUser() of a linked user error = %v", err)
 	}
 
 	assertNoLink(ctx, t, in.Driver, lakeside("idp_gone"))
 	if links, err := in.Driver.IdentitiesByUser(ctx, sso.ID); err != nil || len(links) != 0 {
-		t.Errorf("IdentitiesByUser() of the deleted account = %v, %v; want none", links, err)
+		t.Errorf("IdentitiesByUser() of the deleted user = %v, %v; want none", links, err)
 	}
 	if link, err := in.Driver.Identity(ctx, sessioninfo.MethodWorkOS, "conn_lakeside", "idp_stays"); err != nil || link.ID != kept.ID {
-		t.Errorf("Identity() of another account's link = %v, %v; want it kept", link, err)
+		t.Errorf("Identity() of another user's link = %v, %v; want it kept", link, err)
 	}
 	if err := in.Driver.DeleteUser(ctx, sso.ID); !httpio.HasNotFound(err) {
-		t.Errorf("DeleteUser() of a deleted account error = %v, want NotFound", err)
+		t.Errorf("DeleteUser() of a deleted user error = %v, want NotFound", err)
 	}
 }
 
-func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true, Impersonation: true})
+func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
 	jane := createUser(ctx, t, in.Driver, "jane@lakeside.edu")
 	other := createUser(ctx, t, in.Driver, "other@lakeside.edu")
 
@@ -606,7 +606,7 @@ func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AccountsHarne
 		return id
 	}
 
-	// A session row carrying jane's username but another account's ID (a rename in
+	// A session row carrying jane's username but another user's ID (a rename in
 	// flight, a recycled name) is not jane's: the key is UserId.
 	janeOwn := start(jane, jane.Username)
 	janeRenamed := start(jane, "jane-old@lakeside.edu")
@@ -627,7 +627,7 @@ func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AccountsHarne
 		{"jane's session under an old username", janeRenamed, true},
 		{"the user-principal impersonation of jane", ofJane, true},
 		{"the session jane holds as a local actor", byJane, true},
-		{"another account's session under jane's username", borrowedName, false},
+		{"another user's session under jane's username", borrowedName, false},
 	} {
 		if got := mustSession(ctx, t, in.Driver, tc.id).Expired; got != tc.wantExpired {
 			t.Errorf("%s: Expired = %v, want %v", tc.name, got, tc.wantExpired)
@@ -641,8 +641,8 @@ func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AccountsHarne
 	}
 }
 
-func testAppendAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, AuthEvents: true})
+func testAppendAuthEvent(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Identities: true, AuthEvents: true})
 	user := createUser(ctx, t, in.Driver, "jane@lakeside.edu")
 	mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
 

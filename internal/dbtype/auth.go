@@ -7,29 +7,29 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 )
 
-// NewSessionAccount holds the accounts columns of a new session row. UserID is null
+// SessionUserColumns holds the user columns of a new session row. UserID is null
 // for a preauth session and a role-principal impersonation. AuthenticatedAt is null for
 // a preauth session and a pending identity's row, which authenticate nothing.
-type NewSessionAccount struct {
+type SessionUserColumns struct {
 	UserID          ccc.NullUUID
 	AuthenticatedAt *time.Time
 }
 
-// SessionAccount returns the accounts columns of a new session for req, created at at.
-func SessionAccount(req *sessioninfo.NewSessionRequest, at time.Time) NewSessionAccount {
-	var account NewSessionAccount
+// NewSessionUserColumns returns the user columns of a new session for req, created at at.
+func NewSessionUserColumns(req *sessioninfo.NewSessionRequest, at time.Time) SessionUserColumns {
+	var user SessionUserColumns
 	if !req.UserID.IsNil() {
-		account.UserID = ccc.NullUUIDFromUUID(req.UserID)
+		user.UserID = ccc.NullUUIDFromUUID(req.UserID)
 	}
 	if req.Reason != sessioninfo.ReasonPreauth && req.Reason != sessioninfo.ReasonPendingIdentity {
-		account.AuthenticatedAt = &at
+		user.AuthenticatedAt = &at
 	}
 
-	return account
+	return user
 }
 
 // ResolvesCustomData reports whether the custom session data resolver runs for req. It
-// runs for every session except a pending identity's row, which has no account.
+// runs for every session except a pending identity's row, which has no user.
 func ResolvesCustomData(req *sessioninfo.NewSessionRequest) bool {
 	return req.Reason != sessioninfo.ReasonPendingIdentity
 }

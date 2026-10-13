@@ -37,8 +37,8 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
-	// accounts enables the accounts schema's session columns (UserId, AuthenticatedAt).
-	accounts   bool
+	// users enables the auth schema's session columns (UserId, AuthenticatedAt).
+	users      bool
 	authEvents *AuthEventsConfig
 	identities *IdentitiesConfig
 }
@@ -116,9 +116,9 @@ func (s *SessionStorageDriver) sessionRow(ctx context.Context, sessionID ccc.UUI
 
 	session := &dbtype.Session{}
 	baseDests := []any{&session.ID, &session.Username, &session.CreatedAt, &session.UpdatedAt, &session.Expired}
-	account := &accountScan{}
-	if s.accounts {
-		baseDests = append(baseDests, account.dests()...)
+	user := &userScan{}
+	if s.users {
+		baseDests = append(baseDests, user.dests()...)
 	}
 
 	if s.customData == nil && s.impersonation == nil {
@@ -126,7 +126,7 @@ func (s *SessionStorageDriver) sessionRow(ctx context.Context, sessionID ccc.UUI
 			return nil, errors.Wrap(err, "rows.Scan()")
 		}
 		sessData := &dbtype.SessionData{Session: session}
-		account.apply(sessData)
+		user.apply(sessData)
 
 		return sessData, nil
 	}
@@ -149,7 +149,7 @@ func (s *SessionStorageDriver) sessionRow(ctx context.Context, sessionID ccc.UUI
 	if err := rows.Scan(scanDests...); err != nil {
 		return nil, errors.Wrap(err, "rows.Scan()")
 	}
-	account.apply(sessData)
+	user.apply(sessData)
 
 	if impScan != nil {
 		imp, err := impScan.row()
@@ -249,11 +249,11 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	// A sign-in that carries a verified identity resolves its account first. An external
+	// A sign-in that carries a verified identity resolves its user first. An external
 	// identity always does. A password identity does when identities, and so the sign-in
 	// policy, are configured.
 	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
-		if err := s.insertAccountSession(ctx, id, insertSession, req); err != nil {
+		if err := s.insertUserSession(ctx, id, insertSession, req); err != nil {
 			return ccc.NilUUID, err
 		}
 
@@ -466,7 +466,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	return s.User(ctx, id)
 }
 
-// userInsertStatement renders the insert of a new account row.
+// userInsertStatement renders the insert of a new user row.
 func (s *SessionStorageDriver) userInsertStatement(id ccc.UUID, user *dbtype.InsertSessionUser) (query string, args []any) {
 	return fmt.Sprintf(`
 		INSERT INTO "%s"
@@ -552,7 +552,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	}
 
 	// A live role-principal impersonation by a foreign actor carrying this name belongs to
-	// that actor, not to the renamed account, and keeps the name its record names.
+	// that actor, not to the renamed user, and keeps the name its record names.
 	sessionQuery := fmt.Sprintf(`
 		UPDATE "%s" s SET "Username" = $2, "UpdatedAt" = $3
 		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTableName, s.foreignRolePrincipalRecord())
@@ -561,7 +561,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
-	// The live impersonations this account holds as a local actor follow the rename, so
+	// The live impersonations this user holds as a local actor follow the rename, so
 	// they stay reachable by the new name; ended records keep the name of their time.
 	if s.impersonation != nil {
 		recordQuery := fmt.Sprintf(`
@@ -825,7 +825,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) (query string, args []any) {
 	var columns strings.Builder
 	columns.WriteString(`s."Id", s."Username", s."CreatedAt", s."UpdatedAt", s."Expired"`)
-	columns.WriteString(s.accountColumns())
+	columns.WriteString(s.userColumns())
 
 	joinClause := ""
 	if s.customData != nil {

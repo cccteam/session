@@ -34,9 +34,9 @@ var _ OIDCGoogleHandlers = &OIDCGoogle[NoCustomData, NoCustomData]{}
 //
 // Hosted-domain restriction: the flow is restricted to a single Google Workspace
 // domain. The configured hostedDomain is sent as the hd hint on the authorization
-// request (account-chooser UX) and enforced against the verified ID token's hd claim —
-// a consumer account carries no hd claim and fails closed. Pair it with an Internal
-// OAuth consent screen so Google itself refuses outside accounts before they ever reach
+// request (user-chooser UX) and enforced against the verified ID token's hd claim —
+// a consumer user carries no hd claim and fails closed. Pair it with an Internal
+// OAuth consent screen so Google itself refuses outside users before they ever reach
 // the callback.
 //
 // Identity: the username is the verified email claim (Google issues no

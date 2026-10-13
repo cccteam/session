@@ -138,7 +138,7 @@ func TestOIDCGoogle_CallbackOIDC(t *testing.T) {
 			name: "fails to verify callback request",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_googleoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *fakeGroups, _ *mock_sessionstorage.MockGoogleOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
-				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain"))).Times(1)
+				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("User is not a member of the required Google Workspace domain"))).Times(1)
 			},
 			wantErr:         true,
 			wantRedirectURL: "/login?code=not_workspace_member",

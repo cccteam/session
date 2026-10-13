@@ -53,7 +53,7 @@ type surface struct {
 	// validates a session for username.
 	validating func(username string)
 	// live is an ordinary, just-active session row for username as the type stores it:
-	// an Auth session belongs to an account.
+	// an Auth session belongs to a user.
 	live func(id ccc.UUID, username string) *sessioninfo.SessionData
 	// startImpersonated calls the type's StartImpersonatedSession without custom data.
 	startImpersonated func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error
@@ -145,7 +145,7 @@ func surfaceBuilders() []struct {
 		{
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newAccountStoreMock(ctrl, true)
+				storage := newAuthStoreMock(ctrl, true)
 				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)

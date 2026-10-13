@@ -45,13 +45,13 @@ const (
 	defaultPendingCookieName = "auth-pending"
 )
 
-// IdentityLinkedHook is called after an external identity is linked to an account,
+// IdentityLinkedHook is called after an external identity is linked to a user,
 // for example to notify the user.
 type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) error
 
 // WithIdentityLinked sets the hook called after every identity link, whether made by a
-// pending identity's password confirmation or by the account resolver during a sign-in
-// (LinkIdentity or ProvisionAccount). A resolver's link is committed before the sign-in
+// pending identity's password confirmation or by the user resolver during a sign-in
+// (LinkIdentity or ProvisionUser). A resolver's link is committed before the sign-in
 // policy runs, so it is reported even when the policy then denies the sign-in or holds
 // it for MFA. An error from the hook is logged. The link and the sign-in stand.
 func WithIdentityLinked(hook IdentityLinkedHook) AuthOption {
@@ -91,7 +91,7 @@ func WithPendingCookieName(name string) AuthOption {
 	return authOption(func(s *authSettings) { s.pendingCookie = name })
 }
 
-// Auth is one session type that any registered sign-in method can establish. Accounts,
+// Auth is one session type that any registered sign-in method can establish. Auth,
 // sessions, cookies, XSRF, custom data, impersonation and the middleware work the same
 // for every method.
 //
@@ -99,14 +99,14 @@ func WithPendingCookieName(name string) AuthOption {
 // WorkOSSignIn after NewAuth and before serving the first request. Each returns the
 // method's handlers.
 //
-// Every session belongs to an account (SessionUsers). A sign-in either establishes a
+// Every session belongs to a user (SessionUsers). A sign-in either establishes a
 // session under a new session ID, becomes a pending identity that waits for a password
 // confirmation or the application's MFA step, or is refused with a
 // sessioninfo.LoginRefusalCode. See the README's "Auth sessions (multiple sign-in
 // methods)" for the routes and the redirect contract.
 type Auth[SessionData, UserData any] struct {
 	baseSession *basesession.BaseSession
-	storage     sessionstorage.AccountStore
+	storage     sessionstorage.AuthStore
 	settings    authSettings
 
 	// cookies is the session cookie client. It also writes the external methods' state
@@ -125,18 +125,18 @@ type Auth[SessionData, UserData any] struct {
 // registration checks.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
-func NewAuth[SessionData, UserData any](storage sessionstorage.AccountStore, cookieKey string, options ...AuthOption) (*Auth[SessionData, UserData], error) {
+func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookieKey string, options ...AuthOption) (*Auth[SessionData, UserData], error) {
 	if storage == nil {
-		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAccounts or NewPostgresAccounts")
+		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
 	}
 	if err := verifyCustomDataTypes[SessionData, UserData](storage); err != nil {
 		return nil, err
 	}
 	if storage.UserDataLoginHookConfigured() {
-		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in the account resolver (Resolution.OnProvisioned) or per call on CreateSessionUser")
+		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in the user resolver (Resolution.OnProvisioned) or per call on CreateSessionUser")
 	}
 	if storage.OIDCUsersEnabled() {
-		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth accounts are SessionUsers records, and external identities link to them")
+		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")
 	}
 
 	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName}
@@ -181,7 +181,7 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AccountStore, coo
 }
 
 // Authenticated answers {"authenticated", "username", "impersonation"}. A session whose
-// account is missing or disabled is reported as not authenticated.
+// user is missing or disabled is reported as not authenticated.
 func (a *Auth[S, U]) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool                               `json:"authenticated"`
@@ -226,10 +226,10 @@ func (a *Auth[S, U]) StartSession(next http.Handler) http.Handler {
 	})))
 }
 
-// ValidateSession validates the session and loads its account by UserId. A session
-// with no account, or whose account is missing or disabled, is refused with 401. The
-// account is available through sessioninfo.UserFromCtx. A foreign actor's
-// role-principal impersonation has no account and carries only its username.
+// ValidateSession validates the session and loads its user by UserId. A session
+// with no user, or whose user is missing or disabled, is refused with 401. The
+// user is available through sessioninfo.UserFromCtx. A foreign actor's
+// role-principal impersonation has no user and carries only its username.
 func (a *Auth[S, U]) ValidateSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -279,7 +279,7 @@ type PendingHandlers struct {
 func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 
 // ConfirmWithPassword accepts {"password"}. On success it links the pending identity to
-// its account and starts the session. It answers {"mfaIsRequired": bool}. When the
+// its user and starts the session. It answers {"mfaIsRequired": bool}. When the
 // sign-in policy requires MFA after the link, the pending identity remains with reason
 // "mfa", the PendingHook runs, and the application completes it with
 // AuthAPI.CompletePending. A wrong password is 401 and leaves the pending identity.

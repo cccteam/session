@@ -432,7 +432,7 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 // unconditionally.
 // foreignRolePrincipalRecord is a predicate over session alias s: the session carries a
 // live role-principal record whose actor was authenticated by another application. Its
-// username is that actor's, borrowed, not an account of this application's.
+// username is that actor's, borrowed, not a user of this application's.
 func (s *SessionStorageDriver) foreignRolePrincipalRecord() string {
 	if s.impersonation == nil {
 		return "FALSE"

@@ -21,17 +21,17 @@ type AuthEventsConfig struct {
 	TableName string
 }
 
-// EnableAccounts enables the accounts schema's session columns, UserId and
+// EnableAuth enables the auth schema's session columns, UserId and
 // AuthenticatedAt. Non-OIDC session inserts write them and session reads return them.
 // Without it the driver never names those columns, so a legacy session table keeps
 // working.
-func (s *SessionStorageDriver) EnableAccounts() {
-	s.accounts = true
+func (s *SessionStorageDriver) EnableAuth() {
+	s.users = true
 }
 
-// AccountsEnabled reports whether the accounts schema's session columns are enabled.
-func (s *SessionStorageDriver) AccountsEnabled() bool {
-	return s.accounts
+// AuthEnabled reports whether the auth schema's session columns are enabled.
+func (s *SessionStorageDriver) AuthEnabled() bool {
+	return s.users
 }
 
 // SetAuthEvents attaches the auth events table. New sessions record their auth events,
@@ -46,9 +46,9 @@ func (s *SessionStorageDriver) AuthEventsEnabled() bool {
 }
 
 // sessionInsertMutation renders the insert of a non-OIDC session row. With the
-// accounts columns enabled it also writes UserId and AuthenticatedAt.
+// user columns enabled it also writes UserId and AuthenticatedAt.
 func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (*spanner.Mutation, error) {
-	if !s.accounts {
+	if !s.users {
 		mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
 			ID ccc.UUID
 			*dbtype.InsertSession
@@ -60,10 +60,10 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 		return mutation, nil
 	}
 
-	account := dbtype.SessionAccount(req, insertSession.CreatedAt)
+	user := dbtype.NewSessionUserColumns(req, insertSession.CreatedAt)
 	var authenticatedAt spanner.NullTime
-	if account.AuthenticatedAt != nil {
-		authenticatedAt = spanner.NullTime{Time: *account.AuthenticatedAt, Valid: true}
+	if user.AuthenticatedAt != nil {
+		authenticatedAt = spanner.NullTime{Time: *user.AuthenticatedAt, Valid: true}
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
@@ -71,7 +71,7 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 		*dbtype.InsertSession
 		UserID          ccc.NullUUID     `spanner:"UserId"`
 		AuthenticatedAt spanner.NullTime `spanner:"AuthenticatedAt"`
-	}{ID: id, InsertSession: insertSession, UserID: account.UserID, AuthenticatedAt: authenticatedAt})
+	}{ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}
@@ -113,19 +113,19 @@ func (s *SessionStorageDriver) authEventMutation(sessionID ccc.UUID, seq int64, 
 	})
 }
 
-// accountColumns renders the accounts columns that follow the base columns in the
+// userColumns renders the user columns that follow the base columns in the
 // session query.
-func (s *SessionStorageDriver) accountColumns() string {
-	if !s.accounts {
+func (s *SessionStorageDriver) userColumns() string {
+	if !s.users {
 		return ""
 	}
 
 	return ", s.UserId, s.AuthenticatedAt"
 }
 
-// readAccount reads the accounts columns from row, starting at column idx, and returns
+// readUser reads the user columns from row, starting at column idx, and returns
 // the index of the next column.
-func readAccount(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, error) {
+func readUser(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, error) {
 	var userID spanner.NullString
 	if err := row.Column(idx, &userID); err != nil {
 		return idx, errors.Wrapf(err, "row.Column(%d/UserId)", idx)

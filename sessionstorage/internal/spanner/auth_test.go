@@ -14,45 +14,45 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// TestAccounts runs the shared accounts conformance suite against the Spanner driver,
-// on the shipped accounts migration.
-func TestAccounts(t *testing.T) {
+// TestAuth runs the shared users conformance suite against the Spanner driver,
+// on the shipped auth migrations.
+func TestAuth(t *testing.T) {
 	t.Parallel()
 
-	drivertest.RunAccounts(t, &drivertest.AccountsHarness{
-		New:             newAccountsInstance,
+	drivertest.RunAuth(t, &drivertest.AuthHarness{
+		New:             newAuthInstance,
 		CountAuthEvents: countAuthEvents,
 		DeleteSession:   deleteSession,
 		Recorded:        recorded,
 	})
 }
 
-// accountsSources maps an accounts suite schema to this package's migration sources.
-func accountsSources(schema drivertest.AccountsSchema) []string {
+// authSources maps an users suite schema to this package's migration sources.
+func authSources(schema drivertest.AuthSchema) []string {
 	legacy := []string{"file://../../../schema/spanner/migrations", "file://../../../schema/spanner/impersonation/migrations"}
 	switch schema {
 	case drivertest.LegacySessions:
 		return legacy
-	case drivertest.Accounts:
-		return append(legacy, "file://../../../schema/spanner/accounts/migrations")
-	case drivertest.AccountsWithAppTables:
-		return append(legacy, "file://../../../schema/spanner/accounts/migrations", "file://testdata/accounts_test/app_tables")
+	case drivertest.Auth:
+		return append(legacy, "file://../../../schema/spanner/auth/migrations")
+	case drivertest.AuthWithAppTables:
+		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables")
 	default:
 		panic("unknown schema")
 	}
 }
 
-func newAccountsInstance(ctx context.Context, t *testing.T, schema drivertest.AccountsSchema, cfg drivertest.AccountsConfig) *drivertest.AccountsInstance {
+func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSchema, cfg drivertest.AuthConfig) *drivertest.AuthInstance {
 	t.Helper()
 
-	conn, err := prepareDatabase(ctx, t, accountsSources(schema)...)
+	conn, err := prepareDatabase(ctx, t, authSources(schema)...)
 	if err != nil {
 		t.Fatalf("prepareDatabase() error = %v", err)
 	}
 
 	d := NewSessionStorageDriver(conn.Client)
-	if cfg.Accounts {
-		d.EnableAccounts()
+	if cfg.Auth {
+		d.EnableAuth()
 	}
 	if cfg.AuthEvents {
 		d.SetAuthEvents(&AuthEventsConfig{TableName: "SessionAuthEvents"})
@@ -88,7 +88,7 @@ func newAccountsInstance(ctx context.Context, t *testing.T, schema drivertest.Ac
 		})
 	}
 
-	return &drivertest.AccountsInstance{Driver: d, Raw: conn.Client}
+	return &drivertest.AuthInstance{Driver: d, Raw: conn.Client}
 }
 
 func countAuthEvents(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) int {

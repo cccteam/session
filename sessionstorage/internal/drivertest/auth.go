@@ -13,9 +13,9 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// AccountsDriver is the driver surface the accounts suite exercises. Both drivers
+// AuthDriver is the driver surface the users suite exercises. Both drivers
 // satisfy it.
-type AccountsDriver interface {
+type AuthDriver interface {
 	Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error)
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	InsertImpersonatedSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error)
@@ -32,27 +32,27 @@ type AccountsDriver interface {
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 }
 
-// AccountsSchema names the migration set an accounts database is prepared with.
-type AccountsSchema int
+// AuthSchema names the migration set an users database is prepared with.
+type AuthSchema int
 
 const (
 	// LegacySessions is the shipped sessions schema (Sessions, SessionUsers) and the
-	// impersonation migration, without the accounts migration. It lacks
+	// impersonation migration, without the auth migrations. It lacks
 	// Sessions.UserId and AuthenticatedAt and the identities and auth events tables.
-	LegacySessions AccountsSchema = iota
-	// Accounts is the shipped sessions schema, the impersonation migration and the
-	// accounts migration.
-	Accounts
-	// AccountsWithAppTables is Accounts plus the driver package's test-only application
+	LegacySessions AuthSchema = iota
+	// Auth is the shipped sessions schema, the impersonation migration and the
+	// auth migrations.
+	Auth
+	// AuthWithAppTables is Auth plus the driver package's test-only application
 	// tables: HookRecords, which hooks use through HookTx, and SessionCustomData for
 	// CustomStringData.
-	AccountsWithAppTables
+	AuthWithAppTables
 )
 
 // HookTx is an application hook's view of its transaction, adapted by each harness to
-// its backend. It stands in for the application rows an account resolver, sign-in
+// its backend. It stands in for the application rows a user resolver, sign-in
 // policy or custom session data resolver writes and reads. It needs the
-// AccountsWithAppTables schema.
+// AuthWithAppTables schema.
 type HookTx interface {
 	// Record writes key=value to the HookRecords table.
 	Record(ctx context.Context, key, value string) error
@@ -62,10 +62,10 @@ type HookTx interface {
 	UserExists(ctx context.Context, userID ccc.UUID) (bool, error)
 }
 
-// AccountsConfig selects how a driver over a prepared accounts database is configured.
-type AccountsConfig struct {
-	// Accounts enables the Sessions.UserId and AuthenticatedAt columns.
-	Accounts bool
+// AuthConfig selects how a driver over a prepared users database is configured.
+type AuthConfig struct {
+	// Auth enables the Sessions.UserId and AuthenticatedAt columns.
+	Auth bool
 	// AuthEvents attaches the SessionAuthEvents table.
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
@@ -73,26 +73,26 @@ type AccountsConfig struct {
 	// Identities attaches the SessionIdentities table with Resolve and Policy, which the
 	// harness adapts to the driver's transactional hooks.
 	Identities bool
-	// Resolve is the account resolver; nil rejects every unlinked identity.
+	// Resolve is the user resolver; nil rejects every unlinked identity.
 	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
 	// Policy is the sign-in policy; nil allows.
 	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
-	// CustomData, when set, attaches the AccountsWithAppTables schema's
+	// CustomData, when set, attaches the AuthWithAppTables schema's
 	// SessionCustomData table (CustomStringData) with CustomData as its resolver.
 	CustomData func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error)
 }
 
-// AccountsInstance is a driver over a freshly prepared accounts database, with the
+// AuthInstance is a driver over a freshly prepared users database, with the
 // harness's own handle on that database.
-type AccountsInstance struct {
-	Driver AccountsDriver
+type AuthInstance struct {
+	Driver AuthDriver
 	Raw    any
 }
 
-// AccountsHarness adapts one driver package to the accounts suite.
-type AccountsHarness struct {
+// AuthHarness adapts one driver package to the users suite.
+type AuthHarness struct {
 	// New prepares a fresh database with schema and returns a driver configured per cfg.
-	New func(ctx context.Context, t *testing.T, schema AccountsSchema, cfg AccountsConfig) *AccountsInstance
+	New func(ctx context.Context, t *testing.T, schema AuthSchema, cfg AuthConfig) *AuthInstance
 	// CountAuthEvents counts the session's rows in SessionAuthEvents directly.
 	CountAuthEvents func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) int
 	// DeleteSession deletes the session row directly, bypassing the driver.
@@ -101,36 +101,36 @@ type AccountsHarness struct {
 	Recorded func(ctx context.Context, t *testing.T, raw any, key string) (value string, found bool)
 }
 
-// RunAccounts runs the accounts conformance suite against h. Every case prepares its
+// RunAuth runs the users conformance suite against h. Every case prepares its
 // own database and runs in parallel.
-func RunAccounts(t *testing.T, h *AccountsHarness) {
+func RunAuth(t *testing.T, h *AuthHarness) {
 	t.Helper()
 
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, t *testing.T, h *AccountsHarness)
+		run  func(ctx context.Context, t *testing.T, h *AuthHarness)
 	}{
-		{name: "a legacy schema keeps working: the accounts columns and events are never named", run: testLegacySchemaUnchanged},
-		{name: "account sessions record and read UserId and AuthenticatedAt", run: testSessionAccountColumns},
+		{name: "a legacy schema keeps working: the user columns and events are never named", run: testLegacySchemaUnchanged},
+		{name: "user sessions record and read UserId and AuthenticatedAt", run: testSessionUserColumns},
 		{name: "the first auth event is the sign-in method, read with the session", run: testInitialAuthEvent},
 		{name: "a session insert records every auth event it carries, in order, in one write", run: testInitialAuthEvents},
-		{name: "an impersonated session records its account and an impersonation event naming the actor", run: testImpersonatedSessionAccount},
+		{name: "an impersonated session records its user and an impersonation event naming the actor", run: testImpersonatedSessionUser},
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
-		{name: "a linked identity signs in to its account without the resolver", run: testLinkedIdentitySignsIn},
+		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
-		{name: "the sign-in policy decides after the account is known", run: testSignInPolicy},
-		{name: "a disabled account is refused", run: testDisabledAccountRefused},
-		{name: "a rejected sign-in keeps the account resolver's own writes", run: testRejectionKeepsResolverWrites},
+		{name: "the sign-in policy decides after the user is known", run: testSignInPolicy},
+		{name: "a disabled user is refused", run: testDisabledUserRefused},
+		{name: "a rejected sign-in keeps the user resolver's own writes", run: testRejectionKeepsResolverWrites},
 		{name: "a denied or held sign-in keeps the sign-in policy's own writes", run: testHeldOrRefusedKeepsHookWrites},
-		{name: "the policy of a provisioning sign-in reads the new account and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedAccount},
-		{name: "the custom session data resolver of a provisioning sign-in reads the new account and knows it was provisioned", run: testCustomDataSeesProvisionedAccount},
+		{name: "the policy of a provisioning sign-in reads the new user and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedUser},
+		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a pending identity's row never calls the custom session data resolver", run: testPendingRowSkipsCustomData},
-		{name: "a sign-in reports the account it resolved to and how", run: testSignInAccountReported},
+		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
-		{name: "deleting an account deletes its identity links with it", run: testDeleteUserDeletesLinks},
-		{name: "DestroyUserSessions expires the account's sessions by UserId", run: testDestroyUserSessions},
+		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
+		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
 	}
 	for _, tt := range tests {
@@ -149,8 +149,8 @@ func newInsertSession(username string) *dbtype.InsertSession {
 	return &dbtype.InsertSession{Username: username, CreatedAt: now, UpdatedAt: now}
 }
 
-// createUser creates an account, with a password hash when withPassword.
-func createUser(ctx context.Context, t *testing.T, d AccountsDriver, username string) *dbtype.SessionUser {
+// createUser creates a user, with a password hash when withPassword.
+func createUser(ctx context.Context, t *testing.T, d AuthDriver, username string) *dbtype.SessionUser {
 	t.Helper()
 
 	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: username}, nil)
@@ -161,7 +161,7 @@ func createUser(ctx context.Context, t *testing.T, d AccountsDriver, username st
 	return user
 }
 
-func mustSession(ctx context.Context, t *testing.T, d AccountsDriver, id ccc.UUID) *dbtype.SessionData {
+func mustSession(ctx context.Context, t *testing.T, d AuthDriver, id ccc.UUID) *dbtype.SessionData {
 	t.Helper()
 
 	sess, err := d.Session(ctx, id)
@@ -176,8 +176,8 @@ func mustSession(ctx context.Context, t *testing.T, d AccountsDriver, id ccc.UUI
 // different precisions) and nil and empty slices alike.
 var eventsOpts = cmp.Options{cmpopts.EquateApproxTime(time.Second), cmpopts.EquateEmpty()}
 
-func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, LegacySessions, AccountsConfig{Impersonation: true})
+func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, LegacySessions, AuthConfig{Impersonation: true})
 	user := createUser(ctx, t, in.Driver, "legacy@example.com")
 
 	req := &sessioninfo.NewSessionRequest{
@@ -203,9 +203,9 @@ func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AccountsHar
 	}
 }
 
-func testSessionAccountColumns(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true})
-	user := createUser(ctx, t, in.Driver, "account@example.com")
+func testSessionUserColumns(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	user := createUser(ctx, t, in.Driver, "user@example.com")
 
 	tests := []struct {
 		name              string
@@ -214,13 +214,13 @@ func testSessionAccountColumns(ctx context.Context, t *testing.T, h *AccountsHar
 		wantAuthenticated bool
 	}{
 		{
-			name:              "a login records the account and when it authenticated",
+			name:              "a login records the user and when it authenticated",
 			req:               &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID},
 			wantUserID:        ccc.NullUUIDFromUUID(user.ID),
 			wantAuthenticated: true,
 		},
 		{
-			name: "a preauth stepping stone has no account and authenticated nothing",
+			name: "a preauth stepping stone has no user and authenticated nothing",
 			req:  &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPreauth, Username: "stepping-stone"},
 		},
 	}
@@ -249,8 +249,8 @@ func testSessionAccountColumns(ctx context.Context, t *testing.T, h *AccountsHar
 	}
 }
 
-func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true, AuthEvents: true})
+func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true})
 	user := createUser(ctx, t, in.Driver, "events@example.com")
 
 	tests := []struct {
@@ -287,19 +287,19 @@ func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AccountsHarness)
 	}
 }
 
-func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness) {
+func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AuthHarness) {
 	signedInAt := time.Now().Add(-time.Hour).Truncate(time.Second)
 
 	tests := []struct {
 		name       string
-		cfg        AccountsConfig
+		cfg        AuthConfig
 		identity   func(user *dbtype.SessionUser) *sessioninfo.Identity
 		events     []sessioninfo.AuthEvent
 		wantEvents []sessioninfo.AuthEvent
 	}{
 		{
 			name: "a step-up completion records the sign-in and the step-up, keeping the sign-in's time",
-			cfg:  AccountsConfig{Accounts: true, AuthEvents: true},
+			cfg:  AuthConfig{Auth: true, AuthEvents: true},
 			identity: func(user *dbtype.SessionUser) *sessioninfo.Identity {
 				return &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
 			},
@@ -314,7 +314,7 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness
 		},
 		{
 			name: "an identity resolved in the session transaction records the events it carries",
-			cfg:  AccountsConfig{Accounts: true, AuthEvents: true, Identities: true},
+			cfg:  AuthConfig{Auth: true, AuthEvents: true, Identities: true},
 			identity: func(user *dbtype.SessionUser) *sessioninfo.Identity {
 				return &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
 			},
@@ -331,7 +331,7 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness
 		},
 		{
 			name:   "a session started by the application records the events it was given, with no identity",
-			cfg:    AccountsConfig{Accounts: true, AuthEvents: true},
+			cfg:    AuthConfig{Auth: true, AuthEvents: true},
 			events: []sessioninfo.AuthEvent{{Method: "magic-link", Connection: "app"}},
 			wantEvents: []sessioninfo.AuthEvent{
 				{Method: "magic-link", Connection: "app"},
@@ -340,7 +340,7 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := h.New(ctx, t, Accounts, tt.cfg)
+			in := h.New(ctx, t, Auth, tt.cfg)
 			user := createUser(ctx, t, in.Driver, "steps@example.com")
 
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonStepUp, Username: user.Username, UserID: user.ID, AuthEvents: tt.events}
@@ -368,8 +368,8 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AccountsHarness
 	}
 }
 
-func testImpersonatedSessionAccount(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true, AuthEvents: true, Impersonation: true})
+func testImpersonatedSessionUser(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true, Impersonation: true})
 	user := createUser(ctx, t, in.Driver, "bob@example.com")
 
 	tests := []struct {
@@ -379,13 +379,13 @@ func testImpersonatedSessionAccount(ctx context.Context, t *testing.T, h *Accoun
 		wantUserID ccc.NullUUID
 	}{
 		{
-			name:       "a user principal's session belongs to the impersonated account",
+			name:       "a user principal's session belongs to the impersonated user",
 			principal:  accesstypes.UserPrincipal(accesstypes.User(user.Username)),
 			userID:     user.ID,
 			wantUserID: ccc.NullUUIDFromUUID(user.ID),
 		},
 		{
-			name:      "a role principal's session belongs to no account",
+			name:      "a role principal's session belongs to no user",
 			principal: accesstypes.RolePrincipal(accesstypes.Role("Viewer")),
 		},
 	}
@@ -411,8 +411,8 @@ func testImpersonatedSessionAccount(ctx context.Context, t *testing.T, h *Accoun
 	}
 }
 
-func testAuthEventsCascade(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, Accounts, AccountsConfig{Accounts: true, AuthEvents: true})
+func testAuthEventsCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true})
 	user := createUser(ctx, t, in.Driver, "cascade@example.com")
 
 	id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{

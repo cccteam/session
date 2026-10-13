@@ -16,33 +16,33 @@ import (
 // sign-in is also a sessioninfo.LoginRefusal, which carries the code the login page
 // receives, and an Unauthorized client message.
 var (
-	// ErrIdentityRejected is the cause when the account resolver returned
+	// ErrIdentityRejected is the cause when the user resolver returned
 	// RejectIdentity. The code is Resolution.Refusal, or
 	// sessioninfo.RefusedIdentityRejected when that is empty.
 	ErrIdentityRejected = dbtype.ErrIdentityRejected
-	// ErrLinkRequiresConfirmation is the cause when the account resolver returned
-	// LinkIdentity for an account that has a password, without TrustedForLinking. The
+	// ErrLinkRequiresConfirmation is the cause when the user resolver returned
+	// LinkIdentity for a user that has a password, without TrustedForLinking. The
 	// code is sessioninfo.RefusedIdentityRejected. The resolver should return
 	// RequireConfirmation instead.
 	ErrLinkRequiresConfirmation = dbtype.ErrLinkRequiresConfirmation
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
 	// decision. The code is SignInDecision.Refusal, or sessioninfo.RefusedByPolicy.
 	ErrSignInDenied = dbtype.ErrSignInDenied
-	// ErrAccountDisabled is the cause when the sign-in resolved to a disabled account.
-	// The code is sessioninfo.RefusedAccountDisabled.
-	ErrAccountDisabled = dbtype.ErrAccountDisabled
+	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
+	// The code is sessioninfo.RefusedUserDisabled.
+	ErrUserDisabled = dbtype.ErrUserDisabled
 	// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last
-	// identity of an account that has no password. It is a Conflict client message.
+	// identity of a user that has no password. It is a Conflict client message.
 	ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 )
 
 // PendingSignInError is returned by a session insert when the sign-in resolved to an
-// account but must wait. Its Reason is sessioninfo.PendingConfirmation when the account
+// user but must wait. Its Reason is sessioninfo.PendingConfirmation when the user
 // resolver returned RequireConfirmation, and sessioninfo.PendingMFA when the sign-in
-// policy returned RequireMFA. UserID is the account it waits on. No session is written,
-// but the account resolution and the hooks' own writes are committed.
+// policy returned RequireMFA. UserID is the user it waits on. No session is written,
+// but the user resolution and the hooks' own writes are committed.
 //
-// After a password confirmation, link the identity (AccountStore.LinkIdentity) and
+// After a password confirmation, link the identity (AuthStore.LinkIdentity) and
 // insert the session with ReasonIdentityLinked. After MFA, insert it with ReasonStepUp,
 // which the policy does not decide again. Use errors.As to read it.
 type PendingSignInError = dbtype.PendingSignInError
@@ -53,13 +53,13 @@ func validateIdentities(tableName string, noResolver bool) error {
 		return errors.Newf("invalid table name: %s. Table names must start with a letter or underscore, followed by up to 127 letters, numbers, or underscores.", tableName)
 	}
 	if noResolver {
-		return errors.New("an account resolver is required: it decides every external identity that is not linked yet")
+		return errors.New("a user resolver is required: it decides every external identity that is not linked yet")
 	}
 
 	return nil
 }
 
-// driverResolution converts an account resolver's answer for the drivers.
+// driverResolution converts a user resolver's answer for the drivers.
 func driverResolution(r *Resolution) *dbtype.Resolution {
 	if r == nil {
 		return nil

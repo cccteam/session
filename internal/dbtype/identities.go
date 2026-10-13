@@ -28,11 +28,11 @@ type SessionIdentity struct {
 // IdentityOutcome mirrors sessionstorage.IdentityOutcome, value for value.
 type IdentityOutcome int
 
-// The account resolver's outcomes; RejectIdentity is the zero value.
+// The user resolver's outcomes; RejectIdentity is the zero value.
 const (
 	RejectIdentity IdentityOutcome = iota
 	LinkIdentity
-	ProvisionAccount
+	ProvisionUser
 	RequireConfirmation
 )
 
@@ -64,7 +64,7 @@ type SignInDecision struct {
 }
 
 // IsExternal reports whether identity is resolved through the identities table. A
-// password identity names its account directly (req.UserID), and an impersonation
+// password identity names its user directly (req.UserID), and an impersonation
 // identity belongs to the impersonation flow.
 func IsExternal(identity *sessioninfo.Identity) bool {
 	return identity != nil && identity.Method != sessioninfo.MethodPassword && identity.Method != sessioninfo.MethodImpersonation
@@ -80,11 +80,11 @@ func PolicyApplies(reason sessioninfo.NewSessionReason) bool {
 // The causes a refused sign-in carries; see sessionstorage for their documentation.
 var (
 	ErrIdentitiesNotConfigured  = errors.New("sessionstorage: identities are not configured: attach WithSpannerIdentities or WithPostgresIdentities")
-	ErrIdentityRejected         = errors.New("sessionstorage: the account resolver rejected the identity")
-	ErrLinkRequiresConfirmation = errors.New("sessionstorage: an identity can't be linked to an account that has a password without confirmation (or TrustedForLinking)")
+	ErrIdentityRejected         = errors.New("sessionstorage: the user resolver rejected the identity")
+	ErrLinkRequiresConfirmation = errors.New("sessionstorage: an identity can't be linked to a user that has a password without confirmation (or TrustedForLinking)")
 	ErrSignInDenied             = errors.New("sessionstorage: the sign-in policy denied the sign-in")
-	ErrAccountDisabled          = errors.New("sessionstorage: the account is disabled")
-	ErrLastSignInMethod         = errors.New("sessionstorage: the identity is the account's last means of sign-in")
+	ErrUserDisabled             = errors.New("sessionstorage: the user is disabled")
+	ErrLastSignInMethod         = errors.New("sessionstorage: the identity is the user's last means of sign-in")
 )
 
 // Refusal returns a refused sign-in's error. It carries code (or fallback when code is
@@ -97,14 +97,14 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
 }
 
-// PendingSignInError reports a sign-in that resolved to an account but must wait for a
+// PendingSignInError reports a sign-in that resolved to a user but must wait for a
 // password confirmation or MFA. It is documented on sessionstorage.PendingSignInError.
 type PendingSignInError struct {
 	// Reason is why the sign-in waits.
 	Reason sessioninfo.PendingReason
-	// UserID is the account the sign-in resolved to.
+	// UserID is the user the sign-in resolved to.
 	UserID ccc.NullUUID
-	// Username is that account's username.
+	// Username is that user's username.
 	Username string
 	// Tenant is the resolver's tenant key for the link to be made.
 	Tenant string
@@ -112,25 +112,25 @@ type PendingSignInError struct {
 
 // Error describes the pending sign-in.
 func (e *PendingSignInError) Error() string {
-	return fmt.Sprintf("sessionstorage: sign-in pending %s for account %v", e.Reason, e.UserID)
+	return fmt.Sprintf("sessionstorage: sign-in pending %s for user %v", e.Reason, e.UserID)
 }
 
-// Account is the part of an account row the sign-in flow decides on.
-type Account struct {
+// User is the part of a user row the sign-in flow decides on.
+type User struct {
 	Username    string
 	HasPassword bool
 	Disabled    bool
 }
 
-// DecideSignIn refuses a disabled account, sets req.Username to the account's, and runs
+// DecideSignIn refuses a disabled user, sets req.Username to the user's, and runs
 // the policy when it is non-nil and applies to req.Reason. stop is a sign-in that does
 // not go ahead: a refusal or a *PendingSignInError for MFA. The transaction commits
 // on stop. err is the policy's error, which rolls the transaction back.
 func DecideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *Account, policy func(ctx context.Context) (*SignInDecision, error),
+	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *User, policy func(ctx context.Context) (*SignInDecision, error),
 ) (stop, err error) {
 	if acct.Disabled {
-		return Refusal("", sessioninfo.RefusedAccountDisabled, ErrAccountDisabled, "Account disabled"), nil
+		return Refusal("", sessioninfo.RefusedUserDisabled, ErrUserDisabled, "User disabled"), nil
 	}
 	req.Username = acct.Username
 
@@ -151,8 +151,8 @@ func DecideSignIn(
 		return nil, nil
 	case RequireMFA:
 		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: acct.Username}
-		if req.Account != nil {
-			pending.Tenant = req.Account.Tenant
+		if req.User != nil {
+			pending.Tenant = req.User.Tenant
 		}
 
 		return pending, nil
@@ -161,8 +161,8 @@ func DecideSignIn(
 	}
 }
 
-// SignInAccount returns req's account as the sign-in policy and the custom session data
+// SignInUser returns req's user as the sign-in policy and the custom session data
 // resolver receive it.
-func SignInAccount(req *sessioninfo.NewSessionRequest, acct *Account, source sessioninfo.AccountSource, tenant string) *sessioninfo.SignInAccount {
-	return &sessioninfo.SignInAccount{ID: req.UserID, Username: acct.Username, HasPassword: acct.HasPassword, Source: source, Tenant: tenant}
+func SignInUser(req *sessioninfo.NewSessionRequest, acct *User, source sessioninfo.UserSource, tenant string) *sessioninfo.SignInUser {
+	return &sessioninfo.SignInUser{ID: req.UserID, Username: acct.Username, HasPassword: acct.HasPassword, Source: source, Tenant: tenant}
 }

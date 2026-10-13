@@ -113,16 +113,16 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, a *oidcApp)
 	}{
 		{
-			name: "Azure and Google identities reach one account by their own keys, (tid, oid) and sub, never by email",
+			name: "Azure and Google identities reach one user by their own keys, (tid, oid) and sub, never by email",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp) {
-				var account ccc.UUID
+				var user ccc.UUID
 				a.hooks.set(func(h *hooks) {
 					h.resolve = func(req *sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
 						switch {
 						case req.Identity.Method == sessioninfo.MethodAzure && req.Identity.Connection == azureTenant:
-							return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionAccount, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}}
+							return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}}
 						case req.Identity.Method == sessioninfo.MethodGoogle:
-							return &sessionstorage.Resolution{Outcome: sessionstorage.LinkIdentity, UserID: account}
+							return &sessionstorage.Resolution{Outcome: sessionstorage.LinkIdentity, UserID: user}
 						default:
 							return &sessionstorage.Resolution{Outcome: sessionstorage.RejectIdentity}
 						}
@@ -133,13 +133,13 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				v := b.view(ctx)
 				assertEventsSeen(t, v, "azure:"+azureTenant)
-				account = ccc.Must(ccc.UUIDFromString(v.UserID))
+				user = ccc.Must(ccc.UUIDFromString(v.UserID))
 
 				g := a.browser(t)
 				assertRedirect(t, g.oidcSignIn(ctx, a.google, "/google", googleClaims("google-sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				gv := g.view(ctx)
 				if gv.UserID != v.UserID {
-					t.Errorf("Google sign-in account = %s, want the Azure-provisioned %s", gv.UserID, v.UserID)
+					t.Errorf("Google sign-in user = %s, want the Azure-provisioned %s", gv.UserID, v.UserID)
 				}
 				assertEventsSeen(t, gv, "google")
 
@@ -148,12 +148,12 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", azureClaims("22222222-2222-2222-2222-222222222222", "oid-pat", "pat@lakeside.edu")), "/login",
 					url.Values{"code": {"identity_rejected"}})
 
-				// Both links are now the account's: signing in again asks the resolver nothing.
+				// Both links are now the user's: signing in again asks the resolver nothing.
 				before, _ := a.hooks.counts()
 				again := a.browser(t)
 				again.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "renamed@lakeside.edu"))
 				if got := again.view(ctx).UserID; got != v.UserID {
-					t.Errorf("repeat Azure sign-in account = %s, want %s", got, v.UserID)
+					t.Errorf("repeat Azure sign-in user = %s, want %s", got, v.UserID)
 				}
 				if after, linked := a.hooks.counts(); after != before || len(linked) != 2 {
 					t.Errorf("resolver runs = %d (was %d), IdentityLinked reports = %d; want no new run and two reports", after, before, len(linked))
@@ -170,12 +170,12 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", claims), "/login", url.Values{"code": {"verify_id_token_failed"}})
 				b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 				if resolved, _ := a.hooks.counts(); resolved != 0 {
-					t.Errorf("account resolver ran %d times, want never", resolved)
+					t.Errorf("user resolver ran %d times, want never", resolved)
 				}
 			},
 		},
 		{
-			name: "a Google account outside the hosted domain is refused before any account is resolved",
+			name: "a Google user outside the hosted domain is refused before any user is resolved",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp) {
 				claims := googleClaims("google-sub-x", "x@elsewhere.example")
 				claims["hd"] = "elsewhere.example"
@@ -183,7 +183,7 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 				b := a.browser(t)
 				assertRedirect(t, b.oidcSignIn(ctx, a.google, "/google", claims), "/login", url.Values{"code": {"not_workspace_member"}})
 				if resolved, _ := a.hooks.counts(); resolved != 0 {
-					t.Errorf("account resolver ran %d times, want never", resolved)
+					t.Errorf("user resolver ran %d times, want never", resolved)
 				}
 			},
 		},

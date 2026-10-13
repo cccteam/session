@@ -13,11 +13,11 @@ import (
 
 // The application's hooks run inside the sign-in's transactions. These cases check
 // that a refused or held sign-in keeps the hooks' own writes, and that the policy and
-// the custom session data resolver see a provisioned account and how it was resolved,
+// the custom session data resolver see a provisioned user and how it was resolved,
 // on every backend.
 
 // assertRecorded fails unless the hooks' write key=want was committed.
-func assertRecorded(ctx context.Context, t *testing.T, h *AccountsHarness, raw any, key, want string) {
+func assertRecorded(ctx context.Context, t *testing.T, h *AuthHarness, raw any, key, want string) {
 	t.Helper()
 
 	got, found := h.Recorded(ctx, t, raw, key)
@@ -26,8 +26,8 @@ func assertRecorded(ctx context.Context, t *testing.T, h *AccountsHarness, raw a
 	}
 }
 
-func testRejectionKeepsResolverWrites(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{Identities: true, Resolve: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+func testRejectionKeepsResolverWrites(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Identities: true, Resolve: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		if err := tx.Record(ctx, "attempt:"+req.Identity.Subject, "refused: no invite"); err != nil {
 			return nil, errors.Wrap(err, "HookTx.Record()")
 		}
@@ -42,7 +42,7 @@ func testRejectionKeepsResolverWrites(ctx context.Context, t *testing.T, h *Acco
 	assertNoLink(ctx, t, in.Driver, lakeside("idp_stranger"))
 }
 
-func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AccountsHarness) {
+func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AuthHarness) {
 	tests := []struct {
 		name     string
 		password bool
@@ -83,7 +83,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *Accoun
 			t.Parallel()
 			ctx := t.Context()
 
-			in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{Identities: true, Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
+			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Identities: true, Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
 				if err := tx.Record(ctx, "audit:"+req.UserID.String(), "decided"); err != nil {
 					return nil, errors.Wrap(err, "HookTx.Record()")
 				}
@@ -110,11 +110,11 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *Accoun
 }
 
 // provisioningResolver provisions username for every unlinked identity, with tenant,
-// and records the application's membership row for the new account in OnProvisioned.
+// and records the application's membership row for the new user in OnProvisioned.
 func provisioningResolver(username, tenant string) func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 	return func(_ context.Context, tx HookTx, _ *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 		return &dbtype.Resolution{
-			Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: username}, Tenant: tenant,
+			Outcome: dbtype.ProvisionUser, NewUser: &dbtype.InsertSessionUser{Username: username}, Tenant: tenant,
 			OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
 				return tx.Record(ctx, "member:"+userID.String(), tenant)
 			},
@@ -122,7 +122,7 @@ func provisioningResolver(username, tenant string) func(ctx context.Context, tx 
 	}
 }
 
-// seesProvisioned reports why req's account is not visible as a provisioned account
+// seesProvisioned reports why req's user is not visible as a provisioned user
 // with its application rows in tx, or "" when it is.
 func seesProvisioned(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest, tenant string) (string, error) {
 	exists, err := tx.UserExists(ctx, req.UserID)
@@ -130,7 +130,7 @@ func seesProvisioned(ctx context.Context, tx HookTx, req *sessioninfo.NewSession
 		return "", errors.Wrap(err, "HookTx.UserExists()")
 	}
 	if !exists {
-		return "the provisioned account is not readable", nil
+		return "the provisioned user is not readable", nil
 	}
 	member, found, err := tx.Recorded(ctx, "member:"+req.UserID.String())
 	if err != nil {
@@ -139,15 +139,15 @@ func seesProvisioned(ctx context.Context, tx HookTx, req *sessioninfo.NewSession
 	if !found || member != tenant {
 		return "the rows OnProvisioned wrote are not readable", nil
 	}
-	if !req.Account.Provisioned() || req.Account.ID != req.UserID || req.Account.Tenant != tenant {
-		return "the request does not say the account was provisioned", nil
+	if !req.User.Provisioned() || req.User.ID != req.UserID || req.User.Tenant != tenant {
+		return "the request does not say the user was provisioned", nil
 	}
 
 	return "", nil
 }
 
-func testPolicySeesProvisionedAccount(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{
+func testPolicySeesProvisionedUser(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Identities: true,
 		Resolve:    provisioningResolver("new@lakeside.edu", "partner-1"),
 		Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
@@ -162,15 +162,15 @@ func testPolicySeesProvisionedAccount(ctx context.Context, t *testing.T, h *Acco
 
 	id, req, err := signIn(ctx, in.Driver, lakeside("idp_new"), sessioninfo.ReasonLogin)
 	if err != nil {
-		t.Fatalf("first sign-in error = %v (code %q), want the policy to see the provisioned account and allow", err, sessioninfo.LoginRefusalCodeOf(err))
+		t.Fatalf("first sign-in error = %v (code %q), want the policy to see the provisioned user and allow", err, sessioninfo.LoginRefusalCodeOf(err))
 	}
 	if sess := mustSession(ctx, t, in.Driver, id); sess.UserID != ccc.NullUUIDFromUUID(req.UserID) {
-		t.Errorf("Session().UserID = %v, want the provisioned account %v", sess.UserID, req.UserID)
+		t.Errorf("Session().UserID = %v, want the provisioned user %v", sess.UserID, req.UserID)
 	}
 }
 
-func testCustomDataSeesProvisionedAccount(ctx context.Context, t *testing.T, h *AccountsHarness) {
-	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{
+func testCustomDataSeesProvisionedUser(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Identities: true,
 		Resolve:    provisioningResolver("new@lakeside.edu", "partner-1"),
 		CustomData: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error) {
@@ -188,7 +188,7 @@ func testCustomDataSeesProvisionedAccount(ctx context.Context, t *testing.T, h *
 
 	id, _, err := signIn(ctx, in.Driver, lakeside("idp_new"), sessioninfo.ReasonLogin)
 	if err != nil {
-		t.Fatalf("first sign-in error = %v, want the custom session data resolver to see the provisioned account", err)
+		t.Fatalf("first sign-in error = %v, want the custom session data resolver to see the provisioned user", err)
 	}
 	data, ok := mustSession(ctx, t, in.Driver, id).CustomData.(*CustomStringData)
 	if !ok || data.CustomString != "member of partner-1" {
@@ -196,14 +196,14 @@ func testCustomDataSeesProvisionedAccount(ctx context.Context, t *testing.T, h *
 	}
 }
 
-func testPendingRowSkipsCustomData(ctx context.Context, t *testing.T, h *AccountsHarness) {
+func testPendingRowSkipsCustomData(ctx context.Context, t *testing.T, h *AuthHarness) {
 	var calls int
-	in := h.New(ctx, t, AccountsWithAppTables, AccountsConfig{
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Identities: true,
 		CustomData: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (any, error) {
 			calls++
 
-			return nil, errors.New("a resolver that looks the account up fails without one")
+			return nil, errors.New("a resolver that looks the user up fails without one")
 		},
 	})
 
@@ -216,20 +216,20 @@ func testPendingRowSkipsCustomData(ctx context.Context, t *testing.T, h *Account
 	}
 	sess := mustSession(ctx, t, in.Driver, id)
 	if sess.UserID.Valid || sess.AuthenticatedAt != nil {
-		t.Errorf("pending row = UserID %v, AuthenticatedAt %v; want no account and never authenticated", sess.UserID, sess.AuthenticatedAt)
+		t.Errorf("pending row = UserID %v, AuthenticatedAt %v; want no user and never authenticated", sess.UserID, sess.AuthenticatedAt)
 	}
 }
 
-func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarness) {
+func testSignInUserReported(_ context.Context, t *testing.T, h *AuthHarness) {
 	tests := []struct {
 		name string
-		// signIn runs the sign-in for the seeded accounts and returns its request.
-		signIn func(ctx context.Context, t *testing.T, d AccountsDriver, sso, pat *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error)
-		want   func(sso, pat *dbtype.SessionUser, req *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount
+		// signIn runs the sign-in for the seeded users and returns its request.
+		signIn func(ctx context.Context, t *testing.T, d AuthDriver, sso, pat *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error)
+		want   func(sso, pat *dbtype.SessionUser, req *sessioninfo.NewSessionRequest) *sessioninfo.SignInUser
 	}{
 		{
 			name: "an existing link, with its tenant",
-			signIn: func(ctx context.Context, t *testing.T, d AccountsDriver, sso, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
+			signIn: func(ctx context.Context, t *testing.T, d AuthDriver, sso, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
 				t.Helper()
 				if _, err := d.LinkIdentity(ctx, sso.ID, lakeside("idp_sso"), "partner-1"); err != nil {
 					t.Fatalf("LinkIdentity() error = %v", err)
@@ -238,35 +238,35 @@ func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarne
 
 				return req, err
 			},
-			want: func(sso, _ *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount {
-				return &sessioninfo.SignInAccount{ID: sso.ID, Username: sso.Username, Source: sessioninfo.AccountExistingLink, Tenant: "partner-1"}
+			want: func(sso, _ *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInUser {
+				return &sessioninfo.SignInUser{ID: sso.ID, Username: sso.Username, Source: sessioninfo.UserExistingLink, Tenant: "partner-1"}
 			},
 		},
 		{
 			name: "a link the resolver made",
-			signIn: func(ctx context.Context, _ *testing.T, d AccountsDriver, _, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
+			signIn: func(ctx context.Context, _ *testing.T, d AuthDriver, _, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
 				_, req, err := signIn(ctx, d, lakeside("idp_link"), sessioninfo.ReasonLogin)
 
 				return req, err
 			},
-			want: func(sso, _ *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount {
-				return &sessioninfo.SignInAccount{ID: sso.ID, Username: sso.Username, Source: sessioninfo.AccountNewLink, Tenant: "partner-2"}
+			want: func(sso, _ *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInUser {
+				return &sessioninfo.SignInUser{ID: sso.ID, Username: sso.Username, Source: sessioninfo.UserNewLink, Tenant: "partner-2"}
 			},
 		},
 		{
-			name: "an account the resolver provisioned",
-			signIn: func(ctx context.Context, _ *testing.T, d AccountsDriver, _, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
+			name: "a user the resolver provisioned",
+			signIn: func(ctx context.Context, _ *testing.T, d AuthDriver, _, _ *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
 				_, req, err := signIn(ctx, d, lakeside("idp_new"), sessioninfo.ReasonLogin)
 
 				return req, err
 			},
-			want: func(_, _ *dbtype.SessionUser, req *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount {
-				return &sessioninfo.SignInAccount{ID: req.UserID, Username: "new@lakeside.edu", Source: sessioninfo.AccountProvisioned, Tenant: "partner-3"}
+			want: func(_, _ *dbtype.SessionUser, req *sessioninfo.NewSessionRequest) *sessioninfo.SignInUser {
+				return &sessioninfo.SignInUser{ID: req.UserID, Username: "new@lakeside.edu", Source: sessioninfo.UserProvisioned, Tenant: "partner-3"}
 			},
 		},
 		{
-			name: "a password sign-in's named account",
-			signIn: func(ctx context.Context, _ *testing.T, d AccountsDriver, _, pat *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
+			name: "a password sign-in's named user",
+			signIn: func(ctx context.Context, _ *testing.T, d AuthDriver, _, pat *dbtype.SessionUser) (*sessioninfo.NewSessionRequest, error) {
 				req := &sessioninfo.NewSessionRequest{
 					Reason: sessioninfo.ReasonLogin, Username: pat.Username, UserID: pat.ID,
 					Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: pat.ID.String()},
@@ -277,8 +277,8 @@ func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarne
 
 				return req, nil
 			},
-			want: func(_, pat *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInAccount {
-				return &sessioninfo.SignInAccount{ID: pat.ID, Username: pat.Username, HasPassword: true, Source: sessioninfo.AccountNamed}
+			want: func(_, pat *dbtype.SessionUser, _ *sessioninfo.NewSessionRequest) *sessioninfo.SignInUser {
+				return &sessioninfo.SignInUser{ID: pat.ID, Username: pat.Username, HasPassword: true, Source: sessioninfo.UserNamed}
 			},
 		},
 	}
@@ -288,12 +288,12 @@ func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarne
 			ctx := t.Context()
 
 			var sso *dbtype.SessionUser
-			in := h.New(ctx, t, Accounts, AccountsConfig{Identities: true, Resolve: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
+			in := h.New(ctx, t, Auth, AuthConfig{Identities: true, Resolve: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
 				if req.Identity.Subject == "idp_link" {
 					return &dbtype.Resolution{Outcome: dbtype.LinkIdentity, UserID: sso.ID, Tenant: "partner-2"}, nil
 				}
 
-				return &dbtype.Resolution{Outcome: dbtype.ProvisionAccount, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"}, Tenant: "partner-3"}, nil
+				return &dbtype.Resolution{Outcome: dbtype.ProvisionUser, NewUser: &dbtype.InsertSessionUser{Username: "new@lakeside.edu"}, Tenant: "partner-3"}, nil
 			}})
 			sso = createUser(ctx, t, in.Driver, "sso@lakeside.edu")
 			pat := passwordUser(ctx, t, in.Driver, "pat@lakeside.edu")
@@ -302,8 +302,8 @@ func testSignInAccountReported(_ context.Context, t *testing.T, h *AccountsHarne
 			if err != nil {
 				t.Fatalf("sign-in error = %v", err)
 			}
-			if diff := cmp.Diff(tt.want(sso, pat, req), req.Account); diff != "" {
-				t.Errorf("NewSessionRequest.Account mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want(sso, pat, req), req.User); diff != "" {
+				t.Errorf("NewSessionRequest.User mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

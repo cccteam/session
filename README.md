@@ -10,7 +10,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Database Support`: Seamless integration with multiple databases.
   - PostgreSQL
   - Google Cloud Spanner
-- `Auth Sessions`: One session that password, Azure, Google Workspace and WorkOS SSO sign-in can all establish, with accounts, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
+- `Auth Sessions`: One session that password, Azure, Google Workspace and WorkOS SSO sign-in can all establish, with users, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
 - `Login Types`: Supports multiple authentication methods.
   - Azure OIDC
   - Google Workspace OIDC (restricted to one hosted domain — see the "Google Workspace OIDC" section)
@@ -32,7 +32,7 @@ application that uses neither instantiates with the `NoCustomData` sentinel:
 The DDL for every table the library owns ships as golang-migrate files under
 `schema/spanner/` and `schema/postgresql/`: `migrations` (sessions and password-auth
 users), `oidc` (Azure OIDC), `oidc-google` (Google Workspace OIDC), `impersonation`, and
-`accounts` (Auth sessions: session accounts, identity links and auth events).
+`auth` (Auth sessions: the sessions' users, identity links and auth events).
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -57,38 +57,38 @@ ALTER TABLE "Sessions"
 `Auth[SessionData, UserData]` is one session that any registered sign-in method can
 establish: password, Microsoft Entra ID (Azure), Google Workspace and WorkOS SSO. An
 application mounts one cookie, one session table and one middleware chain, and every
-session belongs to an **account**, a `SessionUsers` record, by its ID. The password
-method checks the account's password; an external method produces a verified
-**identity** that is linked to an account through the identities table, keyed by
+session belongs to an **user**, a `SessionUsers` record, by its ID. The password
+method checks the user's password; an external method produces a verified
+**identity** that is linked to a user through the identities table, keyed by
 `(method, connection, subject)` and **never by email**.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
-| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | account ID | JSON `{"username", "password"}` | — |
+| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `AzureSignIn(auth, roleSync, issuer, clientID, secret, redirectURL, ...)` → `*AzureMethod`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `RoleSync(manager)` or `DisableRoleSync()` |
 | `google` | `GoogleSignIn(auth, roleSync, clientID, secret, redirectURL, hostedDomain, ...)` → `*GoogleMethod`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `GoogleRoleSync(...)` or `DisableRoleSync()` |
 | `workos` | `WorkOSSignIn(auth, apiKey, clientID, redirectURL, ...)` → `*WorkOSMethod`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 ### Storage and schema
 
-Apply the base migrations (`schema/*/migrations`) and the accounts migrations
-(`schema/*/accounts/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
+Apply the base migrations (`schema/*/migrations`) and the auth migrations
+(`schema/*/auth/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
 `SessionIdentities`, `SessionAuthEvents`), plus `impersonation` if you use it. Build the
-storage with `NewSpannerAccounts` / `NewPostgresAccounts`; any external method needs an
-identities configuration, which carries the application's **account resolver** (what to
-do with an identity that is not linked yet: `LinkIdentity`, `ProvisionAccount`,
+storage with `NewSpannerAuth` / `NewPostgresAuth`; any external method needs an
+identities configuration, which carries the application's **user resolver** (what to
+do with an identity that is not linked yet: `LinkIdentity`, `ProvisionUser`,
 `RequireConfirmation` or `RejectIdentity`) and its optional **sign-in policy** (`AllowSignIn`,
-`RequireMFA` or `DenySignIn`, for every method once the account is known). Each receives
+`RequireMFA` or `DenySignIn`, for every method once the user is known). Each receives
 its transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`), so it can read and write
 the application's own rows; on Spanner it may run more than once when the transaction
 retries, so it must not have side effects outside it.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
-1. **Account resolution** (external methods): a linked identity is its account's;
-   otherwise the account resolver runs and its outcome is applied: the link, or the new
-   account, its link and the rows `Resolution.OnProvisioned` writes.
-2. **Decision and session**: the account is read (a disabled one is refused), the
+1. **User resolution** (external methods): a linked identity is its user's;
+   otherwise the user resolver runs and its outcome is applied: the link, or the new
+   user, its link and the rows `Resolution.OnProvisioned` writes.
+2. **Decision and session**: the user is read (a disabled one is refused), the
    sign-in policy runs, and the session row is inserted with its auth events and custom
    session data.
 
@@ -97,21 +97,21 @@ Each transaction **commits unless a hook or the storage returns an error**. A
 error: it commits the hook's own writes (a record of a refused sign-up, an audit row) and
 writes no session. Because the resolution has committed by the time the policy runs:
 
-- the policy (and the custom session data resolver) **reads the account a sign-in just
+- the policy (and the custom session data resolver) **reads the user a sign-in just
   provisioned** and the rows `OnProvisioned` wrote, on both backends;
-- `req.Account` (`*sessioninfo.SignInAccount`) tells them which account was resolved and
-  how: `Source` is `AccountNamed` (password), `AccountExistingLink`, `AccountNewLink` or
-  `AccountProvisioned` (`req.Account.Provisioned()`), with the link's `Tenant`;
-- **an account the resolver provisioned stays, linked, when the policy then denies the
+- `req.User` (`*sessioninfo.SignInUser`) tells them which user was resolved and
+  how: `Source` is `UserNamed` (password), `UserExistingLink`, `UserNewLink` or
+  `UserProvisioned` (`req.User.Provisioned()`), with the link's `Tenant`;
+- **a user the resolver provisioned stays, linked, when the policy then denies the
   sign-in or holds it for MFA**; the next sign-in goes through the link and the policy
-  decides again. Return `RejectIdentity` from the resolver when the account must not be
+  decides again. Return `RejectIdentity` from the resolver when the user must not be
   created at all. A hook error rolls back its own transaction only: an `OnProvisioned`
-  failure leaves no account, while a policy error leaves a provisioned account in place.
+  failure leaves no user, while a policy error leaves a provisioned user in place.
 
 ```go
-identities, err := sessionstorage.NewSpannerIdentities("SessionIdentities", resolveAccount, signInPolicy)
+identities, err := sessionstorage.NewSpannerIdentities("SessionIdentities", resolveUser, signInPolicy)
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
-store := sessionstorage.NewSpannerAccounts(client,
+store := sessionstorage.NewSpannerAuth(client,
     sessionstorage.WithSpannerIdentities(identities),
     sessionstorage.WithAuthEvents(events))
 
@@ -192,7 +192,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 | Outcome | External `Callback()` | `password.Login()` |
 | --- | --- | --- |
 | Session established (new session ID) | `302 <returnUrl>` (default `/`) | `200 {"mfaIsRequired": false}` |
-| Waits for the account's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]`, or the pending hook's URL | — |
+| Waits for the user's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]`, or the pending hook's URL | — |
 | Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]`, or the pending hook's URL | `200 {"mfaIsRequired": true[, "redirectUrl"]}` |
 | Refused | `302 <LoginURL>?code=<code>` | `401 {"message", "code"}` (403 for a forbidden cause) |
 
@@ -207,7 +207,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 - `pending` is the login page's routing marker. The page reads the pending identity from
   `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
-- **Confirmation** (`reason` `confirmation`): the page asks for the existing account's
+- **Confirmation** (`reason` `confirmation`): the page asks for the existing user's
   password and posts `{"password"}` to `Pending().ConfirmWithPassword()`: `200
   {"mfaIsRequired": false}` (linked, the hook called, signed in; go to `returnUrl`),
   `200 {"mfaIsRequired": true}` (linked, but the policy wants MFA: the pending identity
@@ -215,15 +215,15 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   `409` when the pending identity waits for MFA instead.
 - **MFA** (`reason` `mfa`): the application runs its own step and calls
   `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "email-otp"})`, which
-  starts the session (the policy is not asked again; the account is resolved afresh and
+  starts the session (the policy is not asked again; the user is resolved afresh and
   must be the one it waited on) and records the sign-in's events followed by the step's.
-  The pending identity always names its account (`UserID`, `Username`), including one the
+  The pending identity always names its user (`UserID`, `Username`), including one the
   sign-in has just provisioned, which exists by then.
 - `Pending().Cancel()` discards the pending identity.
 - **The pending hook** (`WithPendingHook`) runs when `password.Login()`, an external
   `Callback()` or `Pending().ConfirmWithPassword()` has just held a sign-in, after the
   pending identity is stored and its cookie set. It receives the
-  `*sessioninfo.PendingIdentity` (reason, account, the identity with its email, expiry,
+  `*sessioninfo.PendingIdentity` (reason, user, the identity with its email, expiry,
   return path), so the application can send its MFA code and choose the next page:
 
   ```go
@@ -235,7 +235,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
           return "", err // the pending identity is discarded and the sign-in fails
       }
 
-      return "/account/mfa", nil
+      return "/user/mfa", nil
   }
   ```
 
@@ -253,13 +253,13 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 ### What a pending identity is
 
 A pending identity is a verified identity waiting for its confirmation or MFA: a preauth
-stepping-stone row in the session table (no account, never authenticated) and the
+stepping-stone row in the session table (no user, never authenticated) and the
 `auth-pending` cookie, encrypted and authenticated with the cookie key, that carries the
-identity, the account it waits on, the steps so far and the return path, bound to that
+identity, the user it waits on, the steps so far and the return path, bound to that
 row. Completing, cancelling or replacing it expires the row, so a copied cookie completes
 nothing, and the row never validates as a session. The row is inserted with
 `ReasonPendingIdentity`, for which the custom session data resolver is **not** called: it
-has no account and carries no custom data. An identity's claims must fit the cookie once
+has no user and carries no custom data. An identity's claims must fit the cookie once
 compressed (about 2.8 KB): a larger one is refused with `internal_error`.
 
 ### Every session
@@ -267,32 +267,32 @@ compressed (about 2.8 KB): a larger one is refused with `internal_error`.
 - **The session ID is regenerated** at every sign-in, confirmation and MFA completion:
   the cookies are written only once the session row, its auth events and role
   synchronization have succeeded.
-- **The account is loaded by `UserId` on every request.** `ValidateSession` refuses a
-  session with no account or whose account is missing or disabled; the account is
-  `sessioninfo.UserFromCtx(ctx)`. The session's account, authentication time and auth
+- **The user is loaded by `UserId` on every request.** `ValidateSession` refuses a
+  session with no user or whose user is missing or disabled; the user is
+  `sessioninfo.UserFromCtx(ctx)`. The session's user, authentication time and auth
   events are on the context's `*sessioninfo.SessionData`
   (`sessioninfo.DataFromCtx(ctx)`): `UserID`, `AuthenticatedAt`, `AuthEvents`.
 - **Custom session data** is resolved in the transaction that inserts the session, after
-  the account resolution has committed: the resolver reads the account (one just
-  provisioned included) and the application's rows, and `req.Account` says how the
-  account was found. It is never called for a pending identity's row.
+  the user resolution has committed: the resolver reads the user (one just
+  provisioned included) and the application's rows, and `req.User` says how the
+  user was found. It is never called for a pending identity's row.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
   steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events; the policy is not consulted.
-- **Role synchronization** (Azure, Google) reconciles the roles of the account the
+- **Role synchronization** (Azure, Google) reconciles the roles of the user the
   identity resolved to, from the roles the provider asserted at sign-in, whenever such a
   sign-in establishes a session (including after a confirmation or MFA). A sign-in left
   with no recognized role is refused (`no_roles`) and its session expired.
 - **Impersonation** works as on the other types. A user principal's session belongs to
-  the impersonated account; a role principal's belongs to none. The session records an
+  the impersonated user; a role principal's belongs to none. The session records an
   `impersonation` event whose connection is the actor.
-- **Account management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
-  `DeactivateSessionUser` and `DeleteSessionUser` destroy the account's sessions by
+- **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
+  `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
-  refuses an account's last means of sign-in.
+  refuses a user's last means of sign-in.
 - **Not yet supported**: provider-initiated (front-channel) logout.
-  `AzureMethod.FrontChannelLogout()` answers 501 until the accounts schema records the
+  `AzureMethod.FrontChannelLogout()` answers 501 until the auth schema records the
   provider's session ID.
 
 ## OIDC role synchronization
@@ -369,11 +369,11 @@ Two layers, one enforced by Google and one by this library:
 
 1. **Internal OAuth consent screen** (Google-side): create the OAuth client in a Google
    Cloud project that belongs to your Workspace org and set the consent screen's user
-   type to *Internal*. Google then refuses accounts outside the org (`org_internal`
+   type to *Internal*. Google then refuses users outside the org (`org_internal`
    error) before they ever reach your callback.
 2. **`hostedDomain`** (library-side, required): sent as the `hd` hint on the
-   authorization request (pre-selects org accounts in the account chooser — UX only),
-   and enforced against the verified ID token's `hd` claim. A consumer account carries
+   authorization request (pre-selects org users in the user chooser — UX only),
+   and enforced against the verified ID token's `hd` claim. A consumer user carries
    no `hd` claim at all, so the check fails closed. This is the trusted backstop even
    with an Internal consent screen in place.
 
@@ -430,8 +430,8 @@ extra OAuth scope, in addition to `openid`, `email` and `profile`:
 `https://www.googleapis.com/auth/cloud-identity.groups.readonly`. A scope names one
 permission the application asks the person for. The token is used for the lookup once
 and never stored. No administrator credential is involved: no service account (a
-Google account for software rather than a person), no domain-wide delegation (a
-setting that lets such an account act as anyone in the organization), and no admin
+Google user for software rather than a person), no domain-wide delegation (a
+setting that lets such a user act as anyone in the organization), and no admin
 role.
 
 The last argument of `GoogleRoleSync` is a `session.GroupLookup`, which sets how far
@@ -494,13 +494,13 @@ table is the wire contract:
 | `no_id_token` | `RefusedNoIDToken` | The token response carried no `id_token`. |
 | `verify_id_token_failed` | `RefusedIDTokenVerification` | The ID token failed signature, issuer, audience, or expiry verification. |
 | `parse_claims_failed` | `RefusedClaimsParse` | The verified ID token's claims would not decode. |
-| `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the account is outside the Workspace domain logins are restricted to. |
-| `email_not_verified` | `RefusedEmailNotVerified` | Google: the account's email address is not verified. |
+| `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the user is outside the Workspace domain logins are restricted to. |
+| `email_not_verified` | `RefusedEmailNotVerified` | Google: the user's email address is not verified. |
 | `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account resolver rejected the identity (its own code wins when it sets one), linked an account that has a password without confirmation, or the identity resolved to another account than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the user resolver rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, or the identity resolved to another user than it waited on. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
-| `account_disabled` | `RefusedAccountDisabled` | Auth: the sign-in resolved to a disabled account. |
+| `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | For an application's resolver: the external identity carries no email address where one is required. |
 
@@ -551,7 +551,7 @@ How it works:
   transaction that inserts the session row** (login, external auth, session
   regeneration) and returns the `*T` to store, committed atomically with the session.
   If it returns an error, the login fails: no session, no cookies. For an `Auth`
-  sign-in it runs after the account resolution has committed (see "Auth sessions"), and
+  sign-in it runs after the user resolution has committed (see "Auth sessions"), and
   never for a pending identity's row.
 
 - **Every request reads it — automatically.** Session validation fetches the custom
@@ -829,7 +829,7 @@ How it works:
   recycle-proof identity Azure gives you (`oid` is only unique within a tenant) —
   under a surrogate UUID primary key. On Google, the `GoogleOIDCUsers` table (ship the
   `schema/*/oidc-google/migrations` migration) keys each user by the `sub` claim
-  alone — globally unique among all Google accounts and never reused — with `Hd` as a
+  alone — globally unique among all Google identities and never reused — with `Hd` as a
   mutable attribute alongside `Username`. In both cases `Username`
   (`preferred_username` on Azure, `email` on Google) is a mutable *attribute* on the
   row, never part of the key.
@@ -1140,11 +1140,11 @@ means in this application's session table:
 
 | | Local actor (`ActorRealm` empty) | Foreign actor (`ActorRealm` set) |
 | --- | --- | --- |
-| Who | An account of this application, logged in here | Authenticated by another application or IdP |
+| Who | A user of this application, logged in here | Authenticated by another application or IdP |
 | `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
 | Kept alive | The source session's activity is refreshed with the impersonated session's, so `EndImpersonation` can return to it | — |
-| Deactivating or renaming the account named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one account*) | Never touches the role session |
+| Deactivating or renaming the user named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one user*) | Never touches the role session |
 
 Minting an impersonated session in the same application the actor is logged into
 replaces the browser's session cookie — which is why the source session is verified,
@@ -1294,18 +1294,18 @@ Everything an impersonated session touches names the actor and the principal:
   `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
   user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
   when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
-- **One name, one account.** A role principal's session carries the actor's own username,
-  in the same session table as the application's real accounts. For a *local* actor that
-  name is their account, and the two username-keyed store operations treat everything
+- **One name, one user.** A role principal's session carries the actor's own username,
+  in the same session table as the application's real users. For a *local* actor that
+  name is their user, and the two username-keyed store operations treat everything
   under it as theirs: `DestroyAllUserSessions` expires their own sessions, their role
   sessions, and every impersonation they hold as a local actor under other names, ending
   the records `Revoked`; the session rename on `ChangeUsername` renames their role sessions
   and moves their live records to the new name. For a *foreign* actor the name is
   borrowed, so password auth refuses a role principal when that name is already a
-  `SessionUsers` account (the actor logs in as that account, or impersonates it as a user
+  `SessionUsers` user (the actor logs in as that user, or impersonates it as a user
   principal), and the two operations never touch a session carrying a live foreign
-  role-principal record — an account created later under that name cannot reach the
-  actor's session either. Preauth and OIDC have no username-keyed account to collide with;
+  role-principal record — a user created later under that name cannot reach the
+  actor's session either. Preauth and OIDC have no username-keyed user to collide with;
   OIDC's `FrontChannelLogout` is username-keyed all the same, and makes no exception for a
   foreign role session (see *Identity by session type*).
   This is the store-level complement of the authorization rule: under a role principal the

@@ -77,7 +77,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 
 	o.cookieClient.WriteStateCookie(w, internalcookie.GoogleStateCookieName, cval)
 
-	// The hd parameter pre-selects the Workspace domain's accounts in Google's account
+	// The hd parameter pre-selects the Workspace domain's users in Google's user
 	// chooser. It is a UX hint only — the trusted enforcement is the hd claim check in
 	// Verify.
 	return provider.AuthCodeURL(state.String(),
@@ -89,7 +89,7 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 // Verify performs the necessary verification and processing of the OIDC callback
 // request. Beyond the standard checks (state, PKCE code exchange, ID-token signature /
 // issuer / audience / expiry), it rejects tokens whose hd claim does not match the
-// configured hosted domain (a consumer account carries no hd claim at all and fails
+// configured hosted domain (a consumer user carries no hd claim at all and fails
 // closed) and tokens without a verified email.
 // It populates 'claims' with the ID Token's claims and returns the URL to redirect to
 // following successful authentication, with the access token of the code exchange.
@@ -143,7 +143,7 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 
 	// Enforce the hosted-domain restriction on the verified token. Unlike the hd
 	// request parameter, the hd claim is inside the Google-signed token and can be
-	// trusted; a consumer account has no hd claim and fails closed.
+	// trusted; a consumer user has no hd claim and fails closed.
 	var gClaims struct {
 		Hd            string `json:"hd"`
 		EmailVerified bool   `json:"email_verified"`
@@ -152,10 +152,10 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims"))
 	}
 	if !strings.EqualFold(gClaims.Hd, o.hostedDomain) {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("Account is not a member of the required Google Workspace domain"))
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("User is not a member of the required Google Workspace domain"))
 	}
 	if !gClaims.EmailVerified {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedEmailNotVerified, httpio.NewForbiddenMessage("Account email is not verified"))
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedEmailNotVerified, httpio.NewForbiddenMessage("User email is not verified"))
 	}
 
 	// Extract the claims from the ID Token

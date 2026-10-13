@@ -20,19 +20,19 @@ import (
 type signInAttempt struct {
 	identity *sessioninfo.Identity
 	reason   sessioninfo.NewSessionReason
-	// userID and username name a password identity's account. The drivers take it
+	// userID and username name a password identity's user. The drivers take it
 	// from the request instead of resolving it.
 	userID   ccc.UUID
 	username string
-	// expectUserID is the account a pending identity waited on. When valid, a
-	// completion that now resolves to another account is refused.
+	// expectUserID is the user a pending identity waited on. When valid, a
+	// completion that now resolves to another user is refused.
 	expectUserID ccc.NullUUID
 	// events are the auth events the session records. Nil records only the identity's
 	// method.
 	events []sessioninfo.AuthEvent
 	// returnURL is where an external sign-in sends the browser afterwards.
 	returnURL string
-	// roleNames are the role names the method asserted, reconciled once the account is
+	// roleNames are the role names the method asserted, reconciled once the user is
 	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
 	sameSite  authCookieSameSite
@@ -46,7 +46,7 @@ type signInOutcome struct {
 }
 
 // signIn establishes a session for every sign-in method. One store call resolves the
-// account, asks the policy and inserts the session with its auth events. Roles are then
+// user, asks the policy and inserts the session with its auth events. Roles are then
 // reconciled, and only after that are the cookies for the new session ID written, so a
 // refusal writes no cookie. A sign-in that must wait becomes the browser's pending
 // identity, replacing any earlier one. A sign-in that succeeds consumes it.
@@ -56,13 +56,13 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 
 	if at.identity.Method == sessioninfo.MethodPassword {
 		// Without identities configured the drivers insert a password session as given,
-		// so the account is checked here.
+		// so the user is checked here.
 		user, err := a.storage.User(ctx, at.userID)
 		if err != nil {
-			return nil, errors.Wrap(err, "sessionstorage.AccountStore.User()")
+			return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 		}
 		if user.Disabled {
-			return nil, dbtype.Refusal("", sessioninfo.RefusedAccountDisabled, sessionstorage.ErrAccountDisabled, "Account disabled")
+			return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
 		}
 		at.username = user.Username
 	}
@@ -79,11 +79,11 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 	id, err := establishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.CreateSession(ctx, req)
 		if err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AccountStore.CreateSession()")
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateSession()")
 		}
 		if err := a.afterInsert(ctx, at, req); err != nil {
 			if derr := a.storage.DestroySession(ctx, id); derr != nil {
-				logger.FromCtx(ctx).Error(errors.Wrap(derr, "sessionstorage.AccountStore.DestroySession()"))
+				logger.FromCtx(ctx).Error(errors.Wrap(derr, "sessionstorage.AuthStore.DestroySession()"))
 			}
 
 			return ccc.NilUUID, err
@@ -93,8 +93,8 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 	})
 	// The storage commits a link before the policy decides, so the link is reported
 	// whatever the outcome.
-	if req.Account.Linked() {
-		a.notifyLinked(ctx, req.Account.ID, at.identity)
+	if req.User.Linked() {
+		a.notifyLinked(ctx, req.User.ID, at.identity)
 	}
 
 	var wait *sessionstorage.PendingSignInError
@@ -116,12 +116,12 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
 
-// afterInsert runs once the session row exists and req carries the resolved account.
-// It refuses a completion that resolved to a different account, and reconciles the
+// afterInsert runs once the session row exists and req carries the resolved user.
+// It refuses a completion that resolved to a different user, and reconciles the
 // method's roles.
 func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) error {
 	if at.expectUserID.Valid && req.UserID != at.expectUserID.UUID {
-		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity no longer resolves to the account it was pending for")
+		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")
 	}
 	if at.roleNames == nil {
 		return nil
@@ -147,7 +147,7 @@ func (a *Auth[S, U]) notifyLinked(ctx context.Context, userID ccc.UUID, identity
 	}
 }
 
-// validate validates the session in ctx and stores its account in the context.
+// validate validates the session in ctx and stores its user in the context.
 func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 	ctx, err := a.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
@@ -158,7 +158,7 @@ func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 	if !ok {
 		return ctx, errors.New("no validated session in the context")
 	}
-	user, err := a.sessionAccount(ctx, sessData)
+	user, err := a.sessionUser(ctx, sessData)
 	if err != nil {
 		return ctx, err
 	}
@@ -166,12 +166,12 @@ func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, sessioninfo.CtxUserInfo, user), nil
 }
 
-// sessionAccount loads a validated session's account by UserId. A session with no
-// account (a pending identity's row, a row from before the accounts schema), or whose
-// account is missing or disabled, is unauthorized. A role-principal impersonation has
-// no account. A foreign actor's carries only its username. A local actor's is checked
-// against the actor's own account.
-func (a *Auth[S, U]) sessionAccount(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
+// sessionUser loads a validated session's user by UserId. A session with no
+// user (a pending identity's row, a row from before the auth schema), or whose
+// user is missing or disabled, is unauthorized. A role-principal impersonation has
+// no user. A foreign actor's carries only its username. A local actor's is checked
+// against the actor's own user.
+func (a *Auth[S, U]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
 	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
 		if !imp.IsLocalActor() {
 			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
@@ -181,7 +181,7 @@ func (a *Auth[S, U]) sessionAccount(ctx context.Context, sessData *sessioninfo.S
 			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 		}
 
-		return enabledAccount(user)
+		return enabledUser(user)
 	}
 
 	if !sessData.UserID.Valid {
@@ -193,13 +193,13 @@ func (a *Auth[S, U]) sessionAccount(ctx context.Context, sessData *sessioninfo.S
 			return nil, httpio.NewUnauthorizedMessageWithError(err, "invalid session")
 		}
 
-		return nil, errors.Wrap(err, "sessionstorage.AccountStore.User()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 
-	return enabledAccount(user)
+	return enabledUser(user)
 }
 
-func enabledAccount(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error) {
+func enabledUser(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error) {
 	if user.Disabled {
 		return nil, httpio.NewUnauthorizedMessage("Session Expired")
 	}
@@ -207,7 +207,7 @@ func enabledAccount(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, er
 	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username}, nil
 }
 
-// passwordSignIn checks username and password and signs the account in.
+// passwordSignIn checks username and password and signs the user in.
 func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string) (*signInOutcome, error) {
 	user, err := a.checkCredentials(ctx, username, password)
 	if err != nil {
@@ -223,8 +223,8 @@ func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, 
 	})
 }
 
-// checkCredentials returns the enabled account for username when password matches. A
-// missing account, a wrong password and a password-less account are all invalid
+// checkCredentials returns the enabled user for username when password matches. A
+// missing user, a wrong password and a password-less user are all invalid
 // credentials. An outdated hash is upgraded when auto-upgrade is enabled.
 func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password string) (*sessionstorage.SessionUser, error) {
 	user, err := a.storage.UserByUserName(ctx, username)
@@ -244,7 +244,7 @@ func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password st
 		}
 	}
 	if user.Disabled {
-		return nil, dbtype.Refusal("", sessioninfo.RefusedAccountDisabled, sessionstorage.ErrAccountDisabled, "Account disabled")
+		return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
 	}
 
 	return user, nil
@@ -256,7 +256,7 @@ func (a *Auth[S, U]) setPasswordHash(ctx context.Context, userID ccc.UUID, passw
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
 	if err := a.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
-		return errors.Wrap(err, "sessionstorage.AccountStore.SetUserPasswordHash()")
+		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPasswordHash()")
 	}
 
 	return nil
@@ -394,5 +394,5 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 
 // shared returns the API methods every session type shares, over this session's fields.
 func (a *Auth[S, U]) shared() sharedAPI[S, U] {
-	return sharedAPI[S, U]{base: a.baseSession, store: a.storage, users: a.storage, storeName: "AccountStore"}
+	return sharedAPI[S, U]{base: a.baseSession, store: a.storage, users: a.storage, storeName: "AuthStore"}
 }
