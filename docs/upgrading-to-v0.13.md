@@ -144,8 +144,9 @@ group, four steps:
 
 1. `000001_SessionUsers` creates the users table, as the base set does.
 2. `000002_Auth` adds the Auth columns and tables. `OidcSid` becomes the nullable
-   `ProviderSessionId`: renamed on PostgreSQL, dropped and re-added on Spanner, where the
-   live legacy sessions therefore end at the cutover.
+   `ProviderSessionId`: renamed on PostgreSQL, dropped and re-added on Spanner. On both
+   backends the live legacy sessions lose their `sid`, so a later Entra logout cannot
+   reach them; step 4 gives them their user.
 3. `000003_SessionPendingSignIns` creates the pending sign-ins table.
 4. `000004_OIDCUsersBackfill` copies the OIDC user anchor's rows into `SessionUsers`
    under the same ids, creates one Azure identity per row (`Method` `azure`,
@@ -240,13 +241,17 @@ An application whose tables are named per auth group applies the sets under its 
 (copy the files and rename the tables, indexes and constraints) and tells the `Auth`:
 `WithSessionTableName`, `WithUserTableName`, `WithIdentitiesTableName` and
 `WithPendingSignInsTableName` on `NewAuth`, `NewAuthEventsTable(name)` and
-`NewImpersonationTable(name)` on the store.
+`NewImpersonationTable(name)` on the store. Keep the users table's unique index named
+after the table as the shipped DDL does (`<UsersTable>_NormalizedUsername_idx` on
+PostgreSQL, `<UsersTable>ByNormalizedUsername` on Spanner): the drivers read a username
+conflict by that name.
 
 ### Behaviour that differs
 
 - **Front-channel logout** is keyed by the provider's session id, the `sid` Entra sends,
   and ends the sessions whose sign-in carried it, impersonations started from them
-  included. The legacy type ended every session carrying the username.
+  included; a request naming another issuer in `iss` is refused. The legacy type ended
+  every session carrying the username.
 - **Refusal codes.** The login page needs a sentence for the codes `Auth` adds:
   `identity_rejected`, `policy_denied`, `user_disabled`, `pending_expired` and
   `no_email`.
@@ -265,8 +270,9 @@ An application whose tables are named per auth group applies the sets under its 
   anchor's rows were copied, not moved, so the legacy type resumes with them. On
   PostgreSQL, step 2's down migration turns `ProviderSessionId` back into `OidcSid` and
   fills the rows that have none (sessions other methods established) with an empty
-  string; on Spanner `OidcSid` comes back empty for every row, so every session ends.
-  Roll back before dropping the anchor table.
+  string; on Spanner `OidcSid` comes back empty for every row. The legacy type reads
+  `OidcSid` only for its front-channel logout, so the sessions stay but a logout cannot
+  reach them. Roll back before dropping the anchor table.
 
 ## Checking the upgrade
 

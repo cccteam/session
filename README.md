@@ -38,7 +38,10 @@ The DDL for every table the library owns ships as golang-migrate files under
 (the base set: sessions and users), `auth` (Auth sessions on the base set: the sessions'
 users, identity links, auth events and pending sign-ins), `auth-from-oidc` (the upgrade
 of a legacy Azure group to Auth), `impersonation`, and `oidc` (the legacy Azure type,
-deprecated with it). Which sets a group applies is in "Storage and schema" below.
+deprecated with it). Which sets a group applies is in "Storage and schema" below. The
+`auth-from-oidc` set's backfill step is DML; the library's tests apply it with
+db-initiator in one read-write transaction, so check that your migration runner
+executes DML on Spanner.
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -108,8 +111,8 @@ where the group starts:
   turns `OidcSid` into the nullable `ProviderSessionId`, adds the auth tables, and
   copies the OIDC user anchor's rows into users and Azure identities **under the same
   ids**, so a custom user data table keyed by the anchor keeps its rows once its foreign
-  key points at the users table; live sessions take their user by username (on Spanner
-  they end at the cutover, since the column is dropped rather than renamed). A group
+  key points at the users table; live sessions take their user by username and lose
+  their provider session id, so a later Entra logout cannot reach them. A group
   that never enabled the anchor skips the backfill statements and provisions each person
   at their first sign-in through its user resolver. The anchor table is dropped in the
   release after the cutover, never in the same one, so a rollback to the legacy type
@@ -128,7 +131,10 @@ long as their session rows.
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
 `WithIdentitiesTableName` and `WithPendingSignInsTableName` on `NewAuth`, and
-`NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. Build the
+`NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. Name the users
+table's unique index after the table as the shipped DDL does
+(`<UsersTable>_NormalizedUsername_idx` on PostgreSQL, `<UsersTable>ByNormalizedUsername`
+on Spanner): the drivers read a username conflict by that name. Build the
 storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
 the `Auth` and to each method,
 typed to the storage's transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`) so
@@ -296,7 +302,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   writes the `Location` header with exactly that value. Percent-encode a non-ASCII path
   before passing it. A WorkOS `Login()` without `organization` is also 400.
 - `pending` is the login page's routing marker. The page reads the pending identity from
-  `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"}`, `404` when
+  `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"]}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
 - **Confirmation** (`reason` `confirmation`): the page asks for the existing user's
   password and posts `{"password"}` to `Pending().ConfirmWithPassword()`: `200
@@ -391,8 +397,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   (`ProviderSessionId`), a pending sign-in carries it to the session it completes, and a
   regenerated session keeps it. `azure.Method.FrontChannelLogout()` ends every live
   session under the `sid` the request names, impersonations started from it included
-  (their records end `Logout`), answers 200, and 400 without a `sid`; it reads nothing
-  from the browser, since Entra calls it in a frame. Register its route as the
+  (their records end `Logout`), answers 200, and 400 without a `sid` or with an `iss`
+  naming another issuer; it reads nothing from the browser, since Entra calls it in a
+  frame, and a known `sid` is its only credential. Register its route as the
   application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions
   of the same user under another `sid`, or signed in by a method that reports no
   session id (password, Google, WorkOS), are not touched.

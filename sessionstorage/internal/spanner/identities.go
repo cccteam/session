@@ -102,7 +102,7 @@ func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	if spanner.ErrCode(err) != codes.AlreadyExists {
 		return dbtype.NoSignInConflict
 	}
-	if strings.Contains(err.Error(), usernameIndex) {
+	if strings.Contains(err.Error(), s.usernameIndex()) {
 		return dbtype.UsernameConflict
 	}
 

@@ -100,8 +100,9 @@ func SignIn[Tx any](
 // resolveIdentity is the first transaction of SignIn. It sets req.UserID (and
 // req.Username for a provisioned user) and reports how the user was found and the
 // link's tenant. stop is a refusal or a pending confirmation; it still commits. When two
-// first sign-ins of one identity race, the loser's link fails on the identities key, and
-// its resolution runs once more and finds the winner's link.
+// first sign-ins of one identity race, the loser's link fails on the identities key (a
+// provisioning loser on the username first), and its resolution runs once more and
+// finds the winner's link.
 func resolveIdentity[Tx any](
 	ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx],
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
@@ -121,6 +122,14 @@ func resolveIdentity[Tx any](
 
 		switch d.SignInConflict(err) {
 		case dbtype.UsernameConflict:
+			// A provisioning sign-in that loses a race for the same identity fails on
+			// the username before it reaches the identities key: the winner's link is
+			// there now, so the resolution runs once more and finds it. A username that
+			// is simply taken is refused on the second run.
+			if attempt == 1 {
+				continue
+			}
+
 			return "", "", nil, httpio.NewConflictMessagef("username %q already exists", req.Username)
 		case dbtype.IdentityConflict:
 			if attempt == 1 {

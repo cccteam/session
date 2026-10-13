@@ -528,6 +528,53 @@ func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 }
 
+func testConcurrentFirstProvision(ctx context.Context, t *testing.T, h *AuthHarness) {
+	const username = "provisioned-race@lakeside.edu"
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		// Hold the window between the lookup and the insert open, so the sign-ins race.
+		time.Sleep(100 * time.Millisecond)
+
+		return signin.Provision(&signin.NewUser{Username: username}, nil), nil
+	}})
+
+	const n = 4
+	var wg sync.WaitGroup
+	ids := make([]ccc.UUID, n)
+	errs := make([]error, n)
+	for i := range n {
+		wg.Go(func() {
+			_, req, err := signIn(ctx, in, lakeside("idp_provision_race"), sessioninfo.ReasonLogin)
+			if err == nil {
+				ids[i] = req.UserID
+			}
+			errs[i] = err
+		})
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("sign-in %d error = %v, want every racing sign-in to succeed: the loser finds the winner's link", i, err)
+		}
+	}
+	user, err := in.Driver.UserByUserName(ctx, username)
+	if err != nil {
+		t.Fatalf("UserByUserName() error = %v", err)
+	}
+	for i, id := range ids {
+		if errs[i] == nil && id != user.ID {
+			t.Errorf("sign-in %d signed in to %v, want the one provisioned user %v", i, id, user.ID)
+		}
+	}
+	links, err := in.Driver.IdentitiesByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("IdentitiesByUser() error = %v", err)
+	}
+	if len(links) != 1 {
+		t.Errorf("IdentitiesByUser() = %d links, want exactly 1", len(links))
+	}
+}
+
 func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	sso := createUser(ctx, t, in.Driver, "sso@lakeside.edu")

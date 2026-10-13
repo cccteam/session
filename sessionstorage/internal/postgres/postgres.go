@@ -20,9 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// usernameIndex is the unique index on the user table's normalized username.
-const usernameIndex = "SessionUsers_NormalizedUsername_idx"
-
 // SessionStorageDriver represents the session storage implementation for PostgreSQL.
 type SessionStorageDriver struct {
 	conn             Queryer
@@ -64,6 +61,14 @@ func (s *SessionStorageDriver) SetSessionTableName(name string) {
 // SetUserTableName sets the name of the user table.
 func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
+}
+
+// usernameIndex is the unique index on the user table's normalized username, named
+// after the table as the shipped DDL names it (<UserTable>_NormalizedUsername_idx). A group under
+// its own table names keeps the pattern, so a conflict on it still reads as a username
+// conflict.
+func (s *SessionStorageDriver) usernameIndex() string {
+	return s.userTableName + "_NormalizedUsername_idx"
 }
 
 // SetIdentitiesTableName sets the name of the identities table.
@@ -444,7 +449,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 
 	if err := s.execUserInsert(ctx, id, query, args, customData); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == usernameIndex {
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex() {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
@@ -532,7 +537,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 
 	if _, err := tx.Exec(ctx, userQuery, userID, newUsername); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == usernameIndex {
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == s.usernameIndex() {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 

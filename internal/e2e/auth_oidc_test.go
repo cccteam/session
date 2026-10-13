@@ -215,16 +215,29 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-2")), "/home", url.Values{})
 				named.view(ctx)
 				other.view(ctx)
+				// An impersonation started on the session under sid-pat-1 keeps that id, so
+				// the logout reaches it too.
+				sam := a.seed(ctx, t, "sam@lakeside.edu")
+				acting := named.clone()
+				acting.expect(ctx, http.StatusNoContent, http.MethodPost, "/impersonate", map[string]string{"user": "sam@lakeside.edu"})
+				if v := acting.view(ctx); v.UserID != sam.String() {
+					t.Fatalf("impersonated session = %+v, want user %s", v, sam)
+				}
 
 				// Entra calls the logout URL in a frame: a client with no cookies.
 				provider := a.browser(t)
 				provider.expect(ctx, http.StatusOK, http.MethodGet, "/azure/logout?sid=sid-pat-1&iss="+url.QueryEscape(a.azure.Server.URL), nil)
 
 				named.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+				acting.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+				if imps, err := a.api.ActiveImpersonations(ctx, nil); err != nil || len(imps) != 0 {
+					t.Errorf("ActiveImpersonations() = %v, %v, want none: the impersonation ended with the logout", imps, err)
+				}
 				if v := other.view(ctx); v.Username != "pat@lakeside.edu" {
 					t.Errorf("the session under another sid = %+v, want it still signed in", v)
 				}
 				provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/azure/logout", nil)
+				provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/azure/logout?sid=sid-pat-2&iss="+url.QueryEscape("https://other.example"), nil)
 			},
 		},
 		{

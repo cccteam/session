@@ -84,6 +84,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 		Method:             sessioninfo.MethodAzure,
 		Resolve:            resolver(resolve),
 		FrontChannelLogout: true,
+		Issuer:             cfg.IssuerURL,
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			roles, err := signin.ReconcilerOf(cfg.RoleSync)
 			if err != nil {
@@ -125,6 +126,9 @@ func (m *Method) Callback() http.HandlerFunc { return m.callback }
 // sign-in carried the sid the request names (?sid=), answers 200, and 400 without a
 // sid. Register its URL as the application's front-channel logout URL in Entra. Route it
 // without ValidateSession: Entra calls it in a frame, with no session of its own.
+// A request whose iss names another issuer than Config.IssuerURL is refused with 400;
+// a known sid is the request's only credential, as the front-channel logout design
+// has it.
 func (m *Method) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
 // claims are the ID token's claims the method reads.

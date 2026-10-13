@@ -477,6 +477,10 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout", nil, nil); rr.Code != http.StatusBadRequest {
 			t.Errorf("FrontChannelLogout() without a sid status = %d, want 400", rr.Code)
 		}
+		// The store is not asked: a request naming another issuer is refused first.
+		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss=https://other", nil, nil); rr.Code != http.StatusBadRequest {
+			t.Errorf("FrontChannelLogout() naming another issuer status = %d, want 400", rr.Code)
+		}
 	})
 }
 
@@ -1679,26 +1683,47 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
 	bobID := ccc.Must(ccc.NewUUID())
+	sourceID := ccc.Must(ccc.NewUUID())
+	source := func() *sessioninfo.SessionData {
+		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: "alice", UpdatedAt: time.Now()}, ProviderSessionID: "sid-1"}
+	}
 	tests := []struct {
-		name       string
-		principal  accesstypes.Principal
-		prepare    func(store *mock_sessionstorage.MockAuthStore[mockTx])
-		wantUserID ccc.UUID
+		name            string
+		ctx             func() context.Context
+		request         *ImpersonationRequest
+		prepare         func(store *mock_sessionstorage.MockAuthStore[mockTx])
+		wantUserID      ccc.UUID
+		wantProviderSID string
 	}{
 		{
-			name:      "a user principal's session belongs to the impersonated user",
-			principal: accesstypes.UserPrincipal("bob"),
+			name:    "a user principal's session belongs to the impersonated user",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID: bobID,
 		},
 		{
-			name:      "a role principal's session belongs to no user",
-			principal: accesstypes.RolePrincipal("Viewer"),
+			name:    "a role principal's session belongs to no user",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
+		},
+		{
+			name: "an impersonation started on a validated session keeps its provider session id, so a provider-initiated logout reaches it",
+			ctx: func() context.Context {
+				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
+			},
+			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
+				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
+			},
+			wantUserID:      bobID,
+			wantProviderSID: "sid-1",
 		},
 	}
 	for _, tt := range tests {
@@ -1710,15 +1735,14 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			tt.prepare(f.store)
 			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, req *sessioninfo.NewSessionRequest, _ *sessioninfo.Impersonation) (ccc.UUID, error) {
-					if req.UserID != tt.wantUserID || req.Reason != sessioninfo.ReasonImpersonation {
-						t.Errorf("CreateImpersonatedSession() request = %+v, want UserID %s", req, tt.wantUserID)
+					if req.UserID != tt.wantUserID || req.Reason != sessioninfo.ReasonImpersonation || req.ProviderSessionID != tt.wantProviderSID {
+						t.Errorf("CreateImpersonatedSession() request = %+v, want UserID %s and ProviderSessionID %q", req, tt.wantUserID, tt.wantProviderSID)
 					}
 
 					return ccc.Must(ccc.NewUUID()), nil
 				})
 
-			req := &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: tt.principal}
-			if _, err := f.auth.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), req); err != nil {
+			if _, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request); err != nil {
 				t.Errorf("StartImpersonatedSession() error = %v", err)
 			}
 		})

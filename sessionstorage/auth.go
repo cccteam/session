@@ -72,9 +72,9 @@ type AuthStore[Tx any] interface {
 	BaseStore
 	UserStore
 	// CreateSession inserts a session that has no identity to resolve and returns its
-	// ID: a pending identity's row, a session the application starts for a user it
-	// authenticated itself, a regeneration. A configured custom session data resolver
-	// runs inside the insert transaction, except for a pending identity's row.
+	// ID: a session the application starts for a user it authenticated itself, or a
+	// regeneration. A configured custom session data resolver runs inside the insert
+	// transaction. A pending sign-in has no session row; see HoldSignIn.
 	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// SignIn establishes the session of a sign-in that carries a verified identity
 	// (req.Identity) and returns its ID. An external identity resolves to its user by its

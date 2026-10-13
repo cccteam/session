@@ -154,7 +154,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 
 	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(reg.Name, m))}
 	if reg.FrontChannelLogout {
-		h.FrontChannelLogout = a.serving(a.frontChannelLogout())
+		h.FrontChannelLogout = a.serving(a.frontChannelLogout(reg.Issuer))
 	}
 
 	return h
@@ -208,16 +208,21 @@ func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.change
 
 // frontChannelLogout handles a provider-initiated logout: it ends every session whose
 // sign-in carried the provider's session id the request names (?sid=) and answers
-// 200; a request without a sid is 400. The provider calls it in a frame, with no
-// session of its own, so it reads nothing from the browser.
-func (a *Auth[S, U, Tx]) frontChannelLogout() http.HandlerFunc {
+// 200; a request without a sid, or naming another issuer than the registration's
+// (?iss=), is 400. The provider calls it in a frame, with no session of its own, so it
+// reads nothing from the browser: a known sid is the request's only credential.
+func (a *Auth[S, U, Tx]) frontChannelLogout(issuer string) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		sid := r.URL.Query().Get("sid")
+		query := r.URL.Query()
+		sid := query.Get("sid")
 		if sid == "" {
 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "missing sid query parameter")
+		}
+		if iss := query.Get("iss"); issuer != "" && iss != "" && iss != issuer {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "iss does not name this registration's issuer")
 		}
 		if err := a.storage.DestroySessionsByProviderSessionID(ctx, sid); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySessionsByProviderSessionID()"))

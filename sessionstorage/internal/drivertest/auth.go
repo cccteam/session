@@ -182,6 +182,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
+		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},

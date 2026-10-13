@@ -118,6 +118,11 @@ func StartImpersonatedSession[T any](
 		Username: username,
 		UserID:   userID,
 	}
+	// An impersonation started on a signed-in session keeps that session's provider
+	// session id, so a provider-initiated logout of the actor ends it too.
+	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
+		newSessionReq.ProviderSessionID = current.ProviderSessionID
+	}
 	if len(customData) == 1 && customData[0] != nil {
 		newSessionReq.CustomData = customData[0]
 	}

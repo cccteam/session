@@ -56,7 +56,7 @@ func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	}
 
 	switch {
-	case pgErr.ConstraintName == usernameIndex:
+	case pgErr.ConstraintName == s.usernameIndex():
 		return dbtype.UsernameConflict
 	case pgErr.TableName == s.identitiesTableName:
 		return dbtype.IdentityConflict

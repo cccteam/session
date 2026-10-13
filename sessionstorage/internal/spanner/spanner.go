@@ -45,9 +45,6 @@ type SessionStorageDriver struct {
 // expiredColumnName is the session table's Expired column.
 const expiredColumnName = "Expired"
 
-// usernameIndex is the unique index on the user table's normalized username.
-const usernameIndex = "SessionUsersByNormalizedUsername"
-
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	return &SessionStorageDriver{
@@ -68,6 +65,14 @@ func (s *SessionStorageDriver) SetSessionTableName(name string) {
 // SetUserTableName sets the name of the user table.
 func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
+}
+
+// usernameIndex is the unique index on the user table's normalized username, named
+// after the table as the shipped DDL names it (<UserTable>ByNormalizedUsername). A group under
+// its own table names keeps the pattern, so a conflict on it still reads as a username
+// conflict.
+func (s *SessionStorageDriver) usernameIndex() string {
+	return s.userTableName + "ByNormalizedUsername"
 }
 
 // SetIdentitiesTableName sets the name of the identities table.
@@ -485,7 +490,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), usernameIndex) {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
@@ -569,7 +574,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), usernameIndex) {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 

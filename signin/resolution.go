@@ -92,7 +92,11 @@ func Reject(code sessioninfo.LoginRefusalCode) *Resolution {
 // Link links the identity to the existing user userID and signs in. A user that has a
 // password is refused (ErrLinkRequiresConfirmation) unless trusted is set, which is
 // right only for an enterprise connection on a domain the tenant has verified; use
-// Confirm for such a user otherwise.
+// Confirm for such a user otherwise. A user without a password (one an external
+// sign-in provisioned) is linked at once, since no confirmation can be asked of them:
+// for such a user the resolver's own evidence is the only check, so never choose
+// userID by an email address or another claim the identity's provider does not
+// verify, unless the connection itself is one the application trusts.
 func Link(userID ccc.UUID, trusted bool, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: LinkIdentity, userID: userID, trusted: trusted}
 	for _, opt := range opts {
@@ -118,7 +122,9 @@ func Provision(user *NewUser, onProvisioned func(ctx context.Context, userID ccc
 }
 
 // Confirm holds the identity as pending until the person enters the password of the
-// existing user userID. The identity is then linked.
+// existing user userID. The identity is then linked. A user without a password cannot
+// confirm (the confirmation answers 401), so Confirm is for users that sign in with a
+// password; a password-less user is linked with Link or refused with Reject.
 func Confirm(userID ccc.UUID, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: RequireConfirmation, userID: userID}
 	for _, opt := range opts {
