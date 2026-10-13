@@ -37,7 +37,7 @@ options. The storage constructors stay in `sessionstorage` (`NewSpannerPasswordA
 `NewPostgresPassword`, `NewSpannerOIDC`, `NewPostgresOIDC`, `WithOIDCUsers`, the
 per-driver custom data configurations) and carry the same deprecation.
 
-Three smaller changes can reach an application on the legacy types:
+Four smaller changes can reach an application on the legacy types:
 
 - `sessioninfo.NewSessionRequest` has no `Hd` and `Sub` fields any more; they were the
   Google type's. The verified claims are still `req.Claims`, and on `Auth`
@@ -47,6 +47,11 @@ Three smaller changes can reach an application on the legacy types:
 - The mock packages `mock/mock_azureoidc` and `mock/mock_googleoidc` are gone. The
   Azure and Google authenticators are mocked in `mock/mock_azure` and
   `mock/mock_google`, and `MockUserRoleManager` lives in `mock/mock_signin`.
+- The store's table-name setters (`SetSessionTableName`, `SetUserTableName`,
+  `SetOIDCUserTableName` on `sessionstorage.BaseStore`) return an error: every table
+  name is validated where it is set, and a name that is not a plain identifier is
+  refused. Code that calls a setter directly checks the error; the session options are
+  the usual way, and the constructor reports a refused name under the option's name.
 
 An application on the v0.12 Google type has no legacy copy to move to; see "From the
 Google type of v0.12" below.
