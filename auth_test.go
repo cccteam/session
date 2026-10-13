@@ -22,6 +22,7 @@ import (
 	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/mock/mock_google"
 	"github.com/cccteam/session/mock/mock_signin"
@@ -1029,7 +1030,7 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			}
 
-			_, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sameSiteNone})
+			_, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, sameSite: sessioncore.SameSiteNone})
 			var refusal *sessioninfo.LoginRefusal
 			if (err != nil) != errors.As(tt.stop, &refusal) {
 				t.Fatalf("signIn() error = %v", err)

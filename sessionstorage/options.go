@@ -100,6 +100,8 @@ func (oidcUsersOption) applyPostgres(driver *postgres.SessionStorageDriver) { dr
 // NewSessionRequest.UserID carries the anchor record's ID into custom session data
 // resolvers and custom user data hooks. It is required for custom user data on OIDC
 // storage, and is OIDC-only. See the "OIDC user anchor" section of the README.
+//
+// Deprecated: the OIDC user anchor serves the legacy OIDCAzure session type only (package legacy) and leaves with it; Auth users are SessionUsers records that external identities link to.
 func WithOIDCUsers() Option {
 	return oidcUsersOption{}
 }

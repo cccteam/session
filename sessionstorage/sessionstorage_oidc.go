@@ -18,11 +18,15 @@ import (
 var _ OIDCStore = (*OIDC)(nil)
 
 // OIDC is the session storage implementation for with OIDC support.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDC struct {
 	sessionStorage
 }
 
 // NewSpannerOIDC creates a new SpannerOIDCSessionStorage instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewSpannerOIDC(client *cloudspanner.Client, opts ...SpannerOption) *OIDC {
 	driver := spanner.NewSessionStorageDriver(client)
 	for _, opt := range opts {
@@ -37,6 +41,8 @@ func NewSpannerOIDC(client *cloudspanner.Client, opts ...SpannerOption) *OIDC {
 }
 
 // NewPostgresOIDC creates a new PostgresOIDC instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewPostgresOIDC(pg postgres.Queryer, opts ...PostgresOption) *OIDC {
 	driver := postgres.NewSessionStorageDriver(pg)
 	for _, opt := range opts {

@@ -123,6 +123,10 @@ linters:
           json: camel
         use-field-name: true
     wrapcheck:
+      ignore-package-globs:
+        # The internal core wraps every error with its source's name; the session types'
+        # constructors and API methods are thin delegates over it.
+        - github.com/cccteam/session/internal/sessioncore
       ignore-sigs:
         - .Errorf(
         - errors.New(
@@ -175,7 +179,7 @@ linters:
         path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go
+        path: legacy/oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go
         text: preferred_username
       - linters:
           - tagliatelle
@@ -197,7 +201,7 @@ linters:
       # URL redirect writes its own Location header (internalcookie.WriteRedirect).
       - linters:
           - gosec
-        path: oidc_core\.go
+        path: legacy/oidc_core\.go
         text: G710
       # WorkOS authenticates the code exchange by the API key in the JSON body of
       # POST /sso/token, so the secret is marshaled on purpose, to WorkOS only.
@@ -205,6 +209,12 @@ linters:
           - gosec
         path: workos/client\.go
         text: G117
+      # The legacy package is the deprecated surface itself: it is built from the storage
+      # pieces that leave with it.
+      - linters:
+          - staticcheck
+        path: legacy/
+        text: SA1019
       - linters:
           - gomoddirectives
         path: go\.mod

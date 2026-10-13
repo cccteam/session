@@ -18,11 +18,15 @@ import (
 var _ PasswordAuthStore = (*PasswordAuth)(nil)
 
 // PasswordAuth is the session storage implementation with PasswordAuth support.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type PasswordAuth struct {
 	sessionStorage
 }
 
 // NewSpannerPasswordAuth creates a new Password storage instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewSpannerPasswordAuth(client *cloudspanner.Client, opts ...SpannerOption) *PasswordAuth {
 	driver := spanner.NewSessionStorageDriver(client)
 	for _, opt := range opts {
@@ -37,6 +41,8 @@ func NewSpannerPasswordAuth(client *cloudspanner.Client, opts ...SpannerOption) 
 }
 
 // NewPostgresPassword creates a new PostgresPassword instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewPostgresPassword(pg postgres.Queryer, opts ...PostgresOption) *PasswordAuth {
 	driver := postgres.NewSessionStorageDriver(pg)
 	for _, opt := range opts {

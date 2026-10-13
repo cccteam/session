@@ -6,8 +6,8 @@ import "github.com/cccteam/session/signin"
 // See signin.UserRoleManager.
 type UserRoleManager = signin.UserRoleManager
 
-// RoleSyncConfig is the required role-synchronization slot on NewOIDCAzure. See
-// signin.RoleSyncConfig.
+// RoleSyncConfig is the required role-synchronization slot of the Microsoft Entra ID
+// method (azure.Config.RoleSync) and of the legacy OIDCAzure. See signin.RoleSyncConfig.
 type RoleSyncConfig = signin.RoleSyncConfig
 
 // DisabledRoleSyncConfig is the type returned by DisableRoleSync. See

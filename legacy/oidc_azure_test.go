@@ -1,4 +1,4 @@
-package session
+package legacy
 
 import (
 	"context"
@@ -12,10 +12,10 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/testkey"
 	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/mock/mock_signin"
@@ -26,8 +26,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
 )
-
-const cookieKey = testkey.CookieKey
 
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
@@ -68,7 +66,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			if err != nil {
 				t.Errorf("cookie.NewCookieClient() error = %v", err)
 			}
-			a := &OIDCAzure[NoCustomData, NoCustomData]{
+			a := &OIDCAzure[session.NoCustomData, session.NoCustomData]{
 				baseSession: &basesession.BaseSession{
 					CookieHandler: cookieClient,
 					Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
@@ -269,7 +267,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			name:            "role sync disabled: login proceeds with no role claims and no role calls",
 			disableRoleSync: true,
 			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, _ *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
-				// No UserRoleManager expectations: with role sync disabled, neither the
+				// No session.UserRoleManager expectations: with role sync disabled, neither the
 				// reconciliation nor the at-least-one-role gate runs.
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username"}`)).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).Return(ccc.Must(ccc.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), nil).Times(1)
@@ -347,7 +345,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 					t.Fatalf("signin.ReconcilerOf() error = %v", err)
 				}
 			}
-			a := &OIDCAzure[NoCustomData, NoCustomData]{
+			a := &OIDCAzure[session.NoCustomData, session.NoCustomData]{
 				roleSync: rs,
 				storage:  sessionStorage,
 				baseSession: &basesession.BaseSession{
@@ -426,7 +424,7 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 			sessionStorage := newOIDCStoreMock(ctrl)
 
 			c := mock_cookie.NewMockHandler(ctrl)
-			a := &OIDCAzure[NoCustomData, NoCustomData]{
+			a := &OIDCAzure[session.NoCustomData, session.NoCustomData]{
 				storage: sessionStorage,
 				baseSession: &basesession.BaseSession{
 					SessionTimeout: time.Minute,
@@ -540,7 +538,7 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := newOIDCStoreMock(ctrl)
-			a := &OIDCAzure[testData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
+			a := &OIDCAzure[testData, session.NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
 
 			if tt.prepare != nil {
 				tt.prepare(storage)
@@ -563,31 +561,31 @@ func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		roleSync func(manager UserRoleManager) RoleSyncConfig
+		roleSync func(manager session.UserRoleManager) session.RoleSyncConfig
 		wantErr  bool
 	}{
 		{
 			name: "nil role sync slot is a construction error",
-			roleSync: func(UserRoleManager) RoleSyncConfig {
+			roleSync: func(session.UserRoleManager) session.RoleSyncConfig {
 				return nil
 			},
 			wantErr: true,
 		},
 		{
-			name: "RoleSync with a nil manager is a construction error",
-			roleSync: func(UserRoleManager) RoleSyncConfig {
-				return RoleSync(nil)
+			name: "session.RoleSync with a nil manager is a construction error",
+			roleSync: func(session.UserRoleManager) session.RoleSyncConfig {
+				return session.RoleSync(nil)
 			},
 			wantErr: true,
 		},
 		{
-			name:     "RoleSync with a manager constructs",
-			roleSync: RoleSync,
+			name:     "session.RoleSync with a manager constructs",
+			roleSync: session.RoleSync,
 		},
 		{
-			name: "DisableRoleSync constructs",
-			roleSync: func(UserRoleManager) RoleSyncConfig {
-				return DisableRoleSync()
+			name: "session.DisableRoleSync constructs",
+			roleSync: func(session.UserRoleManager) session.RoleSyncConfig {
+				return session.DisableRoleSync()
 			},
 		},
 	}
@@ -599,7 +597,7 @@ func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 			storage := newOIDCStoreMock(ctrl)
 			manager := mock_signin.NewMockUserRoleManager(ctrl)
 
-			_, err := NewOIDCAzure[NoCustomData, NoCustomData](storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+			_, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewOIDCAzure() error = %v, wantErr %v", err, tt.wantErr)
 			}

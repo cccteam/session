@@ -1,4 +1,4 @@
-package session
+package legacy
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
@@ -29,13 +30,13 @@ func TestPasswordAuth_PasswordLessUser(t *testing.T) {
 	tests := []struct {
 		name string
 		// check runs the password check under test and returns its error.
-		check func(ctx context.Context, p *PasswordAuth[NoCustomData, NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error
+		check func(ctx context.Context, p *PasswordAuth[session.NoCustomData, session.NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error
 		// wantClass is the client error class the refusal must carry.
 		wantClass func(error) bool
 	}{
 		{
 			name: "ValidateCredentials refuses it as invalid credentials",
-			check: func(ctx context.Context, p *PasswordAuth[NoCustomData, NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
+			check: func(ctx context.Context, p *PasswordAuth[session.NoCustomData, session.NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
 				storage.EXPECT().UserByUserName(gomock.Any(), passwordLess.Username).Return(passwordLess, nil)
 
 				return p.API().ValidateCredentials(ctx, passwordLess.Username, "any password")
@@ -44,7 +45,7 @@ func TestPasswordAuth_PasswordLessUser(t *testing.T) {
 		},
 		{
 			name: "Login refuses it as invalid credentials and starts no session",
-			check: func(ctx context.Context, p *PasswordAuth[NoCustomData, NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
+			check: func(ctx context.Context, p *PasswordAuth[session.NoCustomData, session.NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
 				storage.EXPECT().UserByUserName(gomock.Any(), passwordLess.Username).Return(passwordLess, nil)
 
 				return p.API().Login(ctx, httptest.NewRecorder(), passwordLess.Username, "")
@@ -53,10 +54,10 @@ func TestPasswordAuth_PasswordLessUser(t *testing.T) {
 		},
 		{
 			name: "changing its password refuses the old password and keeps its sessions",
-			check: func(ctx context.Context, p *PasswordAuth[NoCustomData, NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
+			check: func(ctx context.Context, p *PasswordAuth[session.NoCustomData, session.NoCustomData], storage *mock_sessionstorage.MockPasswordAuthStore) error {
 				storage.EXPECT().User(gomock.Any(), userID).Return(passwordLess, nil)
 
-				return p.API().ChangeSessionUserPassword(ctx, httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "", NewPassword: "new password"})
+				return p.API().ChangeSessionUserPassword(ctx, httptest.NewRecorder(), userID, &session.ChangeSessionUserPasswordRequest{OldPassword: "", NewPassword: "new password"})
 			},
 			wantClass: httpio.HasBadRequest,
 		},
@@ -67,7 +68,7 @@ func TestPasswordAuth_PasswordLessUser(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			storage := newPasswordStoreMock(ctrl)
-			p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
+			p, err := NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)
 			if err != nil {
 				t.Fatalf("NewPasswordAuth() error = %v", err)
 			}
@@ -102,7 +103,7 @@ func TestPasswordAuth_Login_PasswordLessUser(t *testing.T) {
 	storage := newPasswordStoreMock(ctrl)
 	storage.EXPECT().UserByUserName(gomock.Any(), "sso-only@example.com").Return(&dbtype.SessionUser{ID: ccc.Must(ccc.NewUUID()), Username: "sso-only@example.com"}, nil)
 
-	p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey)
+	p, err := NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)
 	if err != nil {
 		t.Fatalf("NewPasswordAuth() error = %v", err)
 	}

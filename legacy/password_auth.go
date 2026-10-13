@@ -1,4 +1,4 @@
-package session
+package legacy
 
 import (
 	"context"
@@ -9,40 +9,26 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
 
-const (
-	// RouterSessionUserID is a constant used for matching the SessionUserID in the router path
-	RouterSessionUserID = "sessionUserID"
-)
-
-// PasswordOption defines the interface for functional options used when creating a new Password.
-type PasswordOption interface {
-	isPasswordOption()
-}
-
-var _ PasswordAuthHandlers = &PasswordAuth[NoCustomData, NoCustomData]{}
-
-// passwordAuthSettings holds the option-configurable settings. It is a separate
-// non-generic type so passwordOption closures apply to every PasswordAuth
-// instantiation.
-type passwordAuthSettings struct {
-	hasher      *securehash.SecureHasher
-	autoUpgrade bool
-}
+var _ PasswordAuthHandlers = &PasswordAuth[session.NoCustomData, session.NoCustomData]{}
 
 // PasswordAuth implements the PasswordAuthHandlers interface for handling password
 // authentication, with custom session data typed as SessionData (resolved or supplied
 // at session creation, read on every authenticated request, reset on regeneration) and
 // custom user data typed as UserData (durable — it lives and dies with the SessionUsers
-// record, read on demand). Instantiate an unused axis with NoCustomData.
+// record, read on demand). Instantiate an unused axis with session.NoCustomData.
+//
+// Deprecated: the legacy username-and-password session; use session.Auth with session.PasswordSignIn, which shares the session, the user model and the middleware with every other sign-in method.
 type PasswordAuth[SessionData, UserData any] struct {
-	passwordAuthSettings
+	settings sessioncore.PasswordSettings
 
 	storage     sessionstorage.PasswordAuthStore
 	baseSession *basesession.BaseSession
@@ -50,7 +36,7 @@ type PasswordAuth[SessionData, UserData any] struct {
 
 // NewPasswordAuth creates a new PasswordAuth for the custom session data struct type
 // SessionData and the custom user data struct type UserData; instantiate an unused axis
-// with NoCustomData. The storage must carry a custom session data configuration built
+// with session.NoCustomData. The storage must carry a custom session data configuration built
 // for the same SessionData (see sessionstorage.NewSpannerCustomSessionData /
 // NewPostgresCustomSessionData) and a custom user data configuration built for the same
 // UserData (see sessionstorage.NewSpannerCustomUserData / NewPostgresCustomUserData); a
@@ -58,8 +44,10 @@ type PasswordAuth[SessionData, UserData any] struct {
 // user anchor and the custom user data login hook).
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
+//
+// Deprecated: the legacy username-and-password session; use session.Auth with session.PasswordSignIn, which shares the session, the user model and the middleware with every other sign-in method.
 func NewPasswordAuth[SessionData, UserData any](storage sessionstorage.PasswordAuthStore, cookieKey string, options ...PasswordOption) (*PasswordAuth[SessionData, UserData], error) {
-	if err := verifyCustomDataTypes[SessionData, UserData](storage); err != nil {
+	if err := sessioncore.VerifyCustomDataTypes[SessionData, UserData](storage); err != nil {
 		return nil, err
 	}
 	if storage.UserDataLoginHookConfigured() {
@@ -69,27 +57,18 @@ func NewPasswordAuth[SessionData, UserData any](storage sessionstorage.PasswordA
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: password auth users are anchored by SessionUsers")
 	}
 
-	baseSession, _, err := newBaseSession(storage, cookieKey, options)
+	baseSession, _, err := sessioncore.NewBaseSession(storage, cookieKey, options)
 	if err != nil {
 		return nil, err
 	}
 
-	p := &PasswordAuth[SessionData, UserData]{
-		passwordAuthSettings: passwordAuthSettings{
-			hasher:      securehash.New(securehash.Argon2()),
-			autoUpgrade: true,
-		},
-		storage:     storage,
-		baseSession: baseSession,
-	}
-
+	settings := sessioncore.DefaultPasswordSettings()
 	for _, opt := range options {
-		if o, ok := any(opt).(passwordOption); ok {
-			o(&p.passwordAuthSettings)
-		}
+		settings.Apply(opt)
 	}
+	logDeprecated("PasswordAuth", "session.Auth with session.PasswordSignIn")
 
-	return p, nil
+	return &PasswordAuth[SessionData, UserData]{settings: settings, storage: storage, baseSession: baseSession}, nil
 }
 
 // Logout destroys the current session
@@ -135,7 +114,7 @@ func (p *PasswordAuth[T, U]) Login() http.HandlerFunc {
 		Password string `json:"password"`
 	}
 
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -171,7 +150,7 @@ func (p *PasswordAuth[T, U]) loginAPI(ctx context.Context, w http.ResponseWriter
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
 
-	logSessionStarted(ctx, user.Username, sessionID)
+	sessioncore.LogSessionStarted(ctx, user.Username, sessionID)
 
 	return nil
 }
@@ -181,11 +160,11 @@ func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sess
 	if err != nil {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
-	if upgrade && p.autoUpgrade {
+	if upgrade && p.settings.AutoUpgrade {
 		if err := p.setPasswordHash(ctx, user.ID, password); err != nil {
 			logger.FromCtx(ctx).Error(err)
 		} else {
-			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.hasher.KeyType())
+			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), p.settings.Hasher.KeyType())
 		}
 	}
 
@@ -196,30 +175,10 @@ func (p *PasswordAuth[T, U]) validateCredentials(ctx context.Context, user *sess
 	return nil
 }
 
-// errNoPassword is the comparison failure for a user with no password hash, such
-// as one provisioned for external sign-in only.
-var errNoPassword = errors.New("the user has no password")
-
 // comparePassword checks password against hash, reporting whether the hash should be
 // upgraded. A nil hash never matches.
 func (p *PasswordAuth[T, U]) comparePassword(hash *securehash.Hash, password string) (upgrade bool, err error) {
-	return comparePassword(p.hasher, hash, password)
-}
-
-// comparePassword checks password against hash with hasher, reporting whether the hash
-// should be upgraded. A nil hash (a user without a password) fails like a wrong
-// password, so the hasher, which dereferences the hash, never sees nil.
-func comparePassword(hasher *securehash.SecureHasher, hash *securehash.Hash, password string) (upgrade bool, err error) {
-	if hash == nil {
-		return false, errNoPassword
-	}
-
-	upgrade, err = hasher.Compare(hash, password)
-	if err != nil {
-		return false, errors.Wrap(err, "securehash.SecureHasher.Compare()")
-	}
-
-	return upgrade, nil
+	return sessioncore.ComparePassword(p.settings.Hasher, hash, password)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
@@ -237,7 +196,7 @@ func (p *PasswordAuth[T, U]) ValidateSession(next http.Handler) http.Handler {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		userInfo, err := p.sessionUserInfo(ctx, sessInfo)
+		userInfo, err := sessioncore.SessionUserInfo(ctx, p.storage, sessInfo)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -274,7 +233,7 @@ func (p *PasswordAuth[T, U]) Authenticated() http.HandlerFunc {
 
 		sessInfo := sessioninfo.FromCtx(ctx)
 
-		if _, err := p.sessionUserInfo(ctx, sessInfo); err != nil {
+		if _, err := sessioncore.SessionUserInfo(ctx, p.storage, sessInfo); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -297,13 +256,13 @@ func (p *PasswordAuth[T, U]) ChangeUsername() http.HandlerFunc {
 		Username string `json:"username"`
 	}
 
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "ChangeUsername", true); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "ChangeUsername", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -331,13 +290,13 @@ func (p *PasswordAuth[T, U]) ChangeUserPassword() http.HandlerFunc {
 		NewPassword string `json:"newPassword"`
 	}
 
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "ChangeUserPassword", true); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "ChangeUserPassword", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -348,7 +307,7 @@ func (p *PasswordAuth[T, U]) ChangeUserPassword() http.HandlerFunc {
 
 		userInfo := sessioninfo.UserFromCtx(ctx)
 
-		if err := p.changeSessionUserPassword(ctx, w, userInfo.ID, (*ChangeSessionUserPasswordRequest)(req)); err != nil {
+		if err := p.changeSessionUserPassword(ctx, w, userInfo.ID, (*session.ChangeSessionUserPasswordRequest)(req)); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -368,13 +327,13 @@ func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 		ID ccc.UUID `json:"id"`
 	}
 
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return p.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "CreateUser", false); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "CreateUser", false); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -383,7 +342,7 @@ func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		id, err := p.createSessionUser(ctx, (*CreateUserRequest)(req), nil)
+		id, err := p.createSessionUser(ctx, (*session.CreateUserRequest)(req), nil)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -400,7 +359,7 @@ func (p *PasswordAuth[T, U]) DeactivateUser() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "DeactivateUser", false); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "DeactivateUser", false); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -426,7 +385,7 @@ func (p *PasswordAuth[T, U]) DeleteUser() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "DeleteUser", false); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "DeleteUser", false); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -450,7 +409,7 @@ func (p *PasswordAuth[T, U]) ActivateUser() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := p.refuseImpersonated(ctx, "ActivateUser", false); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, p.baseSession, "ActivateUser", false); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -479,7 +438,7 @@ func (p *PasswordAuth[T, U]) startNewSession(
 		req.CustomData = customData
 	}
 
-	return establishSession(ctx, w, p.baseSession, sameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
+	return sessioncore.EstablishSession(ctx, w, p.baseSession, sessioncore.SameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := p.storage.CreateSession(ctx, req)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PasswordAuthStore.CreateSession()")
@@ -490,7 +449,7 @@ func (p *PasswordAuth[T, U]) startNewSession(
 }
 
 func (p *PasswordAuth[T, U]) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
-	newHash, err := p.hasher.Hash(password)
+	newHash, err := p.settings.Hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
@@ -500,17 +459,6 @@ func (p *PasswordAuth[T, U]) setPasswordHash(ctx context.Context, userID ccc.UUI
 	}
 
 	return nil
-}
-
-// newDecoder builds the decoder for a handler's request body. Construction fails only
-// for a malformed request struct, a programming error, so it panics at startup.
-func newDecoder[T any]() *httpio.StructDecoder[T] {
-	decoder, err := httpio.NewStructDecoder[T]()
-	if err != nil {
-		panic(err)
-	}
-
-	return decoder
 }
 
 // changeSessionUserUsername handles modifications to a user username.
@@ -534,7 +482,7 @@ func (p *PasswordAuth[T, U]) changeSessionUserUsername(ctx context.Context, user
 //
 // See the OWASP Session Management Cheat Sheet, "Renew the Session ID After Any Privilege
 // Level Change", which names password changes explicitly.
-func (p *PasswordAuth[T, U]) changeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+func (p *PasswordAuth[T, U]) changeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *session.ChangeSessionUserPasswordRequest) error {
 	// Validate credentials
 	user, err := p.storage.User(ctx, userID)
 	if err != nil {
@@ -560,7 +508,7 @@ func (p *PasswordAuth[T, U]) changeSessionUserPassword(ctx context.Context, w ht
 		return errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
 
-	logSessionStarted(ctx, user.Username, sessionID)
+	sessioncore.LogSessionStarted(ctx, user.Username, sessionID)
 
 	return nil
 }
@@ -577,11 +525,11 @@ func (p *PasswordAuth[T, U]) changeSessionUserHash(ctx context.Context, userID c
 
 // createSessionUser handles creating a user. When customData (*U, may be nil)
 // is provided it is written atomically with the user insert.
-func (p *PasswordAuth[T, U]) createSessionUser(ctx context.Context, req *CreateUserRequest, customData *U) (ccc.UUID, error) {
+func (p *PasswordAuth[T, U]) createSessionUser(ctx context.Context, req *session.CreateUserRequest, customData *U) (ccc.UUID, error) {
 	var hash *securehash.Hash
 	if req.Password != nil {
 		var err error
-		hash, err = p.hasher.Hash(*req.Password)
+		hash, err = p.settings.Hasher.Hash(*req.Password)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "securehash.SecureHasher.Hash()")
 		}
@@ -657,12 +605,12 @@ func (p *PasswordAuth[T, U]) activateSessionUser(ctx context.Context, sessionUse
 // updateCustomSessionData updates the custom session data for an active session via a
 // typed transactional read-modify-write.
 func (p *PasswordAuth[T, U]) updateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
-	return p.shared().updateCustomSessionData(ctx, sessionID, mutate)
+	return p.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // shared returns the API methods every session type shares, over this session's fields.
-func (p *PasswordAuth[T, U]) shared() sharedAPI[T, U] {
-	return sharedAPI[T, U]{base: p.baseSession, store: p.storage, users: p.storage, storeName: "PasswordAuthStore"}
+func (p *PasswordAuth[T, U]) shared() sessioncore.API[T, U] {
+	return sessioncore.API[T, U]{Base: p.baseSession, Store: p.storage, Users: p.storage, StoreName: "PasswordAuthStore"}
 }
 
 // API provides programatic access to PasswordAuth handler internals
@@ -670,20 +618,9 @@ func (p *PasswordAuth[T, U]) API() *PasswordAuthAPI[T, U] {
 	return newPasswordAuthAPI(p)
 }
 
-// ChangeSessionUserPasswordRequest takes in the user information for changing a SessionUser password
-type ChangeSessionUserPasswordRequest struct {
-	OldPassword string
-	NewPassword string
-}
-
-// CreateUserRequest takes in the user information for creating a new SessionUser
-type CreateUserRequest struct {
-	Username string  `json:"username"`
-	Password *string `json:"password"`
-	Disabled bool    `json:"disabled"`
-}
-
 // PasswordAuthAPI provides programatic access to PasswordAuth handler internals
+//
+// Deprecated: the legacy username-and-password session; use session.Auth with session.PasswordSignIn, which shares the session, the user model and the middleware with every other sign-in method.
 type PasswordAuthAPI[SessionData, UserData any] struct {
 	passwordAuth *PasswordAuth[SessionData, UserData]
 }
@@ -750,28 +687,28 @@ func (p *PasswordAuthAPI[T, U]) StartAuthenticatedSession(ctx context.Context, w
 		return ccc.NilUUID, errors.Wrap(err, "PasswordAuth.startNewSession()")
 	}
 
-	logSessionStarted(ctx, user.Username, sessionID)
+	sessioncore.LogSessionStarted(ctx, user.Username, sessionID)
 
 	return sessionID, nil
 }
 
 // Logout destroys the current session
 func (p *PasswordAuthAPI[T, U]) Logout(ctx context.Context) error {
-	return p.passwordAuth.shared().logout(ctx)
+	return p.passwordAuth.shared().Logout(ctx)
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
 // that fails, initializing a new session. The session cookie is then updated and
 // the sessionID is inserted into the context.
 func (p *PasswordAuthAPI[T, U]) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
-	return p.passwordAuth.shared().startSession(ctx, w, r)
+	return p.passwordAuth.shared().StartSession(ctx, w, r)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
 func (p *PasswordAuthAPI[T, U]) ValidateSession(ctx context.Context) (context.Context, error) {
-	return p.passwordAuth.shared().validateSession(ctx)
+	return p.passwordAuth.shared().ValidateSession(ctx)
 }
 
 // ChangeSessionUserUsername handles modifications to a user username.
@@ -784,7 +721,7 @@ func (p *PasswordAuthAPI[T, U]) ChangeSessionUserUsername(ctx context.Context, u
 // ChangeSessionUserPassword handles modifications to a user password. All of the user's
 // sessions are destroyed and a new session is started for the caller, so the caller remains
 // authenticated under a new session ID. Requires the ResponseWriter for the new session cookies.
-func (p *PasswordAuthAPI[T, U]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+func (p *PasswordAuthAPI[T, U]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *session.ChangeSessionUserPasswordRequest) error {
 	return p.passwordAuth.changeSessionUserPassword(ctx, w, userID, req)
 }
 
@@ -799,7 +736,7 @@ func (p *PasswordAuthAPI[T, U]) ChangeSessionUserHash(ctx context.Context, userI
 // atomically with the user insert — the user record and its custom data row land
 // together or not at all. It requires a custom user data configuration on the storage.
 // See the "Custom user data" section of the README for the full lifecycle.
-func (p *PasswordAuthAPI[T, U]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (ccc.UUID, error) {
+func (p *PasswordAuthAPI[T, U]) CreateSessionUser(ctx context.Context, req *session.CreateUserRequest, customData ...*U) (ccc.UUID, error) {
 	if len(customData) > 1 {
 		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom user data row")
 	}
@@ -815,7 +752,7 @@ func (p *PasswordAuthAPI[T, U]) CreateSessionUser(ctx context.Context, req *Crea
 // with no custom data row yields a zero-value U. Custom user data is durable — it lives
 // and dies with the user record — and is read on demand, never from the session context.
 func (p *PasswordAuthAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
-	return p.passwordAuth.shared().customUserData(ctx, userID)
+	return p.passwordAuth.shared().CustomUserData(ctx, userID)
 }
 
 // UpdateCustomUserData updates the custom user data for an existing user via a
@@ -825,7 +762,7 @@ func (p *PasswordAuthAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.U
 // CreateSessionUser), which is atomic with the user insert. See the "Custom user data"
 // section of the README for the full lifecycle.
 func (p *PasswordAuthAPI[T, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
-	return p.passwordAuth.shared().updateCustomUserData(ctx, userID, mutate)
+	return p.passwordAuth.shared().UpdateCustomUserData(ctx, userID, mutate)
 }
 
 // DeleteSessionUser handles deleting a user. The user record is deleted
@@ -876,10 +813,10 @@ func (p *PasswordAuthAPI[T, U]) UpdateCustomSessionData(ctx context.Context, ses
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
 func (p *PasswordAuthAPI[T, U]) CustomData(ctx context.Context) (T, error) {
-	return p.passwordAuth.shared().customData(ctx)
+	return p.passwordAuth.shared().CustomData(ctx)
 }
 
 // Cookie returns the underlying cookie.Client
 func (p *PasswordAuthAPI[T, U]) Cookie() *cookie.Client {
-	return p.passwordAuth.shared().cookie()
+	return p.passwordAuth.shared().Cookie()
 }

@@ -1,4 +1,4 @@
-package session
+package legacy
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -30,7 +31,7 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 		returnURL := r.URL.Query().Get("returnUrl")
 		authCodeURL, err := authn.AuthCodeURL(ctx, w, returnURL)
 		if err != nil {
-			redirectRefusedLogin(w, r, authn.LoginURL(), err)
+			sessioncore.RedirectRefusedLogin(w, r, authn.LoginURL(), err)
 
 			return errors.Wrap(err, authenticatorName+".Authenticator.AuthCodeURL()")
 		}
@@ -57,7 +58,7 @@ func oidcCallback(
 
 		returnURL, err := complete(ctx, w, r)
 		if err != nil {
-			redirectRefusedLogin(w, r, authn.LoginURL(), err)
+			sessioncore.RedirectRefusedLogin(w, r, authn.LoginURL(), err)
 
 			return err
 		}

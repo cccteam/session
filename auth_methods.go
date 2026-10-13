@@ -8,6 +8,7 @@ import (
 
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -31,7 +32,7 @@ var (
 type signInRegistration struct {
 	method sessioninfo.AuthMethod
 	// password is the password method's settings; nil for an external method.
-	password *passwordAuthSettings
+	password *sessioncore.PasswordSettings
 	// external is an external method's registration; nil for the password method.
 	external *signin.Registration
 	// err is a misuse the registration function found in its own arguments.
@@ -108,7 +109,7 @@ func (a *Auth[S, U]) register(reg *signInRegistration) methodHandlers {
 
 	if reg.password != nil {
 		a.methods.registered[reg.method] = true
-		a.methods.hasher, a.methods.autoUpgrade = reg.password.hasher, reg.password.autoUpgrade
+		a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
 
 		return methodHandlers{login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler())}
 	}
@@ -163,16 +164,12 @@ type PasswordMethod struct {
 // It panics when the method is already registered on auth, when auth has served a
 // request, or when it is given an option that is not a password option.
 func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMethod {
-	settings := &passwordAuthSettings{hasher: securehash.New(securehash.Argon2()), autoUpgrade: true}
-	reg := &signInRegistration{method: sessioninfo.MethodPassword, password: settings}
+	settings := sessioncore.DefaultPasswordSettings()
+	reg := &signInRegistration{method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
-		o, ok := any(opt).(passwordOption)
-		if !ok {
+		if !settings.Apply(opt) {
 			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes); pass cookie and session options to NewAuth")
-
-			continue
 		}
-		o(settings)
 	}
 	h := registerMethod(auth, reg)
 

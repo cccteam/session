@@ -8,14 +8,10 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
 )
-
-// PreauthOption defines the functional option type for configuring PreauthSession.
-type PreauthOption interface {
-	isPreauthOption()
-}
 
 var _ PreauthHandlers = &Preauth[NoCustomData]{}
 
@@ -38,7 +34,7 @@ type Preauth[SessionData any] struct {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewPreauth[SessionData any](storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*Preauth[SessionData], error) {
-	if err := verifyCustomDataType[SessionData](storage); err != nil {
+	if err := sessioncore.VerifyCustomDataType[SessionData](storage); err != nil {
 		return nil, err
 	}
 	if storage.CustomUserDataType() != nil {
@@ -48,7 +44,7 @@ func NewPreauth[SessionData any](storage sessionstorage.PreauthStore, cookieKey 
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only")
 	}
 
-	baseSession, _, err := newBaseSession(storage, cookieKey, options)
+	baseSession, _, err := sessioncore.NewBaseSession(storage, cookieKey, options)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +128,8 @@ func newPreauthAPI[T any](preauth *Preauth[T]) *PreauthAPI[T] {
 
 // shared returns the API methods every session type shares, over this session's fields.
 // Preauth has no user record, so its custom user data surface is left nil.
-func (p *PreauthAPI[T]) shared() sharedAPI[T, NoCustomData] {
-	return sharedAPI[T, NoCustomData]{base: p.preauth.baseSession, store: p.preauth.storage, storeName: "PreauthStore"}
+func (p *PreauthAPI[T]) shared() sessioncore.API[T, NoCustomData] {
+	return sessioncore.API[T, NoCustomData]{Base: p.preauth.baseSession, Store: p.preauth.storage, StoreName: "PreauthStore"}
 }
 
 // Login creates a new session for a pre-authenticated user.
@@ -160,7 +156,7 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 		data = customData[0]
 	}
 
-	sessionID, err := establishSession(ctx, w, p.preauth.baseSession, sameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
+	sessionID, err := sessioncore.EstablishSession(ctx, w, p.preauth.baseSession, sessioncore.SameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := p.preauth.storage.NewSession(ctx, username, data)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.PreauthStore.NewSession()")
@@ -172,7 +168,7 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 		return ccc.NilUUID, err
 	}
 
-	logSessionStarted(ctx, username, sessionID)
+	sessioncore.LogSessionStarted(ctx, username, sessionID)
 
 	return sessionID, nil
 }
@@ -185,33 +181,33 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 // the session insert. See the "Custom session data" section of the README for the full
 // lifecycle.
 func (p *PreauthAPI[T]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
-	return p.shared().updateCustomSessionData(ctx, sessionID, mutate)
+	return p.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
 func (p *PreauthAPI[T]) CustomData(ctx context.Context) (T, error) {
-	return p.shared().customData(ctx)
+	return p.shared().CustomData(ctx)
 }
 
 // Logout destroys the current session. For an impersonated session the end is
 // announced as an Ended event, as on every other session type.
 func (p *PreauthAPI[T]) Logout(ctx context.Context) error {
-	return p.shared().logout(ctx)
+	return p.shared().Logout(ctx)
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
 // that fails, initializing a new session. The session cookie is then updated and
 // the sessionID is inserted into the context.
 func (p *PreauthAPI[T]) StartSession(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, error) {
-	return p.shared().startSession(ctx, w, r)
+	return p.shared().StartSession(ctx, w, r)
 }
 
 // ValidateSession checks the sessionID in the database to validate that it has not expired
 // and updates the last activity timestamp if it is still valid.
 // StartSession handler must be called before calling ValidateSession
 func (p *PreauthAPI[T]) ValidateSession(ctx context.Context) (context.Context, error) {
-	return p.shared().validateSession(ctx)
+	return p.shared().ValidateSession(ctx)
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user
@@ -225,5 +221,5 @@ func (p *PreauthAPI[T]) DestroyAllUserSessions(ctx context.Context, username str
 
 // Cookie returns the underlying cookie.Client
 func (p *PreauthAPI[T]) Cookie() *cookie.Client {
-	return p.shared().cookie()
+	return p.shared().Cookie()
 }

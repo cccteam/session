@@ -10,7 +10,7 @@ Layers, from the outside in:
 | Layer | Package | What is real | Runs where |
 | --- | --- | --- | --- |
 | Seam suite | `internal/e2e` | A public session type on a chi router, real cookies over HTTPS, the public PostgreSQL storage on the shipped migrations | Docker |
-| Public surface | root `session` (`surface_test.go`) | Every handler and middleware on all five types, real cookies, mocked store | anywhere |
+| Public surface | root `session` and `legacy` (`surface_test.go` in each) | Every handler and middleware on every session type, real cookies, mocked store | anywhere |
 | Engine | `internal/basesession` | The shared middleware and impersonation lifecycle, mocked store and cookies | anywhere |
 | Storage contract | `sessionstorage` | The public store over a generated mock of the driver | anywhere |
 | Driver conformance | `sessionstorage/internal/drivertest`, run by both drivers | Real PostgreSQL and Spanner containers, one case table | Docker |
@@ -41,7 +41,7 @@ Layers, from the outside in:
 
 | # | Invariant | Proven by | Layer |
 | --- | --- | --- | --- |
-| A1 | A password-less user (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the user's sessions; the hasher never sees a nil hash; such a user is stored and read with no hash on both backends | `TestPasswordAuth_PasswordLessUser`; `TestPasswordAuth_Login_PasswordLessUser`; `TestSessionStorageDriver_PasswordLessUser` (spanner, postgres) | root, driver |
+| A1 | A password-less user (no `PasswordHash`) fails every password check as invalid credentials: ValidateCredentials and Login refuse with 401 and start no session, change-password refuses the old password and keeps the user's sessions; the hasher never sees a nil hash; such a user is stored and read with no hash on both backends | `legacy` `TestPasswordAuth_PasswordLessUser`; `legacy` `TestPasswordAuth_Login_PasswordLessUser`; `TestSessionStorageDriver_PasswordLessUser` (spanner, postgres) | root, driver |
 | A2 | An external identity whose key is longer than a GUID (a WorkOS `idp_id`) is anchored whole on both backends' shipped OIDC schema; Spanner `OIDCUsers.Tid`/`Oid` are `STRING(MAX)` | `TestSessionStorageDriver_OIDCUsers_LongKey` (spanner, postgres) | driver |
 | A3 | The auth schema is opt-in: a driver without it never names `Sessions.UserId`, `AuthenticatedAt` or the auth events table, so a legacy schema keeps working | drivertest `TestAuth/a legacy schema keeps working…` | driver |
 | A4 | A session records the user it belongs to and when it was authenticated; a preauth stepping stone and a pending identity's row have neither, and a role-principal impersonation has no user | drivertest `TestAuth/user sessions record…`, `…impersonated session records its user…` | driver |
@@ -98,7 +98,7 @@ Layers, from the outside in:
 | I10 | Destroying the actor's sessions revokes every impersonation they hold as a local actor | driver `DestroyImpersonatedSessions…`, `username-keyed operations…`; `TestSeams/destroying the actor's sessions…` | driver, seam |
 | I11 | An operator's revocation refuses the next request and removes the session from the listing | `TestSeams/an operator revokes…` | seam |
 | I12 | Every end is announced once as an Ended event on every type, including logout | `TestSessionAPIs_Logout_AnnouncesImpersonationEnd`; `TestSessionTypes_PublicSurface/*/Logout…`, `…EndImpersonation…` | public surface |
-| I13 | A same-named role session and a user stay distinct; a foreign role session survives the user's username-keyed operations | driver `username-keyed operations…`; `TestPasswordAuthAPI_StartImpersonatedSession/a foreign actor's role principal is refused…` | driver, root |
+| I13 | A same-named role session and a user stay distinct; a foreign role session survives the user's username-keyed operations | driver `username-keyed operations…`; `legacy` `TestPasswordAuthAPI_StartImpersonatedSession/a foreign actor's role principal is refused…` | driver, root |
 | I14 | Both storage backends implement identical semantics | the shared `drivertest` suite runs unchanged on both | driver |
 
 Not a library property, and therefore not tested here: *who may impersonate whom*, and who

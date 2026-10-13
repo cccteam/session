@@ -20,8 +20,8 @@ schema), which is how the scenarios prove a hook's write survives a refusal and 
 reads the user a sign-in provisioned. Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
-against all five session types (including `Auth`, with password and WorkOS sign-in
-registered on it), built through their constructors, with real cookies and a
+against `Preauth` and `Auth` (with password and WorkOS sign-in registered on it), and
+its copy in `legacy/surface_test.go` against `PasswordAuth` and `OIDCAzure`, built through their constructors, with real cookies and a
 mocked store. It exists because the types satisfy `basesession.Handlers` through
 delegates, and a delegate forwarded to the wrong base method compiles. Add a scenario
 whenever a handler or middleware is added to the shared interface.
@@ -36,6 +36,11 @@ registration rules themselves (a method twice, a method once the Auth is in use,
 external method without identities) are a table of panics in
 `TestAuth_RegistrationRefused`; the handler sets of the method types are asserted at
 compile time in `auth_methods_test.go`.
+
+**Legacy types** (`legacy`). The `PasswordAuth` and `OIDCAzure` suites moved with the
+types: their flows against mocked stores, their impersonation and custom user data cases
+and their half of the public-surface table. The shared machinery they and the root build
+on, `internal/sessioncore`, has its own unit tests for the custom data type checks.
 
 **Engine** (`internal/basesession`). The shared middleware and the impersonation
 lifecycle against mocked store and cookies. This is where a rule is exercised in its

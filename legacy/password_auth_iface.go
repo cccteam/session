@@ -1,14 +1,17 @@
-package session
+package legacy
 
 import (
 	"net/http"
 
+	"github.com/cccteam/session"
 	"github.com/cccteam/session/internal/basesession"
 )
 
-var _ PasswordAuthHandlers = &PasswordAuth[NoCustomData, NoCustomData]{}
+var _ PasswordAuthHandlers = &PasswordAuth[session.NoCustomData, session.NoCustomData]{}
 
 // PasswordAuthHandlers defines the interface for password authentication handlers.
+//
+// Deprecated: the legacy username-and-password session; use session.Auth with session.PasswordSignIn, which shares the session, the user model and the middleware with every other sign-in method.
 type PasswordAuthHandlers interface {
 	// ActivateUser handles activating a user.
 	ActivateUser() http.HandlerFunc

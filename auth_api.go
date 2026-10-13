@@ -8,6 +8,7 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -70,7 +71,7 @@ func (p *AuthAPI[S, U]) StartAuthenticatedSession(ctx context.Context, w http.Re
 // startSession inserts req's session and writes its cookies. It is for sessions the
 // application or a user operation starts, with no identity to resolve.
 func (a *Auth[S, U]) startSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
-	id, err := establishSession(ctx, w, a.baseSession, sameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
+	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, sessioncore.SameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.CreateSession(ctx, req)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateSession()")
@@ -82,14 +83,14 @@ func (a *Auth[S, U]) startSession(ctx context.Context, w http.ResponseWriter, re
 		return ccc.NilUUID, err
 	}
 
-	logSessionStarted(ctx, req.Username, id)
+	sessioncore.LogSessionStarted(ctx, req.Username, id)
 
 	return id, nil
 }
 
 // Logout destroys the current session.
 func (p *AuthAPI[S, U]) Logout(ctx context.Context) error {
-	return p.auth.shared().logout(ctx)
+	return p.auth.shared().Logout(ctx)
 }
 
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
@@ -148,7 +149,7 @@ func (p *AuthAPI[S, U]) ChangeSessionUserPassword(ctx context.Context, w http.Re
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if _, err := comparePassword(a.registered().hasher, user.PasswordHash, req.OldPassword); err != nil {
+	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, req.OldPassword); err != nil {
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
 
@@ -252,22 +253,22 @@ func (p *AuthAPI[S, U]) UnlinkIdentity(ctx context.Context, identityID ccc.UUID)
 
 // UpdateCustomSessionData updates the custom session data of an active session.
 func (p *AuthAPI[S, U]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *S) error) error {
-	return p.auth.shared().updateCustomSessionData(ctx, sessionID, mutate)
+	return p.auth.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the current session's custom data.
 func (p *AuthAPI[S, U]) CustomData(ctx context.Context) (S, error) {
-	return p.auth.shared().customData(ctx)
+	return p.auth.shared().CustomData(ctx)
 }
 
 // CustomUserData returns a user's custom user data.
 func (p *AuthAPI[S, U]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
-	return p.auth.shared().customUserData(ctx, userID)
+	return p.auth.shared().CustomUserData(ctx, userID)
 }
 
 // UpdateCustomUserData updates a user's custom user data.
 func (p *AuthAPI[S, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
-	return p.auth.shared().updateCustomUserData(ctx, userID, mutate)
+	return p.auth.shared().UpdateCustomUserData(ctx, userID, mutate)
 }
 
 // StartImpersonatedSession starts an impersonated session, with the same semantics as
@@ -278,26 +279,26 @@ func (p *AuthAPI[S, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUI
 // A role principal's session belongs to no user (null UserID). The session records
 // an impersonation auth event whose connection is the actor.
 func (p *AuthAPI[S, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*S) (ccc.UUID, error) {
-	return p.auth.shared().startImpersonatedSession(ctx, w, req, customData, userIdentity(p.auth.storage))
+	return p.auth.shared().StartImpersonatedSession(ctx, w, req, customData, sessioncore.UserIdentity(p.auth.storage))
 }
 
 // DestroyImpersonatedSessions expires every impersonated session started by actor.
 func (p *AuthAPI[S, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	return p.auth.shared().destroyImpersonatedSessions(ctx, actor)
+	return p.auth.shared().DestroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists active impersonations matching q.
 func (p *AuthAPI[S, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	return p.auth.shared().activeImpersonations(ctx, q)
+	return p.auth.shared().ActiveImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession expires one impersonated session.
 func (p *AuthAPI[S, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	return p.auth.shared().destroyImpersonatedSession(ctx, sessionID)
+	return p.auth.shared().DestroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the current impersonated session, restoring the actor's
 // session when possible.
 func (p *AuthAPI[S, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	return p.auth.shared().endImpersonation(ctx, w)
+	return p.auth.shared().EndImpersonation(ctx, w)
 }

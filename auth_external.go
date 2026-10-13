@@ -7,6 +7,7 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
@@ -30,7 +31,7 @@ func (a *Auth[S, U]) externalLogin(m *signin.Method) http.HandlerFunc {
 			if httpio.HasBadRequest(err) {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
-			redirectRefusedLogin(w, r, m.LoginURL(), err)
+			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)
 
 			return errors.Wrap(err, string(m.Name)+": start the sign-in")
 		}
@@ -53,7 +54,7 @@ func (a *Auth[S, U]) externalCallback(m *signin.Method) http.HandlerFunc {
 
 		v, err := m.Complete(ctx, w, r)
 		if err != nil {
-			redirectRefusedLogin(w, r, m.LoginURL(), err)
+			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)
 
 			return errors.Wrap(err, string(m.Name)+": complete the sign-in")
 		}
@@ -63,10 +64,10 @@ func (a *Auth[S, U]) externalCallback(m *signin.Method) http.HandlerFunc {
 			reason:    sessioninfo.ReasonLogin,
 			returnURL: v.ReturnURL,
 			roleNames: v.RoleNames,
-			sameSite:  sameSiteNone,
+			sameSite:  sessioncore.SameSiteNone,
 		})
 		if err != nil {
-			redirectRefusedLogin(w, r, m.LoginURL(), err)
+			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)
 
 			return err
 		}
@@ -76,7 +77,7 @@ func (a *Auth[S, U]) externalCallback(m *signin.Method) http.HandlerFunc {
 			case handled:
 				return err
 			case err != nil:
-				redirectRefusedLogin(w, r, m.LoginURL(), err)
+				sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)
 
 				return err
 			case target == "":

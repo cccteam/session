@@ -25,7 +25,8 @@ All session types are generic over two data axes: `Auth[SessionData, UserData]`,
 `PasswordAuth[SessionData, UserData]`, `OIDCAzure[SessionData, UserData]`, and
 `Preauth[SessionData]` (Preauth has no user record, so no user-data axis). An
 application that uses neither instantiates with the `NoCustomData` sentinel:
-`session.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`.
+`legacy.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`
+(the legacy types live in `session/legacy`, see "Legacy session types").
 
 ## Schema
 
@@ -194,7 +195,7 @@ The pending handlers and the API's pending methods read the pending identity
 
 A sign-in ends in one of three ways. External methods answer with a redirect; the
 password login and the pending handlers answer JSON. `<LoginURL>` is the method's
-`WithLoginURL` (default `/login`).
+`Config.LoginURL` (default `/login`).
 
 | Outcome | External `Callback()` | `password.Login()` |
 | --- | --- | --- |
@@ -302,6 +303,22 @@ compressed (about 2.8 KB): a larger one is refused with `internal_error`.
   `azure.Method.FrontChannelLogout()` answers 501 until the auth schema records the
   provider's session ID.
 
+## Legacy session types
+
+`PasswordAuth` and `OIDCAzure`, the single-method session types that predate `Auth`,
+live in `session/legacy` and are deprecated: a new application uses `Auth` with
+`PasswordSignIn` and `azure.SignIn`, one session for every sign-in method. Moving an
+existing application is one mechanical edit, the import path and the qualifier of the
+constructor, the handler interface, the API type and `WithLoginURL`:
+`legacy.NewPasswordAuth`, `legacy.PasswordAuthHandlers`, `legacy.PasswordAuthAPI`,
+`legacy.NewOIDCAzure`, `legacy.OIDCAzureHandlers`, `legacy.OIDCAzureAPI`,
+`legacy.WithLoginURL`. The cookie and session options, the password options, the role
+sync slot and `session.NoCustomData` stay in the root package. The storage pieces only
+the legacy types use (`NewSpannerPasswordAuth`, `NewPostgresPassword`, `NewSpannerOIDC`,
+`NewPostgresOIDC`, `WithOIDCUsers`, the custom user data login hook and the
+`schema/*/oidc` migrations) carry the same deprecation and leave with them. Each legacy
+type logs a warning once when it is constructed.
+
 ## OIDC role synchronization
 
 Role synchronization reconciles a user's application roles to the identity provider's
@@ -321,12 +338,12 @@ list of tenants. A membership the directory does not name is removed wherever it
 held, a membership in one tenant domain included, so an application that writes its own
 memberships (a tenant-specific role, say) runs with role synchronization disabled.
 
-The `NewOIDCAzure` constructor takes a required role-sync slot that enables or disables
+The legacy `legacy.NewOIDCAzure` constructor takes a required role-sync slot that enables or disables
 the feature:
 
 ```go
 // Enabled: reconcile the user's memberships to the token's roles at every login.
-oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
+oidcSession, err := legacy.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
     storage,
     session.RoleSync(userRoleManager),
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
@@ -334,7 +351,7 @@ oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomD
 
 // Disabled (application-managed roles, or no roles at all): no roles are read,
 // written, or removed at login, and the at-least-one-role gate does not apply.
-oidcSession, err := session.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
+oidcSession, err := legacy.NewOIDCAzure[session.NoCustomData, session.NoCustomData](
     storage, session.DisableRoleSync(),
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
 )
@@ -629,7 +646,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
 )
 if err != nil { /* non-struct T, no persistable fields, invalid identifier, reserved SessionId, ... */ }
 
-auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
+auth, err := legacy.NewPasswordAuth[MyData, session.NoCustomData](
     sessionstorage.NewSpannerPasswordAuth(client,
         sessionstorage.WithSpannerCustomSessionData(customCfg)),
     cookieKey,
@@ -678,7 +695,7 @@ customCfg, err := sessionstorage.NewSpannerCustomSessionData(
     },
 )
 
-oidcSession, err := session.NewOIDCAzure[SessionClaims, session.NoCustomData](
+oidcSession, err := legacy.NewOIDCAzure[SessionClaims, session.NoCustomData](
     sessionstorage.NewSpannerOIDC(client, sessionstorage.WithSpannerCustomSessionData(customCfg)),
     session.RoleSync(userRoleManager), // see "OIDC role synchronization"
     cookieKey, issuerURL, clientID, clientSecret, redirectURL,
@@ -740,8 +757,8 @@ err := auth.API().UpdateCustomSessionData(ctx, sessionID, func(data *MyData) err
 })
 ```
 
-It is available on all three session types: `PasswordAuthAPI`, `OIDCAzureAPI`,
-and `PreauthAPI`.
+It is available on every session API: `AuthAPI`, `PreauthAPI` and the legacy
+`PasswordAuthAPI` and `OIDCAzureAPI`.
 
 Semantics to know:
 
@@ -891,7 +908,7 @@ type UserData struct {
 
 userCfg, err := sessionstorage.NewSpannerCustomUserData[UserData]("UserCustomData", nil)
 
-auth, err := session.NewPasswordAuth[MyData, UserData](
+auth, err := legacy.NewPasswordAuth[MyData, UserData](
     sessionstorage.NewSpannerPasswordAuth(client,
         sessionstorage.WithSpannerCustomSessionData(sessCfg),
         sessionstorage.WithSpannerCustomUserData(userCfg)),
@@ -951,7 +968,7 @@ userCfg, err := sessionstorage.NewSpannerCustomUserData("OIDCUserData",
         return current, nil // full-row upsert, atomic with the login
     })
 
-oidcSession, err := session.NewOIDCAzure[SessionClaims, UserProfile](
+oidcSession, err := legacy.NewOIDCAzure[SessionClaims, UserProfile](
     sessionstorage.NewSpannerOIDC(client,
         sessionstorage.WithOIDCUsers(), // the anchor is required for OIDC user data
         sessionstorage.WithSpannerCustomSessionData(sessCfg),
@@ -1016,7 +1033,7 @@ evidence and outlives the session; retention is the application's policy.
 ```go
 imp, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
 
-auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
+auth, err := legacy.NewPasswordAuth[MyData, session.NoCustomData](
     sessionstorage.NewSpannerPasswordAuth(client,
         sessionstorage.WithSpannerCustomSessionData(sessCfg),
         sessionstorage.WithImpersonation(imp)),
@@ -1029,7 +1046,8 @@ auth, err := session.NewPasswordAuth[MyData, session.NoCustomData](
 ```
 
 The same `WithImpersonation` option and `WithImpersonationTimeout` /
-`WithImpersonationAudit` session options apply to `NewPreauth` and `NewOIDCAzure`.
+`WithImpersonationAudit` session options apply to `NewPreauth`, `NewAuth` and the legacy
+constructors.
 Without `WithImpersonation` nothing changes: no session is ever impersonated and the
 impersonation APIs return a configuration error.
 

@@ -11,6 +11,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -35,7 +36,7 @@ type signInAttempt struct {
 	// roleNames are the role names the method asserted, reconciled once the user is
 	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
-	sameSite  authCookieSameSite
+	sameSite  sessioncore.SameSite
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -76,7 +77,7 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 		AuthEvents: at.events,
 	}
 
-	id, err := establishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
+	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.CreateSession(ctx, req)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateSession()")
@@ -111,7 +112,7 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 	}
 
 	a.dropPending(ctx, w)
-	logSessionStarted(ctx, req.Username, id)
+	sessioncore.LogSessionStarted(ctx, req.Username, id)
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
@@ -219,7 +220,7 @@ func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, 
 		reason:   sessioninfo.ReasonLogin,
 		userID:   user.ID,
 		username: user.Username,
-		sameSite: sameSiteStrict,
+		sameSite: sessioncore.SameSiteStrict,
 	})
 }
 
@@ -232,7 +233,7 @@ func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password st
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
 	methods := a.registered()
-	upgrade, err := comparePassword(methods.hasher, user.PasswordHash, password)
+	upgrade, err := sessioncore.ComparePassword(methods.hasher, user.PasswordHash, password)
 	if err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
@@ -268,7 +269,7 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -315,13 +316,13 @@ func (a *Auth[S, U]) changeUserPasswordHandler() http.HandlerFunc {
 		OldPassword string `json:"oldPassword"`
 		NewPassword string `json:"newPassword"`
 	}
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		if err := refuseImpersonated(ctx, a.baseSession, "ChangeUserPassword", true); err != nil {
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "ChangeUserPassword", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
@@ -393,6 +394,6 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 }
 
 // shared returns the API methods every session type shares, over this session's fields.
-func (a *Auth[S, U]) shared() sharedAPI[S, U] {
-	return sharedAPI[S, U]{base: a.baseSession, store: a.storage, users: a.storage, storeName: "AuthStore"}
+func (a *Auth[S, U]) shared() sessioncore.API[S, U] {
+	return sessioncore.API[S, U]{Base: a.baseSession, Store: a.storage, Users: a.storage, StoreName: "AuthStore"}
 }

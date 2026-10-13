@@ -1,4 +1,4 @@
-package session
+package legacy
 
 import (
 	"context"
@@ -10,28 +10,25 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session"
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
-// OIDCAzureOption defines the interface for functional options used when creating a new OIDCAzure.
-type OIDCAzureOption interface {
-	isOIDCAzureOption()
-}
-
-var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
+var _ OIDCAzureHandlers = &OIDCAzure[session.NoCustomData, session.NoCustomData]{}
 
 // OIDCAzure implements the OIDCAzureHandlers interface for handling OIDC authentication
 // with Azure, with custom session data typed as SessionData (populated by a resolver
 // from the verified claims, read on every authenticated request) and custom user data
 // typed as UserData (durable — it lives and dies with the OIDCUsers anchor record,
 // maintained by the configured login hook and read on demand). Instantiate an unused
-// axis with NoCustomData.
+// axis with session.NoCustomData.
 //
 // Role synchronization: the OIDC callback provides an integrated authentication and
 // role-synchronization flow designed for organizations that manage users and roles
@@ -61,6 +58,8 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // disables role maintenance during login entirely — no roles are read, written,
 // or removed, and the at-least-one-role login gate does not apply
 // (application-managed roles, or no roles at all).
+//
+// Deprecated: the legacy Microsoft Entra ID session; use session.Auth with azure.SignIn, which shares the session, the user model and the middleware with every other sign-in method.
 type OIDCAzure[SessionData, UserData any] struct {
 	roleSync    *signin.RoleReconciler
 	oidc        azure.Authenticator
@@ -70,7 +69,7 @@ type OIDCAzure[SessionData, UserData any] struct {
 
 // NewOIDCAzure creates a new OIDCAzure for the custom session data struct type
 // SessionData and the custom user data struct type UserData; instantiate an unused axis
-// with NoCustomData. The storage must carry a custom session data configuration built
+// with session.NoCustomData. The storage must carry a custom session data configuration built
 // for the same SessionData (its resolver receives the raw verified ID-token claims via
 // req.Claims) and a custom user data configuration built for the same UserData; a
 // mismatch is a construction error. Custom user data on OIDC storage requires the OIDC
@@ -80,8 +79,10 @@ type OIDCAzure[SessionData, UserData any] struct {
 // enable, session.DisableRoleSync() to disable; see OIDCAzure for semantics.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
+//
+// Deprecated: the legacy Microsoft Entra ID session; use session.Auth with azure.SignIn, which shares the session, the user model and the middleware with every other sign-in method.
 func NewOIDCAzure[SessionData, UserData any](
-	storage sessionstorage.OIDCStore, roleSync RoleSyncConfig,
+	storage sessionstorage.OIDCStore, roleSync signin.RoleSyncConfig,
 	cookieKey string,
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
@@ -90,11 +91,11 @@ func NewOIDCAzure[SessionData, UserData any](
 	if err != nil {
 		return nil, errors.Wrap(err, "signin.ReconcilerOf()")
 	}
-	if err := verifyOIDCStorage[SessionData, UserData](storage); err != nil {
+	if err := sessioncore.VerifyOIDCStorage[SessionData, UserData](storage); err != nil {
 		return nil, err
 	}
 
-	baseSession, cookieClient, err := newBaseSession(storage, cookieKey, options)
+	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +106,8 @@ func NewOIDCAzure[SessionData, UserData any](
 			o(authn)
 		}
 	}
+
+	logDeprecated("OIDCAzure", "session.Auth with azure.SignIn")
 
 	return &OIDCAzure[SessionData, UserData]{
 		roleSync:    roleSyncCfg,
@@ -211,7 +214,7 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 			return "", errors.Wrap(err, "OIDCAzure.startNewSession()")
 		}
 
-		logSessionStarted(ctx, claims.Username, sessionID)
+		sessioncore.LogSessionStarted(ctx, claims.Username, sessionID)
 
 		return returnURL, nil
 	})
@@ -241,7 +244,7 @@ func (o *OIDCAzure[T, U]) FrontChannelLogout() http.HandlerFunc {
 // resolver, which runs inside the session-insert transaction; a resolver error aborts the
 // session creation and no cookies are written.
 func (o *OIDCAzure[T, U]) startNewSession(ctx context.Context, w http.ResponseWriter, username, oidcSID string, claims json.RawMessage) (ccc.UUID, error) {
-	return establishSession(ctx, w, o.baseSession, sameSiteNone, func(ctx context.Context) (ccc.UUID, error) {
+	return sessioncore.EstablishSession(ctx, w, o.baseSession, sessioncore.SameSiteNone, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := o.storage.NewSession(ctx, username, oidcSID, claims)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.OIDCStore.NewSession()")
@@ -257,6 +260,8 @@ func (o *OIDCAzure[T, U]) API() *OIDCAzureAPI[T, U] {
 }
 
 // OIDCAzureAPI provides programatic access to OIDCAzure handler internals
+//
+// Deprecated: the legacy Microsoft Entra ID session; use session.Auth with azure.SignIn, which shares the session, the user model and the middleware with every other sign-in method.
 type OIDCAzureAPI[SessionData, UserData any] struct {
 	oidc *OIDCAzure[SessionData, UserData]
 }
@@ -268,18 +273,18 @@ func newOIDCAzureAPI[T, U any](o *OIDCAzure[T, U]) *OIDCAzureAPI[T, U] {
 }
 
 // shared returns the API methods every session type shares, over this session's fields.
-func (p *OIDCAzureAPI[T, U]) shared() sharedAPI[T, U] {
-	return sharedAPI[T, U]{base: p.oidc.baseSession, store: p.oidc.storage, users: p.oidc.storage, storeName: "OIDCStore"}
+func (p *OIDCAzureAPI[T, U]) shared() sessioncore.API[T, U] {
+	return sessioncore.API[T, U]{Base: p.oidc.baseSession, Store: p.oidc.storage, Users: p.oidc.storage, StoreName: "OIDCStore"}
 }
 
 // ValidateSession checks the session cookie and if it is valid, stores the session data into the context
 func (p *OIDCAzureAPI[T, U]) ValidateSession(ctx context.Context) (context.Context, error) {
-	return p.shared().validateSession(ctx)
+	return p.shared().ValidateSession(ctx)
 }
 
 // Cookie returns the underlying cookie.Client
 func (p *OIDCAzureAPI[T, U]) Cookie() *cookie.Client {
-	return p.shared().cookie()
+	return p.shared().Cookie()
 }
 
 // UpdateCustomSessionData updates the custom session data for an active session via a
@@ -290,13 +295,13 @@ func (p *OIDCAzureAPI[T, U]) Cookie() *cookie.Client {
 // configured resolver), which is atomic with the session insert. See the "Custom
 // session data" section of the README for the full lifecycle.
 func (p *OIDCAzureAPI[T, U]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *T) error) error {
-	return p.shared().updateCustomSessionData(ctx, sessionID, mutate)
+	return p.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the strongly typed custom session data for the current session
 // from the context. A session with no custom data row yields a zero-value T.
 func (p *OIDCAzureAPI[T, U]) CustomData(ctx context.Context) (T, error) {
-	return p.shared().customData(ctx)
+	return p.shared().CustomData(ctx)
 }
 
 // OIDCUser returns the OIDC user anchor record for the given ID. It requires the OIDC
@@ -336,7 +341,7 @@ func (p *OIDCAzureAPI[T, U]) OIDCUserByKey(ctx context.Context, tid, oid string)
 // it lives and dies with the anchor record — and is read on demand, never from the
 // session context.
 func (p *OIDCAzureAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
-	return p.shared().customUserData(ctx, userID)
+	return p.shared().CustomUserData(ctx, userID)
 }
 
 // UpdateCustomUserData updates the custom user data for an existing user via a
@@ -346,5 +351,5 @@ func (p *OIDCAzureAPI[T, U]) CustomUserData(ctx context.Context, userID ccc.UUID
 // is for genuine app-driven updates. See the "Custom user data" section of the README
 // for the full lifecycle.
 func (p *OIDCAzureAPI[T, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
-	return p.shared().updateCustomUserData(ctx, userID, mutate)
+	return p.shared().UpdateCustomUserData(ctx, userID, mutate)
 }

@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/workos"
@@ -144,32 +143,6 @@ func TestAuth_ReturnURLStaysInTheApplication(t *testing.T) {
 					t.Errorf("Status() = %d %s, want 200 with returnUrl \"/\"", status.Code, status.Body.String())
 				}
 			})
-		})
-	}
-}
-
-// TestOIDCCallback_ReturnURLStaysInTheApplication: the callback shell of the older OIDC
-// session types writes the Location header from the verifier's return URL; it is exactly
-// "/" for each off-site value, whatever the verifier returned.
-func TestOIDCCallback_ReturnURLStaysInTheApplication(t *testing.T) {
-	t.Parallel()
-
-	for _, returnURL := range offSiteReturnURLs {
-		t.Run(returnURL, func(t *testing.T) {
-			t.Parallel()
-			ctrl := gomock.NewController(t)
-			f := newAuthFixture(t, ctrl)
-			authn := mock_azure.NewMockAuthenticator(ctrl)
-			h := oidcCallback(f.auth.baseSession, authn, func(context.Context, http.ResponseWriter, *http.Request) (string, error) {
-				return returnURL, nil
-			})
-
-			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/callback", http.NoBody))
-
-			if loc := rr.Header().Values("Location"); rr.Code != http.StatusFound || len(loc) != 1 || loc[0] != "/" {
-				t.Errorf("CallbackOIDC() = %d %q, want 302 exactly \"/\"", rr.Code, loc)
-			}
 		})
 	}
 }

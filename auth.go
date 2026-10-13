@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -19,14 +20,6 @@ import (
 )
 
 var _ basesession.Handlers = &Auth[NoCustomData, NoCustomData]{}
-
-// AuthOption configures an Auth session.
-type AuthOption interface {
-	isAuthOption()
-}
-
-func (CookieOption) isAuthOption()      {}
-func (BaseSessionOption) isAuthOption() {}
 
 // authSettings holds Auth-only settings.
 type authSettings struct {
@@ -36,9 +29,11 @@ type authSettings struct {
 	pendingCookie  string
 }
 
-type authOption func(*authSettings)
-
-func (authOption) isAuthOption() {}
+// authOption is an Auth settings option.
+type authOption struct {
+	sessioncore.AuthOptionMarker
+	apply func(*authSettings)
+}
 
 // Default pending-identity settings.
 const (
@@ -56,7 +51,7 @@ type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *s
 // policy runs, so it is reported even when the policy then denies the sign-in or holds
 // it for MFA. An error from the hook is logged. The link and the sign-in stand.
 func WithIdentityLinked(hook IdentityLinkedHook) AuthOption {
-	return authOption(func(s *authSettings) { s.identityLinked = hook })
+	return authOption{apply: func(s *authSettings) { s.identityLinked = hook }}
 }
 
 // PendingHook is called after a sign-in handler holds a sign-in as a pending identity,
@@ -77,19 +72,19 @@ type PendingHook = func(ctx context.Context, w http.ResponseWriter, r *http.Requ
 // identity. The AuthAPI methods never call it. They return a
 // *sessionstorage.PendingSignInError instead.
 func WithPendingHook(hook PendingHook) AuthOption {
-	return authOption(func(s *authSettings) { s.pendingHook = hook })
+	return authOption{apply: func(s *authSettings) { s.pendingHook = hook }}
 }
 
 // WithPendingTimeout sets how long a pending identity waits for confirmation or MFA.
 // (default: 10m)
 func WithPendingTimeout(d time.Duration) AuthOption {
-	return authOption(func(s *authSettings) { s.pendingTimeout = d })
+	return authOption{apply: func(s *authSettings) { s.pendingTimeout = d }}
 }
 
 // WithPendingCookieName sets the cookie name of the pending-identity stepping-stone
 // session. (default: "auth-pending")
 func WithPendingCookieName(name string) AuthOption {
-	return authOption(func(s *authSettings) { s.pendingCookie = name })
+	return authOption{apply: func(s *authSettings) { s.pendingCookie = name }}
 }
 
 // Auth is one session type that any registered sign-in method can establish. Auth,
@@ -130,7 +125,7 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookie
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
 	}
-	if err := verifyCustomDataTypes[SessionData, UserData](storage); err != nil {
+	if err := sessioncore.VerifyCustomDataTypes[SessionData, UserData](storage); err != nil {
 		return nil, err
 	}
 	if storage.UserDataLoginHookConfigured() {
@@ -145,7 +140,7 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookie
 	for _, opt := range options {
 		switch o := opt.(type) {
 		case authOption:
-			o(&settings)
+			o.apply(&settings)
 		case CookieOption:
 			cookieOpts = append(cookieOpts, internalcookie.Option(o))
 		}
@@ -154,7 +149,7 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookie
 		return nil, errors.New("the pending timeout must be positive")
 	}
 
-	baseSession, cookieClient, err := newBaseSession(storage, cookieKey, options)
+	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)
 	if err != nil {
 		return nil, err
 	}
@@ -307,4 +302,4 @@ type AuthAPI[SessionData, UserData any] struct {
 }
 
 // Cookie returns the underlying cookie client.
-func (p *AuthAPI[S, U]) Cookie() *cookie.Client { return p.auth.shared().cookie() }
+func (p *AuthAPI[S, U]) Cookie() *cookie.Client { return p.auth.shared().Cookie() }

@@ -73,31 +73,6 @@ func surfaceBuilders() []struct {
 		build surfaceBuilder
 	}{
 		{
-			name: "PasswordAuth",
-			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newPasswordStoreMock(ctrl)
-				p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
-				if err != nil {
-					t.Fatalf("NewPasswordAuth() error = %v", err)
-				}
-
-				return &surface{
-					handlers: p,
-					api:      p.API(),
-					base:     p.baseSession,
-					store:    storage.EXPECT(),
-					validating: func(username string) {
-						storage.EXPECT().UserByUserName(gomock.Any(), username).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil).AnyTimes()
-					},
-					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
-						_, err := p.API().StartImpersonatedSession(ctx, w, req)
-
-						return err
-					},
-				}
-			},
-		},
-		{
 			name: "Preauth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newPreauthStoreMock(ctrl)
@@ -114,29 +89,6 @@ func surfaceBuilders() []struct {
 					validating: func(string) {},
 					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
 						_, err := p.API().StartImpersonatedSession(ctx, w, req)
-
-						return err
-					},
-				}
-			},
-		},
-		{
-			name: "OIDCAzure",
-			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newOIDCStoreMock(ctrl)
-				a, err := NewOIDCAzure[NoCustomData, NoCustomData](storage, DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL", WithImpersonationAudit(hook))
-				if err != nil {
-					t.Fatalf("NewOIDCAzure() error = %v", err)
-				}
-
-				return &surface{
-					handlers:   a,
-					api:        a.API(),
-					base:       a.baseSession,
-					store:      storage.EXPECT(),
-					validating: func(string) {},
-					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
-						_, err := a.API().StartImpersonatedSession(ctx, w, req)
 
 						return err
 					},

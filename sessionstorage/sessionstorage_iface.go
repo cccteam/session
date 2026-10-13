@@ -108,6 +108,8 @@ type SessionUser = dbtype.SessionUser
 type InsertSessionUser = dbtype.InsertSessionUser
 
 // PasswordAuthStore defines an interface for managing password sessions.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type PasswordAuthStore interface {
 	// CreateSession creates a new session for the request and returns its ID. When a
 	// custom session data configuration with a resolver is attached to the storage, the
@@ -152,9 +154,13 @@ var _ OIDCStore = (*OIDC)(nil)
 
 // OIDCUser is a library-managed durable user record for OIDC logins, keyed by the
 // immutable (Tid, Oid) claim pair with a surrogate UUID primary key.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDCUser = dbtype.OIDCUser
 
 // OIDCStore defines an interface for managing OIDC session storage.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDCStore interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	// NewSession creates a new OIDC session. claims carries the raw verified ID-token

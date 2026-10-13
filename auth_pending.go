@@ -18,6 +18,7 @@ import (
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/go-playground/errors/v5"
@@ -304,7 +305,7 @@ func (a *Auth[S, U]) completePending(
 		events:       append(slices.Clone(state.Events), more...),
 		returnURL:    state.ReturnURL,
 		roleNames:    state.RoleNames,
-		sameSite:     sameSiteStrict,
+		sameSite:     sessioncore.SameSiteStrict,
 	}
 	if identity.Method == sessioninfo.MethodPassword {
 		if !state.UserID.Valid {
@@ -406,7 +407,7 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if _, err := comparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
+	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
 	if user.Disabled {
@@ -469,7 +470,7 @@ func (a *Auth[S, U]) pendingConfirm() http.HandlerFunc {
 	type request struct {
 		Password string `json:"password"`
 	}
-	decoder := newDecoder[request]()
+	decoder := sessioncore.NewDecoder[request]()
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
