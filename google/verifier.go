@@ -1,9 +1,8 @@
 //go:build !skipAuth
 
 // Package google is the Google Workspace sign-in method: the OpenID Connect
-// authorization code flow with
-// PKCE (Proof Key for Code Exchange), restricted to a single Google Workspace hosted
-// domain.
+// authorization code flow with PKCE (Proof Key for Code Exchange), restricted to a
+// single Google Workspace hosted domain.
 package google
 
 import (
@@ -12,30 +11,28 @@ import (
 	"strings"
 
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
-	"github.com/gofrs/uuid"
 	"golang.org/x/oauth2"
 )
 
 // IssuerURL is Google's OIDC issuer. Google uses one issuer for every Workspace
 // organization; the hd claim names the organization. It is a variable only so this
-// module's end-to-end tests can point a sign-in at a fake identity provider. NewOIDC reads
-// it when the authenticator is built.
+// module's end-to-end tests can point a sign-in at a fake identity provider. NewOIDC
+// reads it when the authenticator is built.
 var IssuerURL = "https://accounts.google.com"
 
 var _ Authenticator = &OIDC{}
 
-// OIDC implements the Authenticator interface for OpenID Connect authentication.
+// OIDC is the Authenticator over Google Workspace: the shared OpenID Connect flow,
+// keeping its state in the Google state cookie, restricted to one hosted domain.
 type OIDC struct {
-	cookies      signin.StateCookies
+	*oidc.Flow
 	hostedDomain string
-	oidc.Loader
 }
 
 // NewOIDC returns a new OIDC Authenticator. hostedDomain is the Google Workspace domain the
@@ -49,98 +46,35 @@ func NewOIDC(cookies signin.StateCookies, clientID, clientSecret, redirectURL, h
 // newWithIssuer exists so tests can point the authenticator at a fake IdP; production
 // code always goes through NewOIDC and Google's fixed issuer.
 func newWithIssuer(cookies signin.StateCookies, issuer, clientID, clientSecret, redirectURL, hostedDomain string, scopes ...string) *OIDC {
-	return &OIDC{
-		cookies:      cookies,
-		hostedDomain: hostedDomain,
-		Loader:       oidc.New(issuer, clientID, clientSecret, redirectURL, append([]string{gooidc.ScopeOpenID, "email", "profile"}, scopes...)),
-	}
+	loader := oidc.New(issuer, clientID, clientSecret, redirectURL, append([]string{gooidc.ScopeOpenID, "email", "profile"}, scopes...))
+
+	return &OIDC{Flow: oidc.NewFlow(cookies, internalcookie.GoogleStateCookieName, loader), hostedDomain: hostedDomain}
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	provider, err := o.Provider(ctx)
-	if err != nil {
-		return "", errors.Wrap(err, "oidc.Loader.Provider()")
-	}
-
-	// Using PKCE (Proof Key for Code Exchange) to protect against authorization code interception attacks
-	pkceVerifier := oauth2.GenerateVerifier()
-
-	// Use a random string as the state to protect against CSRF attacks
-	state, err := uuid.NewV4()
-	if err != nil {
-		return "", errors.Wrap(err, "uuid.NewV4()")
-	}
-
-	cval := cookie.NewValues().
-		SetString(internalcookie.OIDCState, state.String()).
-		SetString(internalcookie.OIDCPkceVerifier, pkceVerifier).
-		SetString(internalcookie.ReturnURL, returnURL)
-
-	o.cookies.WriteStateCookie(w, internalcookie.GoogleStateCookieName, cval)
-
 	// The hd parameter pre-selects the Workspace domain's users in Google's user
 	// chooser. It is a UX hint only — the trusted enforcement is the hd claim check in
 	// Verify.
-	return provider.AuthCodeURL(state.String(),
-		oauth2.S256ChallengeOption(pkceVerifier),
-		oauth2.SetAuthURLParam("hd", o.hostedDomain),
-	), nil
+	u, err := o.Begin(ctx, w, returnURL, oauth2.SetAuthURLParam("hd", o.hostedDomain))
+	if err != nil {
+		return "", errors.Wrap(err, "oidc.Flow.Begin()")
+	}
+
+	return u, nil
 }
 
-// Verify performs the necessary verification and processing of the OIDC callback
-// request. Beyond the standard checks (state, PKCE code exchange, ID-token signature /
-// issuer / audience / expiry), it rejects tokens whose hd claim does not match the
-// configured hosted domain (a consumer user carries no hd claim at all and fails
-// closed) and tokens without a verified email.
-// It populates 'claims' with the ID Token's claims and returns the URL to redirect to
-// following successful authentication, with the access token of the code exchange.
-// Google issues no sid claim and supports no IdP-initiated logout, so no OIDC session
-// ID is returned.
+// Verify completes the round trip (see oidc.Flow.Complete) and, beyond its checks,
+// rejects tokens whose hd claim does not match the configured hosted domain (a consumer
+// user carries no hd claim at all and fails closed) and tokens without a verified
+// email. It populates 'claims' with the ID Token's claims and returns the URL to
+// redirect to following successful authentication, with the access token of the code
+// exchange. Google issues no sid claim and supports no IdP-initiated logout, so no OIDC
+// session ID is returned.
 func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, accessToken string, err error) {
-	provider, err := o.Provider(ctx)
+	done, err := o.Complete(ctx, w, r)
 	if err != nil {
-		return "", "", errors.Wrap(err, "oidc.Loader.Provider()")
-	}
-
-	cval, cookieName, err := o.cookies.ReadStateCookie(r, internalcookie.GoogleStateCookieName)
-	if err != nil {
-		return "", "", errors.Wrap(err, "cookie.Client.ReadStateCookie()")
-	}
-	if cookieName == "" {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
-	}
-	o.cookies.DeleteStateCookie(w, cookieName)
-
-	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
-	returnURL = internalcookie.SanitizeReturnURL(returnURL)
-
-	state, err := cval.GetString(internalcookie.OIDCState)
-	if err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
-	}
-	// Validate state parameter
-	if r.URL.Query().Get("state") != state {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
-	}
-
-	verifier, err := cval.GetString(internalcookie.OIDCPkceVerifier)
-	if err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidPKCE, httpio.NewForbiddenMessage("Invalid 'pkceVerifier' parameter value"))
-	}
-	oauth2Token, err := provider.Exchange(ctx, r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
-	if err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange, httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange token"))
-	}
-
-	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
-	if !ok {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoIDToken, httpio.NewInternalServerErrorMessage("No id_token in token response"))
-	}
-
-	idToken, err := provider.Verify(ctx, rawIDToken)
-	if err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedIDTokenVerification, httpio.NewInternalServerErrorMessageWithError(err, "Failed to verify ID token"))
+		return "", "", errors.Wrap(err, "oidc.Flow.Complete()")
 	}
 
 	// Enforce the hosted-domain restriction on the verified token. Unlike the hd
@@ -150,8 +84,8 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		Hd            string `json:"hd"`
 		EmailVerified bool   `json:"email_verified"`
 	}
-	if err := idToken.Claims(&gClaims); err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims"))
+	if err := done.Claims(&gClaims); err != nil {
+		return "", "", errors.Wrap(err, "oidc.Completed.Claims()")
 	}
 	if !strings.EqualFold(gClaims.Hd, o.hostedDomain) {
 		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("User is not a member of the required Google Workspace domain"))
@@ -160,10 +94,9 @@ func (o *OIDC) Verify(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedEmailNotVerified, httpio.NewForbiddenMessage("User email is not verified"))
 	}
 
-	// Extract the claims from the ID Token
-	if err := idToken.Claims(&claims); err != nil {
-		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse ID token claims"))
+	if err := done.Claims(claims); err != nil {
+		return "", "", errors.Wrap(err, "oidc.Completed.Claims()")
 	}
 
-	return returnURL, oauth2Token.AccessToken, nil
+	return done.ReturnURL, done.Token.AccessToken, nil
 }

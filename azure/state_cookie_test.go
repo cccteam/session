@@ -28,7 +28,7 @@ func TestOIDC_Verify_LegacyStateCookie(t *testing.T) {
 	o := NewOIDC(cookies, idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
 
 	_, callback := startLogin(t, o)
-	values, readName, err := o.cookies.ReadStateCookie(callback, internalcookie.AzureStateCookieName)
+	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.AzureStateCookieName)
 	if err != nil || readName != internalcookie.AzureStateCookieName {
 		t.Fatalf("ReadStateCookie() = %q, %v, want the Azure state cookie", readName, err)
 	}
