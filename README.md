@@ -10,30 +10,35 @@ The Session repository is designed to handle the management of user sessions, in
 - `Database Support`: Seamless integration with multiple databases.
   - PostgreSQL
   - Google Cloud Spanner
-- `Auth Sessions`: One session that password, Azure, Google Workspace and WorkOS SSO sign-in can all establish, with users, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
-- `Login Types`: Supports multiple authentication methods.
-  - Azure OIDC
-  - Google Workspace OIDC, as a sign-in method of the Auth session (restricted to one hosted domain — see the "Google Workspace OIDC" section)
-  - Username/Password
-  - Preauth (trust-the-caller stepping-stone sessions)
+- `Auth Sessions`: One session that every sign-in method can establish, with users, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
+- `Sign-in methods` of the Auth session, each in its own package:
+  - Username/Password (`session.PasswordSignIn`)
+  - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
+  - Google Workspace OIDC (`session/google`), restricted to one hosted domain, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
+  - WorkOS SSO (`session/workos`)
+- `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
+- `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
 - `Custom User Data`: App-defined durable data attached to the user record — it survives logout, expiry, and regeneration, and dies with the user. See the "Custom user data" section.
-- `OIDC User Anchor`: An optional library-managed durable user record for Azure OIDC logins, keyed by the immutable `(tid, oid)` claim pair. See the "OIDC user anchor" section.
-- `Login Refusal Codes`: A refused OIDC login returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
+- `OIDC User Anchor`: the legacy Azure type's durable user record, keyed by the immutable `(tid, oid)` claim pair; an Auth session's users are `SessionUsers` records for every method. See the "OIDC user anchor" section.
+- `Login Refusal Codes`: A refused sign-in returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
 
-All session types are generic over two data axes: `Auth[SessionData, UserData]`,
-`PasswordAuth[SessionData, UserData]`, `OIDCAzure[SessionData, UserData]`, and
-`Preauth[SessionData]` (Preauth has no user record, so no user-data axis). An
-application that uses neither instantiates with the `NoCustomData` sentinel:
-`legacy.NewPasswordAuth[session.NoCustomData, session.NoCustomData](storage, cookieKey)`
-(the legacy types live in `session/legacy`, see "Legacy session types").
+Every session type is generic over two data axes, custom session data and custom user
+data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
+inferred from the store), the legacy `PasswordAuth[SessionData, UserData]` and
+`OIDCAzure[SessionData, UserData]`, and `Preauth[SessionData]` (Preauth has no user
+record, so no user-data axis). An application that uses neither axis instantiates with
+the `NoCustomData` sentinel:
+`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, signin.AllowAll)`.
 
 ## Schema
 
 The DDL for every table the library owns ships as golang-migrate files under
-`schema/spanner/` and `schema/postgresql/`: `migrations` (sessions and password-auth
-users), `oidc` (Azure OIDC), `impersonation`, and `auth` (Auth sessions: the sessions'
-users, identity links and auth events).
+`schema/spanner/` and `schema/postgresql/`, one set per starting point: `migrations`
+(the base set: sessions and users), `auth` (Auth sessions on the base set: the sessions'
+users, identity links, auth events and pending sign-ins), `auth-from-oidc` (the upgrade
+of a legacy Azure group to Auth), `impersonation`, and `oidc` (the legacy Azure type,
+deprecated with it). Which sets a group applies is in "Storage and schema" below.
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -109,6 +114,9 @@ where the group starts:
   at their first sign-in through its user resolver. The anchor table is dropped in the
   release after the cutover, never in the same one, so a rollback to the legacy type
   stays possible until then.
+
+[docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md) walks each starting point
+through, code and schema.
 
 The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
 null only for a role-principal impersonation), and deleting a user deletes its
@@ -403,7 +411,9 @@ sync slot and `session.NoCustomData` stay in the root package. The storage piece
 the legacy types use (`NewSpannerPasswordAuth`, `NewPostgresPassword`, `NewSpannerOIDC`,
 `NewPostgresOIDC`, `WithOIDCUsers`, the custom user data login hook and the
 `schema/*/oidc` migrations) carry the same deprecation and leave with them. Each legacy
-type logs a warning once when it is constructed.
+type logs a warning once when it is constructed. The import edit, and the later move
+to `Auth` with its schema upgrade, are in
+[docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 
 ## OIDC role synchronization
 
@@ -415,7 +425,8 @@ designed for organizations that manage roles centrally in the directory. The rol
 names come from the provider's native mechanism — Azure delivers them in the token's
 `roles` claim (App Role ↔ group assignments); Google has no such claim, so the Google
 sign-in derives them from Google Groups membership at login (see the "Google Workspace
-OIDC" section). See the `OIDCAzure` and `google.SignIn` godoc for the full semantics.
+OIDC" section). See the `azure.SignIn`, `google.SignIn` and legacy `OIDCAzure` godoc for
+the full semantics.
 
 A membership is written where the role is held. A global role is held in the global
 partition, and a domain role is held in every tenant domain, so one membership reaches
@@ -424,8 +435,22 @@ list of tenants. A membership the directory does not name is removed wherever it
 held, a membership in one tenant domain included, so an application that writes its own
 memberships (a tenant-specific role, say) runs with role synchronization disabled.
 
-The legacy `legacy.NewOIDCAzure` constructor takes a required role-sync slot that enables or disables
-the feature:
+On an `Auth` session the slot is in the method's configuration, required for the two
+methods that synchronize: `azure.Config.RoleSync` takes `signin.RoleSync(manager)` or
+`signin.DisableRoleSync()`, and `google.Config.RoleSync` takes
+`google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()`.
+`session.RoleSync` and `session.DisableRoleSync` are the same functions under the root
+package's name. A registration without its slot is refused (see "Registering sign-in
+methods").
+
+```go
+entra := azure.SignIn(auth, "azure", resolveEntraUser, &azure.Config{
+    IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
+    RoleSync:  signin.RoleSync(userRoleManager), // or signin.DisableRoleSync()
+})
+```
+
+The legacy `legacy.NewOIDCAzure` constructor takes the same slot as its second argument:
 
 ```go
 // Enabled: reconcile the user's memberships to the token's roles at every login.
@@ -465,8 +490,8 @@ disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
 ## Google Workspace OIDC
 
 Google Workspace sign-in is a method of the `Auth` session, registered with
-`google.SignIn(auth, &google.Config{...})` from the `session/google` package (see
-"Registering sign-in methods" above). It is the counterpart of the Azure method: the
+`google.SignIn(auth, name, resolve, &google.Config{...})` from the `session/google`
+package (see "Registering sign-in methods" above). It is the counterpart of the Azure method: the
 same session machinery, custom data axes and role-reconciliation semantics, built on
 Google's identity model instead of Entra's. The mental-model difference that drives
 every API difference: **an Entra app registration is an authorization surface** (App
@@ -558,11 +583,14 @@ A groups-lookup failure fails the login — the same posture as a role-store err
 
 ## Login refusal codes
 
-A refused OIDC login returns the browser to the login page with the reason as a code, never
-as text: `<LoginURL>?code=<code>`. The page maps the code to a sentence it holds itself and
-shows nothing for a code it does not know, so nothing that arrives in the URL is ever
-displayed. `LoginURL` is the login page of the surface the auth serves; both `Login` and
-`CallbackOIDC` redirect there, and `code` is the only query key they write.
+A refused redirect-based sign-in (an `Auth` session's Azure, Google or WorkOS method, or
+the legacy `OIDCAzure`) returns the browser to the login page with the reason as a code,
+never as text: `<LoginURL>?code=<code>`; the password login and the pending handlers
+answer the same codes in JSON (see "The redirect and response contract"). The page maps
+the code to a sentence it holds itself and shows nothing for a code it does not know, so
+nothing that arrives in the URL is ever displayed. `LoginURL` is the method's
+`Config.LoginURL` (the legacy type's `WithLoginURL`); its `Login()` and `Callback()`
+redirect there, and `code` is the only query key a refusal writes.
 
 The codes are typed constants in `sessioninfo` (`sessioninfo.LoginRefusalCode`), and the
 table is the wire contract:
@@ -857,8 +885,15 @@ directly at session creation — written atomically with the insert, and **the c
 resolver is skipped for that creation (per-call data wins)**:
 
 ```go
-// Password auth, externally-authenticated users (e.g. admin impersonation):
-sessionID, err := auth.API().StartAuthenticatedSession(ctx, w, username,
+// Auth: a session the application authenticated itself, by user ID, recording how
+// (the sign-in policy is not consulted):
+sessionID, err := auth.API().StartAuthenticatedSession(ctx, w, userID,
+    []sessioninfo.AuthEvent{{Method: "api-key"}},
+    &MyData{TenantID: tenantID, RoleID: roleID},
+)
+
+// Legacy password auth, externally-authenticated users (e.g. admin impersonation):
+sessionID, err := passwordAuth.API().StartAuthenticatedSession(ctx, w, username,
     &MyData{TenantID: tenantID, RoleID: roleID},
 )
 
@@ -910,7 +945,8 @@ The rule of thumb for choosing the verb: **resolve** for identity-derived state
 (what the user *is* at login), **update** for user-chosen context within
 already-granted options (which tenant they're *looking at*), and **regenerate/destroy**
 for privilege changes — if a user's rights change, kill their sessions rather than
-patching them (`DestroyAllUserSessions`); the next login re-resolves.
+patching them (`DestroyUserSessions` on `Auth`, `DestroyAllUserSessions` on the legacy
+types); the next login re-resolves.
 
 Never use `UpdateCustomSessionData` for initial population — that belongs in the creation
 transaction (resolver or per-call data), which is atomic with the session insert.
@@ -939,10 +975,16 @@ on regeneration feels like data loss, it was user data, not session data — see
 | `UpdateCustomSessionData` on an expired session | Rejected (bad request); the row is not written |
 | Session has no custom row | Not a failure: reads yield a zero-value `T` (LEFT JOIN) |
 
-## OIDC user anchor
+## OIDC user anchor (legacy Azure type)
 
-The OIDC user anchor is an optional, library-managed **durable user record for Azure
-OIDC logins** — the OIDC counterpart of password auth's `SessionUsers` table. Password auth
+An `Auth` session needs no anchor: its users are `SessionUsers` records for every
+method, and an external identity links to its user by `(method, connection, subject)`
+(see "Auth sessions"). The anchor serves the legacy `OIDCAzure` type and is deprecated
+with it; the `auth-from-oidc` upgrade set carries its rows into users and Azure
+identities under the same ids (see "Storage and schema").
+
+The OIDC user anchor is an optional, library-managed **durable user record for the
+legacy Azure OIDC type** — the OIDC counterpart of password auth's `SessionUsers` table. Password auth
 always has a stable, rename-safe user key (`SessionUsers.Id`); OIDC historically had
 none, which pushed apps toward keying durable data on the username — a mutable,
 recyclable identifier (see AP-1 in
@@ -1018,7 +1060,7 @@ differences that follow from durability:
 
 Identical to the session-data contract with one substitution: the primary-key column is
 named `UserId` and is a **foreign key with `ON DELETE CASCADE`** to `SessionUsers(Id)`
-(password auth) or `OIDCUsers(Id)` (OIDC). Never tag a field `UserId` — it is implied
+(`Auth` and the legacy password type) or `OIDCUsers(Id)` (the legacy Azure type). Never tag a field `UserId` — it is implied
 and reserved. Nullable columns must map to nullable Go types.
 
 ```sql
@@ -1174,8 +1216,8 @@ session creation, and a `nil` hook is valid (write-API-only user data).
 An impersonated session operates as a principal other than the person who
 authenticated: as another **user** (support staff seeing the application exactly as
 that user does, usually read-only) or as a **role** (an administrator working under a
-role chosen for the session). Every session type supports both — password auth,
-Preauth and OIDC Azure — through the same `ImpersonationRequest` on each `API()`.
+role chosen for the session). Every session type supports both — `Auth`, `Preauth`
+and the legacy types — through the same `ImpersonationRequest` on each `API()`.
 
 The model rests on two identities that are never conflated:
 
@@ -1202,11 +1244,12 @@ evidence and outlives the session; retention is the application's policy.
 ```go
 imp, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
 
-auth, err := legacy.NewPasswordAuth[MyData, session.NoCustomData](
-    sessionstorage.NewSpannerPasswordAuth(client,
-        sessionstorage.WithSpannerCustomSessionData(sessCfg),
-        sessionstorage.WithImpersonation(imp)),
-    cookieKey,
+auth, err := session.NewAuth[MyData, session.NoCustomData](
+    sessionstorage.NewSpannerAuth(client,
+        sessionstorage.WithAuthEvents(events),
+        sessionstorage.WithImpersonation(imp)).
+        WithCustomSessionData(sessionData),
+    cookieKey, signInPolicy,
     session.WithImpersonationTimeout(time.Hour),        // hard cap; default one hour
     session.WithImpersonationAudit(func(ctx context.Context, e sessioninfo.ImpersonationEvent) error {
         return auditTrail.Record(ctx, e)                 // Started, Ended, IdentityOperationBlocked
@@ -1215,8 +1258,8 @@ auth, err := legacy.NewPasswordAuth[MyData, session.NoCustomData](
 ```
 
 The same `WithImpersonation` option and `WithImpersonationTimeout` /
-`WithImpersonationAudit` session options apply to `NewPreauth`, `NewAuth` and the legacy
-constructors.
+`WithImpersonationAudit` session options apply to `NewPreauth` and the legacy
+constructors (`sessionstorage.NewSpannerPasswordAuth(client, sessionstorage.WithImpersonation(imp))`).
 Without `WithImpersonation` nothing changes: no session is ever impersonated and the
 impersonation APIs return a configuration error.
 
@@ -1276,11 +1319,19 @@ A role principal's session is always the actor's: nobody's identity is borrowed.
 
 | Session type | User principal becomes | User ID | Refused |
 | --- | --- | --- | --- |
-| Password auth | The `SessionUsers` record's username | The record's ID | A missing or disabled user |
+| Auth | The `SessionUsers` record's username; the session belongs to that user and records an `impersonation` auth event naming the actor | The record's ID | A missing or disabled user |
+| Legacy password auth | The `SessionUsers` record's username | The record's ID | A missing or disabled user |
 | Preauth | The name as given | Zero | — (trust-the-caller, as `Login` is) |
-| OIDC Azure | The name as given (what a login would take from the token) | Zero | — |
+| Legacy OIDC Azure | The name as given (what a login would take from the token) | Zero | — |
 
-An impersonated OIDC session authenticates no ID token: no OIDC user anchor is upserted,
+On an `Auth` session an impersonation carries no identity of its own: no identity is
+linked, no roles are synchronized, and the custom session data resolver receives
+`ReasonImpersonation` with no claims. A provider-initiated logout reaches it through the
+session it was started from: `azure.Method.FrontChannelLogout()` ends the impersonations
+started from a session under the `sid` it names (their records end `Logout`) and no
+other (see "Every session").
+
+An impersonated session of the legacy `OIDCAzure` type authenticates no ID token: no OIDC user anchor is upserted,
 no roles are synchronized, and the configured custom session data resolver receives
 `ReasonImpersonation` with no claims. The row carries no identity provider session ID,
 so an identity provider logout cannot name it directly — but `FrontChannelLogout` expires
@@ -1288,7 +1339,7 @@ every live session carrying the *username* of the session the provider named. A 
 logout of `bob@partner.org` therefore also ends every user-principal impersonation of bob
 and any foreign actor's role session borrowing bob's name. The logout itself does not end
 those sessions' records; the next request on one is refused and ends its record
-`Expired`. Otherwise an impersonated OIDC session ends by its hard cap, idle expiry,
+`Expired`. Otherwise it ends by its hard cap, idle expiry,
 `Logout`, `EndImpersonation`, `DestroyImpersonatedSession`, or
 `DestroyImpersonatedSessions`.
 
@@ -1420,9 +1471,11 @@ Everything an impersonated session touches names the actor and the principal:
   default one hour, shortened per call by `MaxDuration`); idle renewal never extends past
   it. The idle session timeout applies independently.
 - **Ending.** Logout, the hard cap, idle expiry, `EndImpersonation`, and
-  `DestroyAllUserSessions` all end the record with a reason (`Logout`, `Expired`,
-  `Released`, `Revoked`); an OIDC `FrontChannelLogout` expires the row, and the record
-  ends `Expired` on the session's next request. `API().DestroyImpersonatedSessions(ctx, actor)`, on every
+  `DestroyUserSessions` (`DestroyAllUserSessions` on the legacy types) all end the
+  record with a reason (`Logout`, `Expired`, `Released`, `Revoked`); an `Auth` session's
+  Azure front-channel logout ends the records of the impersonations it reaches `Logout`;
+  the legacy `OIDCAzure` `FrontChannelLogout` expires the row, and the record ends
+  `Expired` on the session's next request. `API().DestroyImpersonatedSessions(ctx, actor)`, on every
   session type, is the offboarding and incident tool: it expires every live impersonated
   session an actor established.
 - **Returning to self.** `EndImpersonation` (a handler on every session type, routed
@@ -1442,7 +1495,7 @@ Everything an impersonated session touches names the actor and the principal:
       r.Post("/impersonation/end", auth.EndImpersonation())
   })
   ```
-- **Validation (password auth).** A user principal's record is looked up like any
+- **Validation (`Auth` and the legacy password type).** A user principal's record is looked up like any
   session's — a disabled impersonated user ends the session. A foreign actor's role
   principal has no local user: no record is looked up and `UserFromCtx` carries the
   actor's username with the zero ID, so self-referential checks (cannot delete yourself)
@@ -1450,9 +1503,12 @@ Everything an impersonated session touches names the actor and the principal:
   record is looked up as usual — a disabled actor's role session ends with their others.
   Preauth and OIDC validate an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
-  `ChangeUsername` and `ChangeUserPassword` always (they would alter the impersonated
-  user's credentials); `CreateUser`, `DeactivateUser`, `DeleteUser` and `ActivateUser`
-  when the session is masked. Each refusal is an `IdentityOperationBlocked` event.
+  `ChangeUserPassword` (the password method's on `Auth`, the legacy password type's)
+  and the legacy `ChangeUsername` always (they would alter the impersonated user's
+  credentials); the legacy `CreateUser`, `DeactivateUser`, `DeleteUser` and
+  `ActivateUser` when the session is masked. Each refusal is an
+  `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
+  behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,
   in the same session table as the application's real users. For a *local* actor that
   name is their user, and the two username-keyed store operations treat everything
@@ -1464,9 +1520,12 @@ Everything an impersonated session touches names the actor and the principal:
   `SessionUsers` user (the actor logs in as that user, or impersonates it as a user
   principal), and the two operations never touch a session carrying a live foreign
   role-principal record — a user created later under that name cannot reach the
-  actor's session either. Preauth and OIDC have no username-keyed user to collide with;
-  OIDC's `FrontChannelLogout` is username-keyed all the same, and makes no exception for a
-  foreign role session (see *Identity by session type*).
+  actor's session either. On `Auth` the same holds by user ID: `DestroyUserSessions`
+  ends the user's own sessions under any username, the user-principal impersonations of
+  them and every impersonation they hold as a local actor. Preauth and the legacy OIDC
+  type have no username-keyed user to collide with; the legacy `FrontChannelLogout` is
+  username-keyed all the same, and makes no exception for a foreign role session (see
+  *Identity by session type*).
   This is the store-level complement of the authorization rule: under a role principal the
   subject is the role, and application policy must not key row conditions on the session
   username.

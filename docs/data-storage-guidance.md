@@ -30,14 +30,14 @@ data have different *destinations*.
 
 ## What the library gives you, per auth mode
 
-| | Username/Password | Azure OIDC | Preauth |
-|---|---|---|---|
-| Library user table | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | none |
-| Stable identity anchor | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
-| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
-| Custom session data | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
-| Custom user data | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
-| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
+| | Auth (every method) | Legacy username/password | Legacy Azure OIDC | Preauth |
+|---|---|---|---|---|
+| Library user table | `SessionUsers` (UUID PK, username unique); external identities in `SessionIdentities`, keyed `(method, connection, subject)` | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | none |
+| Stable identity anchor | `SessionUsers.Id` (UUID), whatever method signed the person in; every session carries it as `SessionData.UserID` | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
+| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
+| Custom session data | resolver typed to the store's transaction (`NewCustomSessionData`), fed `req.UserID`, `req.User`, `req.Identity` and `req.Claims`; per-call on `StartAuthenticatedSession` | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
+| Custom user data | per-call on `CreateSessionUser`, or written by the user resolver's `signin.Provision` hook for a user it provisions; RMW `UpdateCustomUserData`; FK → `SessionUsers.Id` | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
+| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
 
 **Auth sessions** (`NewAuth`, see the README's "Auth sessions" section) use the
 `SessionUsers` user for every sign-in method. The stable anchor is `SessionUsers.Id`,
@@ -58,11 +58,14 @@ username/password; provision it in the user resolver's
 
 ### P-1: Extend the user record off the stable key, never the username
 
-- **Username/Password:** key app user-data tables by `SessionUsers.Id`. A
+- **Auth:** key app user-data tables by `SessionUsers.Id`, whatever method signed
+  the person in. An identity's subject or email is never a key: an identity is a link
+  to the user, and a user may hold several.
+- **Legacy username/password:** key app user-data tables by `SessionUsers.Id`. A
   username change updates one column in one table; everything downstream holds.
   For small extensions, the library now ships this pattern: custom user data
   (FK → `SessionUsers.Id`, per-call on `CreateSessionUser`, RMW updates).
-- **Azure OIDC:** enable the library-managed anchor (`WithOIDCUsers()`) and key
+- **Legacy Azure OIDC:** enable the library-managed anchor (`WithOIDCUsers()`) and key
   by `OIDCUsers.Id` — a surrogate UUID over the immutable `(tid, oid)` pair.
   Apps that manage their own user table instead key it by `oid` (single-tenant)
   or the composite `(tid, oid)` (multi-tenant). `oid` is immutable per user per
@@ -110,7 +113,11 @@ must be the composite `(tid, oid)`. Two reasons:
 
 ### P-2: JIT-provision user data inside the resolver transaction
 
-**Library-managed (OIDC):** with `WithOIDCUsers()` this pattern ships in the
+**Library-managed:** on `Auth`, a linked identity reaches its user with no lookup
+by the application, and an unlinked one goes through the registration's user resolver,
+whose `signin.Provision` creates the user and runs `onProvisioned` in the same
+transaction, where the application writes its own rows for it. On the legacy Azure
+type, with `WithOIDCUsers()` the pattern ships in the
 box — every OIDC login upserts the `OIDCUsers` anchor inside the session-insert
 transaction (provision on first login, rename-in-place, touch `UpdatedAt`), and
 the custom user data login hook runs in the same transaction with the claims
@@ -164,7 +171,8 @@ Two failure modes, both silent:
 
 With password auth this is unforced error (the UUID exists; use it). With OIDC
 it was historically the path of least resistance because the library offered no
-user table — the OIDC user anchor (`WithOIDCUsers()`) now removes the excuse. Note
+user table — `Auth` users (and, on the legacy Azure type, the OIDC user anchor) remove
+the excuse. Note
 what stays fine: username as *session plumbing* (session rows, role sync,
 log attribution) is unaffected — sessions are per-login and roles re-derive
 from the token on every login.
