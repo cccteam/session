@@ -60,13 +60,6 @@ type NewSessionRequest struct {
 	// UserID is populated with the anchor record's ID before any resolver or hook runs.
 	Tid string
 	Oid string
-	// Sub and Hd are the verified subject and hosted-domain claims when the session is
-	// created by a Google OIDC login; they are empty for all other session types. When
-	// the OIDC user anchor is enabled, Sub keys the GoogleOIDCUsers upsert (Hd is a
-	// mutable attribute on the row), and UserID is populated with the anchor record's
-	// ID before any resolver or hook runs.
-	Sub string
-	Hd  string
 	// Identity is the verified identity establishing an Auth session. It is nil for the
 	// legacy session types.
 	Identity *Identity

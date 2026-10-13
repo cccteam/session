@@ -115,7 +115,7 @@ func TestParseGroupLookup(t *testing.T) {
 	}
 }
 
-func TestNewOIDCGoogle_validation(t *testing.T) {
+func Test_googleRoleSync_validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -180,14 +180,11 @@ func TestNewOIDCGoogle_validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctrl := gomock.NewController(t)
+			manager := mock_session.NewMockUserRoleManager(gomock.NewController(t))
 
-			storage := newGoogleOIDCStoreMock(ctrl)
-			manager := mock_session.NewMockUserRoleManager(ctrl)
-
-			_, err := NewOIDCGoogle[NoCustomData, NoCustomData](storage, tt.roleSync(manager), cookieKey, "clientID", "clientSecret", "redirectURL", tt.hostedDomain)
+			_, err := googleRoleSync(tt.roleSync(manager), tt.hostedDomain)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewOIDCGoogle() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("googleRoleSync() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

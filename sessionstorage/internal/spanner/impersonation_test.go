@@ -56,9 +56,6 @@ func newImpersonationInstance(ctx context.Context, t *testing.T, schema driverte
 
 	newDriver := func(cfg drivertest.Config) drivertest.Driver {
 		c := NewSessionStorageDriver(conn.Client)
-		if cfg.Google {
-			c = NewGoogleSessionStorageDriver(conn.Client)
-		}
 		if cfg.Impersonation {
 			c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
 		}

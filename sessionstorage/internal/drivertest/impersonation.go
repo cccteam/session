@@ -280,7 +280,6 @@ func testInsertImpersonatedSessionOIDC(_ context.Context, t *testing.T, h *Harne
 	}{
 		{name: "writes the OIDC session row with an empty OidcSid and the record", cfg: Config{Impersonation: true}},
 		{name: "refused without the configuration", wantErr: true},
-		{name: "refused on a Google OIDC driver", cfg: Config{Impersonation: true, Google: true}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

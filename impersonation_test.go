@@ -571,11 +571,11 @@ func TestPasswordAuthAPI_DestroyImpersonatedSessions(t *testing.T) {
 	}
 }
 
-// The Preauth, OIDC Azure and OIDC Google APIs share the establishing flow with
-// password auth; what differs per type is the identity a user principal resolves to (the
-// name as given, zero user ID — there is no username-keyed local record) and the storage
-// the session is written through. Preauth exercises the shared refusals in full; the
-// OIDC types are wired the same way and get the establishing cases.
+// The Preauth and OIDC Azure APIs share the establishing flow with password auth; what
+// differs per type is the identity a user principal resolves to (the name as given, zero
+// user ID — there is no username-keyed local record) and the storage the session is
+// written through. Preauth exercises the shared refusals in full; the OIDC type is wired
+// the same way and gets the establishing cases.
 
 func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 	t.Parallel()
@@ -817,76 +817,6 @@ func TestOIDCAzureAPI_StartImpersonatedSession(t *testing.T) {
 	}
 }
 
-func TestOIDCGoogleAPI_StartImpersonatedSession(t *testing.T) {
-	t.Parallel()
-
-	sessionID := ccc.Must(ccc.NewUUID())
-
-	tests := []struct {
-		name         string
-		req          *ImpersonationRequest
-		prepare      func(storage *mock_sessionstorage.MockGoogleOIDCStore, cookieHandler *mock_cookie.MockHandler)
-		wantErr      bool
-		wantUsername string
-	}{
-		{
-			name: "refused when impersonation is not configured on the storage",
-			req:  &ImpersonationRequest{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@example.com")},
-			prepare: func(storage *mock_sessionstorage.MockGoogleOIDCStore, _ *mock_cookie.MockHandler) {
-				storage.EXPECT().ImpersonationEnabled().Return(false)
-			},
-			wantErr: true,
-		},
-		{
-			name:         "a user principal is the session's username as given, with the zero user ID",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob@example.com"), Mask: accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.Read)},
-			wantUsername: "bob@example.com",
-		},
-		{
-			name:         "a role principal is the actor",
-			req:          &ImpersonationRequest{Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Auditor")},
-			wantUsername: "alice@example.com",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ctrl := gomock.NewController(t)
-			storage := newGoogleOIDCStoreMock(ctrl)
-			cookieHandler := mock_cookie.NewMockHandler(ctrl)
-			if tt.prepare != nil {
-				tt.prepare(storage, cookieHandler)
-			} else {
-				expectEstablished(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()), cookieHandler, sessionID, tt.wantUsername, tt.req)
-			}
-
-			var started []sessioninfo.ImpersonationEventKind
-			a := &OIDCGoogle[NoCustomData, NoCustomData]{
-				storage: storage,
-				baseSession: &basesession.BaseSession{
-					Storage:            storage,
-					CookieHandler:      cookieHandler,
-					ImpersonationAudit: hookOrRecorder(nil, &started),
-				},
-			}
-
-			got, err := a.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), tt.req)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("StartImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
-			if got != sessionID {
-				t.Errorf("StartImpersonatedSession() = %v, want %v", got, sessionID)
-			}
-			if diff := cmp.Diff([]sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationStarted}, started); diff != "" {
-				t.Errorf("audit events mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 // expectEstablished arms the storage and cookie expectations for a successful
 // establishment through a store with no user record: the session is created for
 // wantUsername with the zero user ID, then both cookies are written for sessionID.
@@ -979,27 +909,6 @@ func TestSessionAPIs_DestroyImpersonatedSessions(t *testing.T) {
 		if err := a.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
 			t.Errorf("OIDCAzure DestroyImpersonatedSession() error = %v", err)
 		}
-
-		google := newGoogleOIDCStoreMock(ctrl)
-		google.EXPECT().ImpersonationEnabled().Return(true)
-		google.EXPECT().DestroyImpersonatedSession(gomock.Any(), sessionID, sessioninfo.ImpersonationEndedByRevocation).Return(nil)
-		g := &OIDCGoogle[NoCustomData, NoCustomData]{storage: google, baseSession: &basesession.BaseSession{Storage: google}}
-		if err := g.API().DestroyImpersonatedSession(context.Background(), sessionID); err != nil {
-			t.Errorf("OIDCGoogle DestroyImpersonatedSession() error = %v", err)
-		}
-	})
-
-	t.Run("OIDC Google delegates by actor", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		storage := newGoogleOIDCStoreMock(ctrl)
-		storage.EXPECT().ImpersonationEnabled().Return(true)
-		storage.EXPECT().DestroyImpersonatedSessions(gomock.Any(), "alice").Return(nil)
-
-		a := &OIDCGoogle[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage}}
-		if err := a.API().DestroyImpersonatedSessions(context.Background(), "alice"); err != nil {
-			t.Errorf("DestroyImpersonatedSessions() error = %v", err)
-		}
 	})
 }
 
@@ -1025,7 +934,6 @@ func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
 	}
 
 	var _ OIDCAzureOption = opt
-	var _ OIDCGoogleOption = opt
 }
 
 func TestSessionAPIs_ActiveImpersonations(t *testing.T) {
@@ -1098,18 +1006,6 @@ func TestSessionAPIs_ActiveImpersonations(t *testing.T) {
 		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), time.Minute, q)
 
 		a := &OIDCAzure[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage, SessionTimeout: time.Minute}}
-		if _, err := a.API().ActiveImpersonations(context.Background(), q); err != nil {
-			t.Errorf("ActiveImpersonations() error = %v", err)
-		}
-	})
-
-	t.Run("OIDC Google delegates", func(t *testing.T) {
-		t.Parallel()
-		ctrl := gomock.NewController(t)
-		storage := newGoogleOIDCStoreMock(ctrl)
-		expectListing(storage.EXPECT().ImpersonationEnabled(), storage.EXPECT().ActiveImpersonations(gomock.Any(), gomock.Any(), gomock.Any()), time.Minute, q)
-
-		a := &OIDCGoogle[NoCustomData, NoCustomData]{storage: storage, baseSession: &basesession.BaseSession{Storage: storage, SessionTimeout: time.Minute}}
 		if _, err := a.API().ActiveImpersonations(context.Background(), q); err != nil {
 			t.Errorf("ActiveImpersonations() error = %v", err)
 		}

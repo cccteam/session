@@ -139,9 +139,6 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.googleOIDC {
-		return ccc.NilUUID, errors.New("InsertImpersonatedSessionOIDC called on a Google OIDC storage driver")
-	}
 	if s.impersonation == nil {
 		return ccc.NilUUID, errors.New("impersonation is not configured on the storage")
 	}

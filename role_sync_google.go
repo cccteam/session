@@ -7,13 +7,14 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// GoogleRoleSyncConfig is the required role-synchronization slot on NewOIDCGoogle.
+// GoogleRoleSyncConfig is the required role-synchronization slot on GoogleSignIn.
 // Role synchronization and its configuration are one capability: construct the slot
-// with GoogleRoleSync to enable it, or with DisableRoleSync to run the OIDC flow with
+// with GoogleRoleSync to enable it, or with DisableRoleSync to run the sign-in with
 // role management left entirely to the application. There is no default — see the
-// OIDCGoogle documentation for the semantics of each choice. Azure's RoleSync does not
-// satisfy this slot: the Google flow's roles come from a group lookup made with the
-// person's own token and a group naming convention, inputs Azure's slot does not carry.
+// GoogleSignIn documentation and the README's "Google Workspace OIDC" section for the
+// semantics of each choice. Azure's RoleSync does not satisfy this slot: the Google
+// sign-in's roles come from a group lookup made with the person's own token and a
+// group naming convention, inputs Azure's slot does not carry.
 type GoogleRoleSyncConfig interface {
 	// googleConfig returns the enabled configuration, or nil when synchronization is
 	// disabled. Unexported: GoogleRoleSync and DisableRoleSync are the only
@@ -137,6 +138,31 @@ func GoogleRoleSync(manager UserRoleManager, groupPrefix string, lookup GroupLoo
 	}
 
 	return cfg
+}
+
+// googleRoleSync validates a Google sign-in's required role sync slot and hosted
+// domain. It returns nil when role sync is disabled.
+func googleRoleSync(roleSync GoogleRoleSyncConfig, hostedDomain string) (*googleRoleSyncConfig, error) {
+	if roleSync == nil {
+		return nil, errors.New("roleSync is required: pass session.GoogleRoleSync(manager, groupPrefix, lookup) or session.DisableRoleSync()")
+	}
+	roleSyncCfg := roleSync.googleConfig()
+	if roleSyncCfg != nil {
+		if roleSyncCfg.manager == nil {
+			return nil, errors.New("session.GoogleRoleSync() requires a non-nil UserRoleManager")
+		}
+		if roleSyncCfg.groupPrefix == "" {
+			return nil, errors.New("session.GoogleRoleSync() requires a non-empty groupPrefix: it is the only filter separating role groups from the rest of the directory")
+		}
+		if roleSyncCfg.lookup == lookupUnset {
+			return nil, errors.New("session.GoogleRoleSync() requires a group lookup: session.DirectGroups() or session.NestedGroups()")
+		}
+	}
+	if hostedDomain == "" {
+		return nil, errors.New("hostedDomain is required: it is enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
+	}
+
+	return roleSyncCfg, nil
 }
 
 // roleNames resolves the user's candidate role names: the person's groups are read with

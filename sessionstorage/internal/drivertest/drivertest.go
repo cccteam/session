@@ -53,8 +53,6 @@ type Config struct {
 	Impersonation bool
 	// CustomData attaches the SessionCustomData table with a codec for CustomStringData.
 	CustomData bool
-	// Google builds the Google OIDC flavor of the driver.
-	Google bool
 }
 
 // CustomStringData is the custom session data row the SeededImpersonation schema's

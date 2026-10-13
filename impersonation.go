@@ -250,56 +250,6 @@ func (p *OIDCAzureAPI[T, U]) EndImpersonation(ctx context.Context, w http.Respon
 	return p.shared().endImpersonation(ctx, w)
 }
 
-// StartImpersonatedSession establishes a session that operates as req.Principal on
-// behalf of req.Actor; see PasswordAuthAPI.StartImpersonatedSession for the model and
-// OIDCAzureAPI.StartImpersonatedSession for what an impersonated OIDC session does not
-// do (no anchor upsert, no role synchronization, no identity provider session). A user
-// principal is taken as given: the session's username is the principal's name (the
-// email a login would take from the token) and its user ID is zero.
-//
-// Establishment is refused when the storage has no impersonation table and when the
-// calling context is itself an impersonated session (no chaining). Optional customData
-// (at most one *T) is written atomically with the session, overriding the resolver.
-func (p *OIDCGoogleAPI[T, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*T) (ccc.UUID, error) {
-	return p.shared().startImpersonatedSession(ctx, w, req, customData, identityAsGiven)
-}
-
-// DestroyImpersonatedSessions expires every live impersonated session established by
-// actor and ends their records with reason Revoked — the offboarding and incident
-// tool. It errors when the storage has no impersonation table.
-func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	return p.shared().destroyImpersonatedSessions(ctx, actor)
-}
-
-// ActiveImpersonations lists the impersonated sessions that are live right now, newest
-// first — the admin surface's view of who is acting as whom. A session is active while
-// its record has not ended, its hard cap has not passed, its session row is not
-// expired, and it has seen activity within the idle session timeout. q narrows the
-// listing by actor and/or principal; nil lists every active impersonation. It errors
-// when the storage has no impersonation table.
-func (p *OIDCGoogleAPI[T, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	return p.shared().activeImpersonations(ctx, q)
-}
-
-// DestroyImpersonatedSession ends one live impersonated session — the operator's action
-// on an ActiveImpersonations row: the session row is expired and the record ended with
-// reason Revoked, in one transaction, so the next request on that session is refused as
-// expired. A session that is not impersonated, or whose record has already ended, is
-// left untouched. Who may revoke is the application's guard. It errors when the storage
-// has no impersonation table.
-func (p *OIDCGoogleAPI[T, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
-	return p.shared().destroyImpersonatedSession(ctx, sessionID)
-}
-
-// EndImpersonation ends the impersonated session in ctx with reason Released and, for a
-// local actor whose own session is still live, gives the response that session's
-// cookies so the actor is back in it without logging in; restored reports whether that
-// happened. See EndImpersonation on the handler type and the "Impersonated sessions"
-// section of the README.
-func (p *OIDCGoogleAPI[T, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
-	return p.shared().endImpersonation(ctx, w)
-}
-
 // identityResolver is what a session type contributes to establishment: how a user
 // principal becomes the session's identity, and whether an actor may hold a role
 // principal's session under their own name.

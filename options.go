@@ -11,10 +11,9 @@ import (
 // CookieOption defines a function signature for setting cookie client options.
 type CookieOption cookie.Option
 
-func (CookieOption) isOIDCAzureOption()  {}
-func (CookieOption) isOIDCGoogleOption() {}
-func (CookieOption) isPasswordOption()   {}
-func (CookieOption) isPreauthOption()    {}
+func (CookieOption) isOIDCAzureOption() {}
+func (CookieOption) isPasswordOption()  {}
+func (CookieOption) isPreauthOption()   {}
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
@@ -39,10 +38,9 @@ func WithXSRFHeaderName(name string) CookieOption {
 // BaseSessionOption defines a function signature for setting session options.
 type BaseSessionOption func(*basesession.BaseSession)
 
-func (BaseSessionOption) isOIDCAzureOption()  {}
-func (BaseSessionOption) isOIDCGoogleOption() {}
-func (BaseSessionOption) isPasswordOption()   {}
-func (BaseSessionOption) isPreauthOption()    {}
+func (BaseSessionOption) isOIDCAzureOption() {}
+func (BaseSessionOption) isPasswordOption()  {}
+func (BaseSessionOption) isPreauthOption()   {}
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
 func WithLogHandler(l LogHandler) BaseSessionOption {
@@ -66,7 +64,7 @@ func WithUserTableName(name string) BaseSessionOption {
 }
 
 // WithOIDCUserTableName sets the name of the OIDC user anchor table.
-// (default: OIDCUsers on Azure OIDC storage, GoogleOIDCUsers on Google OIDC storage)
+// (default: OIDCUsers)
 func WithOIDCUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
 		b.Storage.SetOIDCUserTableName(name)
@@ -92,8 +90,7 @@ type loginURLSetter interface {
 // every OIDC provider.
 type OIDCOption func(loginURLSetter)
 
-func (OIDCOption) isOIDCAzureOption()  {}
-func (OIDCOption) isOIDCGoogleOption() {}
+func (OIDCOption) isOIDCAzureOption() {}
 
 // WithLoginURL sets the LoginURL for the SPA. (default: /login)
 func WithLoginURL(l string) OIDCOption {

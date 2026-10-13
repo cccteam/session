@@ -175,29 +175,6 @@ func surfaceBuilders() []struct {
 				}
 			},
 		},
-		{
-			name: "OIDCGoogle",
-			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newGoogleOIDCStoreMock(ctrl)
-				g, err := NewOIDCGoogle[NoCustomData, NoCustomData](storage, DisableRoleSync(), cookieKey, "clientID", "clientSecret", "redirectURL", "example.com", WithImpersonationAudit(hook))
-				if err != nil {
-					t.Fatalf("NewOIDCGoogle() error = %v", err)
-				}
-
-				return &surface{
-					handlers:   g,
-					api:        g.API(),
-					base:       g.baseSession,
-					store:      storage.EXPECT(),
-					validating: func(string) {},
-					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
-						_, err := g.API().StartImpersonatedSession(ctx, w, req)
-
-						return err
-					},
-				}
-			},
-		},
 	}
 }
 

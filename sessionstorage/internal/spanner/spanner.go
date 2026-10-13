@@ -26,12 +26,10 @@ type SessionStorageDriver struct {
 	spanner          *spanner.Client
 	sessionTableName string
 	userTableName    string
-	// oidcUserTableName names the OIDC user anchor table for the driver's provider:
-	// OIDCUsers (Azure) or GoogleOIDCUsers (Google). A driver serves exactly one
-	// provider, fixed at construction.
+	// oidcUserTableName names the OIDC user anchor table: OIDCUsers unless
+	// SetOIDCUserTableName renames it.
 	oidcUserTableName string
 	oidcUsersEnabled  bool
-	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
@@ -51,19 +49,6 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 		sessionTableName:  "Sessions",
 		userTableName:     "SessionUsers",
 		oidcUserTableName: "OIDCUsers",
-	}
-}
-
-// NewGoogleSessionStorageDriver creates a SessionStorageDriver whose OIDC provider is
-// Google: the user anchor is the Sub-keyed GoogleOIDCUsers table and sessions are
-// inserted without an OidcSid (Google issues no sid claim).
-func NewGoogleSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
-	return &SessionStorageDriver{
-		spanner:           client,
-		sessionTableName:  "Sessions",
-		userTableName:     "SessionUsers",
-		oidcUserTableName: "GoogleOIDCUsers",
-		googleOIDC:        true,
 	}
 }
 
