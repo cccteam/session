@@ -289,36 +289,37 @@ func (s *SessionStorageDriver) decideAndInsert(
 	ctx context.Context, id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, source sessioninfo.UserSource, tenant string,
 ) error {
 	base := *req
-	var stop error
+	var verdict dbtype.Verdict
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		// Each attempt starts from the resolved request.
-		*req, stop = base, nil
+		*req, verdict = base, dbtype.Verdict{}
 
-		acct, err := s.readUser(ctx, txn, req.UserID)
+		user, err := s.readUser(ctx, txn, req.UserID)
 		if err != nil {
 			return err
 		}
-		req.User = dbtype.SignInUser(req, acct, source, tenant)
+		req.User = dbtype.SignInUser(req, user, source, tenant)
 
 		var policy func(ctx context.Context) (*dbtype.SignInDecision, error)
 		if s.identities.Policy != nil {
 			policy = func(ctx context.Context) (*dbtype.SignInDecision, error) { return s.identities.Policy(ctx, txn, req) }
 		}
-		stop, err = dbtype.DecideSignIn(ctx, req, acct, policy)
-		switch {
-		case err != nil:
+		verdict, err = dbtype.DecideSignIn(ctx, req, user, policy)
+		if err != nil {
 			return errors.Wrap(err, "dbtype.DecideSignIn()")
-		case stop != nil:
-			return nil //nolint:nilerr // a refusal or an MFA wait commits the policy's writes
+		}
+		if verdict.Proceeds() {
+			return s.bufferUserSession(ctx, txn, id, insertSession, req)
 		}
 
-		return s.bufferUserSession(ctx, txn, id, insertSession, req)
+		// A refusal or an MFA wait commits the policy's writes without a session row.
+		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
-	return stop //nolint:wrapcheck // the refusal or the wait as the decision made it
+	return verdict.Err()
 }
 
 // bufferUserSession buffers the session row, its first auth event and its custom
@@ -372,11 +373,11 @@ func (s *SessionStorageDriver) applyResolution(
 	case dbtype.RejectIdentity:
 		return "", "", dbtype.Refusal(res.Refusal, sessioninfo.RefusedIdentityRejected, dbtype.ErrIdentityRejected, "identity rejected"), nil
 	case dbtype.LinkIdentity:
-		acct, err := s.readUser(ctx, txn, res.UserID)
+		user, err := s.readUser(ctx, txn, res.UserID)
 		if err != nil {
 			return "", "", nil, err
 		}
-		if acct.HasPassword && !res.TrustedForLinking {
+		if user.HasPassword && !res.TrustedForLinking {
 			return "", "", dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, dbtype.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 		}
 		if err := s.bufferLink(txn, res.UserID, req.Identity, res.Tenant, now); err != nil {
@@ -409,13 +410,13 @@ func (s *SessionStorageDriver) applyResolution(
 
 		return sessioninfo.UserProvisioned, res.Tenant, nil, nil
 	case dbtype.RequireConfirmation:
-		acct, err := s.readUser(ctx, txn, res.UserID)
+		user, err := s.readUser(ctx, txn, res.UserID)
 		if err != nil {
 			return "", "", nil, err
 		}
 
 		return "", "", &dbtype.PendingSignInError{
-			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: acct.Username, Tenant: res.Tenant,
+			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: user.Username, Tenant: res.Tenant,
 		}, nil
 	default:
 		return "", "", nil, errors.Newf("unknown user resolver outcome %d", res.Outcome)
@@ -548,11 +549,11 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID cc
 			return errors.Wrap(err, "ccc.UUIDFromString()")
 		}
 
-		acct, err := s.readUser(ctx, txn, uid)
+		user, err := s.readUser(ctx, txn, uid)
 		if err != nil {
 			return err
 		}
-		if !acct.HasPassword {
+		if !user.HasPassword {
 			count := spanner.NewStatement(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE UserId = @userId`, s.identities.TableName))
 			count.Params["userId"] = userID
 			var links int64

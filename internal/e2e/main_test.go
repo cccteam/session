@@ -7,7 +7,7 @@ package e2e
 
 import (
 	"context"
-	"crypto/sha1" //nolint:gosec // a short, stable database name, not a security primitive
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -51,7 +51,7 @@ func prepareDatabase(ctx context.Context, t *testing.T) *dbinitiator.PostgresDat
 
 	// Scenario names are long sentences; a digest keeps the database name short and
 	// unique regardless of what the container does to invalid characters.
-	sum := sha1.Sum([]byte(t.Name())) //nolint:gosec // see above
+	sum := sha256.Sum256([]byte(t.Name()))
 	db, err := container.CreateDatabase(ctx, "e2e_"+hex.EncodeToString(sum[:6]))
 	if err != nil {
 		t.Fatalf("PostgresContainer.CreateDatabase() error = %v", err)

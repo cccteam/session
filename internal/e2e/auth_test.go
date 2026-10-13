@@ -577,9 +577,11 @@ func provisionMember(_ context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRe
 	return &sessionstorage.Resolution{
 		Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside",
 		OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
-			_, err := tx.Exec(ctx, `INSERT INTO "PartnerMembers" ("UserId", "Partner") VALUES ($1, 'lakeside')`, userID)
+			if _, err := tx.Exec(ctx, `INSERT INTO "PartnerMembers" ("UserId", "Partner") VALUES ($1, 'lakeside')`, userID); err != nil {
+				return errors.Wrap(err, "pgx.Tx.Exec()")
+			}
 
-			return err //nolint:wrapcheck // the driver wraps it
+			return nil
 		},
 	}, nil
 }
@@ -600,7 +602,7 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 			case errors.Is(err, pgx.ErrNoRows):
 				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "not_a_member"}, nil
 			case err != nil:
-				return nil, err //nolint:wrapcheck // the driver wraps it
+				return nil, errors.Wrap(err, "pgx.Row.Scan()")
 			case partner != req.User.Tenant:
 				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "wrong_partner"}, nil
 			}
@@ -640,7 +642,7 @@ func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authAp
 	a.hooks.set(func(h *hooks) {
 		h.resolveTx = func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error) {
 			if _, err := tx.Exec(ctx, `INSERT INTO "SignInAttempts" ("Subject", "Outcome") VALUES ($1, 'refused: no invite')`, req.Identity.Subject); err != nil {
-				return nil, err //nolint:wrapcheck // the driver wraps it
+				return nil, errors.Wrap(err, "pgx.Tx.Exec()")
 			}
 
 			return &sessionstorage.Resolution{Outcome: sessionstorage.RejectIdentity, Refusal: "not_invited"}, nil

@@ -175,10 +175,13 @@ func hashed(t *testing.T, password string) *securehash.Hash {
 
 // createSession expects one session insert, checks the request with check, lets resolve
 // play the driver's part (set the user, or fail), and answers id.
-func createSession(store *mock_sessionstorage.MockAuthStore, id ccc.UUID, check func(req *sessioninfo.NewSessionRequest), resolve func(req *sessioninfo.NewSessionRequest) error) {
+// createSession expects one CreateSession call. prepare sees the request first: it asserts
+// on it or plays the driver's resolution by setting its user. resolve then answers as the
+// driver would, with the error that stops the sign-in.
+func createSession(store *mock_sessionstorage.MockAuthStore, id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), resolve func(req *sessioninfo.NewSessionRequest) error) {
 	store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
-		if check != nil {
-			check(req)
+		if prepare != nil {
+			prepare(req)
 		}
 		if resolve != nil {
 			if err := resolve(req); err != nil {
@@ -669,10 +672,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 	claims := `{"tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"]}`
 
 	// resolved plays the driver: the identity resolves to the user pat.
-	resolved := func(req *sessioninfo.NewSessionRequest) error { //nolint:unparam // the driver's signature
+	resolved := func(req *sessioninfo.NewSessionRequest) {
 		req.UserID, req.Username = userID, "pat"
-
-		return nil
 	}
 
 	tests := []struct {
@@ -692,7 +693,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
 						t.Errorf("CreateSession() request mismatch (-want +got):\n%s", diff)
 					}
-				}, resolved)
+					resolved(req)
+				}, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("Editor")).Return(false, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("Editor")).Return(true, nil)
@@ -705,7 +707,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
-				createSession(f.store, sessionID, nil, resolved)
+				createSession(f.store, sessionID, resolved, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)

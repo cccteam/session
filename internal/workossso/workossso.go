@@ -196,7 +196,7 @@ type tokenRequest struct {
 func (c *Client) exchange(ctx context.Context, code string) (json.RawMessage, error) {
 	// WorkOS authenticates the exchange by the API key in the JSON body.
 	request := tokenRequest{ClientID: c.clientID, ClientSecret: c.apiKey, GrantType: "authorization_code", Code: code}
-	body, err := json.Marshal(request) //nolint:gosec // G117: the exchange's credential, sent only to WorkOS
+	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, errors.Wrap(err, "json.Marshal()")
 	}

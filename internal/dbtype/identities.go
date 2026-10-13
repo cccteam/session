@@ -122,25 +122,41 @@ type User struct {
 	Disabled    bool
 }
 
+// Verdict is DecideSignIn's answer. The zero Verdict lets the sign-in go ahead. A
+// refusal or an MFA wait travels as a value rather than an error because the
+// transaction that decided it commits; the driver answers Err once it has.
+type Verdict struct{ stop error }
+
+// Proceeds reports whether the sign-in goes ahead.
+func (v Verdict) Proceeds() bool {
+	return v.stop == nil
+}
+
+// Err returns the refusal (a *sessioninfo.LoginRefusal) or the MFA wait (a
+// *PendingSignInError) the sign-in flow reads back, or nil when the sign-in goes ahead.
+func (v Verdict) Err() error {
+	return v.stop
+}
+
 // DecideSignIn refuses a disabled user, sets req.Username to the user's, and runs
-// the policy when it is non-nil and applies to req.Reason. stop is a sign-in that does
-// not go ahead: a refusal or a *PendingSignInError for MFA. The transaction commits
-// on stop. err is the policy's error, which rolls the transaction back.
+// the policy when it is non-nil and applies to req.Reason. The verdict is a refusal, an
+// MFA wait or the go-ahead; the transaction commits on each. err is the policy's error,
+// which rolls the transaction back.
 func DecideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, acct *User, policy func(ctx context.Context) (*SignInDecision, error),
-) (stop, err error) {
-	if acct.Disabled {
-		return Refusal("", sessioninfo.RefusedUserDisabled, ErrUserDisabled, "User disabled"), nil
+	ctx context.Context, req *sessioninfo.NewSessionRequest, user *User, policy func(ctx context.Context) (*SignInDecision, error),
+) (Verdict, error) {
+	if user.Disabled {
+		return Verdict{stop: Refusal("", sessioninfo.RefusedUserDisabled, ErrUserDisabled, "User disabled")}, nil
 	}
-	req.Username = acct.Username
+	req.Username = user.Username
 
 	if policy == nil || !PolicyApplies(req.Reason) {
-		return nil, nil
+		return Verdict{}, nil
 	}
 
 	decision, err := policy(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "sign-in policy")
+		return Verdict{}, errors.Wrap(err, "sign-in policy")
 	}
 	if decision == nil {
 		decision = &SignInDecision{}
@@ -148,21 +164,21 @@ func DecideSignIn(
 
 	switch decision.Outcome {
 	case AllowSignIn:
-		return nil, nil
+		return Verdict{}, nil
 	case RequireMFA:
-		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: acct.Username}
+		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username}
 		if req.User != nil {
 			pending.Tenant = req.User.Tenant
 		}
 
-		return pending, nil
+		return Verdict{stop: pending}, nil
 	default:
-		return Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, ErrSignInDenied, "sign-in denied"), nil
+		return Verdict{stop: Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, ErrSignInDenied, "sign-in denied")}, nil
 	}
 }
 
 // SignInUser returns req's user as the sign-in policy and the custom session data
 // resolver receive it.
-func SignInUser(req *sessioninfo.NewSessionRequest, acct *User, source sessioninfo.UserSource, tenant string) *sessioninfo.SignInUser {
-	return &sessioninfo.SignInUser{ID: req.UserID, Username: acct.Username, HasPassword: acct.HasPassword, Source: source, Tenant: tenant}
+func SignInUser(req *sessioninfo.NewSessionRequest, user *User, source sessioninfo.UserSource, tenant string) *sessioninfo.SignInUser {
+	return &sessioninfo.SignInUser{ID: req.UserID, Username: user.Username, HasPassword: user.HasPassword, Source: source, Tenant: tenant}
 }

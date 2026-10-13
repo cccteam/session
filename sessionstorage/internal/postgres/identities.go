@@ -246,21 +246,21 @@ func (s *SessionStorageDriver) decideAndInsert(
 		_ = txn.Rollback(ctx)
 	}()
 
-	acct, err := s.readUser(ctx, txn, req.UserID)
+	user, err := s.readUser(ctx, txn, req.UserID)
 	if err != nil {
 		return err
 	}
-	req.User = dbtype.SignInUser(req, acct, source, tenant)
+	req.User = dbtype.SignInUser(req, user, source, tenant)
 
 	var policy func(ctx context.Context) (*dbtype.SignInDecision, error)
 	if s.identities.Policy != nil {
 		policy = func(ctx context.Context) (*dbtype.SignInDecision, error) { return s.identities.Policy(ctx, txn, req) }
 	}
-	stop, err := dbtype.DecideSignIn(ctx, req, acct, policy)
+	verdict, err := dbtype.DecideSignIn(ctx, req, user, policy)
 	if err != nil {
 		return errors.Wrap(err, "dbtype.DecideSignIn()")
 	}
-	if stop == nil {
+	if verdict.Proceeds() {
 		if err := s.insertResolvedSession(ctx, txn, id, insertSession, req); err != nil {
 			return err
 		}
@@ -270,7 +270,8 @@ func (s *SessionStorageDriver) decideAndInsert(
 		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
-	return stop //nolint:wrapcheck // the refusal or the wait as the decision made it
+	// A refusal or an MFA wait is answered after the policy's writes committed.
+	return verdict.Err()
 }
 
 // insertResolvedSession inserts the session row, its first auth event and its custom
@@ -320,11 +321,11 @@ func (s *SessionStorageDriver) applyResolution(
 	case dbtype.RejectIdentity:
 		return "", "", dbtype.Refusal(res.Refusal, sessioninfo.RefusedIdentityRejected, dbtype.ErrIdentityRejected, "identity rejected"), nil
 	case dbtype.LinkIdentity:
-		acct, err := s.readUser(ctx, txn, res.UserID)
+		user, err := s.readUser(ctx, txn, res.UserID)
 		if err != nil {
 			return "", "", nil, err
 		}
-		if acct.HasPassword && !res.TrustedForLinking {
+		if user.HasPassword && !res.TrustedForLinking {
 			return "", "", dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, dbtype.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 		}
 		if _, err := s.insertLink(ctx, txn, res.UserID, req.Identity, res.Tenant, now); err != nil {
@@ -358,13 +359,13 @@ func (s *SessionStorageDriver) applyResolution(
 
 		return sessioninfo.UserProvisioned, res.Tenant, nil, nil
 	case dbtype.RequireConfirmation:
-		acct, err := s.readUser(ctx, txn, res.UserID)
+		user, err := s.readUser(ctx, txn, res.UserID)
 		if err != nil {
 			return "", "", nil, err
 		}
 
 		return "", "", &dbtype.PendingSignInError{
-			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: acct.Username, Tenant: res.Tenant,
+			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: user.Username, Tenant: res.Tenant,
 		}, nil
 	default:
 		return "", "", nil, errors.Newf("unknown user resolver outcome %d", res.Outcome)

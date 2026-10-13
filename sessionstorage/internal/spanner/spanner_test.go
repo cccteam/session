@@ -1350,7 +1350,7 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 				TableName: "SessionCustomData",
 				Codec:     mustCodec(reflect.TypeFor[customStringData]()),
 				Resolver: func(_ context.Context, _ *spanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (any, error) {
-					return nil, nil //nolint:nilnil // nil data means no custom data row
+					return nil, nil
 				},
 			},
 			sourceURL: []string{"file://testdata/sessions_test/custom_columns_schema"},
