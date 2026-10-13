@@ -67,9 +67,15 @@ func (s *SessionStorageDriver) OIDCUsersEnabled() bool {
 	return s.oidcUsersEnabled
 }
 
-// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-func (s *SessionStorageDriver) SetOIDCUserTableName(name string) {
+// SetOIDCUserTableName sets the name of the OIDC user anchor table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetOIDCUserTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.oidcUserTableName = name
+
+	return nil
 }
 
 // userDataParentTable returns the user table the custom user data table references:

@@ -344,18 +344,35 @@ func TestNewAuth(t *testing.T) {
 			name: "the group's identities and pending sign-ins tables are named on the store",
 			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
 				s := newAuthStoreMock(ctrl)
-				s.EXPECT().SetIdentitiesTableName("StaffIdentities")
-				s.EXPECT().SetPendingSignInsTableName("StaffPendingSignIns")
+				s.EXPECT().SetIdentitiesTableName("StaffIdentities").Return(nil)
+				s.EXPECT().SetPendingSignInsTableName("StaffPendingSignIns").Return(nil)
 
 				return s
 			},
 			options: []AuthOption{WithIdentitiesTableName("StaffIdentities"), WithPendingSignInsTableName("StaffPendingSignIns")},
 		},
 		{
-			name:       "a table name that is not an identifier is refused before it reaches SQL",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
+			name: "a table name the store refuses is reported under its option's name",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetIdentitiesTableName(`Staff"; DROP TABLE`).Return(errors.New("not an identifier"))
+
+				return s
+			},
 			options:    []AuthOption{WithIdentitiesTableName(`Staff"; DROP TABLE`)},
 			wantErrHas: "WithIdentitiesTableName",
+		},
+		{
+			name: "the session and user tables are named on the store through the base options, and a refused name is reported under its option",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetSessionTableName("StaffSessions").Return(nil)
+				s.EXPECT().SetUserTableName("Staff Users").Return(errors.New("not an identifier"))
+
+				return s
+			},
+			options:    []AuthOption{WithSessionTableName("StaffSessions"), WithUserTableName("Staff Users")},
+			wantErrHas: "WithUserTableName",
 		},
 		{
 			name: "storage with the OIDC user anchor",

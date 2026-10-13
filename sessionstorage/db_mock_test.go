@@ -676,9 +676,11 @@ func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetIdentitiesTableName mocks base method.
-func (m *Mockdb) SetIdentitiesTableName(name string) {
+func (m *Mockdb) SetIdentitiesTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetIdentitiesTableName", name)
+	ret := m.ctrl.Call(m, "SetIdentitiesTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetIdentitiesTableName indicates an expected call of SetIdentitiesTableName.
@@ -688,9 +690,11 @@ func (mr *MockdbMockRecorder) SetIdentitiesTableName(name any) *gomock.Call {
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *Mockdb) SetOIDCUserTableName(name string) {
+func (m *Mockdb) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -700,9 +704,11 @@ func (mr *MockdbMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
 }
 
 // SetPendingSignInsTableName mocks base method.
-func (m *Mockdb) SetPendingSignInsTableName(name string) {
+func (m *Mockdb) SetPendingSignInsTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPendingSignInsTableName", name)
+	ret := m.ctrl.Call(m, "SetPendingSignInsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetPendingSignInsTableName indicates an expected call of SetPendingSignInsTableName.
@@ -712,9 +718,11 @@ func (mr *MockdbMockRecorder) SetPendingSignInsTableName(name any) *gomock.Call 
 }
 
 // SetSessionTableName mocks base method.
-func (m *Mockdb) SetSessionTableName(name string) {
+func (m *Mockdb) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -738,9 +746,11 @@ func (mr *MockdbMockRecorder) SetUserPasswordHash(ctx, id, hash any) *gomock.Cal
 }
 
 // SetUserTableName mocks base method.
-func (m *Mockdb) SetUserTableName(name string) {
+func (m *Mockdb) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.

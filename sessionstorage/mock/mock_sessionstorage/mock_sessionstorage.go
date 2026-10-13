@@ -204,9 +204,11 @@ func (mr *MockBaseStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockBaseStore) SetOIDCUserTableName(name string) {
+func (m *MockBaseStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -216,9 +218,11 @@ func (mr *MockBaseStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockBaseStore) SetSessionTableName(name string) {
+func (m *MockBaseStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -228,9 +232,11 @@ func (mr *MockBaseStoreMockRecorder) SetSessionTableName(name any) *gomock.Call 
 }
 
 // SetUserTableName mocks base method.
-func (m *MockBaseStore) SetUserTableName(name string) {
+func (m *MockBaseStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -492,9 +498,11 @@ func (mr *MockPreauthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockPreauthStore) SetOIDCUserTableName(name string) {
+func (m *MockPreauthStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -504,9 +512,11 @@ func (mr *MockPreauthStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.C
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockPreauthStore) SetSessionTableName(name string) {
+func (m *MockPreauthStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -516,9 +526,11 @@ func (mr *MockPreauthStoreMockRecorder) SetSessionTableName(name any) *gomock.Ca
 }
 
 // SetUserTableName mocks base method.
-func (m *MockPreauthStore) SetUserTableName(name string) {
+func (m *MockPreauthStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -1035,9 +1047,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockPasswordAuthStore) SetOIDCUserTableName(name string) {
+func (m *MockPasswordAuthStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -1047,9 +1061,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetOIDCUserTableName(name any) *gom
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockPasswordAuthStore) SetSessionTableName(name string) {
+func (m *MockPasswordAuthStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -1073,9 +1089,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetUserPasswordHash(ctx, id, hash a
 }
 
 // SetUserTableName mocks base method.
-func (m *MockPasswordAuthStore) SetUserTableName(name string) {
+func (m *MockPasswordAuthStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -1440,9 +1458,11 @@ func (mr *MockOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockOIDCStore) SetOIDCUserTableName(name string) {
+func (m *MockOIDCStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -1452,9 +1472,11 @@ func (mr *MockOIDCStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockOIDCStore) SetSessionTableName(name string) {
+func (m *MockOIDCStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -1464,9 +1486,11 @@ func (mr *MockOIDCStoreMockRecorder) SetSessionTableName(name any) *gomock.Call 
 }
 
 // SetUserTableName mocks base method.
-func (m *MockOIDCStore) SetUserTableName(name string) {
+func (m *MockOIDCStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.

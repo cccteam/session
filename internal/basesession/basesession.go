@@ -44,6 +44,18 @@ type BaseSession struct {
 	Handle            LogHandler
 	Storage           sessionstorage.BaseStore
 	CookieHandler     internalcookie.Handler
+	// TableNames are the table names the session options set, in order. The
+	// constructor hands each to its store setter, which validates it, and reports a
+	// refusal under the option's name.
+	TableNames []TableName
+}
+
+// TableName is a table name a session option set: the option's name for the error, the
+// name, and the store setter that takes and validates it.
+type TableName struct {
+	Option string
+	Name   string
+	Set    func(name string) error
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if

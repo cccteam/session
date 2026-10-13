@@ -127,7 +127,7 @@ func TestSessionStorage_UserDataProbesDelegate(t *testing.T) {
 	mockDB.EXPECT().CustomUserDataType().Return(uType)
 	mockDB.EXPECT().UserDataLoginHookConfigured().Return(true)
 	mockDB.EXPECT().OIDCUsersEnabled().Return(true)
-	mockDB.EXPECT().SetOIDCUserTableName("MyOIDCUsers")
+	mockDB.EXPECT().SetOIDCUserTableName("MyOIDCUsers").Return(nil)
 
 	if got := storage.CustomUserDataType(); got != uType {
 		t.Errorf("CustomUserDataType() = %v, want %v", got, uType)
@@ -138,7 +138,9 @@ func TestSessionStorage_UserDataProbesDelegate(t *testing.T) {
 	if !storage.OIDCUsersEnabled() {
 		t.Error("OIDCUsersEnabled() = false, want true")
 	}
-	storage.SetOIDCUserTableName("MyOIDCUsers")
+	if err := storage.SetOIDCUserTableName("MyOIDCUsers"); err != nil {
+		t.Errorf("SetOIDCUserTableName() error = %v", err)
+	}
 }
 
 func TestOIDC_OIDCUserReadsDelegate(t *testing.T) {

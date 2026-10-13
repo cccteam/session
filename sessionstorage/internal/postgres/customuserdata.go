@@ -65,9 +65,15 @@ func (s *SessionStorageDriver) OIDCUsersEnabled() bool {
 	return s.oidcUsersEnabled
 }
 
-// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-func (s *SessionStorageDriver) SetOIDCUserTableName(name string) {
+// SetOIDCUserTableName sets the name of the OIDC user anchor table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetOIDCUserTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.oidcUserTableName = name
+
+	return nil
 }
 
 // userDataParentTable returns the user table the custom user data table references:
@@ -217,7 +223,7 @@ func (s *SessionStorageDriver) OIDCUser(ctx context.Context, id ccc.UUID) (*dbty
 			"UpdatedAt"
 		FROM %s
 		WHERE "Id" = $1
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
+	`, s.oidcUserTable())
 
 	user := &dbtype.OIDCUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, id); err != nil {
@@ -246,7 +252,7 @@ func (s *SessionStorageDriver) OIDCUserByKey(ctx context.Context, tid, oid strin
 			"UpdatedAt"
 		FROM %s
 		WHERE "Tid" = $1 AND "Oid" = $2
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
+	`, s.oidcUserTable())
 
 	user := &dbtype.OIDCUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, tid, oid); err != nil {
@@ -274,7 +280,7 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 		return errors.New("the OIDC user anchor is enabled but the verified claims are missing the tid or oid claim")
 	}
 
-	table := pgx.Identifier{s.oidcUserTableName}.Sanitize()
+	table := s.oidcUserTable()
 	now := time.Now()
 
 	selectQuery := fmt.Sprintf(`SELECT "Id" FROM %s WHERE "Tid" = $1 AND "Oid" = $2 FOR UPDATE`, table)

@@ -104,9 +104,9 @@ type AuthStore[Tx any] interface {
 	// impersonated session's record ends Logout.
 	DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error
 	// SetIdentitiesTableName sets the name of the identities table. (default: SessionIdentities)
-	SetIdentitiesTableName(name string)
+	SetIdentitiesTableName(name string) error
 	// SetPendingSignInsTableName sets the name of the pending sign-ins table. (default: SessionPendingSignIns)
-	SetPendingSignInsTableName(name string)
+	SetPendingSignInsTableName(name string) error
 	// HoldSignIn stores a sign-in that waits for a confirmation or the application's MFA
 	// step and returns its row's ID. p.TokenHash is the hash of the opaque token the
 	// browser's pending cookie carries.
@@ -309,13 +309,21 @@ func (a *Auth[Tx]) ConsumePendingSignIn(ctx context.Context, tokenHash []byte) e
 }
 
 // SetIdentitiesTableName implements AuthStore.
-func (a *Auth[Tx]) SetIdentitiesTableName(name string) {
-	a.db.SetIdentitiesTableName(name)
+func (a *Auth[Tx]) SetIdentitiesTableName(name string) error {
+	if err := a.db.SetIdentitiesTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetIdentitiesTableName()")
+	}
+
+	return nil
 }
 
 // SetPendingSignInsTableName implements AuthStore.
-func (a *Auth[Tx]) SetPendingSignInsTableName(name string) {
-	a.db.SetPendingSignInsTableName(name)
+func (a *Auth[Tx]) SetPendingSignInsTableName(name string) error {
+	if err := a.db.SetPendingSignInsTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetPendingSignInsTableName()")
+	}
+
+	return nil
 }
 
 // DestroySessionsByProviderSessionID implements AuthStore.

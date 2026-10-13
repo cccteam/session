@@ -59,7 +59,9 @@ func TestClient_FullMigration(t *testing.T) {
 func TestSessionStorageDriver_SetSessionTableName(t *testing.T) {
 	t.Parallel()
 	c := NewSessionStorageDriver(nil)
-	c.SetSessionTableName("NewSessionTable")
+	if err := c.SetSessionTableName("NewSessionTable"); err != nil {
+		t.Fatalf("SetSessionTableName() error = %v", err)
+	}
 	if c.sessionTableName != "NewSessionTable" {
 		t.Errorf("SetSessionTableName() = %v, want %v", c.sessionTableName, "NewSessionTable")
 	}
@@ -68,7 +70,9 @@ func TestSessionStorageDriver_SetSessionTableName(t *testing.T) {
 func TestSessionStorageDriver_SetUserTableName(t *testing.T) {
 	t.Parallel()
 	c := NewSessionStorageDriver(nil)
-	c.SetUserTableName("NewUserTable")
+	if err := c.SetUserTableName("NewUserTable"); err != nil {
+		t.Fatalf("SetUserTableName() error = %v", err)
+	}
 	if c.userTableName != "NewUserTable" {
 		t.Errorf("SetUserTableName() = %v, want %v", c.userTableName, "NewUserTable")
 	}

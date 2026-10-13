@@ -76,11 +76,11 @@ type BaseStore interface {
 	// when no impersonation table is configured.
 	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error
 	// SetSessionTableName sets the name of the session table.
-	SetSessionTableName(name string)
+	SetSessionTableName(name string) error
 	// SetUserTableName sets the name of the user table.
-	SetUserTableName(name string)
+	SetUserTableName(name string) error
 	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-	SetOIDCUserTableName(name string)
+	SetOIDCUserTableName(name string) error
 }
 
 var _ PreauthStore = (*Preauth)(nil)
@@ -228,9 +228,9 @@ type db interface {
 	// DestroySessionsByProviderSessionID expires every live session whose sign-in carried the provider's session id.
 	DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error
 	// SetIdentitiesTableName sets the name of the identities table.
-	SetIdentitiesTableName(name string)
+	SetIdentitiesTableName(name string) error
 	// SetPendingSignInsTableName sets the name of the pending sign-ins table.
-	SetPendingSignInsTableName(name string)
+	SetPendingSignInsTableName(name string) error
 	// InsertPendingSignIn inserts a pending sign-in.
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	// PendingSignInByToken returns the pending sign-in holding tokenHash that is live at now, or NotFound.
@@ -256,11 +256,11 @@ type db interface {
 	// reason, in one transaction; a no-op for sessions without a live record.
 	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error
 	// SetSessionTableName sets the name of the session table.
-	SetSessionTableName(name string)
+	SetSessionTableName(name string) error
 	// SetUserTableName sets the name of the user table.
-	SetUserTableName(name string)
+	SetUserTableName(name string) error
 	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-	SetOIDCUserTableName(name string)
+	SetOIDCUserTableName(name string) error
 
 	//
 	// Password specific methods

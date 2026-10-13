@@ -132,7 +132,7 @@ func (s *SessionStorageDriver) insertLink(
 // UserIn reads the part of userID's user the sign-in decides on, inside tx, sharing its
 // row lock so a concurrent change waits. A missing user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 FOR SHARE`, pgx.Identifier{s.userTableName}.Sanitize())
+	query := fmt.Sprintf(`SELECT "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 FOR SHARE`, s.userTable())
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, userID).Scan(&u.Username, &u.HasPassword, &u.Disabled); err != nil {
@@ -271,7 +271,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID cc
 	// The user row is locked, so concurrent unlinks of its identities run one at a
 	// time and can't both leave it without a means of sign-in.
 	var hasPassword bool
-	lockUser := fmt.Sprintf(`SELECT "PasswordHash" IS NOT NULL FROM %s WHERE "Id" = $1 FOR UPDATE`, pgx.Identifier{s.userTableName}.Sanitize())
+	lockUser := fmt.Sprintf(`SELECT "PasswordHash" IS NOT NULL FROM %s WHERE "Id" = $1 FOR UPDATE`, s.userTable())
 	if err := txn.QueryRow(ctx, lockUser, userID).Scan(&hasPassword); err != nil {
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
 	}
@@ -317,22 +317,22 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 
 	now := time.Now()
 	if s.impersonation == nil {
-		expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "UserId" = $1`, pgx.Identifier{s.sessionTableName}.Sanitize())
+		expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "UserId" = $1`, s.sessionTable())
 		if _, err := txn.Exec(ctx, expire, userID, now); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	} else {
 		// The local-actor records name the actor by username.
 		var username string
-		err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, pgx.Identifier{s.userTableName}.Sanitize()), userID).Scan(&username)
+		err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), userID).Scan(&username)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
 		}
 
 		// Sessions first: the expiry predicate reads the records while they are still live.
 		expire := fmt.Sprintf(`
-			UPDATE "%s" s SET "Expired" = TRUE, "UpdatedAt" = $3
-			WHERE s."Expired" = FALSE AND (s."UserId" = $2 OR %s)`, s.sessionTableName, s.heldByLocalActor())
+			UPDATE %s s SET "Expired" = TRUE, "UpdatedAt" = $3
+			WHERE s."Expired" = FALSE AND (s."UserId" = $2 OR %s)`, s.sessionTable(), s.heldByLocalActor())
 		if _, err := txn.Exec(ctx, expire, username, userID, now); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
@@ -340,9 +340,9 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 		endRecords := fmt.Sprintf(`
 			UPDATE %s i SET "EndedAt" = $3, "EndReason" = $4
 			WHERE i."EndedAt" IS NULL AND (
-				EXISTS (SELECT 1 FROM "%s" s WHERE s."Id" = i."SessionId" AND s."UserId" = $2)
+				EXISTS (SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."UserId" = $2)
 				OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
-			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName)
+			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
 		if _, err := txn.Exec(ctx, endRecords, username, userID, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
@@ -382,7 +382,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 
 	// The session row is locked, so concurrent appends take sequence numbers in turn.
 	var expired bool
-	if err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Expired" FROM %s WHERE "Id" = $1 FOR UPDATE`, pgx.Identifier{s.sessionTableName}.Sanitize()), sessionID).Scan(&expired); err != nil {
+	if err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Expired" FROM %s WHERE "Id" = $1 FOR UPDATE`, s.sessionTable()), sessionID).Scan(&expired); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpio.NewNotFoundMessagef("session %q not found", sessionID)
 		}
@@ -402,7 +402,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 		return err
 	}
 	if s.users {
-		if _, err := txn.Exec(ctx, fmt.Sprintf(`UPDATE %s SET "AuthenticatedAt" = $2 WHERE "Id" = $1`, pgx.Identifier{s.sessionTableName}.Sanitize()), sessionID, event.At); err != nil {
+		if _, err := txn.Exec(ctx, fmt.Sprintf(`UPDATE %s SET "AuthenticatedAt" = $2 WHERE "Id" = $1`, s.sessionTable()), sessionID, event.At); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	}

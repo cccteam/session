@@ -52,11 +52,11 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 	args = append(args, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired)
 	if !s.users {
 		return fmt.Sprintf(`
-		INSERT INTO "%s"
+		INSERT INTO %s
 			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired")
 		VALUES
 			($1, $2, $3, $4, $5)
-		`, s.sessionTableName), args
+		`, s.sessionTable()), args
 	}
 
 	user := dbtype.NewSessionUserColumns(req, insertSession.CreatedAt)
@@ -66,11 +66,11 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 	}
 
 	return fmt.Sprintf(`
-		INSERT INTO "%s"
+		INSERT INTO %s
 			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId")
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8)
-		`, s.sessionTableName), append(args, userID, user.AuthenticatedAt, user.ProviderSessionID)
+		`, s.sessionTable()), append(args, userID, user.AuthenticatedAt, user.ProviderSessionID)
 }
 
 // initialAuthEvent chains the insert of the new session's auth events
@@ -174,12 +174,12 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 			UPDATE %s i SET "EndedAt" = $2, "EndReason" = $3
 			WHERE i."EndedAt" IS NULL AND EXISTS (
 				SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."Expired" = FALSE AND s."ProviderSessionId" = $1)`,
-			pgx.Identifier{s.impersonation.TableName}.Sanitize(), pgx.Identifier{s.sessionTableName}.Sanitize())
+			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
 		if _, err := txn.Exec(ctx, endRecords, providerSessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	}
-	expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "ProviderSessionId" = $1`, pgx.Identifier{s.sessionTableName}.Sanitize())
+	expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "ProviderSessionId" = $1`, s.sessionTable())
 	if _, err := txn.Exec(ctx, expire, providerSessionID, now); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}

@@ -149,11 +149,11 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO "%s"
+		INSERT INTO %s
 			("Id", "OidcSid", "Username", "CreatedAt", "UpdatedAt", "Expired")
 		VALUES
 			($1, $2, $3, $4, $5, $6)
-		`, s.sessionTableName)
+		`, s.sessionTable())
 	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
 
 	insertRecord := func(ctx context.Context, txn pgx.Tx) error {
@@ -227,10 +227,10 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 
 	impTable := pgx.Identifier{s.impersonation.TableName}.Sanitize()
 	expireSessions := fmt.Sprintf(`
-		UPDATE "%s" s
+		UPDATE %s s
 		SET "Expired" = TRUE, "UpdatedAt" = $2
 		FROM %s i
-		WHERE i."SessionId" = s."Id" AND i."ActorUsername" = $1 AND i."EndedAt" IS NULL`, s.sessionTableName, impTable)
+		WHERE i."SessionId" = s."Id" AND i."ActorUsername" = $1 AND i."EndedAt" IS NULL`, s.sessionTable(), impTable)
 	endRecords := fmt.Sprintf(`
 		UPDATE %s
 		SET "EndedAt" = $2, "EndReason" = $3
@@ -272,10 +272,10 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 
 	impTable := pgx.Identifier{s.impersonation.TableName}.Sanitize()
 	expireSession := fmt.Sprintf(`
-		UPDATE "%s" s
+		UPDATE %s s
 		SET "Expired" = TRUE, "UpdatedAt" = $2
 		FROM %s i
-		WHERE i."SessionId" = s."Id" AND s."Id" = $1 AND i."EndedAt" IS NULL`, s.sessionTableName, impTable)
+		WHERE i."SessionId" = s."Id" AND s."Id" = $1 AND i."EndedAt" IS NULL`, s.sessionTable(), impTable)
 	endRecord := fmt.Sprintf(`
 		UPDATE %s
 		SET "EndedAt" = $2, "EndReason" = $3
@@ -341,9 +341,9 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM %s i
-		JOIN "%s" s ON s."Id" = i."SessionId"
+		JOIN %s s ON s."Id" = i."SessionId"
 		WHERE i."EndedAt" IS NULL AND i."ExpiresAt" > $1 AND s."Expired" = FALSE AND s."UpdatedAt" > $2%s
-		ORDER BY i."StartedAt" DESC`, columns.String(), pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTableName, filters.String())
+		ORDER BY i."StartedAt" DESC`, columns.String(), pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable(), filters.String())
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {

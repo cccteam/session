@@ -59,17 +59,20 @@ func WithLogHandler(l LogHandler) BaseSessionOption {
 	})
 }
 
-// WithSessionTableName sets the name of the session table. (default: Sessions)
+// WithSessionTableName sets the name of the session table. (default: Sessions) A
+// name that is not a plain identifier (a letter or underscore, then up to 127 letters,
+// digits or underscores) is refused by the session type's constructor, as every
+// table-name option's is.
 func WithSessionTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetSessionTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithSessionTableName", Name: name, Set: b.Storage.SetSessionTableName})
 	})
 }
 
 // WithUserTableName sets the name of the user table. (default: SessionUsers)
 func WithUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetUserTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithUserTableName", Name: name, Set: b.Storage.SetUserTableName})
 	})
 }
 
@@ -81,7 +84,7 @@ func WithUserTableName(name string) BaseSessionOption {
 // types.
 func WithOIDCUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetOIDCUserTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithOIDCUserTableName", Name: name, Set: b.Storage.SetOIDCUserTableName})
 	})
 }
 

@@ -131,7 +131,10 @@ long as their session rows.
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
 `WithIdentitiesTableName` and `WithPendingSignInsTableName` on `NewAuth`, and
-`NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. Name the users
+`NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. A table name
+must be a plain identifier (a letter or underscore, then up to 127 letters, digits or
+underscores): the store refuses any other, and the constructor reports it under the
+option's name, so a name never reaches SQL unchecked. Name the users
 table's unique index after the table as the shipped DDL does
 (`<UsersTable>_NormalizedUsername_idx` on PostgreSQL, `<UsersTable>ByNormalizedUsername`
 on Spanner): the drivers read a username conflict by that name. Build the

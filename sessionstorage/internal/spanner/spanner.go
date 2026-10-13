@@ -57,14 +57,26 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	}
 }
 
-// SetSessionTableName sets the name of the session table.
-func (s *SessionStorageDriver) SetSessionTableName(name string) {
+// SetSessionTableName sets the name of the session table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetSessionTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.sessionTableName = name
+
+	return nil
 }
 
-// SetUserTableName sets the name of the user table.
-func (s *SessionStorageDriver) SetUserTableName(name string) {
+// SetUserTableName sets the name of the user table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetUserTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.userTableName = name
+
+	return nil
 }
 
 // usernameIndex is the unique index on the user table's normalized username, named
@@ -75,14 +87,26 @@ func (s *SessionStorageDriver) usernameIndex() string {
 	return s.userTableName + "ByNormalizedUsername"
 }
 
-// SetIdentitiesTableName sets the name of the identities table.
-func (s *SessionStorageDriver) SetIdentitiesTableName(name string) {
+// SetIdentitiesTableName sets the name of the identities table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetIdentitiesTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.identitiesTableName = name
+
+	return nil
 }
 
-// SetPendingSignInsTableName sets the name of the pending sign-ins table.
-func (s *SessionStorageDriver) SetPendingSignInsTableName(name string) {
+// SetPendingSignInsTableName sets the name of the pending sign-ins table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetPendingSignInsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.pendingTableName = name
+
+	return nil
 }
 
 // Session returns the session information from the database for given sessionID

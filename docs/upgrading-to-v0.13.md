@@ -241,7 +241,9 @@ An application whose tables are named per auth group applies the sets under its 
 (copy the files and rename the tables, indexes and constraints) and tells the `Auth`:
 `WithSessionTableName`, `WithUserTableName`, `WithIdentitiesTableName` and
 `WithPendingSignInsTableName` on `NewAuth`, `NewAuthEventsTable(name)` and
-`NewImpersonationTable(name)` on the store. Keep the users table's unique index named
+`NewImpersonationTable(name)` on the store. Every name must be a plain identifier (a
+letter or underscore, then up to 127 letters, digits or underscores); any other is
+refused at construction under the option's name. Keep the users table's unique index named
 after the table as the shipped DDL does (`<UsersTable>_NormalizedUsername_idx` on
 PostgreSQL, `<UsersTable>ByNormalizedUsername` on Spanner): the drivers read a username
 conflict by that name.

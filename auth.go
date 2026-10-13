@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -28,10 +27,10 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable and pendingSignInsTable name the group's tables; "" keeps the
+	// identitiesTable and pendingSignInsTable name the group's tables; nil keeps the
 	// store's defaults.
-	identitiesTable     string
-	pendingSignInsTable string
+	identitiesTable     *string
+	pendingSignInsTable *string
 }
 
 // authOption is an Auth settings option.
@@ -95,35 +94,34 @@ func WithPendingCookieName(name string) AuthOption {
 // WithIdentitiesTableName sets the name of the group's identities table, beside
 // WithSessionTableName and WithUserTableName. (default: SessionIdentities)
 func WithIdentitiesTableName(name string) AuthOption {
-	return authOption{apply: func(s *authSettings) { s.identitiesTable = name }}
+	return authOption{apply: func(s *authSettings) { s.identitiesTable = &name }}
 }
 
 // WithPendingSignInsTableName sets the name of the group's pending sign-ins table.
 // (default: SessionPendingSignIns)
 func WithPendingSignInsTableName(name string) AuthOption {
-	return authOption{apply: func(s *authSettings) { s.pendingSignInsTable = name }}
+	return authOption{apply: func(s *authSettings) { s.pendingSignInsTable = &name }}
 }
 
-// tableIdentifier is the shape of a table name an option may set: it is interpolated
-// into SQL.
-var tableIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
-
-// nameTables applies the table-name options to the store.
+// nameTables applies the Auth's own table-name options to the store, whose setters
+// validate each name (dbtype.ValidateTableName); a refusal is reported under the
+// option's name. The base options (session and user tables) go the same way through
+// sessioncore.NewBaseSession.
 func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSettings) error {
 	for _, table := range []struct {
-		option, name string
-		set          func(string)
+		option string
+		name   *string
+		set    func(string) error
 	}{
 		{option: "WithIdentitiesTableName", name: settings.identitiesTable, set: storage.SetIdentitiesTableName},
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
 	} {
-		if table.name == "" {
+		if table.name == nil {
 			continue
 		}
-		if !tableIdentifier.MatchString(table.name) {
-			return errors.Newf("%s(%q): a table name starts with a letter or underscore, followed by up to 127 letters, numbers or underscores", table.option, table.name)
+		if err := table.set(*table.name); err != nil {
+			return errors.Wrapf(err, "%s()", table.option)
 		}
-		table.set(table.name)
 	}
 
 	return nil

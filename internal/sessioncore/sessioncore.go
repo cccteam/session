@@ -47,6 +47,13 @@ func NewBaseSession[O any](storage sessionstorage.BaseStore, cookieKey string, o
 			o(baseSession)
 		}
 	}
+	// The table-name options are applied here, through the store's setters, so a name
+	// that is not an identifier is refused under its option's name before any SQL.
+	for _, table := range baseSession.TableNames {
+		if err := table.Set(table.Name); err != nil {
+			return nil, nil, errors.Wrapf(err, "%s()", table.Option)
+		}
+	}
 
 	cookieClient, err := internalcookie.NewCookieClient(cookieKey, cookieOpts...)
 	if err != nil {
