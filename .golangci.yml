@@ -133,11 +133,8 @@ linters:
         # A coded login refusal is the module's own error type; attaching the code IS the
         # wrapping, and the redirect helper reads it back with errors.As.
         - sessioninfo.NewLoginRefusal(
-        # The drivers' coded refusal: a sessioninfo.LoginRefusal over its cause.
-        - dbtype.Refusal(
-        # The sign-in verdict's error is the refusal or the MFA wait itself, returned once
-        # the transaction that decided it committed.
-        - dbtype.Verdict).Err(
+        # The sign-in flow's coded refusal: a sessioninfo.LoginRefusal over its cause.
+        - signinflow.Refusal(
         - errors.Unwrap(
         - .Wrap(
         - .Wrapf(
@@ -179,7 +176,7 @@ linters:
         path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: legacy/oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go
+        path: legacy/oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go|azure/method\.go
         text: preferred_username
       - linters:
           - tagliatelle

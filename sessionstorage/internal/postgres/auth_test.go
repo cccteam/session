@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/internal/drivertest"
 	"github.com/go-playground/errors/v5"
@@ -59,24 +58,6 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	if cfg.Impersonation {
 		d.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
 	}
-	if cfg.Identities {
-		identities := &IdentitiesConfig{
-			TableName: "SessionIdentities",
-			Resolve: func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error) {
-				if cfg.Resolve == nil {
-					return nil, nil
-				}
-
-				return cfg.Resolve(ctx, hookTx{txn}, req)
-			},
-		}
-		if cfg.Policy != nil {
-			identities.Policy = func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error) {
-				return cfg.Policy(ctx, hookTx{txn}, req)
-			}
-		}
-		d.SetIdentities(identities)
-	}
 	if cfg.CustomData != nil {
 		d.SetCustomSessionData(&CustomSessionDataConfig{
 			TableName: "SessionCustomData",
@@ -87,7 +68,10 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 		})
 	}
 
-	return &drivertest.AuthInstance{Driver: d, Raw: conn.Pool}
+	return &drivertest.AuthInstance{
+		Driver: d, Raw: conn.Pool,
+		SignIn: drivertest.NewSignIn(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+	}
 }
 
 func countAuthEvents(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) int {

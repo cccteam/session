@@ -17,10 +17,10 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -118,7 +118,7 @@ func decodePending(encoded string) (*pendingState, error) {
 
 // withPendingCookie returns the request's context with the pending identity from the
 // pending cookie, if there is one. pending decides whether it is still accepted.
-func (a *Auth[S, U]) withPendingCookie(r *http.Request) context.Context {
+func (a *Auth[S, U, Tx]) withPendingCookie(r *http.Request) context.Context {
 	ctx := r.Context()
 
 	cval, found, err := a.pendingCookies.Cookie().Read(r, a.settings.pendingCookie)
@@ -142,7 +142,7 @@ func (a *Auth[S, U]) withPendingCookie(r *http.Request) context.Context {
 // pending returns the browser's pending identity from ctx. It returns NotFound when
 // there is none, and a pending_expired refusal when it has expired or its row is no
 // longer live (completed, canceled or replaced).
-func (a *Auth[S, U]) pending(ctx context.Context) (*pendingState, error) {
+func (a *Auth[S, U, Tx]) pending(ctx context.Context) (*pendingState, error) {
 	state, ok := ctx.Value(pendingCtxKey{}).(*pendingState)
 	if !ok {
 		return nil, httpio.NewNotFoundMessage("no pending sign-in")
@@ -173,7 +173,7 @@ func errPendingExpired() error {
 // holdPending stores a sign-in that must wait as the browser's pending identity. It
 // inserts a new stepping-stone row and writes the pending cookie bound to it, replacing
 // any earlier pending identity.
-func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *sessionstorage.PendingSignInError) (*pendingState, error) {
+func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
 	now := time.Now()
 	events := at.events
 	if events == nil {
@@ -221,7 +221,7 @@ func (a *Auth[S, U]) holdPending(ctx context.Context, w http.ResponseWriter, at 
 // just stored. handled reports that the hook wrote the response itself, so the handler
 // writes nothing more. redirectURL is where the hook sends the browser, or "" for the
 // handler's default. An error discards the pending identity.
-func (a *Auth[S, U]) onPending(ctx context.Context, w http.ResponseWriter, r *http.Request, state *pendingState) (redirectURL string, handled bool, err error) {
+func (a *Auth[S, U, Tx]) onPending(ctx context.Context, w http.ResponseWriter, r *http.Request, state *pendingState) (redirectURL string, handled bool, err error) {
 	if a.settings.pendingHook == nil {
 		return "", false, nil
 	}
@@ -269,7 +269,7 @@ func (t *responseTracker) Unwrap() http.ResponseWriter {
 
 // dropPending discards the browser's pending identity, if it has one. It expires the
 // row and deletes the cookie.
-func (a *Auth[S, U]) dropPending(ctx context.Context, w http.ResponseWriter) {
+func (a *Auth[S, U, Tx]) dropPending(ctx context.Context, w http.ResponseWriter) {
 	if _, ok := ctx.Value(pendingCtxKey{}).(*pendingState); !ok {
 		return
 	}
@@ -278,13 +278,13 @@ func (a *Auth[S, U]) dropPending(ctx context.Context, w http.ResponseWriter) {
 }
 
 // dropPendingRow expires the row of the browser's pending identity, if it has one.
-func (a *Auth[S, U]) dropPendingRow(ctx context.Context) {
+func (a *Auth[S, U, Tx]) dropPendingRow(ctx context.Context) {
 	if state, ok := ctx.Value(pendingCtxKey{}).(*pendingState); ok {
 		a.destroyPendingRow(ctx, state.ID)
 	}
 }
 
-func (a *Auth[S, U]) destroyPendingRow(ctx context.Context, id ccc.UUID) {
+func (a *Auth[S, U, Tx]) destroyPendingRow(ctx context.Context, id ccc.UUID) {
 	if err := a.storage.DestroySession(ctx, id); err != nil && !httpio.HasNotFound(err) {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.DestroySession()"))
 	}
@@ -293,7 +293,7 @@ func (a *Auth[S, U]) destroyPendingRow(ctx context.Context, id ccc.UUID) {
 // completePending establishes the session of a pending identity. The session records
 // the pending identity's events followed by more. The user is resolved again and
 // must be the one the identity waited on.
-func (a *Auth[S, U]) completePending(
+func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, state *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
 	identity := state.Identity
@@ -319,13 +319,13 @@ func (a *Auth[S, U]) completePending(
 
 // stillPending is the error a completion step returns when the sign-in waits again.
 func stillPending(state *pendingState) error {
-	return &sessionstorage.PendingSignInError{Reason: state.Reason, UserID: state.UserID, Username: state.Username, Tenant: state.Tenant}
+	return &signin.PendingSignInError{Reason: state.Reason, UserID: state.UserID, Username: state.Username, Tenant: state.Tenant}
 }
 
 // PendingIdentity returns the pending identity of the current request, or a NotFound
 // error. An expired one is a sessioninfo.RefusedPendingExpired refusal. It reads the
 // pending identity StartSession found, so the route must run behind StartSession.
-func (p *AuthAPI[S, U]) PendingIdentity(ctx context.Context) (*sessioninfo.PendingIdentity, error) {
+func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.PendingIdentity, error) {
 	state, err := p.auth.pending(ctx)
 	if err != nil {
 		return nil, err
@@ -342,8 +342,8 @@ func (p *AuthAPI[S, U]) PendingIdentity(ctx context.Context) (*sessioninfo.Pendi
 // again and must be the one the identity waited on. The sign-in policy is not asked
 // again. The session records the sign-in's events followed by stepUp. If the sign-in
 // must wait again (the resolver now asks for a confirmation), the error is a
-// *sessionstorage.PendingSignInError and the pending identity is replaced.
-func (p *AuthAPI[S, U]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (ccc.UUID, error) {
+// *signin.PendingSignInError and the pending identity is replaced.
+func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -376,9 +376,9 @@ func (p *AuthAPI[S, U]) CompletePending(ctx context.Context, w http.ResponseWrit
 // wrong password is Unauthorized and leaves the pending identity in place. The session
 // records the sign-in's event and a link-confirmation event. If the sign-in policy
 // requires MFA after the link, no session starts. The error is then a
-// *sessionstorage.PendingSignInError with reason PendingMFA, and the pending identity
+// *signin.PendingSignInError with reason PendingMFA, and the pending identity
 // remains, now waiting for MFA (see CompletePending).
-func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.ResponseWriter, password string) (ccc.UUID, error) {
+func (p *AuthAPI[S, U, Tx]) ConfirmPendingWithPassword(ctx context.Context, w http.ResponseWriter, password string) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -394,7 +394,7 @@ func (p *AuthAPI[S, U]) ConfirmPendingWithPassword(ctx context.Context, w http.R
 }
 
 // confirmPending implements ConfirmPendingWithPassword and returns the sign-in's outcome.
-func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, password string) (*signInOutcome, error) {
+func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWriter, password string) (*signInOutcome, error) {
 	state, err := a.pending(ctx)
 	if err != nil {
 		return nil, err
@@ -411,7 +411,7 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
 	if user.Disabled {
-		return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
+		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 
 	if err := a.linkPending(ctx, user.ID, state); err != nil {
@@ -424,7 +424,7 @@ func (a *Auth[S, U]) confirmPending(ctx context.Context, w http.ResponseWriter, 
 // linkPending links a confirmed pending identity to userID and reports the link. If the
 // identity was linked meanwhile, that is accepted for the same user and refused for
 // another.
-func (a *Auth[S, U]) linkPending(ctx context.Context, userID ccc.UUID, state *pendingState) error {
+func (a *Auth[S, U, Tx]) linkPending(ctx context.Context, userID ccc.UUID, state *pendingState) error {
 	_, err := a.storage.LinkIdentity(ctx, userID, &state.Identity, state.Tenant)
 	switch {
 	case err == nil:
@@ -437,14 +437,14 @@ func (a *Auth[S, U]) linkPending(ctx context.Context, userID ccc.UUID, state *pe
 			return nil
 		}
 
-		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity is linked to another user")
+		return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity is linked to another user")
 	default:
 		return errors.Wrap(err, "sessionstorage.AuthStore.LinkIdentity()")
 	}
 }
 
 // pendingStatus is Pending().Status().
-func (a *Auth[S, U]) pendingStatus() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 	type response struct {
 		Reason    sessioninfo.PendingReason `json:"reason"`
 		Email     string                    `json:"email"`
@@ -466,7 +466,7 @@ func (a *Auth[S, U]) pendingStatus() http.HandlerFunc {
 }
 
 // pendingConfirm is Pending().ConfirmWithPassword().
-func (a *Auth[S, U]) pendingConfirm() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) pendingConfirm() http.HandlerFunc {
 	type request struct {
 		Password string `json:"password"`
 	}
@@ -491,7 +491,7 @@ func (a *Auth[S, U]) pendingConfirm() http.HandlerFunc {
 }
 
 // pendingCancel is Pending().Cancel().
-func (a *Auth[S, U]) pendingCancel() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) pendingCancel() http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()

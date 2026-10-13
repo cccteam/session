@@ -10,6 +10,10 @@
 // resolution, the sign-in policy and the session the same way for every method, and
 // returns the handlers to the method.
 //
+// The package also holds the vocabulary of a sign-in's outcomes, which the application's
+// hooks speak: the user resolver's Resolution, the sign-in policy's Decision and the
+// causes of a refusal.
+//
 // A method package imports this package and never the core.
 package signin
 
@@ -23,20 +27,26 @@ import (
 )
 
 // Core is what a method registers on: the Auth that session.NewAuth returned.
-// *session.Auth implements it.
-type Core interface {
+// *session.Auth implements it. Tx is the Auth's storage transaction type, which the
+// method's user resolver receives.
+type Core[Tx any] interface {
 	// RegisterExternal registers a redirect-based method and returns its handlers. It
 	// panics on a registration rule, because that is a wiring mistake found at startup:
-	// the method is already registered, the core has served a request, or reg.Err
-	// carries a misuse the registration function found in its arguments.
-	RegisterExternal(reg *Registration) Handlers
+	// the method is already registered, the core has served a request, the registration
+	// has no user resolver, or reg.Err carries a misuse the registration function found
+	// in its arguments.
+	RegisterExternal(reg *Registration[Tx]) Handlers
 }
 
 // Registration is what a method asks the core to register.
-type Registration struct {
+type Registration[Tx any] struct {
 	// Method names the method; it is the identity's method and the session's auth
 	// event's.
 	Method sessioninfo.AuthMethod
+	// Resolve decides an identity of the method that is not linked to any user yet. It
+	// is required: the method builds it over the resolver the application gave its
+	// registration, typed to the method's identity.
+	Resolve UserResolver[Tx]
 	// Build builds the method over the core's state cookies, which carry the browser's
 	// half of a round trip to the provider.
 	Build func(cookies StateCookies) (*Method, error)
@@ -103,7 +113,7 @@ type Handlers struct {
 
 // Register registers reg on core and returns its handlers. The registration functions
 // of every method go through it: it refuses a nil core before the core can.
-func Register(core Core, reg *Registration) Handlers {
+func Register[Tx any](core Core[Tx], reg *Registration[Tx]) Handlers {
 	if core == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil Auth: pass the Auth NewAuth returned", reg.Method))
 	}

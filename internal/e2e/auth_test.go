@@ -13,18 +13,15 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
-	dbinitiator "github.com/cccteam/db-initiator"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session"
+	"github.com/cccteam/session/azure"
+	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/cccteam/session/workos"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-playground/errors/v5"
-	"github.com/jackc/pgx/v5"
 )
-
-const authMigrations = "file://../../schema/postgresql/auth/migrations"
 
 // The password every seeded user has.
 const seedPassword = "correct horse battery staple"
@@ -35,16 +32,23 @@ const (
 	lakesideConnection = "conn_lakeside"
 )
 
-// hooks are an Auth app's user resolver, sign-in policy, IdentityLinked hook and
-// PendingHook, set per scenario. The resolver and the policy run inside the sign-in's
-// transactions; resolveTx and policyTx, when set, receive them to write and read the
-// application's own rows.
-type hooks struct {
-	mu        sync.Mutex
-	resolve   func(req *sessioninfo.NewSessionRequest) *sessionstorage.Resolution
-	policy    func(req *sessioninfo.NewSessionRequest) *sessionstorage.SignInDecision
-	resolveTx func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error)
-	policyTx  func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.SignInDecision, error)
+// hooks are an Auth app's user resolvers, sign-in policy, IdentityLinked hook and
+// PendingHook, set per scenario. The resolvers and the policy run inside the sign-in's
+// transactions, typed to the backend's transaction; resolveTx and policyTx, when set,
+// receive it to write and read the application's own rows.
+type hooks[Tx any] struct {
+	mu sync.Mutex
+	// resolve decides a WorkOS identity that is not linked yet; resolveTx the same,
+	// with the sign-in's transaction. Unset, every unlinked identity is rejected.
+	resolve   func(identity *workos.Identity) *signin.Resolution
+	resolveTx func(ctx context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error)
+	// resolveAzure and resolveGoogle decide those methods' unlinked identities.
+	resolveAzure  func(identity *azure.Identity) *signin.Resolution
+	resolveGoogle func(identity *google.Identity) *signin.Resolution
+	// policy decides every sign-in; policyTx the same, with the sign-in's transaction.
+	// Unset, every sign-in is allowed.
+	policy   func(req *sessioninfo.NewSessionRequest) *signin.Decision
+	policyTx func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error)
 	// pendingURL is where the PendingHook sends a pending sign-in; "" keeps the default.
 	pendingURL string
 	resolved   int
@@ -52,22 +56,46 @@ type hooks struct {
 	pendings   []*sessioninfo.PendingIdentity
 }
 
-func (h *hooks) resolver(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error) {
+func (h *hooks[Tx]) workOSResolver(ctx context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.resolved++
 	switch {
 	case h.resolveTx != nil:
-		return h.resolveTx(ctx, tx, req)
+		return h.resolveTx(ctx, tx, identity)
 	case h.resolve == nil:
-		return &sessionstorage.Resolution{}, nil
+		return &signin.Resolution{Outcome: signin.RejectIdentity}, nil
 	}
 
-	return h.resolve(req), nil
+	return h.resolve(identity), nil
 }
 
-func (h *hooks) signInPolicy(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.SignInDecision, error) {
+func (h *hooks[Tx]) azureResolver(_ context.Context, _ Tx, identity *azure.Identity) (*signin.Resolution, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.resolved++
+	if h.resolveAzure == nil {
+		return &signin.Resolution{Outcome: signin.RejectIdentity}, nil
+	}
+
+	return h.resolveAzure(identity), nil
+}
+
+func (h *hooks[Tx]) googleResolver(_ context.Context, _ Tx, identity *google.Identity) (*signin.Resolution, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.resolved++
+	if h.resolveGoogle == nil {
+		return &signin.Resolution{Outcome: signin.RejectIdentity}, nil
+	}
+
+	return h.resolveGoogle(identity), nil
+}
+
+func (h *hooks[Tx]) signInPolicy(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -75,13 +103,13 @@ func (h *hooks) signInPolicy(ctx context.Context, tx pgx.Tx, req *sessioninfo.Ne
 	case h.policyTx != nil:
 		return h.policyTx(ctx, tx, req)
 	case h.policy == nil:
-		return &sessionstorage.SignInDecision{Outcome: sessionstorage.AllowSignIn}, nil
+		return &signin.Decision{Outcome: signin.AllowSignIn}, nil
 	}
 
 	return h.policy(req), nil
 }
 
-func (h *hooks) pendingHook(_ context.Context, _ http.ResponseWriter, _ *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
+func (h *hooks[Tx]) pendingHook(_ context.Context, _ http.ResponseWriter, _ *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -90,7 +118,7 @@ func (h *hooks) pendingHook(_ context.Context, _ http.ResponseWriter, _ *http.Re
 	return h.pendingURL, nil
 }
 
-func (h *hooks) identityLinked(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
+func (h *hooks[Tx]) identityLinked(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -99,65 +127,33 @@ func (h *hooks) identityLinked(_ context.Context, userID ccc.UUID, _ *sessioninf
 	return nil
 }
 
-func (h *hooks) set(fn func(h *hooks)) {
+func (h *hooks[Tx]) set(fn func(h *hooks[Tx])) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	fn(h)
 }
 
-func (h *hooks) counts() (resolved int, linked []ccc.UUID) {
+func (h *hooks[Tx]) counts() (resolved int, linked []ccc.UUID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	return h.resolved, append([]ccc.UUID(nil), h.linked...)
 }
 
-// authApp is an application on one Auth session over PostgreSQL with the users,
-// auth events and impersonation schema.
-type authApp struct {
-	db     *dbinitiator.PostgresDatabase
+// authApp is an application on one Auth session over a backend with the users, auth
+// events and impersonation schema.
+type authApp[Tx any] struct {
+	db     appDB
+	rows   appRows[Tx]
 	server *httptest.Server
-	api    *session.AuthAPI[session.NoCustomData, session.NoCustomData]
-	hooks  *hooks
-}
-
-// newAuthStore prepares a database with the shipped sessions, impersonation and users
-// migrations and returns Auth storage over it with h's hooks.
-func newAuthStore(ctx context.Context, t *testing.T, h *hooks) (*dbinitiator.PostgresDatabase, *sessionstorage.Auth) {
-	t.Helper()
-
-	db := prepareDatabase(ctx, t)
-	if err := db.MigrateUp(authMigrations); err != nil {
-		t.Fatalf("PostgresDatabase.MigrateUp(users) error = %v", err)
-	}
-	// The application's own tables, which its hooks write in the sign-in transactions.
-	if _, err := db.Exec(ctx, `
-		CREATE TABLE "PartnerMembers" ("UserId" UUID PRIMARY KEY REFERENCES "SessionUsers" ("Id"), "Partner" character varying NOT NULL);
-		CREATE TABLE "SignInAttempts" ("Subject" character varying NOT NULL, "Outcome" character varying NOT NULL)`); err != nil {
-		t.Fatalf("create the application's tables: %v", err)
-	}
-
-	identities, err := sessionstorage.NewPostgresIdentities("SessionIdentities", h.resolver, h.signInPolicy)
-	if err != nil {
-		t.Fatalf("sessionstorage.NewPostgresIdentities() error = %v", err)
-	}
-	events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
-	if err != nil {
-		t.Fatalf("sessionstorage.NewAuthEventsTable() error = %v", err)
-	}
-	impersonation, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
-	if err != nil {
-		t.Fatalf("sessionstorage.NewImpersonationTable() error = %v", err)
-	}
-
-	return db, sessionstorage.NewPostgresAuth(db.Pool,
-		sessionstorage.WithPostgresIdentities(identities), sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+	api    *session.AuthAPI[session.NoCustomData, session.NoCustomData, Tx]
+	hooks  *hooks[Tx]
 }
 
 // mountAuth mounts auth's shared routes, the way the README prescribes, plus the
 // application's own MFA step and a /whoami that reports the validated session.
-func mountAuth(r chi.Router, auth *session.Auth[session.NoCustomData, session.NoCustomData], routes func(r chi.Router)) {
+func mountAuth[Tx any](r chi.Router, auth *session.Auth[session.NoCustomData, session.NoCustomData, Tx], routes func(r chi.Router)) {
 	api := auth.API()
 
 	r.Use(auth.StartSession, auth.SetXSRFToken)
@@ -238,19 +234,20 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 	_ = httpio.NewEncoder(w).Ok(view)
 }
 
-// newPasswordWorkOSApp is an application with password and WorkOS sign-in on one Auth.
-func newPasswordWorkOSApp(ctx context.Context, t *testing.T, fake *fakeWorkOS) *authApp {
+// newPasswordWorkOSApp is an application with password and WorkOS sign-in on one Auth
+// over be.
+func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], fake *fakeWorkOS) *authApp[Tx] {
 	t.Helper()
 
-	h := &hooks{}
-	db, store := newAuthStore(ctx, t, h)
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey,
+	h := &hooks[Tx]{}
+	db, store := be.newStore(ctx, t)
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, h.signInPolicy,
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	password := session.PasswordSignIn(auth)
-	sso := workos.SignIn(auth, &workos.Config{APIKey: "sk_test", ClientID: workosClientID, RedirectURL: "https://app.example/sso/callback", BaseURL: fake.server.URL})
+	sso := workos.SignIn(auth, h.workOSResolver, &workos.Config{APIKey: "sk_test", ClientID: workosClientID, RedirectURL: "https://app.example/sso/callback", BaseURL: fake.server.URL})
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
@@ -262,18 +259,18 @@ func newPasswordWorkOSApp(ctx context.Context, t *testing.T, fake *fakeWorkOS) *
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp{db: db, server: server, api: auth.API(), hooks: h}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}
 }
 
 // browser is a user agent of an Auth app.
-func (a *authApp) browser(t *testing.T) *browser {
+func (a *authApp[Tx]) browser(t *testing.T) *browser {
 	t.Helper()
 
-	return (&app{db: a.db, server: a.server}).browser(t)
+	return newBrowser(t, a.server)
 }
 
 // seed creates a user with seedPassword.
-func (a *authApp) seed(ctx context.Context, t *testing.T, username string) ccc.UUID {
+func (a *authApp[Tx]) seed(ctx context.Context, t *testing.T, username string) ccc.UUID {
 	t.Helper()
 
 	pw := seedPassword
@@ -283,6 +280,18 @@ func (a *authApp) seed(ctx context.Context, t *testing.T, username string) ccc.U
 	}
 
 	return id
+}
+
+// provisionMember is a user resolver that provisions every unlinked identity under its
+// email for the lakeside partner, and records the membership in the application's own
+// table in OnProvisioned, in the sign-in's transaction.
+func (a *authApp[Tx]) provisionMember(_ context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error) {
+	return &signin.Resolution{
+		Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}, Tenant: "lakeside",
+		OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
+			return a.rows.addMember(ctx, tx, userID, "lakeside")
+		},
+	}, nil
 }
 
 // fakeWorkOS is the WorkOS code exchange: POST /sso/token answers the profile issued for
@@ -448,60 +457,74 @@ func assertRedirect(t *testing.T, got *url.URL, wantPath string, wantQuery url.V
 	}
 }
 
+// TestAuthSeams_PasswordAndWorkOS runs the password and WorkOS scenarios on each
+// backend: the hooks an application gives the Auth are typed to that backend's
+// transaction, and run inside the sign-in's.
 func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 	t.Parallel()
 
+	t.Run(postgresBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runPasswordWorkOSSeams(t, postgresBackend)
+	})
+	t.Run(spannerBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runPasswordWorkOSSeams(t, spannerBackend)
+	})
+}
+
+func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS)
+		run  func(ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS)
 	}{
 		{
 			name: "a password sign-in establishes a session under a new ID that belongs to the user and records the password method",
-			run:  seamPasswordSignIn,
+			run:  seamPasswordSignIn[Tx],
 		},
 		{
 			name: "a first WorkOS sign-in provisions the user the resolver names; the next signs in through the link without the resolver",
-			run:  seamWorkOSProvisionThenLink,
+			run:  seamWorkOSProvisionThenLink[Tx],
 		},
 		{
-			name: "a first WorkOS sign-in provisions the user, and a policy that reads the user and the application's rows OnProvisioned wrote signs it in",
-			run:  seamWorkOSProvisionPolicyReadsUser,
+			name: "a first WorkOS sign-in provisions the user, and a policy that reads the rows OnProvisioned wrote in the same transaction signs it in",
+			run:  seamWorkOSProvisionPolicyReadsRows[Tx],
 		},
 		{
 			name: "a WorkOS sign-in the resolver rejects keeps the resolver's record of the attempt",
-			run:  seamWorkOSRejectedKeepsAttempt,
+			run:  seamWorkOSRejectedKeepsAttempt[Tx],
 		},
 		{
 			name: "a provisioning sign-in held for MFA names the new user to the pending hook, which sends the browser to the application's MFA page",
-			run:  seamWorkOSProvisionHeldForMFA,
+			run:  seamWorkOSProvisionHeldForMFA[Tx],
 		},
 		{
 			name: "a WorkOS identity for a user with a password waits for that password, then links, reports the link and signs in",
-			run:  seamWorkOSConfirmWithPassword,
+			run:  seamWorkOSConfirmWithPassword[Tx],
 		},
 		{
 			name: "a policy that requires MFA holds the password sign-in, and the application's MFA step completes it under a new session ID",
-			run:  seamPasswordMFA,
+			run:  seamPasswordMFA[Tx],
 		},
 		{
 			name: "a confirmed link the policy still holds for MFA stays pending, now for MFA",
-			run:  seamConfirmThenMFA,
+			run:  seamConfirmThenMFA[Tx],
 		},
 		{
 			name: "a refused WorkOS sign-in returns to the login page with its code only and leaves no session or pending identity",
-			run:  seamWorkOSRefused,
+			run:  seamWorkOSRefused[Tx],
 		},
 		{
 			name: "the WorkOS login refuses a returnUrl that leaves the application, and a login without an organization",
-			run:  seamWorkOSLoginGuards,
+			run:  seamWorkOSLoginGuards[Tx],
 		},
 		{
 			name: "a WorkOS callback that does not match the login this browser started is refused",
-			run:  seamWorkOSCallbackBinding,
+			run:  seamWorkOSCallbackBinding[Tx],
 		},
 		{
 			name: "a disabled user's session is refused on its next request, and a user-principal impersonation belongs to the impersonated user",
-			run:  seamDisabledAndImpersonation,
+			run:  seamDisabledAndImpersonation[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -510,12 +533,12 @@ func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 			ctx := t.Context()
 
 			idp := newFakeWorkOS(t)
-			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, idp), idp)
+			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, be, idp), idp)
 		})
 	}
 }
 
-func seamPasswordSignIn(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkOS) {
+func seamPasswordSignIn[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
@@ -537,12 +560,12 @@ func seamPasswordSignIn(ctx context.Context, t *testing.T, a *authApp, _ *fakeWo
 	}
 }
 
-func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSProvisionThenLink[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
-	a.hooks.set(func(h *hooks) {
-		h.resolve = func(req *sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-			return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside"}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolve = func(identity *workos.Identity) *signin.Resolution {
+			return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}, Tenant: "lakeside"}
 		}
 	})
 
@@ -571,44 +594,27 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 	}
 }
 
-// provisionMember is a user resolver that provisions every unlinked identity under
-// its email for the lakeside partner, and records the membership in the application's
-// own table in OnProvisioned, in the resolver's transaction.
-func provisionMember(_ context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error) {
-	return &sessionstorage.Resolution{
-		Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}, Tenant: "lakeside",
-		OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
-			if _, err := tx.Exec(ctx, `INSERT INTO "PartnerMembers" ("UserId", "Partner") VALUES ($1, 'lakeside')`, userID); err != nil {
-				return errors.Wrap(err, "pgx.Tx.Exec()")
-			}
-
-			return nil
-		},
-	}, nil
-}
-
-func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSProvisionPolicyReadsRows[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
 	var sources []sessioninfo.UserSource
-	a.hooks.set(func(h *hooks) {
-		h.resolveTx = provisionMember
-		// The policy reads the user and its membership, as an application's "members
-		// of a partner may sign in" rule does, and refuses what it cannot see.
-		h.policyTx = func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.SignInDecision, error) {
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolveTx = a.provisionMember
+		// The policy reads the membership the resolver wrote, as an application's
+		// "members of a partner may sign in" rule does, and refuses what it cannot see.
+		h.policyTx = func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
 			sources = append(sources, req.User.Source)
-			var partner string
-			err := tx.QueryRow(ctx, `SELECT m."Partner" FROM "PartnerMembers" m JOIN "SessionUsers" u ON u."Id" = m."UserId" WHERE u."Id" = $1`, req.UserID).Scan(&partner)
+			partner, found, err := a.rows.partnerOf(ctx, tx, req.UserID)
 			switch {
-			case errors.Is(err, pgx.ErrNoRows):
-				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "not_a_member"}, nil
 			case err != nil:
-				return nil, errors.Wrap(err, "pgx.Row.Scan()")
+				return nil, err
+			case !found:
+				return &signin.Decision{Outcome: signin.DenySignIn, Refusal: "not_a_member"}, nil
 			case partner != req.User.Tenant:
-				return &sessionstorage.SignInDecision{Outcome: sessionstorage.DenySignIn, Refusal: "wrong_partner"}, nil
+				return &signin.Decision{Outcome: signin.DenySignIn, Refusal: "wrong_partner"}, nil
 			}
 
-			return &sessionstorage.SignInDecision{Outcome: sessionstorage.AllowSignIn}, nil
+			return &signin.Decision{Outcome: signin.AllowSignIn}, nil
 		}
 	})
 
@@ -628,7 +634,7 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 	}
 
 	var seen []sessioninfo.UserSource
-	a.hooks.set(func(*hooks) { seen = append(seen, sources...) })
+	a.hooks.set(func(*hooks[Tx]) { seen = append(seen, sources...) })
 	if want := []sessioninfo.UserSource{sessioninfo.UserProvisioned, sessioninfo.UserExistingLink}; !slices.Equal(seen, want) {
 		t.Errorf("the policy saw users %v, want %v", seen, want)
 	}
@@ -637,16 +643,16 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 	}
 }
 
-func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSRejectedKeepsAttempt[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
-	a.hooks.set(func(h *hooks) {
-		h.resolveTx = func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*sessionstorage.Resolution, error) {
-			if _, err := tx.Exec(ctx, `INSERT INTO "SignInAttempts" ("Subject", "Outcome") VALUES ($1, 'refused: no invite')`, req.Identity.Subject); err != nil {
-				return nil, errors.Wrap(err, "pgx.Tx.Exec()")
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolveTx = func(ctx context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error) {
+			if err := a.rows.recordAttempt(ctx, tx, identity.IDPID, "refused: no invite"); err != nil {
+				return nil, err
 			}
 
-			return &sessionstorage.Resolution{Outcome: sessionstorage.RejectIdentity, Refusal: "not_invited"}, nil
+			return &signin.Resolution{Outcome: signin.RejectIdentity, Refusal: "not_invited"}, nil
 		}
 	})
 
@@ -655,19 +661,18 @@ func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authAp
 	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_x", "x@lakeside.edu"), "/login", url.Values{"code": {"not_invited"}})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 
-	var outcome string
-	if err := a.db.QueryRow(ctx, `SELECT "Outcome" FROM "SignInAttempts" WHERE "Subject" = 'idp_x'`).Scan(&outcome); err != nil || outcome != "refused: no invite" {
-		t.Errorf("the resolver's record of the refused attempt = %q, %v; want it committed", outcome, err)
+	if got := a.db.attemptOutcome(ctx, t, "idp_x"); got != "refused: no invite" {
+		t.Errorf("the resolver's record of the refused attempt = %q, want it committed", got)
 	}
 }
 
-func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSProvisionHeldForMFA[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
-	a.hooks.set(func(h *hooks) {
-		h.resolveTx = provisionMember
-		h.policy = func(*sessioninfo.NewSessionRequest) *sessionstorage.SignInDecision {
-			return &sessionstorage.SignInDecision{Outcome: sessionstorage.RequireMFA}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolveTx = a.provisionMember
+		h.policy = func(*sessioninfo.NewSessionRequest) *signin.Decision {
+			return &signin.Decision{Outcome: signin.RequireMFA}
 		}
 		h.pendingURL = "/app/mfa"
 	})
@@ -679,7 +684,7 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 
 	var pending *sessioninfo.PendingIdentity
-	a.hooks.set(func(h *hooks) {
+	a.hooks.set(func(h *hooks[Tx]) {
 		if len(h.pendings) == 1 {
 			pending = h.pendings[0]
 		}
@@ -687,9 +692,8 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 	if pending == nil || pending.Reason != sessioninfo.PendingMFA || !pending.UserID.Valid || pending.Identity.Email != "sam@lakeside.edu" || pending.ReturnURL != "/dashboard" {
 		t.Fatalf("pending hook received %+v, want one MFA wait naming the provisioned user, its email and the return path", pending)
 	}
-	var username string
-	if err := a.db.QueryRow(ctx, `SELECT "Username" FROM "SessionUsers" WHERE "Id" = $1`, pending.UserID.UUID).Scan(&username); err != nil || username != "sam@lakeside.edu" {
-		t.Errorf("the pending user = %q, %v; want sam@lakeside.edu committed, so the application can send its code", username, err)
+	if got := a.db.username(ctx, t, pending.UserID.UUID); got != "sam@lakeside.edu" {
+		t.Errorf("the pending user = %q, want sam@lakeside.edu committed, so the application can send its code", got)
 	}
 
 	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/mfa", nil)
@@ -703,13 +707,13 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 	}
 }
 
-func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSConfirmWithPassword[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
-	a.hooks.set(func(h *hooks) {
-		h.resolve = func(*sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-			return &sessionstorage.Resolution{Outcome: sessionstorage.RequireConfirmation, UserID: pat, Tenant: "lakeside"}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolve = func(*workos.Identity) *signin.Resolution {
+			return &signin.Resolution{Outcome: signin.RequireConfirmation, UserID: pat, Tenant: "lakeside"}
 		}
 	})
 
@@ -762,13 +766,13 @@ func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp
 	}
 }
 
-func seamPasswordMFA(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkOS) {
+func seamPasswordMFA[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
-	a.hooks.set(func(h *hooks) {
-		h.policy = func(*sessioninfo.NewSessionRequest) *sessionstorage.SignInDecision {
-			return &sessionstorage.SignInDecision{Outcome: sessionstorage.RequireMFA}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.policy = func(*sessioninfo.NewSessionRequest) *signin.Decision {
+			return &signin.Decision{Outcome: signin.RequireMFA}
 		}
 	})
 
@@ -795,20 +799,20 @@ func seamPasswordMFA(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkO
 	replay.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 }
 
-func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamConfirmThenMFA[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
-	a.hooks.set(func(h *hooks) {
-		h.resolve = func(*sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-			return &sessionstorage.Resolution{Outcome: sessionstorage.RequireConfirmation, UserID: pat}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolve = func(*workos.Identity) *signin.Resolution {
+			return &signin.Resolution{Outcome: signin.RequireConfirmation, UserID: pat}
 		}
-		h.policy = func(req *sessioninfo.NewSessionRequest) *sessionstorage.SignInDecision {
+		h.policy = func(req *sessioninfo.NewSessionRequest) *signin.Decision {
 			if req.Reason == sessioninfo.ReasonIdentityLinked {
-				return &sessionstorage.SignInDecision{Outcome: sessionstorage.RequireMFA}
+				return &signin.Decision{Outcome: signin.RequireMFA}
 			}
 
-			return &sessionstorage.SignInDecision{Outcome: sessionstorage.AllowSignIn}
+			return &signin.Decision{Outcome: signin.AllowSignIn}
 		}
 	})
 
@@ -824,12 +828,12 @@ func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, idp *fake
 	assertEventsSeen(t, b.view(ctx), "workos:"+lakesideConnection, "link-confirmation", "email-otp")
 }
 
-func seamWorkOSRefused(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSRefused[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
-	a.hooks.set(func(h *hooks) {
-		h.resolve = func(*sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-			return &sessionstorage.Resolution{Outcome: sessionstorage.RejectIdentity, Refusal: "not_invited"}
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolve = func(*workos.Identity) *signin.Resolution {
+			return &signin.Resolution{Outcome: signin.RejectIdentity, Refusal: "not_invited"}
 		}
 	})
 
@@ -840,7 +844,7 @@ func seamWorkOSRefused(ctx context.Context, t *testing.T, a *authApp, idp *fakeW
 	b.expect(ctx, http.StatusNotFound, http.MethodGet, "/pending", nil)
 }
 
-func seamWorkOSLoginGuards(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkOS) {
+func seamWorkOSLoginGuards[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
 	b := a.browser(t)
@@ -857,7 +861,7 @@ func seamWorkOSLoginGuards(ctx context.Context, t *testing.T, a *authApp, _ *fak
 	}
 }
 
-func seamWorkOSCallbackBinding(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
+func seamWorkOSCallbackBinding[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
 	b := a.browser(t)
@@ -870,7 +874,7 @@ func seamWorkOSCallbackBinding(ctx context.Context, t *testing.T, a *authApp, id
 	assertRedirect(t, stranger.location(ctx, "/sso/callback?code="+code+"&state="+url.QueryEscape(state)), "/login", url.Values{"code": {"no_oidc_cookie"}})
 }
 
-func seamDisabledAndImpersonation(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkOS) {
+func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
@@ -887,8 +891,6 @@ func seamDisabledAndImpersonation(ctx context.Context, t *testing.T, a *authApp,
 	}
 	assertEventsSeen(t, v, "impersonation:pat@lakeside.edu")
 
-	if _, err := a.db.Exec(ctx, `UPDATE "SessionUsers" SET "Disabled" = TRUE WHERE "Id" = $1`, pat); err != nil {
-		t.Fatalf("disable pat: %v", err)
-	}
+	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 }

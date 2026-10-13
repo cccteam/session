@@ -49,7 +49,7 @@ type impersonateRequest struct {
 func newApp(ctx context.Context, t *testing.T) *app {
 	t.Helper()
 
-	db := prepareDatabase(ctx, t)
+	db := preparePostgres(ctx, t, postgresSessions, postgresImpersonation)
 
 	table, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
 	if err != nil {
@@ -195,16 +195,23 @@ type browser struct {
 func (a *app) browser(t *testing.T) *browser {
 	t.Helper()
 
+	return newBrowser(t, a.server)
+}
+
+// newBrowser is a user agent of the application server listens for.
+func newBrowser(t *testing.T, server *httptest.Server) *browser {
+	t.Helper()
+
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("cookiejar.New() error = %v", err)
 	}
 	// The server hands out one shared *http.Client; each browser needs its own jar, so
 	// copy the client and share only its transport.
-	client := *a.server.Client()
+	client := *server.Client()
 	client.Jar = jar
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	base, err := url.Parse(a.server.URL)
+	base, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("url.Parse() error = %v", err)
 	}

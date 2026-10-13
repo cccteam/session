@@ -8,16 +8,19 @@ code lives.
 
 **Seam suite** (`internal/e2e`). Runs the library the way an application does: a public
 session type mounted on a chi router, real cookies over an HTTPS test server, and the
-public PostgreSQL storage on the shipped migrations. One scenario per security invariant.
-Add a scenario when a property only holds if several layers agree, such as "the old cookie
-is dead after the end". The Auth scenarios run password and WorkOS sign-in on one `Auth`
-against a fake WorkOS code exchange (`TestAuthSeams_PasswordAndWorkOS`), and Azure and
-Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoogle`, production
-verifiers only, so not under `skipAuth`). Their user resolver and sign-in policy can
-take the transaction (`hooks.resolveTx`, `hooks.policyTx`) to write and read the
-application's own tables (`PartnerMembers`, `SignInAttempts`, created over the shipped
+public PostgreSQL and Spanner storage on the shipped migrations. One scenario per security
+invariant. Add a scenario when a property only holds if several layers agree, such as "the
+old cookie is dead after the end". The Auth scenarios run password and WorkOS sign-in on
+one `Auth` against a fake WorkOS code exchange (`TestAuthSeams_PasswordAndWorkOS`), and
+Azure and Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoogle`,
+production verifiers only, so not under `skipAuth`), each on both backends
+(`backends_test.go`: a `backend[Tx]` prepares the database, builds the store and reaches
+the application's own tables), so the rules an application gives the `Auth` are exercised
+typed to each backend's transaction. Their user resolver and sign-in policy can take the
+transaction (`hooks.resolveTx`, `hooks.policyTx`) to write and read the application's own
+tables (`PartnerMembers`, `SignInAttempts`, from `testdata/<backend>` over the shipped
 schema), which is how the scenarios prove a hook's write survives a refusal and a policy
-reads the user a sign-in provisioned. Needs Docker.
+reads what the sign-in's resolver wrote in the same transaction. Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
 against `Preauth` and `Auth` (with password and WorkOS sign-in registered on it), and
@@ -27,13 +30,17 @@ delegates, and a delegate forwarded to the wrong base method compiles. Add a sce
 whenever a handler or middleware is added to the shared interface.
 
 **Auth unit tests** (`auth_test.go`, `auth_methods_test.go` in the root package). The
-Auth's flows against a mocked store. The fixture registers password sign-in with
-`PasswordSignIn`; a test registers an external method over a mocked authenticator through its
-package's `Config.Authenticator` (`azure.SignIn`, `google.SignIn`, `workos.SignIn`), the
-same registration path production takes with the real one, so every flow test wires its
-handler from the value the registration returned and the registration rules apply to it. The
-registration rules themselves (a method twice, a method once the Auth is in use, an
-external method without identities) are a table of panics in
+Auth's flows against a mocked store, generic over a `mockTx` transaction type as a real
+store is over its driver's. The fixture registers password sign-in with `PasswordSignIn`;
+a test registers an external method over a mocked authenticator through its package's
+`Config.Authenticator` (`azure.SignIn`, `google.SignIn`, `workos.SignIn`), the same
+registration path production takes with the real one, so every flow test wires its
+handler from the value the registration returned and the registration rules apply to it.
+A sign-in is one `SignIn` call on the store (`expectSignIn`), which asserts that the call
+carries the `Auth`'s policy and, for an external identity, its method's resolver; the
+callback tests run that resolver to prove it decodes the verified claims into the method's
+identity type. The registration rules themselves (a method twice, a method once the Auth
+is in use, an external method without a user resolver) are a table of panics in
 `TestAuth_RegistrationRefused`; the handler sets of the method types are asserted at
 compile time in `auth_methods_test.go`.
 

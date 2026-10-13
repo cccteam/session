@@ -34,6 +34,30 @@ type Config struct {
 	Authenticator Authenticator
 }
 
+// Identity is a verified Microsoft Entra ID identity as the user resolver receives it.
+type Identity struct {
+	// TenantID and ObjectID key the identity: the tid and oid claims.
+	TenantID string
+	ObjectID string
+	// Email is the email claim. Microsoft does not verify it.
+	Email string
+	// PreferredUsername and Name are the preferred_username and name claims.
+	PreferredUsername string
+	Name              string
+	// Roles are the application roles the token asserts (the roles claim).
+	Roles []string
+	// AMR are the authentication methods the token asserts (the amr claim).
+	AMR []string
+	// Claims are the ID token's claims as issued, for anything the fields above do not
+	// carry.
+	Claims json.RawMessage
+}
+
+// UserResolver decides an Entra ID identity that is not linked to any user yet. It is
+// the application's rule, given to SignIn; see signin.UserResolver for when it runs and
+// what it may do. Tx is the Auth's storage transaction type.
+type UserResolver[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
+
 // Method holds the handlers of the Microsoft Entra ID (Azure) sign-in method.
 type Method struct {
 	login              http.HandlerFunc
@@ -42,17 +66,18 @@ type Method struct {
 }
 
 // SignIn registers Microsoft Entra ID (Azure) OpenID Connect sign-in on auth and
-// returns its handlers. The identity key is (tid, oid).
+// returns its handlers. The identity key is (tid, oid); resolve decides an identity
+// that is not linked yet.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, when auth's storage has no identities configuration
-// (sessionstorage.ErrIdentitiesNotConfigured), or when cfg.RoleSync is missing.
-func SignIn(auth signin.Core, cfg *Config) *Method {
+// request, when resolve is nil, or when cfg.RoleSync is missing.
+func SignIn[Tx any](auth signin.Core[Tx], resolve UserResolver[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	h := signin.Register(auth, &signin.Registration{
+	reg := &signin.Registration[Tx]{
 		Method:             sessioninfo.MethodAzure,
+		Resolve:            resolver(resolve),
 		FrontChannelLogout: true,
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			roles, err := signin.ReconcilerOf(cfg.RoleSync)
@@ -70,7 +95,11 @@ func SignIn(auth signin.Core, cfg *Config) *Method {
 
 			return method(authn, roles), nil
 		},
-	})
+	}
+	if resolve == nil {
+		reg.Err = errors.New("resolve is required: it decides every Entra ID identity that is not linked yet")
+	}
+	h := signin.Register(auth, reg)
 
 	return &Method{login: h.Login, callback: h.Callback, frontChannelLogout: h.FrontChannelLogout}
 }
@@ -91,17 +120,50 @@ func (m *Method) Callback() http.HandlerFunc { return m.callback }
 // provider's session ID yet, so it answers 501 Not Implemented.
 func (m *Method) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
+// claims are the ID token's claims the method reads.
+type claims struct {
+	Tid               string   `json:"tid"`
+	Oid               string   `json:"oid"`
+	Email             string   `json:"email"`
+	PreferredUsername string   `json:"preferred_username"`
+	Name              string   `json:"name"`
+	Roles             []string `json:"roles"`
+	Amr               []string `json:"amr"`
+}
+
+// identityOf decodes the ID token's claims into the identity. A token without tid and
+// oid, or whose claims do not decode, is refused (claims_parse).
+func identityOf(rawClaims json.RawMessage) (*Identity, error) {
+	c, err := oidc.DecodeClaims[claims](rawClaims)
+	if err != nil {
+		return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewUnauthorizedMessageWithError(err, "Failed to parse ID token claims"))
+	}
+	if c.Tid == "" || c.Oid == "" {
+		return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewUnauthorizedMessage("ID token carries no tid and oid"))
+	}
+
+	return &Identity{
+		TenantID: c.Tid, ObjectID: c.Oid, Email: c.Email, PreferredUsername: c.PreferredUsername, Name: c.Name,
+		Roles: c.Roles, AMR: c.Amr, Claims: rawClaims,
+	}, nil
+}
+
+// resolver adapts the application's resolver to the contract: the identity the core
+// resolves is decoded from the claims the sign-in verified.
+func resolver[Tx any](resolve UserResolver[Tx]) signin.UserResolver[Tx] {
+	return func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		identity, err := identityOf(req.Identity.Claims)
+		if err != nil {
+			return nil, errors.Wrap(err, "azure.identityOf()")
+		}
+
+		return resolve(ctx, tx, identity)
+	}
+}
+
 // method is the Azure method over authn. The identity is (tid, oid). When roles is set,
 // the token's roles claim is reconciled.
 func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
-	type claims struct {
-		Tid   string   `json:"tid"`
-		Oid   string   `json:"oid"`
-		Email string   `json:"email"`
-		Roles []string `json:"roles"`
-		Amr   []string `json:"amr"`
-	}
-
 	m := &signin.Method{
 		Name:     sessioninfo.MethodAzure,
 		LoginURL: authn.LoginURL,
@@ -115,22 +177,19 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 			if err != nil {
 				return nil, errors.Wrap(err, "azure.Authenticator.Verify()")
 			}
-			c, err := oidc.DecodeClaims[claims](rawClaims)
+			id, err := identityOf(rawClaims)
 			if err != nil {
-				return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewUnauthorizedMessageWithError(err, "Failed to parse ID token claims"))
-			}
-			if c.Tid == "" || c.Oid == "" {
-				return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewUnauthorizedMessage("ID token carries no tid and oid"))
+				return nil, err
 			}
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodAzure, Connection: c.Tid, Subject: c.Oid, Email: c.Email, Claims: rawClaims, IDPAMR: c.Amr,
+					Method: sessioninfo.MethodAzure, Connection: id.TenantID, Subject: id.ObjectID, Email: id.Email, Claims: rawClaims, IDPAMR: id.AMR,
 				},
 				ReturnURL: returnURL,
 			}
 			if roles != nil {
-				v.RoleNames = signin.RoleNames(c.Roles)
+				v.RoleNames = signin.RoleNames(id.Roles)
 			}
 
 			return v, nil

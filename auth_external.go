@@ -16,7 +16,7 @@ import (
 // externalLogin redirects the browser to the provider. A returnUrl that
 // internalcookie.SanitizeReturnURL would change is refused with 400 rather than
 // carried, so a crafted login link can't become an open redirect.
-func (a *Auth[S, U]) externalLogin(m *signin.Method) http.HandlerFunc {
+func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -47,7 +47,7 @@ func (a *Auth[S, U]) externalLogin(m *signin.Method) http.HandlerFunc {
 
 // externalCallback completes the provider round trip. See the README's "The redirect
 // and response contract" for where it redirects.
-func (a *Auth[S, U]) externalCallback(m *signin.Method) http.HandlerFunc {
+func (a *Auth[S, U, Tx]) externalCallback(m *signin.Method) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()

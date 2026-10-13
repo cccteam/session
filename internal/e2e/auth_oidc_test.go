@@ -18,8 +18,6 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/oidctest"
-	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
 	"github.com/go-chi/chi/v5"
 )
@@ -35,31 +33,31 @@ const (
 
 // oidcApp is an application with Azure and Google sign-in on one Auth, each against its
 // own fake identity provider.
-type oidcApp struct {
-	*authApp
+type oidcApp[Tx any] struct {
+	*authApp[Tx]
 	azure, google *oidctest.FakeIDP
 }
 
-func newOIDCApp(ctx context.Context, t *testing.T) *oidcApp {
+func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidcApp[Tx] {
 	t.Helper()
 
-	h := &hooks{}
-	db, store := newAuthStore(ctx, t, h)
+	h := &hooks[Tx]{}
+	db, store := be.newStore(ctx, t)
 	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, session.WithIdentityLinked(h.identityLinked))
+	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
-	azureMethod := azure.SignIn(auth, &azure.Config{
+	azureMethod := azure.SignIn(auth, h.azureResolver, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
 		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",
 	})
 	googleIssuerMu.Lock()
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
-	googleMethod := google.SignIn(auth, &google.Config{
+	googleMethod := google.SignIn(auth, h.googleResolver, &google.Config{
 		RoleSync: google.DisableRoleSync(), HostedDomain: hostedDomain,
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 	})
@@ -76,7 +74,7 @@ func newOIDCApp(ctx context.Context, t *testing.T) *oidcApp {
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &oidcApp{authApp: &authApp{db: db, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP}
+	return &oidcApp[Tx]{authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP}
 }
 
 // oidcSignIn runs a login round trip through provider at prefix (/azure or /google)
@@ -113,27 +111,39 @@ func googleClaims(sub, email string) map[string]any {
 	return map[string]any{"sub": sub, "email": email, "email_verified": true, "hd": hostedDomain}
 }
 
+// TestAuthSeams_AzureAndGoogle runs the Azure and Google scenarios on each backend.
 func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 	t.Parallel()
 
+	t.Run(postgresBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runAzureGoogleSeams(t, postgresBackend)
+	})
+	t.Run(spannerBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runAzureGoogleSeams(t, spannerBackend)
+	})
+}
+
+func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, t *testing.T, a *oidcApp)
+		run  func(ctx context.Context, t *testing.T, a *oidcApp[Tx])
 	}{
 		{
 			name: "Azure and Google identities reach one user by their own keys, (tid, oid) and sub, never by email",
-			run: func(ctx context.Context, t *testing.T, a *oidcApp) {
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				var user ccc.UUID
-				a.hooks.set(func(h *hooks) {
-					h.resolve = func(req *sessioninfo.NewSessionRequest) *sessionstorage.Resolution {
-						switch {
-						case req.Identity.Method == sessioninfo.MethodAzure && req.Identity.Connection == azureTenant:
-							return &sessionstorage.Resolution{Outcome: sessionstorage.ProvisionUser, NewUser: &sessionstorage.InsertSessionUser{Username: req.Identity.Email}}
-						case req.Identity.Method == sessioninfo.MethodGoogle:
-							return &sessionstorage.Resolution{Outcome: sessionstorage.LinkIdentity, UserID: user}
-						default:
-							return &sessionstorage.Resolution{Outcome: sessionstorage.RejectIdentity}
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
+						if identity.TenantID != azureTenant {
+							return &signin.Resolution{Outcome: signin.RejectIdentity}
 						}
+
+						return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}}
+					}
+					h.resolveGoogle = func(*google.Identity) *signin.Resolution {
+						return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: user}
 					}
 				})
 
@@ -141,7 +151,7 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				v := b.view(ctx)
 				assertEventsSeen(t, v, "azure:"+azureTenant)
-				user = ccc.Must(ccc.UUIDFromString(v.UserID))
+				a.hooks.set(func(*hooks[Tx]) { user = ccc.Must(ccc.UUIDFromString(v.UserID)) })
 
 				g := a.browser(t)
 				assertRedirect(t, g.oidcSignIn(ctx, a.google, "/google", googleClaims("google-sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
@@ -170,7 +180,7 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 		},
 		{
 			name: "an ID token the provider did not issue for this client is refused with its code and starts nothing",
-			run: func(ctx context.Context, t *testing.T, a *oidcApp) {
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				claims := azureClaims(azureTenant, "oid-x", "x@lakeside.edu")
 				claims["aud"] = "another-client"
 
@@ -184,7 +194,7 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 		},
 		{
 			name: "a Google user outside the hosted domain is refused before any user is resolved",
-			run: func(ctx context.Context, t *testing.T, a *oidcApp) {
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				claims := googleClaims("google-sub-x", "x@elsewhere.example")
 				claims["hd"] = "elsewhere.example"
 
@@ -201,7 +211,7 @@ func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			tt.run(ctx, t, newOIDCApp(ctx, t))
+			tt.run(ctx, t, newOIDCApp(ctx, t, be))
 		})
 	}
 }

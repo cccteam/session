@@ -1,12 +1,9 @@
 package dbtype
 
 import (
-	"context"
-	"fmt"
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
@@ -25,44 +22,6 @@ type SessionIdentity struct {
 	LastUsedAt  time.Time              `spanner:"LastUsedAt"  db:"LastUsedAt"`
 }
 
-// IdentityOutcome mirrors sessionstorage.IdentityOutcome, value for value.
-type IdentityOutcome int
-
-// The user resolver's outcomes; RejectIdentity is the zero value.
-const (
-	RejectIdentity IdentityOutcome = iota
-	LinkIdentity
-	ProvisionUser
-	RequireConfirmation
-)
-
-// Resolution mirrors sessionstorage.Resolution for the drivers.
-type Resolution struct {
-	Outcome           IdentityOutcome
-	UserID            ccc.UUID
-	NewUser           *InsertSessionUser
-	OnProvisioned     func(ctx context.Context, userID ccc.UUID) error
-	Tenant            string
-	TrustedForLinking bool
-	Refusal           sessioninfo.LoginRefusalCode
-}
-
-// PolicyOutcome mirrors sessionstorage.PolicyOutcome, value for value.
-type PolicyOutcome int
-
-// The sign-in policy's outcomes; DenySignIn is the zero value.
-const (
-	DenySignIn PolicyOutcome = iota
-	AllowSignIn
-	RequireMFA
-)
-
-// SignInDecision mirrors sessionstorage.SignInDecision for the drivers.
-type SignInDecision struct {
-	Outcome PolicyOutcome
-	Refusal sessioninfo.LoginRefusalCode
-}
-
 // IsExternal reports whether identity is resolved through the identities table. A
 // password identity names its user directly (req.UserID), and an impersonation
 // identity belongs to the impersonation flow.
@@ -70,50 +29,9 @@ func IsExternal(identity *sessioninfo.Identity) bool {
 	return identity != nil && identity.Method != sessioninfo.MethodPassword && identity.Method != sessioninfo.MethodImpersonation
 }
 
-// PolicyApplies reports whether the sign-in policy decides a session created for
-// reason. It decides ReasonLogin and ReasonIdentityLinked. Every other session was
-// already decided or is started by the application itself.
-func PolicyApplies(reason sessioninfo.NewSessionReason) bool {
-	return reason == sessioninfo.ReasonLogin || reason == sessioninfo.ReasonIdentityLinked
-}
-
-// The causes a refused sign-in carries; see sessionstorage for their documentation.
-var (
-	ErrIdentitiesNotConfigured  = errors.New("sessionstorage: identities are not configured: attach WithSpannerIdentities or WithPostgresIdentities")
-	ErrIdentityRejected         = errors.New("sessionstorage: the user resolver rejected the identity")
-	ErrLinkRequiresConfirmation = errors.New("sessionstorage: an identity can't be linked to a user that has a password without confirmation (or TrustedForLinking)")
-	ErrSignInDenied             = errors.New("sessionstorage: the sign-in policy denied the sign-in")
-	ErrUserDisabled             = errors.New("sessionstorage: the user is disabled")
-	ErrLastSignInMethod         = errors.New("sessionstorage: the identity is the user's last means of sign-in")
-)
-
-// Refusal returns a refused sign-in's error. It carries code (or fallback when code is
-// empty) for the login page, cause for errors.Is, and an Unauthorized client message.
-func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message string) error {
-	if code == "" {
-		code = fallback
-	}
-
-	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
-}
-
-// PendingSignInError reports a sign-in that resolved to a user but must wait for a
-// password confirmation or MFA. It is documented on sessionstorage.PendingSignInError.
-type PendingSignInError struct {
-	// Reason is why the sign-in waits.
-	Reason sessioninfo.PendingReason
-	// UserID is the user the sign-in resolved to.
-	UserID ccc.NullUUID
-	// Username is that user's username.
-	Username string
-	// Tenant is the resolver's tenant key for the link to be made.
-	Tenant string
-}
-
-// Error describes the pending sign-in.
-func (e *PendingSignInError) Error() string {
-	return fmt.Sprintf("sessionstorage: sign-in pending %s for user %v", e.Reason, e.UserID)
-}
+// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
+// a user that has no password; see sessionstorage for its documentation.
+var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's last means of sign-in")
 
 // User is the part of a user row the sign-in flow decides on.
 type User struct {
@@ -122,63 +40,17 @@ type User struct {
 	Disabled    bool
 }
 
-// Verdict is DecideSignIn's answer. The zero Verdict lets the sign-in go ahead. A
-// refusal or an MFA wait travels as a value rather than an error because the
-// transaction that decided it commits; the driver answers Err once it has.
-type Verdict struct{ stop error }
+// SignInConflict is a driver's classification of the error a sign-in's transaction
+// ended with.
+type SignInConflict int
 
-// Proceeds reports whether the sign-in goes ahead.
-func (v Verdict) Proceeds() bool {
-	return v.stop == nil
-}
-
-// Err returns the refusal (a *sessioninfo.LoginRefusal) or the MFA wait (a
-// *PendingSignInError) the sign-in flow reads back, or nil when the sign-in goes ahead.
-func (v Verdict) Err() error {
-	return v.stop
-}
-
-// DecideSignIn refuses a disabled user, sets req.Username to the user's, and runs
-// the policy when it is non-nil and applies to req.Reason. The verdict is a refusal, an
-// MFA wait or the go-ahead; the transaction commits on each. err is the policy's error,
-// which rolls the transaction back.
-func DecideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, user *User, policy func(ctx context.Context) (*SignInDecision, error),
-) (Verdict, error) {
-	if user.Disabled {
-		return Verdict{stop: Refusal("", sessioninfo.RefusedUserDisabled, ErrUserDisabled, "User disabled")}, nil
-	}
-	req.Username = user.Username
-
-	if policy == nil || !PolicyApplies(req.Reason) {
-		return Verdict{}, nil
-	}
-
-	decision, err := policy(ctx)
-	if err != nil {
-		return Verdict{}, errors.Wrap(err, "sign-in policy")
-	}
-	if decision == nil {
-		decision = &SignInDecision{}
-	}
-
-	switch decision.Outcome {
-	case AllowSignIn:
-		return Verdict{}, nil
-	case RequireMFA:
-		pending := &PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username}
-		if req.User != nil {
-			pending.Tenant = req.User.Tenant
-		}
-
-		return Verdict{stop: pending}, nil
-	default:
-		return Verdict{stop: Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, ErrSignInDenied, "sign-in denied")}, nil
-	}
-}
-
-// SignInUser returns req's user as the sign-in policy and the custom session data
-// resolver receive it.
-func SignInUser(req *sessioninfo.NewSessionRequest, user *User, source sessioninfo.UserSource, tenant string) *sessioninfo.SignInUser {
-	return &sessioninfo.SignInUser{ID: req.UserID, Username: user.Username, HasPassword: user.HasPassword, Source: source, Tenant: tenant}
-}
+const (
+	// NoSignInConflict is any other error.
+	NoSignInConflict SignInConflict = iota
+	// UsernameConflict is the users table refusing a provisioned user's username,
+	// which another user already has.
+	UsernameConflict
+	// IdentityConflict is the identities table refusing a link of an identity that a
+	// racing sign-in linked meanwhile.
+	IdentityConflict
+)

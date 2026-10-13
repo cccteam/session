@@ -21,6 +21,12 @@ var _ PasswordAuthStore = (*PasswordAuth)(nil)
 //
 // Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type PasswordAuth struct {
+	userStorage
+}
+
+// userStorage is the storage of a store that has users: the sessions, and the user
+// operations over the users table. PasswordAuth (legacy) and Auth build on it.
+type userStorage struct {
 	sessionStorage
 }
 
@@ -33,11 +39,7 @@ func NewSpannerPasswordAuth(client *cloudspanner.Client, opts ...SpannerOption) 
 		opt.applySpanner(driver)
 	}
 
-	return &PasswordAuth{
-		sessionStorage: sessionStorage{
-			db: driver,
-		},
-	}
+	return &PasswordAuth{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}}
 }
 
 // NewPostgresPassword creates a new PostgresPassword instance.
@@ -49,18 +51,14 @@ func NewPostgresPassword(pg postgres.Queryer, opts ...PostgresOption) *PasswordA
 		opt.applyPostgres(driver)
 	}
 
-	return &PasswordAuth{
-		sessionStorage: sessionStorage{
-			db: driver,
-		},
-	}
+	return &PasswordAuth{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}}
 }
 
 // CreateSession creates a new session for the request and returns its ID. When a custom
 // session data configuration with a resolver is attached to the storage, the resolver
 // runs inside the session-insert transaction; a resolver error aborts session creation.
 // With no resolver it is a plain insert.
-func (p *PasswordAuth) CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (s *userStorage) CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -70,7 +68,7 @@ func (p *PasswordAuth) CreateSession(ctx context.Context, req *sessioninfo.NewSe
 		UpdatedAt: time.Now(),
 	}
 
-	id, err := p.db.InsertSession(ctx, session, req)
+	id, err := s.db.InsertSession(ctx, session, req)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "db.InsertSession()")
 	}
@@ -79,11 +77,11 @@ func (p *PasswordAuth) CreateSession(ctx context.Context, req *sessioninfo.NewSe
 }
 
 // User returns the user record associated with the username
-func (p *PasswordAuth) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
+func (s *userStorage) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	u, err := p.db.User(ctx, id)
+	u, err := s.db.User(ctx, id)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.User()")
 	}
@@ -92,11 +90,11 @@ func (p *PasswordAuth) User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUs
 }
 
 // UserByUserName returns the user record associated with the username
-func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
+func (s *userStorage) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	u, err := p.db.UserByUserName(ctx, username)
+	u, err := s.db.UserByUserName(ctx, username)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.UserByUserName()")
 	}
@@ -107,11 +105,11 @@ func (p *PasswordAuth) UserByUserName(ctx context.Context, username string) (*db
 // CreateUser creates a new user. customData is nil or *U for the configured custom
 // user data struct type; when non-nil it is written atomically with the user insert
 // and requires a custom user data configuration on the storage.
-func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
+func (s *userStorage) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	u, err := p.db.CreateUser(ctx, user, customData)
+	u, err := s.db.CreateUser(ctx, user, customData)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.CreateUser()")
 	}
@@ -121,11 +119,11 @@ func (p *PasswordAuth) CreateUser(ctx context.Context, user *dbtype.InsertSessio
 
 // SetUserUsername updates the user username and, atomically, the Username
 // on every active session row for that user.
-func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
+func (s *userStorage) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.SetUserUsername(ctx, id, newUsername); err != nil {
+	if err := s.db.SetUserUsername(ctx, id, newUsername); err != nil {
 		return errors.Wrap(err, "db.SetUserUsername()")
 	}
 
@@ -133,11 +131,11 @@ func (p *PasswordAuth) SetUserUsername(ctx context.Context, id ccc.UUID, newUser
 }
 
 // SetUserPasswordHash updates the user password hash
-func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+func (s *userStorage) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.SetUserPasswordHash(ctx, id, hash); err != nil {
+	if err := s.db.SetUserPasswordHash(ctx, id, hash); err != nil {
 		return errors.Wrap(err, "db.SetUserPasswordHash()")
 	}
 
@@ -145,11 +143,11 @@ func (p *PasswordAuth) SetUserPasswordHash(ctx context.Context, id ccc.UUID, has
 }
 
 // DeactivateUser deactivates a user
-func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+func (s *userStorage) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.DeactivateUser(ctx, id); err != nil {
+	if err := s.db.DeactivateUser(ctx, id); err != nil {
 		return errors.Wrap(err, "db.DeactivateUser()")
 	}
 
@@ -157,11 +155,11 @@ func (p *PasswordAuth) DeactivateUser(ctx context.Context, id ccc.UUID) error {
 }
 
 // DeleteUser deletes a user
-func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
+func (s *userStorage) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.DeleteUser(ctx, id); err != nil {
+	if err := s.db.DeleteUser(ctx, id); err != nil {
 		return errors.Wrap(err, "db.DeleteUser()")
 	}
 
@@ -169,11 +167,11 @@ func (p *PasswordAuth) DeleteUser(ctx context.Context, id ccc.UUID) error {
 }
 
 // ActivateUser activates a user
-func (p *PasswordAuth) ActivateUser(ctx context.Context, id ccc.UUID) error {
+func (s *userStorage) ActivateUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.db.ActivateUser(ctx, id); err != nil {
+	if err := s.db.ActivateUser(ctx, id); err != nil {
 		return errors.Wrap(err, "db.ActivateUser()")
 	}
 

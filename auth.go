@@ -19,7 +19,7 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-var _ basesession.Handlers = &Auth[NoCustomData, NoCustomData]{}
+var _ basesession.Handlers = &Auth[NoCustomData, NoCustomData, struct{}]{}
 
 // authSettings holds Auth-only settings.
 type authSettings struct {
@@ -70,7 +70,7 @@ type PendingHook = func(ctx context.Context, w http.ResponseWriter, r *http.Requ
 // WithPendingHook sets the hook called when PasswordMethod.Login(), an external
 // method's Callback() or Pending().ConfirmWithPassword() holds a sign-in as a pending
 // identity. The AuthAPI methods never call it. They return a
-// *sessionstorage.PendingSignInError instead.
+// *signin.PendingSignInError instead.
 func WithPendingHook(hook PendingHook) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.pendingHook = hook }}
 }
@@ -100,10 +100,16 @@ func WithPendingCookieName(name string) AuthOption {
 // confirmation or the application's MFA step, or is refused with a
 // sessioninfo.LoginRefusalCode. See the README's "Auth sessions (multiple sign-in
 // methods)" for the routes and the redirect contract.
-type Auth[SessionData, UserData any] struct {
+//
+// Tx is the storage's transaction type (pgx.Tx, *spanner.ReadWriteTransaction), taken
+// from the storage NewAuth is given. The sign-in policy and every external method's user
+// resolver receive it, so a hook written for the other backend does not compile.
+type Auth[SessionData, UserData, Tx any] struct {
 	baseSession *basesession.BaseSession
-	storage     sessionstorage.AuthStore
+	storage     sessionstorage.AuthStore[Tx]
 	settings    authSettings
+	// policy decides every sign-in once its user is known.
+	policy signin.Policy[Tx]
 
 	// cookies is the session cookie client. It also writes the external methods' state
 	// cookies.
@@ -111,19 +117,28 @@ type Auth[SessionData, UserData any] struct {
 	// pendingCookies writes the pending-identity cookie.
 	pendingCookies *internalcookie.Client
 	// methods are the registered sign-in methods. Read them through registered.
-	methods signInMethods
+	methods signInMethods[Tx]
 }
 
 // NewAuth creates an Auth session for the given storage. The storage's custom session
 // and user data configurations must be built for SessionData and UserData. The
 // OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
-// are refused. External methods also need an identities configuration, which their
-// registration checks.
+// are refused. Tx is inferred from the storage: an application writes
+// NewAuth[SessionData, UserData](store, cookieKey, policy).
+//
+// policy decides every sign-in once its user is known: signin.AllowAll, or the
+// application's rule; it is required. Each external method's user resolver is given to
+// that method's registration.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
-func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookieKey string, options ...AuthOption) (*Auth[SessionData, UserData], error) {
+func NewAuth[SessionData, UserData, Tx any](
+	storage sessionstorage.AuthStore[Tx], cookieKey string, policy signin.Policy[Tx], options ...AuthOption,
+) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
+	}
+	if policy == nil {
+		return nil, errors.New("a sign-in policy is required: pass signin.AllowAll to allow every sign-in, or the application's rule")
 	}
 	if err := sessioncore.VerifyCustomDataTypes[SessionData, UserData](storage); err != nil {
 		return nil, err
@@ -161,24 +176,25 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookie
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
 
-	return &Auth[SessionData, UserData]{
+	return &Auth[SessionData, UserData, Tx]{
 		baseSession:    baseSession,
 		storage:        storage,
 		settings:       settings,
+		policy:         policy,
 		cookies:        cookieClient,
 		pendingCookies: pendingCookies,
-		methods: signInMethods{
+		methods: signInMethods[Tx]{
 			registered:  make(map[sessioninfo.AuthMethod]bool),
 			hasher:      securehash.New(securehash.Argon2()),
 			autoUpgrade: true,
-			external:    make(map[sessioninfo.AuthMethod]*signin.Method),
+			external:    make(map[sessioninfo.AuthMethod]*externalMethod[Tx]),
 		},
 	}, nil
 }
 
 // Authenticated answers {"authenticated", "username", "impersonation"}. A session whose
 // user is missing or disabled is reported as not authenticated.
-func (a *Auth[S, U]) Authenticated() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated bool                               `json:"authenticated"`
 		Username      string                             `json:"username"`
@@ -209,14 +225,14 @@ func (a *Auth[S, U]) Authenticated() http.HandlerFunc {
 }
 
 // Logout destroys the current session.
-func (a *Auth[S, U]) Logout() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) Logout() http.HandlerFunc {
 	return a.serving(a.baseSession.Logout())
 }
 
 // StartSession restores or initializes the session. It also makes the browser's
 // pending identity, if any, available to the Pending handlers and the AuthAPI pending
 // methods.
-func (a *Auth[S, U]) StartSession(next http.Handler) http.Handler {
+func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(a.withPendingCookie(r)))
 	})))
@@ -226,7 +242,7 @@ func (a *Auth[S, U]) StartSession(next http.Handler) http.Handler {
 // with no user, or whose user is missing or disabled, is refused with 401. The
 // user is available through sessioninfo.UserFromCtx. A foreign actor's
 // role-principal impersonation has no user and carries only its username.
-func (a *Auth[S, U]) ValidateSession(next http.Handler) http.Handler {
+func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -243,22 +259,22 @@ func (a *Auth[S, U]) ValidateSession(next http.Handler) http.Handler {
 }
 
 // SetXSRFToken sets the XSRF token.
-func (a *Auth[S, U]) SetXSRFToken(next http.Handler) http.Handler {
+func (a *Auth[S, U, Tx]) SetXSRFToken(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.SetXSRFToken(next))
 }
 
 // ValidateXSRFToken validates the XSRF token.
-func (a *Auth[S, U]) ValidateXSRFToken(next http.Handler) http.Handler {
+func (a *Auth[S, U, Tx]) ValidateXSRFToken(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.ValidateXSRFToken(next))
 }
 
 // EnforceReadOnlyMask refuses writes from read-only impersonated sessions.
-func (a *Auth[S, U]) EnforceReadOnlyMask(next http.Handler) http.Handler {
+func (a *Auth[S, U, Tx]) EnforceReadOnlyMask(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.EnforceReadOnlyMask(next))
 }
 
 // EndImpersonation ends the current impersonated session.
-func (a *Auth[S, U]) EndImpersonation() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) EndImpersonation() http.HandlerFunc {
 	return a.serving(a.baseSession.EndImpersonation())
 }
 
@@ -285,7 +301,7 @@ func (h *PendingHandlers) ConfirmWithPassword() http.HandlerFunc { return h.conf
 func (h *PendingHandlers) Cancel() http.HandlerFunc { return h.cancel }
 
 // Pending returns the pending-identity handlers.
-func (a *Auth[S, U]) Pending() *PendingHandlers {
+func (a *Auth[S, U, Tx]) Pending() *PendingHandlers {
 	return &PendingHandlers{
 		status:              a.serving(a.pendingStatus()),
 		confirmWithPassword: a.serving(a.pendingConfirm()),
@@ -294,12 +310,12 @@ func (a *Auth[S, U]) Pending() *PendingHandlers {
 }
 
 // API provides programmatic access to the Auth session.
-func (a *Auth[S, U]) API() *AuthAPI[S, U] { return &AuthAPI[S, U]{auth: a} }
+func (a *Auth[S, U, Tx]) API() *AuthAPI[S, U, Tx] { return &AuthAPI[S, U, Tx]{auth: a} }
 
 // AuthAPI provides programmatic access to an Auth session.
-type AuthAPI[SessionData, UserData any] struct {
-	auth *Auth[SessionData, UserData]
+type AuthAPI[SessionData, UserData, Tx any] struct {
+	auth *Auth[SessionData, UserData, Tx]
 }
 
 // Cookie returns the underlying cookie client.
-func (p *AuthAPI[S, U]) Cookie() *cookie.Client { return p.auth.shared().Cookie() }
+func (p *AuthAPI[S, U, Tx]) Cookie() *cookie.Client { return p.auth.shared().Cookie() }

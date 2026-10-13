@@ -8,7 +8,10 @@ import (
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
@@ -23,7 +26,6 @@ type AuthDriver interface {
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	DeleteUser(ctx context.Context, id ccc.UUID) error
-	IdentitiesEnabled() bool
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
@@ -70,13 +72,11 @@ type AuthConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
-	// Identities attaches the SessionIdentities table with Resolve and Policy, which the
-	// harness adapts to the driver's transactional hooks.
-	Identities bool
-	// Resolve is the user resolver; nil rejects every unlinked identity.
-	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.Resolution, error)
-	// Policy is the sign-in policy; nil allows.
-	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*dbtype.SignInDecision, error)
+	// Resolve is the user resolver the instance's SignIn runs with, which the harness
+	// adapts to the driver's transaction; nil rejects every unlinked identity.
+	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
+	// Policy is the sign-in policy the instance's SignIn runs with; nil allows.
+	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error)
 	// CustomData, when set, attaches the AuthWithAppTables schema's
 	// SessionCustomData table (CustomStringData) with CustomData as its resolver.
 	CustomData func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error)
@@ -87,6 +87,42 @@ type AuthConfig struct {
 type AuthInstance struct {
 	Driver AuthDriver
 	Raw    any
+	// SignIn establishes the session of a request that carries a verified identity:
+	// the sign-in flow over the driver with the configured resolver and policy, as the
+	// Auth session runs it. The harness builds it with NewSignIn.
+	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+}
+
+// NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's resolver
+// and policy, each given the driver's transaction through adapt.
+func NewSignIn[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+	resolve := func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		if cfg.Resolve == nil {
+			return nil, nil
+		}
+
+		return cfg.Resolve(ctx, adapt(tx), req)
+	}
+	var policy signin.Policy[Tx]
+	if cfg.Policy != nil {
+		policy = func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+			return cfg.Policy(ctx, adapt(tx), req)
+		}
+	}
+
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+		id, err := ccc.NewUUID()
+		if err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+		}
+		if err := signinflow.SignIn(ctx, d, id, insert, req, resolve, policy); err != nil {
+			return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
+		}
+
+		return id, nil
+	}
 }
 
 // AuthHarness adapts one driver package to the users suite.
@@ -126,7 +162,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a pending identity's row never calls the custom session data resolver", run: testPendingRowSkipsCustomData},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
-		{name: "an external identity needs an identities configuration", run: testIdentitiesNotConfigured},
+		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
@@ -314,7 +350,7 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AuthHarness) {
 		},
 		{
 			name: "an identity resolved in the session transaction records the events it carries",
-			cfg:  AuthConfig{Auth: true, AuthEvents: true, Identities: true},
+			cfg:  AuthConfig{Auth: true, AuthEvents: true},
 			identity: func(user *dbtype.SessionUser) *sessioninfo.Identity {
 				return &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()}
 			},

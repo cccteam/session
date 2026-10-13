@@ -107,15 +107,9 @@ type SessionUser = dbtype.SessionUser
 // InsertSessionUser defines the structure for inserting a new SessionUser.
 type InsertSessionUser = dbtype.InsertSessionUser
 
-// PasswordAuthStore defines an interface for managing password sessions.
-//
-// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
-type PasswordAuthStore interface {
-	// CreateSession creates a new session for the request and returns its ID. When a
-	// custom session data configuration with a resolver is attached to the storage, the
-	// resolver runs inside the session-insert transaction; a resolver error aborts
-	// session creation. With no resolver it is a plain insert.
-	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+// UserStore is the user management of a store that has users: Auth storage and the
+// legacy password storage.
+type UserStore interface {
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -135,8 +129,6 @@ type PasswordAuthStore interface {
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id ccc.UUID) error
-	// DestroyAllUserSessions destroys all sessions for a given user
-	DestroyAllUserSessions(ctx context.Context, username string) error
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
 	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
@@ -145,6 +137,19 @@ type PasswordAuthStore interface {
 	// when no row exists) and the full row is written back; a mutate error aborts with
 	// nothing written.
 	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
+}
+
+// PasswordAuthStore defines an interface for managing password sessions.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
+type PasswordAuthStore interface {
+	// CreateSession creates a new session for the request and returns its ID. When a
+	// custom session data configuration with a resolver is attached to the storage, the
+	// resolver runs inside the session-insert transaction; a resolver error aborts
+	// session creation. With no resolver it is a plain insert.
+	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+
+	UserStore
 
 	// shared storage methods
 	PreauthStore
@@ -273,8 +278,6 @@ type db interface {
 	// User specific methods
 	//
 
-	// IdentitiesEnabled reports whether an identities configuration is attached.
-	IdentitiesEnabled() bool
 	// Identity returns the link for (method, connection, subject), or a NotFound error.
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	// IdentitiesByUser lists a user's links, oldest first.

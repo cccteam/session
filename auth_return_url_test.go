@@ -11,7 +11,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/cccteam/session/workos"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -44,6 +44,8 @@ type returnURLFixture struct {
 	*authFixture
 	sso    *workos.Method
 	client *workos.Client
+	// identity is the WorkOS identity the method's resolver was last given.
+	identity *workos.Identity
 }
 
 func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixture {
@@ -58,7 +60,11 @@ func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixtur
 	f := &returnURLFixture{authFixture: newAuthFixture(t, ctrl)}
 	f.client = workos.NewClient(f.auth.cookies, "sk", "client", "https://app/sso/callback")
 	f.client.SetBaseURL(fake.URL)
-	f.sso = workos.SignIn(f.auth, &workos.Config{Authenticator: f.client})
+	f.sso = workos.SignIn(f.auth, func(_ context.Context, _ mockTx, identity *workos.Identity) (*signin.Resolution, error) {
+		f.identity = identity
+
+		return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}}, nil
+	}, &workos.Config{Authenticator: f.client})
 
 	return f
 }
@@ -106,7 +112,7 @@ func TestAuth_ReturnURLStaysInTheApplication(t *testing.T) {
 			t.Run("a callback that carries it signs in and returns to the root", func(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
-				createSession(f.store, ccc.Must(ccc.NewUUID()), nil, func(req *sessioninfo.NewSessionRequest) error {
+				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
 
 					return nil
@@ -122,8 +128,8 @@ func TestAuth_ReturnURLStaysInTheApplication(t *testing.T) {
 			t.Run("a callback that carries it and becomes pending names no return URL", func(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
-				createSession(f.store, ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
-					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
+				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
+					return &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
 				})
 				pendingID := ccc.Must(ccc.NewUUID())
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(pendingID, nil)
@@ -165,7 +171,7 @@ func TestAuth_ReturnURLInTheApplication(t *testing.T) {
 				if login.Code != http.StatusFound {
 					t.Fatalf("Login() = %d, want 302", login.Code)
 				}
-				createSession(f.store, ccc.Must(ccc.NewUUID()), nil, func(req *sessioninfo.NewSessionRequest) error {
+				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
 
 					return nil
@@ -181,8 +187,8 @@ func TestAuth_ReturnURLInTheApplication(t *testing.T) {
 			t.Run("a pending sign-in carries it", func(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
-				createSession(f.store, ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
-					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
+				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
+					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
 				})
 				pendingID := ccc.Must(ccc.NewUUID())
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(pendingID, nil)

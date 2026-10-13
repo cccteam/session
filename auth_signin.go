@@ -10,10 +10,11 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -47,26 +48,13 @@ type signInOutcome struct {
 }
 
 // signIn establishes a session for every sign-in method. One store call resolves the
-// user, asks the policy and inserts the session with its auth events. Roles are then
+// user, asks the sign-in policy and inserts the session with its auth events. Roles are then
 // reconciled, and only after that are the cookies for the new session ID written, so a
 // refusal writes no cookie. A sign-in that must wait becomes the browser's pending
 // identity, replacing any earlier one. A sign-in that succeeds consumes it.
-func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *signInAttempt) (*signInOutcome, error) {
+func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *signInAttempt) (*signInOutcome, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
-
-	if at.identity.Method == sessioninfo.MethodPassword {
-		// Without identities configured the drivers insert a password session as given,
-		// so the user is checked here.
-		user, err := a.storage.User(ctx, at.userID)
-		if err != nil {
-			return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
-		}
-		if user.Disabled {
-			return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
-		}
-		at.username = user.Username
-	}
 
 	req := &sessioninfo.NewSessionRequest{
 		Reason:     at.reason,
@@ -77,10 +65,16 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 		AuthEvents: at.events,
 	}
 
+	// An external identity is resolved by its method's user resolver; a password identity
+	// names its user and needs none.
+	var resolve signin.UserResolver[Tx]
+	if m, ok := a.registered().external[at.identity.Method]; ok {
+		resolve = m.resolve
+	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
-		id, err := a.storage.CreateSession(ctx, req)
+		id, err := a.storage.SignIn(ctx, req, resolve, a.policy)
 		if err != nil {
-			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateSession()")
+			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}
 		if err := a.afterInsert(ctx, at, req); err != nil {
 			if derr := a.storage.DestroySession(ctx, id); derr != nil {
@@ -98,7 +92,7 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 		a.notifyLinked(ctx, req.User.ID, at.identity)
 	}
 
-	var wait *sessionstorage.PendingSignInError
+	var wait *signin.PendingSignInError
 	if errors.As(err, &wait) {
 		pending, err := a.holdPending(ctx, w, at, wait)
 		if err != nil {
@@ -120,9 +114,9 @@ func (a *Auth[S, U]) signIn(ctx context.Context, w http.ResponseWriter, at *sign
 // afterInsert runs once the session row exists and req carries the resolved user.
 // It refuses a completion that resolved to a different user, and reconciles the
 // method's roles.
-func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) error {
+func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) error {
 	if at.expectUserID.Valid && req.UserID != at.expectUserID.UUID {
-		return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")
+		return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")
 	}
 	if at.roleNames == nil {
 		return nil
@@ -139,7 +133,7 @@ func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *se
 }
 
 // notifyLinked calls the IdentityLinked hook. An error is logged, and the link stands.
-func (a *Auth[S, U]) notifyLinked(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) {
+func (a *Auth[S, U, Tx]) notifyLinked(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) {
 	if a.settings.identityLinked == nil {
 		return
 	}
@@ -149,7 +143,7 @@ func (a *Auth[S, U]) notifyLinked(ctx context.Context, userID ccc.UUID, identity
 }
 
 // validate validates the session in ctx and stores its user in the context.
-func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
+func (a *Auth[S, U, Tx]) validate(ctx context.Context) (context.Context, error) {
 	ctx, err := a.baseSession.ValidateSessionAPI(ctx)
 	if err != nil {
 		return ctx, errors.Wrap(err, "basesession.BaseSession.ValidateSessionAPI()")
@@ -172,7 +166,7 @@ func (a *Auth[S, U]) validate(ctx context.Context) (context.Context, error) {
 // user is missing or disabled, is unauthorized. A role-principal impersonation has
 // no user. A foreign actor's carries only its username. A local actor's is checked
 // against the actor's own user.
-func (a *Auth[S, U]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
+func (a *Auth[S, U, Tx]) sessionUser(ctx context.Context, sessData *sessioninfo.SessionData) (*sessioninfo.UserInfo, error) {
 	if imp := sessData.Impersonation; imp != nil && imp.Principal.IsRole() {
 		if !imp.IsLocalActor() {
 			return &sessioninfo.UserInfo{Username: sessData.Username}, nil
@@ -209,7 +203,7 @@ func enabledUser(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error
 }
 
 // passwordSignIn checks username and password and signs the user in.
-func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string) (*signInOutcome, error) {
+func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string) (*signInOutcome, error) {
 	user, err := a.checkCredentials(ctx, username, password)
 	if err != nil {
 		return nil, err
@@ -227,7 +221,7 @@ func (a *Auth[S, U]) passwordSignIn(ctx context.Context, w http.ResponseWriter, 
 // checkCredentials returns the enabled user for username when password matches. A
 // missing user, a wrong password and a password-less user are all invalid
 // credentials. An outdated hash is upgraded when auto-upgrade is enabled.
-func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password string) (*sessionstorage.SessionUser, error) {
+func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, password string) (*sessionstorage.SessionUser, error) {
 	user, err := a.storage.UserByUserName(ctx, username)
 	if err != nil {
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
@@ -245,13 +239,13 @@ func (a *Auth[S, U]) checkCredentials(ctx context.Context, username, password st
 		}
 	}
 	if user.Disabled {
-		return nil, dbtype.Refusal("", sessioninfo.RefusedUserDisabled, sessionstorage.ErrUserDisabled, "User disabled")
+		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 	}
 
 	return user, nil
 }
 
-func (a *Auth[S, U]) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
+func (a *Auth[S, U, Tx]) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
@@ -264,7 +258,7 @@ func (a *Auth[S, U]) setPasswordHash(ctx context.Context, userID ccc.UUID, passw
 }
 
 // passwordLogin is the password method's login handler.
-func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) passwordLogin() http.HandlerFunc {
 	type request struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -291,7 +285,7 @@ func (a *Auth[S, U]) passwordLogin() http.HandlerFunc {
 
 // answerSignIn writes a JSON sign-in handler's outcome. For a pending identity the
 // PendingHook runs first.
-func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
+func (a *Auth[S, U, Tx]) answerSignIn(ctx context.Context, w http.ResponseWriter, r *http.Request, outcome *signInOutcome) error {
 	var body mfaResponse
 	if outcome.pending != nil {
 		redirectURL, handled, err := a.onPending(ctx, w, r, outcome.pending)
@@ -311,7 +305,7 @@ func (a *Auth[S, U]) answerSignIn(ctx context.Context, w http.ResponseWriter, r 
 }
 
 // changeUserPasswordHandler is the password method's change-password handler.
-func (a *Auth[S, U]) changeUserPasswordHandler() http.HandlerFunc {
+func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 	type request struct {
 		OldPassword string `json:"oldPassword"`
 		NewPassword string `json:"newPassword"`
@@ -394,6 +388,6 @@ func validateEvents(events []sessioninfo.AuthEvent) error {
 }
 
 // shared returns the API methods every session type shares, over this session's fields.
-func (a *Auth[S, U]) shared() sessioncore.API[S, U] {
+func (a *Auth[S, U, Tx]) shared() sessioncore.API[S, U] {
 	return sessioncore.API[S, U]{Base: a.baseSession, Store: a.storage, Users: a.storage, StoreName: "AuthStore"}
 }

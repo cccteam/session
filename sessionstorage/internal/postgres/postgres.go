@@ -38,16 +38,18 @@ type SessionStorageDriver struct {
 	// users enables the auth schema's session columns (UserId, AuthenticatedAt).
 	users      bool
 	authEvents *AuthEventsConfig
-	identities *IdentitiesConfig
+	// identitiesTableName names the auth schema's identities table.
+	identitiesTableName string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		conn:              conn,
-		sessionTableName:  "Sessions",
-		userTableName:     "SessionUsers",
-		oidcUserTableName: "OIDCUsers",
+		conn:                conn,
+		sessionTableName:    "Sessions",
+		userTableName:       "SessionUsers",
+		oidcUserTableName:   "OIDCUsers",
+		identitiesTableName: "SessionIdentities",
 	}
 }
 
@@ -232,17 +234,6 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
-	}
-
-	// A sign-in that carries a verified identity resolves its user first. An external
-	// identity always does. A password identity does when identities, and so the sign-in
-	// policy, are configured.
-	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
-		if err := s.insertUserSession(ctx, id, insertSession, req); err != nil {
-			return ccc.NilUUID, err
-		}
-
-		return id, nil
 	}
 
 	query, args := s.sessionInsertStatement(id, insertSession, req)
@@ -601,7 +592,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
-// DeleteUser deletes a user. With identities configured, the user's identity links are
+// DeleteUser deletes a user. On the auth schema, the user's identity links are
 // deleted with it, in the same transaction.
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
@@ -611,7 +602,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 		DELETE FROM "%s"
 		WHERE "Id" = $1`, s.userTableName)
 
-	if s.identities == nil {
+	if !s.users {
 		if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		} else if cmdTag.RowsAffected() == 0 {

@@ -21,8 +21,8 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/mock/mock_google"
 	"github.com/cccteam/session/mock/mock_signin"
@@ -37,39 +37,69 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// newAuthStoreMock is an AuthStore mock with the constructor's probes answered:
-// no custom data, no OIDC-only features, identities as given.
-func newAuthStoreMock(ctrl *gomock.Controller, identities bool) *mock_sessionstorage.MockAuthStore {
-	storage := mock_sessionstorage.NewMockAuthStore(ctrl)
+// mockTx is the transaction type the mocked store is generic over. The hooks an Auth
+// over it takes are typed to it, as a Postgres Auth's are to pgx.Tx.
+type mockTx struct{}
+
+// newAuthStoreMock is an AuthStore mock with the constructor's probes answered: no
+// custom data and no OIDC-only features.
+func newAuthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockAuthStore[mockTx] {
+	storage := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	storage.EXPECT().UserDataLoginHookConfigured().Return(false).AnyTimes()
 	storage.EXPECT().OIDCUsersEnabled().Return(false).AnyTimes()
-	storage.EXPECT().IdentitiesEnabled().Return(identities).AnyTimes()
 
 	return storage
+}
+
+// resolveAll is a user resolver of a method's identity type I that provisions the user
+// pat for every identity. It fills a registration's resolver slot in tests whose mocked
+// store never runs it.
+func resolveAll[I any]() func(context.Context, mockTx, *I) (*signin.Resolution, error) {
+	return func(context.Context, mockTx, *I) (*signin.Resolution, error) {
+		return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "pat"}}, nil
+	}
 }
 
 // authFixture is an Auth over a mocked store, with password sign-in registered. A test
 // registers an external method over a mocked authenticator through its package's
 // Config.Authenticator, the registration path production takes with the real one.
 type authFixture struct {
-	auth     *Auth[NoCustomData, NoCustomData]
+	t        *testing.T
+	auth     *Auth[NoCustomData, NoCustomData, mockTx]
 	password *PasswordMethod
-	store    *mock_sessionstorage.MockAuthStore
+	store    *mock_sessionstorage.MockAuthStore[mockTx]
 	// linked records the IdentityLinked hook's calls.
 	linked []ccc.UUID
+	// policyAsked counts the calls of the sign-in policy NewAuth was given.
+	policyAsked int
+	// signedIn is the last sign-in the store was asked for.
+	signedIn *storeSignIn
+}
+
+// storeSignIn is one call of the mocked store's SignIn: the request, the resolver of the
+// identity's method and the Auth's policy, as the store received them.
+type storeSignIn struct {
+	req     *sessioninfo.NewSessionRequest
+	resolve signin.UserResolver[mockTx]
+	policy  signin.Policy[mockTx]
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	f := &authFixture{store: newAuthStoreMock(ctrl, true)}
+	f := &authFixture{t: t, store: newAuthStoreMock(ctrl)}
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
 		return errors.New("notification failed: logged, and the link stands")
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	policy := func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		f.policyAsked++
+
+		return &signin.Decision{Outcome: signin.AllowSignIn}, nil
+	}
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, policy, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -101,7 +131,7 @@ func (f *authFixture) serve(h http.Handler, method, target string, body any, coo
 
 // hold makes a pending identity as a sign-in would and returns the cookies that carry
 // it, with the stepping-stone row's ID.
-func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *sessionstorage.PendingSignInError) ([]*http.Cookie, ccc.UUID) {
+func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *signin.PendingSignInError) ([]*http.Cookie, ccc.UUID) {
 	t.Helper()
 
 	pendingID := ccc.Must(ccc.NewUUID())
@@ -166,24 +196,44 @@ func hashed(t *testing.T, password string) *securehash.Hash {
 	return hash
 }
 
-// createSession expects one session insert, checks the request with check, lets resolve
-// play the driver's part (set the user, or fail), and answers id.
-// createSession expects one CreateSession call. prepare sees the request first: it asserts
-// on it or plays the driver's resolution by setting its user. resolve then answers as the
-// driver would, with the error that stops the sign-in.
-func createSession(store *mock_sessionstorage.MockAuthStore, id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), resolve func(req *sessioninfo.NewSessionRequest) error) {
+// createSession expects one CreateSession call: a session the application or a user
+// operation starts, with no identity to resolve. prepare asserts on the request.
+func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest)) {
 	store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 		if prepare != nil {
 			prepare(req)
 		}
-		if resolve != nil {
-			if err := resolve(req); err != nil {
-				return ccc.NilUUID, err
-			}
-		}
 
 		return id, nil
 	})
+}
+
+// expectSignIn expects one sign-in through the store, given the resolver of the identity's
+// method (none for a password identity) and the Auth's policy, and records the call in
+// signedIn. prepare sees the request first: it asserts on it or plays the driver's
+// resolution by setting its user. stop then answers as the driver would, with the error
+// that stops the sign-in; nil answers id.
+func (f *authFixture) expectSignIn(id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
+	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[mockTx], policy signin.Policy[mockTx]) (ccc.UUID, error) {
+			f.signedIn = &storeSignIn{req: req, resolve: resolve, policy: policy}
+			if external := req.Identity.Method != sessioninfo.MethodPassword; (resolve != nil) != external {
+				f.t.Errorf("SignIn() given a resolver = %v, want %v for a %s identity", resolve != nil, external, req.Identity.Method)
+			}
+			if policy == nil {
+				f.t.Error("SignIn() given no policy, want the Auth's")
+			}
+			if prepare != nil {
+				prepare(req)
+			}
+			if stop != nil {
+				if err := stop(req); err != nil {
+					return ccc.NilUUID, err
+				}
+			}
+
+			return id, nil
+		})
 }
 
 var eventOpts = cmp.Options{cmpopts.IgnoreFields(sessioninfo.AuthEvent{}, "At"), cmpopts.EquateEmpty()}
@@ -193,40 +243,47 @@ func TestNewAuth(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		storage    func(ctrl *gomock.Controller) sessionstorage.AuthStore
+		storage    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx]
 		options    []AuthOption
+		noPolicy   bool
 		wantErrHas string
 	}{
 		{
 			name:    "an Auth is built before any sign-in method is registered on it",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, false) },
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 		},
 		{
 			name:    "the cookie, session and pending-identity options",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 			options: []AuthOption{WithPendingTimeout(time.Minute), WithPendingCookieName("pending"), WithCookieName("app"), WithSessionTimeout(time.Hour)},
 		},
 		{
 			name:       "no storage",
-			storage:    func(*gomock.Controller) sessionstorage.AuthStore { return nil },
+			storage:    func(*gomock.Controller) sessionstorage.AuthStore[mockTx] { return nil },
 			wantErrHas: "storage is required",
 		},
 		{
+			name:       "no sign-in policy",
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
+			noPolicy:   true,
+			wantErrHas: "a sign-in policy is required",
+		},
+		{
 			name:       "a pending cookie named like the session cookie",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 			options:    []AuthOption{WithCookieName("same"), WithPendingCookieName("same")},
 			wantErrHas: "differ from the session cookie name",
 		},
 		{
 			name:       "a pending timeout that is not positive",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore { return newAuthStoreMock(ctrl, true) },
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
 			options:    []AuthOption{WithPendingTimeout(0)},
 			wantErrHas: "pending timeout",
 		},
 		{
 			name: "storage with the OIDC user anchor",
-			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore {
-				s := mock_sessionstorage.NewMockAuthStore(ctrl)
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)
 				s.EXPECT().UserDataLoginHookConfigured().Return(false).AnyTimes()
 				s.EXPECT().OIDCUsersEnabled().Return(true).AnyTimes()
 
@@ -240,7 +297,11 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, tt.options...)
+			policy := signin.Policy[mockTx](signin.AllowAll[mockTx])
+			if tt.noPolicy {
+				policy = nil
+			}
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, policy, tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -255,12 +316,11 @@ func TestNewAuth(t *testing.T) {
 	}
 }
 
-// newBareAuth is an Auth with no sign-in method registered, over storage with or
-// without an identities configuration.
-func newBareAuth(t *testing.T, ctrl *gomock.Controller, identities bool) *Auth[NoCustomData, NoCustomData] {
+// newBareAuth is an Auth with no sign-in method registered, allowing every sign-in.
+func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl, identities), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, signin.AllowAll)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -282,12 +342,12 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 	t.Run("each method's registration returns its own handlers, every method on one Auth", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
-		a := newBareAuth(t, ctrl, true)
+		a := newBareAuth(t, ctrl)
 
 		password := PasswordSignIn(a, AutoUpgradeHashes(false))
-		sso := workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback", BaseURL: "https://workos.test", LoginURL: "/signin"})
-		entra := azure.SignIn(a, &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
-		workspace := google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
+		sso := workos.SignIn(a, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback", BaseURL: "https://workos.test", LoginURL: "/signin"})
+		entra := azure.SignIn(a, resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
+		workspace := google.SignIn(a, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
 
 		for name, h := range map[string]http.HandlerFunc{
 			"PasswordMethod.Login":              password.Login(),
@@ -309,19 +369,10 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 	})
 
-	t.Run("password sign-in alone needs no identities configuration", func(t *testing.T) {
-		t.Parallel()
-		a := newBareAuth(t, gomock.NewController(t), false)
-
-		if PasswordSignIn(a).Login() == nil {
-			t.Error("PasswordSignIn().Login() = nil")
-		}
-	})
-
 	t.Run("the Azure front-channel logout answers 501", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+		entra := azure.SignIn(f.auth, resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 
 		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout", nil, nil); rr.Code != http.StatusNotImplemented {
 			t.Errorf("FrontChannelLogout() status = %d, want 501", rr.Code)
@@ -332,63 +383,61 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 func TestAuth_RegistrationRefused(t *testing.T) {
 	t.Parallel()
 
-	sso := func(a *Auth[NoCustomData, NoCustomData]) {
-		workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+	sso := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+		workos.SignIn(a, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 	}
-	entra := func(a *Auth[NoCustomData, NoCustomData]) {
-		azure.SignIn(a, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+	entra := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+		azure.SignIn(a, resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 	}
-	workspace := func(a *Auth[NoCustomData, NoCustomData]) {
-		google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
+	workspace := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+		google.SignIn(a, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
 	}
-	password := func(a *Auth[NoCustomData, NoCustomData]) { PasswordSignIn(a) }
+	password := func(a *Auth[NoCustomData, NoCustomData, mockTx]) { PasswordSignIn(a) }
 
 	// served serves one request through the Auth's middleware, as a mounted router would.
-	served := func(a *Auth[NoCustomData, NoCustomData]) {
+	served := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		a.StartSession(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), r)
 	}
 
 	tests := []struct {
-		name       string
-		identities bool
+		name string
 		// before runs on the Auth first, and must not panic.
-		before   func(a *Auth[NoCustomData, NoCustomData])
-		register func(a *Auth[NoCustomData, NoCustomData])
-		// wantErrIs is the error the panic must carry; wantHas the text it must say.
-		wantErrIs error
-		wantHas   string
+		before   func(a *Auth[NoCustomData, NoCustomData, mockTx])
+		register func(a *Auth[NoCustomData, NoCustomData, mockTx])
+		// wantHas is the text the panic must say.
+		wantHas string
 	}{
 		{
-			name: "the password method registered twice", identities: true,
+			name:   "the password method registered twice",
 			before: password, register: password, wantHas: "password sign-in method is registered twice",
 		},
 		{
-			name: "the WorkOS method registered twice", identities: true,
+			name:   "the WorkOS method registered twice",
 			before: sso, register: sso, wantHas: "workos sign-in method is registered twice",
 		},
 		{
-			name: "the Azure method registered twice", identities: true,
+			name:   "the Azure method registered twice",
 			before: entra, register: entra, wantHas: "azure sign-in method is registered twice",
 		},
 		{
-			name: "the Google method registered twice", identities: true,
+			name:   "the Google method registered twice",
 			before: workspace, register: workspace, wantHas: "google sign-in method is registered twice",
 		},
 		{
-			name: "a method registered after the Auth served its first request", identities: true,
-			before:   func(a *Auth[NoCustomData, NoCustomData]) { password(a); served(a) },
+			name:     "a method registered after the Auth served its first request",
+			before:   func(a *Auth[NoCustomData, NoCustomData, mockTx]) { password(a); served(a) },
 			register: sso, wantHas: "after the Auth is in use",
 		},
 		{
-			name: "a first method registered after the Auth served a request", identities: true,
+			name:   "a first method registered after the Auth served a request",
 			before: served, register: password, wantHas: "after the Auth is in use",
 		},
 		{
-			name: "a method registered after the Auth hashed a password through its API", identities: true,
-			before: func(a *Auth[NoCustomData, NoCustomData]) {
+			name: "a method registered after the Auth hashed a password through its API",
+			before: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 				pw := "pw"
-				store, ok := a.storage.(*mock_sessionstorage.MockAuthStore)
+				store, ok := a.storage.(*mock_sessionstorage.MockAuthStore[mockTx])
 				if !ok {
 					panic("the Auth's storage is not the mock")
 				}
@@ -400,45 +449,54 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			register: password, wantHas: "after the Auth is in use",
 		},
 		{
-			name: "the WorkOS method on storage without identities", register: sso,
-			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the workos sign-in method links external identities",
+			name: "the WorkOS method without a user resolver",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				workos.SignIn(a, nil, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			},
+			wantHas: "resolve is required",
 		},
 		{
-			name: "the Azure method on storage without identities", register: entra,
-			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the azure sign-in method links external identities",
+			name: "the Azure method without a user resolver",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, nil, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "resolve is required",
 		},
 		{
-			name: "the Google method on storage without identities", register: workspace,
-			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the google sign-in method links external identities",
+			name: "the Google method without a user resolver",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
+			},
+			wantHas: "resolve is required",
 		},
 		{
-			name: "a cookie option given to the password method instead of NewAuth", identities: true,
-			register: func(a *Auth[NoCustomData, NoCustomData]) { PasswordSignIn(a, WithCookieName("x")) },
+			name:     "a cookie option given to the password method instead of NewAuth",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) { PasswordSignIn(a, WithCookieName("x")) },
 			wantHas:  "pass cookie and session options to NewAuth",
 		},
 		{
-			name: "an Azure method without its role sync slot", identities: true,
-			register: func(a *Auth[NoCustomData, NoCustomData]) {
-				azure.SignIn(a, &azure.Config{IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			name: "an Azure method without its role sync slot",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, resolveAll[azure.Identity](), &azure.Config{IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "roleSync is required",
 		},
 		{
-			name: "a Google method without its hosted domain", identities: true,
-			register: func(a *Auth[NoCustomData, NoCustomData]) {
-				google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback"})
+			name: "a Google method without its hosted domain",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback"})
 			},
 			wantHas: "hostedDomain is required",
 		},
 		{
-			name: "a method registered on a nil Auth", identities: true,
-			register: func(*Auth[NoCustomData, NoCustomData]) { PasswordSignIn(nil) },
+			name:     "a method registered on a nil Auth",
+			register: func(*Auth[NoCustomData, NoCustomData, mockTx]) { PasswordSignIn(nil) },
 			wantHas:  "registered on a nil Auth",
 		},
 		{
-			name: "a method registered on a nil *Auth", identities: true,
-			register: func(*Auth[NoCustomData, NoCustomData]) {
-				workos.SignIn((*Auth[NoCustomData, NoCustomData])(nil), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			name: "a method registered on a nil *Auth",
+			register: func(*Auth[NoCustomData, NoCustomData, mockTx]) {
+				workos.SignIn((*Auth[NoCustomData, NoCustomData, mockTx])(nil), resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			},
 			wantHas: "registered on a nil *Auth",
 		},
@@ -446,7 +504,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a := newBareAuth(t, gomock.NewController(t), tt.identities)
+			a := newBareAuth(t, gomock.NewController(t))
 			if tt.before != nil {
 				if got := registrationPanic(func() { tt.before(a) }); got != nil {
 					t.Fatalf("the setup panicked: %v", got)
@@ -460,11 +518,6 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			msg := fmt.Sprint(got)
 			if !strings.HasPrefix(msg, "session: ") || !strings.Contains(msg, tt.wantHas) {
 				t.Errorf("panic = %q, want a session: message saying %q", msg, tt.wantHas)
-			}
-			if tt.wantErrIs != nil {
-				if err, ok := got.(error); !ok || !errors.Is(err, tt.wantErrIs) {
-					t.Errorf("panic = %v, want an error wrapping %v", got, tt.wantErrIs)
-				}
 			}
 		})
 	}
@@ -491,10 +544,10 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			name:     "the right password starts a session for the user, recording the password method",
 			password: "pw",
 			prepare: func(f *authFixture) {
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}
 					if req.Reason != sessioninfo.ReasonLogin || req.UserID != userID || req.Username != "pat" || !cmp.Equal(req.Identity, want) || req.AuthEvents != nil {
-						t.Errorf("CreateSession() request = %+v", req)
+						t.Errorf("SignIn() request = %+v", req)
 					}
 				}, nil)
 			},
@@ -523,8 +576,8 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			name:     "a policy denial is refused with the policy's code and writes no session cookie",
 			password: "pw",
 			prepare: func(f *authFixture) {
-				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-					return dbtype.Refusal("sso_required", sessioninfo.RefusedByPolicy, sessionstorage.ErrSignInDenied, "sign-in denied")
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("sso_required", sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied")
 				})
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -534,8 +587,8 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			name:     "a policy that requires MFA holds the sign-in as a pending identity and starts no session",
 			password: "pw",
 			prepare: func(f *authFixture) {
-				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
@@ -555,7 +608,6 @@ func TestAuth_PasswordLogin(t *testing.T) {
 				user = &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}
 			}
 			f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(user, nil)
-			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
 			if tt.prepare != nil {
 				tt.prepare(f)
 			}
@@ -582,6 +634,12 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			}
 			if gotPending := cookieNamed(rr, defaultPendingCookieName) != nil; gotPending != tt.wantPending {
 				t.Errorf("pending cookie written = %v, want %v", gotPending, tt.wantPending)
+			}
+			if tt.wantSession {
+				// The store was given the policy NewAuth took: running it reaches the fixture's.
+				if _, err := f.signedIn.policy(context.Background(), mockTx{}, f.signedIn.req); err != nil || f.policyAsked != 1 {
+					t.Errorf("the policy the store was given ran the Auth's %d times, %v; want once", f.policyAsked, err)
+				}
 			}
 		})
 	}
@@ -643,7 +701,7 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			authn := mock_azure.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
-			entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.DisableRoleSync(), Authenticator: authn})
+			entra := azure.SignIn(f.auth, resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(authn)
 			}
@@ -672,9 +730,12 @@ func TestAuth_AzureCallback(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		claims       string
-		prepare      func(f *authFixture, roles *mock_signin.MockUserRoleManager)
+		name    string
+		claims  string
+		prepare func(f *authFixture, roles *mock_signin.MockUserRoleManager)
+		// wantIdentity is the identity the method's resolver decodes from the claims,
+		// when the sign-in reached the store.
+		wantIdentity *azure.Identity
 		wantLocation string
 		wantSession  bool
 		wantPending  bool
@@ -682,11 +743,14 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the user it resolved to",
 			claims: claims,
+			wantIdentity: &azure.Identity{
+				TenantID: "tenant-1", ObjectID: "oid-1", Email: "pat@lakeside.edu", PreferredUsername: "p.lee@lakeside.edu", Roles: []string{"Editor"}, AMR: []string{"pwd", "mfa"},
+			},
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"}}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
-						t.Errorf("CreateSession() request mismatch (-want +got):\n%s", diff)
+						t.Errorf("SignIn() request mismatch (-want +got):\n%s", diff)
 					}
 					resolved(req)
 				}, nil)
@@ -702,7 +766,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
-				createSession(f.store, sessionID, resolved, nil)
+				f.expectSignIn(sessionID, resolved, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
@@ -718,8 +782,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
-				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-					return errors.Wrap(&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return errors.Wrap(&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			},
@@ -730,8 +794,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a resolver's refusal sends its code to the login page",
 			claims: claims,
 			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
-				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-					return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "identity rejected")
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected")
 				})
 			},
 			wantLocation: "/login?code=identity_rejected",
@@ -753,7 +817,13 @@ func TestAuth_AzureCallback(t *testing.T) {
 
 					return "/next", "sid", nil
 				})
-			entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.RoleSync(roles), Authenticator: authn})
+			var decoded *azure.Identity
+			resolve := func(_ context.Context, _ mockTx, identity *azure.Identity) (*signin.Resolution, error) {
+				decoded = identity
+
+				return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: userID}, nil
+			}
+			entra := azure.SignIn(f.auth, resolve, &azure.Config{RoleSync: signin.RoleSync(roles), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(f, roles)
 			}
@@ -762,6 +832,16 @@ func TestAuth_AzureCallback(t *testing.T) {
 
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
+			}
+			if tt.wantIdentity != nil {
+				// The store was given the method's resolver: running it decodes the claims
+				// the callback verified into the identity the application's rule sees.
+				if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+					t.Fatalf("the resolver the store was given error = %v", err)
+				}
+				if diff := cmp.Diff(tt.wantIdentity, decoded, cmpopts.IgnoreFields(azure.Identity{}, "Claims")); diff != "" {
+					t.Errorf("the resolver's identity mismatch (-want +got):\n%s", diff)
+				}
 			}
 			auth := cookieNamed(rr, internalcookie.AuthCookieName)
 			// The callback is a cross-site redirect: the new session's cookie is
@@ -782,19 +862,23 @@ func TestAuth_GoogleCallback(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 
 	tests := []struct {
-		name         string
-		claims       string
-		prepare      func(f *authFixture)
+		name    string
+		claims  string
+		prepare func(f *authFixture)
+		// wantIdentity is the identity the method's resolver decodes from the claims,
+		// when the sign-in reached the store.
+		wantIdentity *google.Identity
 		wantLocation string
 	}{
 		{
-			name:   "a Google identity is keyed by sub alone",
-			claims: `{"sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
+			name:         "a Google identity is keyed by sub alone",
+			claims:       `{"sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com"},
 			prepare: func(f *authFixture) {
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
-						t.Errorf("CreateSession() identity mismatch (-want +got):\n%s", diff)
+						t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 					}
 				}, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
@@ -825,7 +909,13 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 					return "/home", "access-token", nil
 				})
-			workspace := google.SignIn(f.auth, &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
+			var decoded *google.Identity
+			resolve := func(_ context.Context, _ mockTx, identity *google.Identity) (*signin.Resolution, error) {
+				decoded = identity
+
+				return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}}, nil
+			}
+			workspace := google.SignIn(f.auth, resolve, &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(f)
 			}
@@ -835,8 +925,43 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
 			}
+			if tt.wantIdentity != nil {
+				if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+					t.Fatalf("the resolver the store was given error = %v", err)
+				}
+				if diff := cmp.Diff(tt.wantIdentity, decoded, cmpopts.IgnoreFields(google.Identity{}, "Claims")); diff != "" {
+					t.Errorf("the resolver's identity mismatch (-want +got):\n%s", diff)
+				}
+			}
 		})
 	}
+}
+
+func TestAuth_WorkOSCallback(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the profile WorkOS exchanged is the identity's claims, and reaches the method's resolver decoded", func(t *testing.T) {
+		t.Parallel()
+		f := newReturnURLFixture(t, gomock.NewController(t))
+		f.expectSignIn(ccc.Must(ccc.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+			want := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", Subject: "idp_1", Email: "pat@lakeside.edu"}
+			if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
+				t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
+			}
+			req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
+		}, nil)
+
+		if rr := f.callback(t, "/"); rr.Code != http.StatusFound {
+			t.Fatalf("Callback() = %d, want 302: %s", rr.Code, rr.Body.String())
+		}
+		if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+			t.Fatalf("the resolver the store was given error = %v", err)
+		}
+		want := &workos.Identity{Profile: workos.Profile{ID: "prof_1", IDPID: "idp_1", ConnectionID: "conn_1", Email: "pat@lakeside.edu"}}
+		if diff := cmp.Diff(want, f.identity, cmpopts.IgnoreFields(workos.Identity{}, "Raw")); diff != "" {
+			t.Errorf("the resolver's identity mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestAuth_PendingHook(t *testing.T) {
@@ -925,9 +1050,8 @@ func TestAuth_PendingHook(t *testing.T) {
 			}
 			f := newAuthFixture(t, ctrl, WithPendingHook(hook))
 			user := &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}
-			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).AnyTimes()
-			createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-				return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+			f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+				return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 			})
 			f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).DoAndReturn(func(context.Context, *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 				rowStored = true
@@ -949,7 +1073,7 @@ func TestAuth_PendingHook(t *testing.T) {
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
 						return "/home", "access-token", json.Unmarshal([]byte(`{"sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
 					})
-				workspace := google.SignIn(f.auth, &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
+				workspace := google.SignIn(f.auth, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
 				rr = f.serve(workspace.Callback(), http.MethodGet, "/google/callback", nil, nil)
 			}
 
@@ -1004,13 +1128,13 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 		{
 			name:       "a provisioning sign-in held for MFA reports the link it committed",
 			source:     sessioninfo.UserProvisioned,
-			stop:       &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
+			stop:       &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
 			wantLinked: []ccc.UUID{userID},
 		},
 		{
 			name:       "a provisioning sign-in the policy denied reports the link it committed",
 			source:     sessioninfo.UserProvisioned,
-			stop:       dbtype.Refusal("", sessioninfo.RefusedByPolicy, sessionstorage.ErrSignInDenied, "sign-in denied"),
+			stop:       signinflow.Refusal("", sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied"),
 			wantLinked: []ccc.UUID{userID},
 		},
 	}
@@ -1019,13 +1143,14 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
+			workos.SignIn(f.auth, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 				req.UserID, req.Username = userID, "pat"
 				req.User = &sessioninfo.SignInUser{ID: userID, Username: "pat", Source: tt.source}
 
 				return tt.stop
 			})
-			var wait *sessionstorage.PendingSignInError
+			var wait *signin.PendingSignInError
 			if errors.As(tt.stop, &wait) {
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 			}
@@ -1049,11 +1174,11 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 	otherID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
-	confirmation := &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
+	confirmation := &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
 
 	tests := []struct {
 		name          string
-		wait          *sessionstorage.PendingSignInError
+		wait          *signin.PendingSignInError
 		pendingRow    func(f *authFixture, id ccc.UUID)
 		password      string
 		prepare       func(f *authFixture, pendingID ccc.UUID)
@@ -1071,10 +1196,10 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
 				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}, {Method: sessioninfo.MethodLinkConfirmation}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonIdentityLinked || !cmp.Equal(req.Identity, identity) {
-						t.Errorf("CreateSession() request = %+v, events mismatch (-want +got):\n%s", req, diff)
+						t.Errorf("SignIn() request = %+v, events mismatch (-want +got):\n%s", req, diff)
 					}
 				}, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID, req.Username = userID, "pat"
@@ -1093,8 +1218,8 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
 				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
-				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-					return &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
 				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
 				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
@@ -1123,7 +1248,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 		},
 		{
 			name:       "an identity waiting for MFA has nothing to confirm",
-			wait:       &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
+			wait:       &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
 			password:   "pw",
 			wantStatus: http.StatusConflict,
 		},
@@ -1149,6 +1274,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
+			workos.SignIn(f.auth, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}, nil).AnyTimes()
 
 			var cookies []*http.Cookie
@@ -1195,11 +1321,11 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	password := &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}
-	mfa := &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
+	mfa := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 
 	tests := []struct {
 		name        string
-		wait        *sessionstorage.PendingSignInError
+		wait        *signin.PendingSignInError
 		prepare     func(f *authFixture, pendingID ccc.UUID)
 		wantSession bool
 		wantErr     func(err error) bool
@@ -1208,10 +1334,10 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			name: "the MFA step completes the sign-in under a new session ID that records both steps, and is not decided again",
 			wait: mfa,
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: "email-otp", IDPAMR: []string{"otp"}}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonStepUp || req.UserID != userID || !cmp.Equal(req.Identity, password) {
-						t.Errorf("CreateSession() request = %+v, events mismatch (-want +got):\n%s", req, diff)
+						t.Errorf("SignIn() request = %+v, events mismatch (-want +got):\n%s", req, diff)
 					}
 				}, nil)
 				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
@@ -1222,7 +1348,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			name: "an identity resolving to another user than it waited on is refused and its session expired",
 			wait: mfa,
 			prepare: func(f *authFixture, _ ccc.UUID) {
-				createSession(f.store, sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
+				f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID = ccc.Must(ccc.NewUUID())
 
 					return nil
@@ -1235,16 +1361,18 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 		},
 		{
 			name:    "an identity waiting for a password confirmation can't be completed by MFA",
-			wait:    &sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
+			wait:    &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"},
 			wantErr: httpio.HasConflict,
 		},
 		{
-			name: "a disabled user is refused at completion",
+			name: "a user the store finds disabled at completion is refused",
 			wait: mfa,
 			prepare: func(f *authFixture, _ ccc.UUID) {
-				f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, nil)
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
+				})
 			},
-			wantErr: func(err error) bool { return errors.Is(err, sessionstorage.ErrUserDisabled) },
+			wantErr: func(err error) bool { return errors.Is(err, signin.ErrUserDisabled) },
 		},
 	}
 	for _, tt := range tests {
@@ -1293,7 +1421,7 @@ func TestAuth_PendingStatusAndCancel(t *testing.T) {
 	f := newAuthFixture(t, ctrl)
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
 	cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, returnURL: "/next"},
-		&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"})
+		&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"})
 	f.livePending(pendingID)
 
 	rr := f.serve(f.auth.Pending().Status(), http.MethodGet, "/pending", nil, cookies)
@@ -1392,7 +1520,7 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 					if req.Reason != sessioninfo.ReasonExternalAuth || req.Identity != nil || req.UserID != userID || !cmp.Equal(req.AuthEvents, events) {
 						t.Errorf("CreateSession() request = %+v", req)
 					}
-				}, nil)
+				})
 			}
 
 			rr := httptest.NewRecorder()
@@ -1418,13 +1546,13 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	tests := []struct {
 		name       string
 		principal  accesstypes.Principal
-		prepare    func(store *mock_sessionstorage.MockAuthStore)
+		prepare    func(store *mock_sessionstorage.MockAuthStore[mockTx])
 		wantUserID ccc.UUID
 	}{
 		{
 			name:      "a user principal's session belongs to the impersonated user",
 			principal: accesstypes.UserPrincipal("bob"),
-			prepare: func(store *mock_sessionstorage.MockAuthStore) {
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID: bobID,
@@ -1432,7 +1560,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		{
 			name:      "a role principal's session belongs to no user",
 			principal: accesstypes.RolePrincipal("Viewer"),
-			prepare: func(store *mock_sessionstorage.MockAuthStore) {
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
 		},
@@ -1534,7 +1662,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
 				t.Errorf("CreateSession() request = %+v", req)
 			}
-		}, nil)
+		})
 
 		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
@@ -1616,11 +1744,11 @@ func TestAuth_RegistrationRacingTheFirstRequest(t *testing.T) {
 	// Under -race: a registration racing the Auth's first request either lands before it
 	// or is refused; the request never reads a half-registered method.
 	for range 20 {
-		a := newBareAuth(t, gomock.NewController(t), true)
+		a := newBareAuth(t, gomock.NewController(t))
 		done := make(chan any)
 		go func() {
 			done <- registrationPanic(func() {
-				workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+				workos.SignIn(a, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			})
 		}()
 		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)

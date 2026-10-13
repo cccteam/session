@@ -36,19 +36,24 @@ type SessionStorageDriver struct {
 	// users enables the auth schema's session columns (UserId, AuthenticatedAt).
 	users      bool
 	authEvents *AuthEventsConfig
-	identities *IdentitiesConfig
+	// identitiesTableName names the auth schema's identities table.
+	identitiesTableName string
 }
 
 // expiredColumnName is the session table's Expired column.
 const expiredColumnName = "Expired"
 
+// usernameIndex is the unique index on the user table's normalized username.
+const usernameIndex = "SessionUsersByNormalizedUsername"
+
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		spanner:           client,
-		sessionTableName:  "Sessions",
-		userTableName:     "SessionUsers",
-		oidcUserTableName: "OIDCUsers",
+		spanner:             client,
+		sessionTableName:    "Sessions",
+		userTableName:       "SessionUsers",
+		oidcUserTableName:   "OIDCUsers",
+		identitiesTableName: "SessionIdentities",
 	}
 }
 
@@ -232,17 +237,6 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
-	}
-
-	// A sign-in that carries a verified identity resolves its user first. An external
-	// identity always does. A password identity does when identities, and so the sign-in
-	// policy, are configured.
-	if req.Identity != nil && (s.identities != nil || dbtype.IsExternal(req.Identity)) {
-		if err := s.insertUserSession(ctx, id, insertSession, req); err != nil {
-			return ccc.NilUUID, err
-		}
-
-		return id, nil
 	}
 
 	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
@@ -479,7 +473,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), usernameIndex) {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
@@ -563,7 +557,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), usernameIndex) {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 
@@ -651,7 +645,7 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
-// DeleteUser deletes a user. With identities configured, the user's identity links are
+// DeleteUser deletes a user. On the auth schema, the user's identity links are
 // deleted with it, in the same transaction.
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
@@ -663,8 +657,8 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 	stmt.Params["id"] = id
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		if s.identities != nil {
-			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identities.TableName))
+		if s.users {
+			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identitiesTableName))
 			links.Params["userId"] = id.String()
 			if _, err := txn.Update(ctx, links); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")

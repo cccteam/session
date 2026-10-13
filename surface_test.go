@@ -16,6 +16,7 @@ import (
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
 	"github.com/cccteam/session/workos"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -98,13 +99,13 @@ func surfaceBuilders() []struct {
 		{
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newAuthStoreMock(ctrl, true)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
+				storage := newAuthStoreMock(ctrl)
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, signin.AllowAll, WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}
 				PasswordSignIn(a)
-				workos.SignIn(a, &workos.Config{APIKey: "sk_test", ClientID: "client", RedirectURL: "https://app.example/sso/callback"})
+				workos.SignIn(a, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk_test", ClientID: "client", RedirectURL: "https://app.example/sso/callback"})
 
 				return &surface{
 					handlers: a,

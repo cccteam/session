@@ -2,6 +2,7 @@ package workos
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/cccteam/session/sessioninfo"
@@ -26,6 +27,22 @@ type Config struct {
 	Authenticator Authenticator
 }
 
+// Identity is a verified WorkOS SSO identity as the user resolver receives it: the
+// profile WorkOS returned, keyed by its connection and the upstream IdP's identifier
+// (ConnectionID, IDPID). WorkOS only relays the upstream IdP's email, so the resolver
+// decides what it is worth.
+type Identity struct {
+	Profile
+	// Raw is the profile exactly as WorkOS returned it, for what Profile does not
+	// carry, such as raw_attributes.
+	Raw json.RawMessage
+}
+
+// UserResolver decides a WorkOS identity that is not linked to any user yet. It is the
+// application's rule, given to SignIn; see signin.UserResolver for when it runs and
+// what it may do. Tx is the Auth's storage transaction type.
+type UserResolver[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
+
 // Method holds the handlers of the WorkOS SSO sign-in method.
 type Method struct {
 	login    http.HandlerFunc
@@ -34,17 +51,18 @@ type Method struct {
 
 // SignIn registers WorkOS SSO sign-in on auth and returns its handlers. The login
 // handler reads the "organization" query parameter. The identity key is
-// (connection_id, idp_id). Roles are never synchronized from WorkOS.
+// (connection_id, idp_id); resolve decides an identity that is not linked yet. Roles are
+// never synchronized from WorkOS.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, or when auth's storage has no identities configuration
-// (sessionstorage.ErrIdentitiesNotConfigured).
-func SignIn(auth signin.Core, cfg *Config) *Method {
+// request, or when resolve is nil.
+func SignIn[Tx any](auth signin.Core[Tx], resolve UserResolver[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	h := signin.Register(auth, &signin.Registration{
-		Method: sessioninfo.MethodWorkOS,
+	reg := &signin.Registration[Tx]{
+		Method:  sessioninfo.MethodWorkOS,
+		Resolve: resolver(resolve),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			authn := cfg.Authenticator
 			if authn == nil {
@@ -60,7 +78,11 @@ func SignIn(auth signin.Core, cfg *Config) *Method {
 
 			return method(authn), nil
 		},
-	})
+	}
+	if resolve == nil {
+		reg.Err = errors.New("resolve is required: it decides every WorkOS identity that is not linked yet")
+	}
+	h := signin.Register(auth, reg)
 
 	return &Method{login: h.Login, callback: h.Callback}
 }
@@ -72,6 +94,19 @@ func (m *Method) Login() http.HandlerFunc { return m.login }
 // Callback completes the provider round trip and redirects as the Azure method's
 // Callback does.
 func (m *Method) Callback() http.HandlerFunc { return m.callback }
+
+// resolver adapts the application's resolver to the contract: the identity the core
+// resolves is decoded from the profile the sign-in verified.
+func resolver[Tx any](resolve UserResolver[Tx]) signin.UserResolver[Tx] {
+	return func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		identity := &Identity{Raw: req.Identity.Claims}
+		if err := json.Unmarshal(req.Identity.Claims, &identity.Profile); err != nil {
+			return nil, errors.Wrap(err, "json.Unmarshal()")
+		}
+
+		return resolve(ctx, tx, identity)
+	}
+}
 
 // method is the WorkOS SSO method over authn. The identity is (connection_id, idp_id),
 // and the full profile is its claims. WorkOS only relays the upstream IdP's email, so

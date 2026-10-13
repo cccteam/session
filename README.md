@@ -55,13 +55,15 @@ ALTER TABLE "Sessions"
 
 ## Auth sessions (multiple sign-in methods)
 
-`Auth[SessionData, UserData]` is one session that any registered sign-in method can
+`Auth[SessionData, UserData, Tx]` is one session that any registered sign-in method can
 establish: password, Microsoft Entra ID (Azure), Google Workspace and WorkOS SSO. An
 application mounts one cookie, one session table and one middleware chain, and every
-session belongs to an **user**, a `SessionUsers` record, by its ID. The password
+session belongs to a **user**, a `SessionUsers` record, by its ID. The password
 method checks the user's password; an external method produces a verified
 **identity** that is linked to a user through the identities table, keyed by
-`(method, connection, subject)` and **never by email**.
+`(method, connection, subject)` and **never by email**. `Tx` is the storage's
+transaction type (`pgx.Tx` or `*spanner.ReadWriteTransaction`); `NewAuth` infers it from
+the store, and the rules the application gives the `Auth` and its methods are typed to it.
 
 Each redirect-based method is its own package (`session/azure`, `session/google`,
 `session/workos`), built on the `session/signin` contract and the shared `session/oidc`
@@ -71,23 +73,35 @@ each with its `SignIn` function and `Config`.
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
-| `azure` | `azure.SignIn(auth, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
-| `google` | `google.SignIn(auth, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
-| `workos` | `workos.SignIn(auth, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `azure` | `azure.SignIn(auth, resolve, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, resolve, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `workos` | `workos.SignIn(auth, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+
+`resolve` is the method's **user resolver**, the application's rule for an identity that
+is not linked to any user yet (see "Storage and schema").
 
 ### Storage and schema
 
 Apply the base migrations (`schema/*/migrations`) and the auth migrations
 (`schema/*/auth/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
 `SessionIdentities`, `SessionAuthEvents`), plus `impersonation` if you use it. Build the
-storage with `NewSpannerAuth` / `NewPostgresAuth`; any external method needs an
-identities configuration, which carries the application's **user resolver** (what to
-do with an identity that is not linked yet: `LinkIdentity`, `ProvisionUser`,
-`RequireConfirmation` or `RejectIdentity`) and its optional **sign-in policy** (`AllowSignIn`,
-`RequireMFA` or `DenySignIn`, for every method once the user is known). Each receives
-its transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`), so it can read and write
-the application's own rows; on Spanner it may run more than once when the transaction
-retries, so it must not have side effects outside it.
+storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
+the `Auth` and to each method, typed to the storage's transaction
+(`*spanner.ReadWriteTransaction` or `pgx.Tx`) so they can read and write the application's
+own rows in the sign-in's transaction; a rule written for the other driver's transaction
+does not compile. On Spanner a rule may run more than once when the transaction retries,
+so it must not have side effects outside it, and a row it writes with a mutation is
+buffered until the commit, invisible to a later read in the same transaction: write with
+DML what a later rule must read.
+
+- The **sign-in policy** (`signin.Policy[Tx]`) is `NewAuth`'s third argument, required:
+  `signin.AllowAll` allows every sign-in, or the application's rule answers
+  `AllowSignIn`, `RequireMFA` or `DenySignIn` for every method once the user is known.
+- Each external method's **user resolver** is given to its `SignIn` function and decides
+  an identity that is not linked to any user yet: `LinkIdentity`, `ProvisionUser`,
+  `RequireConfirmation` or `RejectIdentity`. It receives the method's own identity type
+  (`*azure.Identity`, `*google.Identity`, `*workos.Identity`), decoded from the verified
+  claims, with the raw claims on it for anything the fields do not carry.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
@@ -115,13 +129,19 @@ writes no session. Because the resolution has committed by the time the policy r
   failure leaves no user, while a policy error leaves a provisioned user in place.
 
 ```go
-identities, err := sessionstorage.NewSpannerIdentities("SessionIdentities", resolveUser, signInPolicy)
-events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
-store := sessionstorage.NewSpannerAuth(client,
-    sessionstorage.WithSpannerIdentities(identities),
-    sessionstorage.WithAuthEvents(events))
+// The application's rules, typed to the store's transaction.
+func signInPolicy(ctx context.Context, tx *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+    // req.User is the user the sign-in resolved; decide AllowSignIn, RequireMFA or DenySignIn.
+}
 
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
+func resolveWorkOSUser(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *workos.Identity) (*signin.Resolution, error) {
+    // identity.Email, identity.ConnectionID, ...: LinkIdentity, ProvisionUser, RequireConfirmation or RejectIdentity.
+}
+
+events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
+store := sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(events))
+
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, signInPolicy,
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
     session.WithPendingHook(onPending),       // called when a sign-in becomes pending
@@ -131,14 +151,14 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-sso := workos.SignIn(auth, &workos.Config{ // *workos.Method
+sso := workos.SignIn(auth, resolveWorkOSUser, &workos.Config{ // *workos.Method
     APIKey: cfg.WorkOSAPIKey, ClientID: cfg.WorkOSClientID, RedirectURL: cfg.SSORedirectURL,
     LoginURL: "/login",
 })
 ```
 
-`NewAuth` refuses the OIDC-only storage features (`WithOIDCUsers`, the custom user data
-login hook).
+`NewAuth` refuses a missing sign-in policy and the OIDC-only storage features
+(`WithOIDCUsers`, the custom user data login hook).
 
 ### Registering sign-in methods
 
@@ -158,8 +178,7 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
   HashAlgorithm(...))` would have hashed with the default). Register every method, then
   build the router and serve.
-- **An external method on storage without identities**
-  (`sessionstorage.ErrIdentitiesNotConfigured`, which the panic value wraps).
+- **An external method without a user resolver** (`resolve` is nil).
 - **A misconfigured method**: Azure or Google without its role sync slot, Google without
   its hosted domain, cookie or session options passed to `PasswordSignIn` instead of
   `NewAuth`.
@@ -254,7 +273,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   pending identity (its cookie, its timeout; the session ID is regenerated when it
   completes). The URL is the application's own: never build it from request input. The
   `AuthAPI` methods never call the hook: `CompletePending` and
-  `ConfirmPendingWithPassword` return a `*sessionstorage.PendingSignInError` instead.
+  `ConfirmPendingWithPassword` return a `*signin.PendingSignInError` instead.
 - The codes are the `sessioninfo.LoginRefusalCode`s of the "Login refusal codes"
   section, including the resolver's and policy's own; text never travels.
 

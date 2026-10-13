@@ -17,14 +17,14 @@ import (
 // ValidateSession validates the session cookie and stores the session data and its
 // user (sessioninfo.UserFromCtx) in the context. Like Auth.ValidateSession, it
 // refuses a session whose user is missing or disabled as unauthorized.
-func (p *AuthAPI[S, U]) ValidateSession(ctx context.Context) (context.Context, error) {
+func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Context, error) {
 	return p.auth.validate(ctx)
 }
 
 // ValidateCredentials checks a username and password and returns the user ID. A
 // password-less user always fails validation. It starts no session and asks no
 // sign-in policy.
-func (p *AuthAPI[S, U]) ValidateCredentials(ctx context.Context, username, password string) (ccc.UUID, error) {
+func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, password string) (ccc.UUID, error) {
 	user, err := p.auth.checkCredentials(ctx, username, password)
 	if err != nil {
 		return ccc.NilUUID, err
@@ -41,7 +41,7 @@ func (p *AuthAPI[S, U]) ValidateCredentials(ctx context.Context, username, passw
 // zero At records the session's creation time. Optional customData (at most one *S) is
 // written atomically with the session insert, and the custom session data resolver is
 // not called. Without it, the resolver receives ReasonExternalAuth.
-func (p *AuthAPI[S, U]) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, events []sessioninfo.AuthEvent, customData ...*S) (ccc.UUID, error) {
+func (p *AuthAPI[S, U, Tx]) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, events []sessioninfo.AuthEvent, customData ...*S) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -70,7 +70,7 @@ func (p *AuthAPI[S, U]) StartAuthenticatedSession(ctx context.Context, w http.Re
 
 // startSession inserts req's session and writes its cookies. It is for sessions the
 // application or a user operation starts, with no identity to resolve.
-func (a *Auth[S, U]) startSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
+func (a *Auth[S, U, Tx]) startSession(ctx context.Context, w http.ResponseWriter, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, sessioncore.SameSiteStrict, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.CreateSession(ctx, req)
 		if err != nil {
@@ -89,13 +89,13 @@ func (a *Auth[S, U]) startSession(ctx context.Context, w http.ResponseWriter, re
 }
 
 // Logout destroys the current session.
-func (p *AuthAPI[S, U]) Logout(ctx context.Context) error {
+func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 	return p.auth.shared().Logout(ctx)
 }
 
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
 // user.
-func (p *AuthAPI[S, U]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (ccc.UUID, error) {
+func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -127,7 +127,7 @@ func (p *AuthAPI[S, U]) CreateSessionUser(ctx context.Context, req *CreateUserRe
 
 // ChangeSessionUserUsername changes a user's username, and atomically the username
 // on its live sessions.
-func (p *AuthAPI[S, U]) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
+func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userID ccc.UUID, username string) error {
 	if err := p.auth.storage.SetUserUsername(ctx, userID, username); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserUsername()")
 	}
@@ -140,7 +140,7 @@ func (p *AuthAPI[S, U]) ChangeSessionUserUsername(ctx context.Context, userID cc
 // The old password must match (BadRequest otherwise). Every session of the user is
 // destroyed, by UserId, and the caller continues in a new session (ReasonRegeneration)
 // that records a password event.
-func (p *AuthAPI[S, U]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
+func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -172,7 +172,7 @@ func (p *AuthAPI[S, U]) ChangeSessionUserPassword(ctx context.Context, w http.Re
 
 // SetSessionUserPassword sets a user's password without the old one (enrollment,
 // reset), destroying its sessions.
-func (p *AuthAPI[S, U]) SetSessionUserPassword(ctx context.Context, userID ccc.UUID, password string) error {
+func (p *AuthAPI[S, U, Tx]) SetSessionUserPassword(ctx context.Context, userID ccc.UUID, password string) error {
 	if err := p.auth.setPasswordHash(ctx, userID, password); err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (p *AuthAPI[S, U]) SetSessionUserPassword(ctx context.Context, userID ccc.U
 
 // DeactivateSessionUser disables a user and destroys its sessions. The caller must
 // guard against self-deactivation.
-func (p *AuthAPI[S, U]) DeactivateSessionUser(ctx context.Context, userID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID ccc.UUID) error {
 	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeactivateUser()")
 	}
@@ -197,7 +197,7 @@ func (p *AuthAPI[S, U]) DeactivateSessionUser(ctx context.Context, userID ccc.UU
 }
 
 // ActivateSessionUser enables a user.
-func (p *AuthAPI[S, U]) ActivateSessionUser(ctx context.Context, userID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID ccc.UUID) error {
 	if err := p.auth.storage.ActivateUser(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ActivateUser()")
 	}
@@ -208,7 +208,7 @@ func (p *AuthAPI[S, U]) ActivateSessionUser(ctx context.Context, userID ccc.UUID
 // DeleteSessionUser deletes a user with its identity links and sessions. The
 // sessions are destroyed first, by UserId, so a failed delete leaves no live session
 // behind. The caller must guard against self-deletion.
-func (p *AuthAPI[S, U]) DeleteSessionUser(ctx context.Context, userID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID ccc.UUID) error {
 	if _, err := p.auth.storage.User(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
@@ -223,7 +223,7 @@ func (p *AuthAPI[S, U]) DeleteSessionUser(ctx context.Context, userID ccc.UUID) 
 }
 
 // DestroyUserSessions expires every session of a user.
-func (p *AuthAPI[S, U]) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
@@ -232,7 +232,7 @@ func (p *AuthAPI[S, U]) DestroyUserSessions(ctx context.Context, userID ccc.UUID
 }
 
 // Identities lists a user's linked external identities.
-func (p *AuthAPI[S, U]) Identities(ctx context.Context, userID ccc.UUID) ([]*sessionstorage.SessionIdentity, error) {
+func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID ccc.UUID) ([]*sessionstorage.SessionIdentity, error) {
 	identities, err := p.auth.storage.IdentitiesByUser(ctx, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
@@ -243,7 +243,7 @@ func (p *AuthAPI[S, U]) Identities(ctx context.Context, userID ccc.UUID) ([]*ses
 
 // UnlinkIdentity removes an identity link. The last means of sign-in of a password-less
 // user is refused (sessionstorage.ErrLastSignInMethod, Conflict).
-func (p *AuthAPI[S, U]) UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error {
 	if err := p.auth.storage.UnlinkIdentity(ctx, identityID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")
 	}
@@ -252,22 +252,22 @@ func (p *AuthAPI[S, U]) UnlinkIdentity(ctx context.Context, identityID ccc.UUID)
 }
 
 // UpdateCustomSessionData updates the custom session data of an active session.
-func (p *AuthAPI[S, U]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *S) error) error {
+func (p *AuthAPI[S, U, Tx]) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(data *S) error) error {
 	return p.auth.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }
 
 // CustomData returns the current session's custom data.
-func (p *AuthAPI[S, U]) CustomData(ctx context.Context) (S, error) {
+func (p *AuthAPI[S, U, Tx]) CustomData(ctx context.Context) (S, error) {
 	return p.auth.shared().CustomData(ctx)
 }
 
 // CustomUserData returns a user's custom user data.
-func (p *AuthAPI[S, U]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
+func (p *AuthAPI[S, U, Tx]) CustomUserData(ctx context.Context, userID ccc.UUID) (U, error) {
 	return p.auth.shared().CustomUserData(ctx, userID)
 }
 
 // UpdateCustomUserData updates a user's custom user data.
-func (p *AuthAPI[S, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
+func (p *AuthAPI[S, U, Tx]) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data *U) error) error {
 	return p.auth.shared().UpdateCustomUserData(ctx, userID, mutate)
 }
 
@@ -278,27 +278,27 @@ func (p *AuthAPI[S, U]) UpdateCustomUserData(ctx context.Context, userID ccc.UUI
 // A user principal's session belongs to the impersonated user (SessionData.UserID).
 // A role principal's session belongs to no user (null UserID). The session records
 // an impersonation auth event whose connection is the actor.
-func (p *AuthAPI[S, U]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*S) (ccc.UUID, error) {
+func (p *AuthAPI[S, U, Tx]) StartImpersonatedSession(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest, customData ...*S) (ccc.UUID, error) {
 	return p.auth.shared().StartImpersonatedSession(ctx, w, req, customData, sessioncore.UserIdentity(p.auth.storage))
 }
 
 // DestroyImpersonatedSessions expires every impersonated session started by actor.
-func (p *AuthAPI[S, U]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
+func (p *AuthAPI[S, U, Tx]) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
 	return p.auth.shared().DestroyImpersonatedSessions(ctx, actor)
 }
 
 // ActiveImpersonations lists active impersonations matching q.
-func (p *AuthAPI[S, U]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
+func (p *AuthAPI[S, U, Tx]) ActiveImpersonations(ctx context.Context, q *ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
 	return p.auth.shared().ActiveImpersonations(ctx, q)
 }
 
 // DestroyImpersonatedSession expires one impersonated session.
-func (p *AuthAPI[S, U]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
+func (p *AuthAPI[S, U, Tx]) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID) error {
 	return p.auth.shared().DestroyImpersonatedSession(ctx, sessionID)
 }
 
 // EndImpersonation ends the current impersonated session, restoring the actor's
 // session when possible.
-func (p *AuthAPI[S, U]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
+func (p *AuthAPI[S, U, Tx]) EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error) {
 	return p.auth.shared().EndImpersonation(ctx, w)
 }
