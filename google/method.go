@@ -63,16 +63,18 @@ type Method struct {
 	callback http.HandlerFunc
 }
 
-// SignIn registers Google Workspace OpenID Connect sign-in on auth and returns its
-// handlers. The identity key is sub; resolve decides an identity that is not linked yet.
+// SignIn registers Google Workspace OpenID Connect sign-in on auth under name and
+// returns its handlers. name identifies the registration on auth. The identity key is
+// sub; resolve decides an identity that is not linked yet.
 //
-// It panics when the method is already registered on auth, when auth has served a
+// It panics when name is empty or already used on auth, when auth has served a
 // request, when resolve is nil, or when cfg.RoleSync or cfg.HostedDomain is missing.
-func SignIn[Tx any](auth signin.Core[Tx], resolve UserResolver[Tx], cfg *Config) *Method {
+func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
 	reg := &signin.Registration[Tx]{
+		Name:    name,
 		Method:  sessioninfo.MethodGoogle,
 		Resolve: resolver(resolve),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {

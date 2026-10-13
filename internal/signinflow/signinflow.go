@@ -173,59 +173,60 @@ func applyResolution[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, now time.Time,
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
 	if res == nil {
-		res = &signin.Resolution{}
+		res = signin.Reject("")
 	}
 
-	switch res.Outcome {
+	switch res.Outcome() {
 	case signin.RejectIdentity:
-		return "", "", Refusal(res.Refusal, sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
+		return "", "", Refusal(res.Refusal(), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
 	case signin.LinkIdentity:
-		user, err := d.UserIn(ctx, tx, res.UserID)
+		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.UserIn()")
 		}
-		if user.HasPassword && !res.TrustedForLinking {
+		if user.HasPassword && !res.Trusted() {
 			return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 		}
-		if _, err := d.LinkIdentityIn(ctx, tx, res.UserID, req.Identity, res.Tenant, now); err != nil {
+		if _, err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant(), now); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
-		req.UserID = res.UserID
+		req.UserID = res.UserID()
 
-		return sessioninfo.UserNewLink, res.Tenant, nil, nil
+		return sessioninfo.UserNewLink, res.Tenant(), nil, nil
 	case signin.ProvisionUser:
-		if res.NewUser == nil {
-			return "", "", nil, errors.New("the user resolver provisioned no user: Resolution.NewUser is nil")
+		newUser := res.NewUser()
+		if newUser == nil {
+			return "", "", nil, errors.New("the user resolver provisioned no user: signin.Provision was given nil")
 		}
-		req.Username = res.NewUser.Username
+		req.Username = newUser.Username
 		id, err := d.InsertUserIn(ctx, tx, &dbtype.InsertSessionUser{
-			Username: res.NewUser.Username, PasswordHash: res.NewUser.PasswordHash, Disabled: res.NewUser.Disabled,
+			Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled,
 		})
 		if err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.InsertUserIn()")
 		}
-		if _, err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant, now); err != nil {
+		if _, err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant(), now); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
 		req.UserID = id
-		if res.OnProvisioned != nil {
-			if err := res.OnProvisioned(ctx, id); err != nil {
-				return "", "", nil, errors.Wrap(err, "Resolution.OnProvisioned()")
+		if onProvisioned := res.OnProvisioned(); onProvisioned != nil {
+			if err := onProvisioned(ctx, id); err != nil {
+				return "", "", nil, errors.Wrap(err, "signin.Resolution.OnProvisioned()")
 			}
 		}
 
-		return sessioninfo.UserProvisioned, res.Tenant, nil, nil
+		return sessioninfo.UserProvisioned, res.Tenant(), nil, nil
 	case signin.RequireConfirmation:
-		user, err := d.UserIn(ctx, tx, res.UserID)
+		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.UserIn()")
 		}
 
 		return "", "", &signin.PendingSignInError{
-			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID), Username: user.Username, Tenant: res.Tenant,
+			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID()), Username: user.Username, Tenant: res.Tenant(),
 		}, nil
 	default:
-		return "", "", nil, errors.Newf("unknown user resolver outcome %d", res.Outcome)
+		return "", "", nil, errors.Newf("unknown user resolver outcome %d", res.Outcome())
 	}
 }
 
@@ -309,21 +310,21 @@ func decideSignIn(
 		return verdict{}, errors.Wrap(err, "signin.Policy()")
 	}
 	if decision == nil {
-		decision = &signin.Decision{}
+		decision = signin.Deny("")
 	}
 
-	switch decision.Outcome {
+	switch decision.Outcome() {
 	case signin.AllowSignIn:
 		return verdict{}, nil
-	case signin.RequireMFA:
-		pending := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username}
+	case signin.HoldForMFA:
+		pending := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username, Factors: decision.Factors()}
 		if req.User != nil {
 			pending.Tenant = req.User.Tenant
 		}
 
 		return verdict{stop: pending}, nil
 	default:
-		return verdict{stop: Refusal(decision.Refusal, sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied")}, nil
+		return verdict{stop: Refusal(decision.Refusal(), sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied")}, nil
 	}
 }
 

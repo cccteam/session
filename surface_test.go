@@ -105,7 +105,7 @@ func surfaceBuilders() []struct {
 					t.Fatalf("NewAuth() error = %v", err)
 				}
 				PasswordSignIn(a)
-				workos.SignIn(a, resolveAll[workos.Identity](), &workos.Config{APIKey: "sk_test", ClientID: "client", RedirectURL: "https://app.example/sso/callback"})
+				workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk_test", ClientID: "client", RedirectURL: "https://app.example/sso/callback"})
 
 				return &surface{
 					handlers: a,

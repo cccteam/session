@@ -50,14 +50,14 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
-	azureMethod := azure.SignIn(auth, h.azureResolver, &azure.Config{
+	azureMethod := azure.SignIn(auth, "azure", h.azureResolver, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
 		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",
 	})
 	googleIssuerMu.Lock()
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
-	googleMethod := google.SignIn(auth, h.googleResolver, &google.Config{
+	googleMethod := google.SignIn(auth, "google", h.googleResolver, &google.Config{
 		RoleSync: google.DisableRoleSync(), HostedDomain: hostedDomain,
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 	})
@@ -137,13 +137,13 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				a.hooks.set(func(h *hooks[Tx]) {
 					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
 						if identity.TenantID != azureTenant {
-							return &signin.Resolution{Outcome: signin.RejectIdentity}
+							return signin.Reject("")
 						}
 
-						return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}}
+						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
 					}
 					h.resolveGoogle = func(*google.Identity) *signin.Resolution {
-						return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: user}
+						return signin.Link(user, false)
 					}
 				})
 

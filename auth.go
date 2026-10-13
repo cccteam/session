@@ -144,7 +144,7 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, err
 	}
 	if storage.UserDataLoginHookConfigured() {
-		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in the user resolver (Resolution.OnProvisioned) or per call on CreateSessionUser")
+		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in the user resolver (signin.Provision's onProvisioned) or per call on CreateSessionUser")
 	}
 	if storage.OIDCUsersEnabled() {
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")
@@ -184,10 +184,10 @@ func NewAuth[SessionData, UserData, Tx any](
 		cookies:        cookieClient,
 		pendingCookies: pendingCookies,
 		methods: signInMethods[Tx]{
-			registered:  make(map[sessioninfo.AuthMethod]bool),
+			registered:  make(map[string]bool),
 			hasher:      securehash.New(securehash.Argon2()),
 			autoUpgrade: true,
-			external:    make(map[sessioninfo.AuthMethod]*externalMethod[Tx]),
+			external:    make(map[string]*externalMethod[Tx]),
 		},
 	}, nil
 }

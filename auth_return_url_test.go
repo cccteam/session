@@ -60,10 +60,10 @@ func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixtur
 	f := &returnURLFixture{authFixture: newAuthFixture(t, ctrl)}
 	f.client = workos.NewClient(f.auth.cookies, "sk", "client", "https://app/sso/callback")
 	f.client.SetBaseURL(fake.URL)
-	f.sso = workos.SignIn(f.auth, func(_ context.Context, _ mockTx, identity *workos.Identity) (*signin.Resolution, error) {
+	f.sso = workos.SignIn(f.auth, "workos", func(_ context.Context, _ mockTx, identity *workos.Identity) (*signin.Resolution, error) {
 		f.identity = identity
 
-		return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: identity.Email}}, nil
+		return signin.Provision(&signin.NewUser{Username: identity.Email}, nil), nil
 	}, &workos.Config{Authenticator: f.client})
 
 	return f

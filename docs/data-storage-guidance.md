@@ -50,7 +50,7 @@ off an identity's subject or email. Custom session data is resolved with `Reason
 `req.Identity` and `req.Claims` for the external methods, and with `ReasonPreauth` for
 the stepping-stone row of a pending identity, which belongs to no user. Custom user
 data works as for username/password; provision it in the user resolver's
-`OnProvisioned`, inside the session transaction.
+`signin.Provision` hook, inside the session transaction.
 
 ## Patterns
 

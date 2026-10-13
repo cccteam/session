@@ -32,14 +32,18 @@ import (
 type Core[Tx any] interface {
 	// RegisterExternal registers a redirect-based method and returns its handlers. It
 	// panics on a registration rule, because that is a wiring mistake found at startup:
-	// the method is already registered, the core has served a request, the registration
-	// has no user resolver, or reg.Err carries a misuse the registration function found
-	// in its arguments.
+	// the registration has no name or its name is already used, the core has served a
+	// request, the registration has no user resolver, or reg.Err carries a misuse the
+	// registration function found in its arguments.
 	RegisterExternal(reg *Registration[Tx]) Handlers
 }
 
 // Registration is what a method asks the core to register.
 type Registration[Tx any] struct {
+	// Name identifies the registration on the core, where it must be unique. One
+	// method may be registered several times under different names (two Entra
+	// tenants); the name is the application's, such as "azure" or "lakeside-entra".
+	Name string
 	// Method names the method; it is the identity's method and the session's auth
 	// event's.
 	Method sessioninfo.AuthMethod

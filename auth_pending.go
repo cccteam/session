@@ -44,24 +44,32 @@ type pendingCtxKey struct{}
 // pendingState is a pending identity as the pending cookie carries it.
 type pendingState struct {
 	// ID is the stepping-stone session row.
-	ID        ccc.UUID                  `json:"id"`
-	Identity  sessioninfo.Identity      `json:"identity"`
-	Reason    sessioninfo.PendingReason `json:"reason"`
-	UserID    ccc.NullUUID              `json:"userId"`
-	Username  string                    `json:"username"`
-	Tenant    string                    `json:"tenant"`
-	ExpiresAt time.Time                 `json:"expiresAt"`
-	ReturnURL string                    `json:"returnUrl"`
+	ID       ccc.UUID             `json:"id"`
+	Identity sessioninfo.Identity `json:"identity"`
+	// Registration names the external registration the identity came through; empty
+	// for a password identity.
+	Registration string                    `json:"registration"`
+	Reason       sessioninfo.PendingReason `json:"reason"`
+	UserID       ccc.NullUUID              `json:"userId"`
+	Username     string                    `json:"username"`
+	Tenant       string                    `json:"tenant"`
+	ExpiresAt    time.Time                 `json:"expiresAt"`
+	ReturnURL    string                    `json:"returnUrl"`
 	// Events are the steps so far, the sign-in first.
 	Events []sessioninfo.AuthEvent `json:"events"`
 	// RoleNames are the role names the method asserted at sign-in, reconciled when the
 	// session is finally established; nil when the method synchronizes no roles.
 	RoleNames []string `json:"roleNames"`
+	// Factors are the methods the sign-in policy accepts for the MFA step; none means
+	// any.
+	Factors []sessioninfo.AuthMethod `json:"factors"`
 }
 
 // public is the PendingIdentity the API reports.
 func (p *pendingState) public() *sessioninfo.PendingIdentity {
-	return &sessioninfo.PendingIdentity{Identity: p.Identity, Reason: p.Reason, UserID: p.UserID, Username: p.Username, ExpiresAt: p.ExpiresAt, ReturnURL: p.ReturnURL}
+	return &sessioninfo.PendingIdentity{
+		Identity: p.Identity, Reason: p.Reason, UserID: p.UserID, Username: p.Username, ExpiresAt: p.ExpiresAt, ReturnURL: p.ReturnURL, Factors: p.Factors,
+	}
 }
 
 // encodePending renders state for the pending cookie: compressed JSON, base64.
@@ -180,15 +188,17 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		events = []sessioninfo.AuthEvent{identityEvent(at.identity, now)}
 	}
 	state := &pendingState{
-		Identity:  *at.identity,
-		Reason:    wait.Reason,
-		UserID:    wait.UserID,
-		Username:  wait.Username,
-		Tenant:    wait.Tenant,
-		ExpiresAt: now.Add(a.settings.pendingTimeout),
-		ReturnURL: pendingReturnURL(at.returnURL),
-		Events:    slices.Clone(events),
-		RoleNames: at.roleNames,
+		Identity:     *at.identity,
+		Registration: at.registration,
+		Reason:       wait.Reason,
+		UserID:       wait.UserID,
+		Username:     wait.Username,
+		Tenant:       wait.Tenant,
+		ExpiresAt:    now.Add(a.settings.pendingTimeout),
+		ReturnURL:    pendingReturnURL(at.returnURL),
+		Events:       slices.Clone(events),
+		RoleNames:    at.roleNames,
+		Factors:      wait.Factors,
 	}
 	if at.identity.Method == sessioninfo.MethodPassword {
 		state.UserID = ccc.NullUUIDFromUUID(at.userID)
@@ -300,6 +310,7 @@ func (a *Auth[S, U, Tx]) completePending(
 	at := &signInAttempt{
 		identity:     &identity,
 		reason:       reason,
+		registration: state.Registration,
 		username:     state.Username,
 		expectUserID: state.UserID,
 		events:       append(slices.Clone(state.Events), more...),
@@ -317,9 +328,24 @@ func (a *Auth[S, U, Tx]) completePending(
 	return a.signIn(ctx, w, at)
 }
 
+// acceptedFactors refuses a step-up event whose method is not one the sign-in policy
+// accepts for the MFA step. A policy that named no factors accepts any.
+func acceptedFactors(factors []sessioninfo.AuthMethod, stepUp []sessioninfo.AuthEvent) error {
+	if len(factors) == 0 {
+		return nil
+	}
+	for _, e := range stepUp {
+		if !slices.Contains(factors, e.Method) {
+			return httpio.NewBadRequestMessagef("the sign-in policy accepts %v for the MFA step, not %q", factors, e.Method)
+		}
+	}
+
+	return nil
+}
+
 // stillPending is the error a completion step returns when the sign-in waits again.
 func stillPending(state *pendingState) error {
-	return &signin.PendingSignInError{Reason: state.Reason, UserID: state.UserID, Username: state.Username, Tenant: state.Tenant}
+	return &signin.PendingSignInError{Reason: state.Reason, UserID: state.UserID, Username: state.Username, Tenant: state.Tenant, Factors: state.Factors}
 }
 
 // PendingIdentity returns the pending identity of the current request, or a NotFound
@@ -355,6 +381,9 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 		return ccc.NilUUID, httpio.NewConflictMessage("the pending sign-in waits for a password confirmation, not MFA")
 	}
 	if err := validateEvents(stepUp); err != nil {
+		return ccc.NilUUID, err
+	}
+	if err := acceptedFactors(state.Factors, stepUp); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -450,6 +479,8 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 		Email     string                    `json:"email"`
 		ExpiresAt time.Time                 `json:"expiresAt"`
 		ReturnURL string                    `json:"returnUrl"`
+		// Factors are the methods the sign-in policy accepts for the MFA step.
+		Factors []sessioninfo.AuthMethod `json:"factors,omitempty"`
 	}
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -461,7 +492,9 @@ func (a *Auth[S, U, Tx]) pendingStatus() http.HandlerFunc {
 			return writeSignInError(ctx, w, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(response{Reason: state.Reason, Email: state.Identity.Email, ExpiresAt: state.ExpiresAt, ReturnURL: internalcookie.SanitizeReturnURL(state.ReturnURL)})
+		return httpio.NewEncoder(w).Ok(response{
+			Reason: state.Reason, Email: state.Identity.Email, ExpiresAt: state.ExpiresAt, ReturnURL: internalcookie.SanitizeReturnURL(state.ReturnURL), Factors: state.Factors,
+		})
 	})
 }
 

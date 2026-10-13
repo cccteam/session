@@ -73,12 +73,16 @@ each with its `SignIn` function and `Config`.
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
-| `azure` | `azure.SignIn(auth, resolve, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
-| `google` | `google.SignIn(auth, resolve, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
-| `workos` | `workos.SignIn(auth, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `azure` | `azure.SignIn(auth, name, resolve, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, name, resolve, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `workos` | `workos.SignIn(auth, name, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
-`resolve` is the method's **user resolver**, the application's rule for an identity that
-is not linked to any user yet (see "Storage and schema").
+`name` identifies the registration on the `Auth` and must be unique there: one method
+may be registered several times under different names, so one `Auth` offers two Entra
+tenants as two registrations, each with its own configuration and resolver. The password
+registration is named `password`. `resolve` is the registration's **user resolver**, the
+application's rule for an identity that is not linked to any user yet (see "Storage and
+schema").
 
 ### Storage and schema
 
@@ -95,11 +99,17 @@ buffered until the commit, invisible to a later read in the same transaction: wr
 DML what a later rule must read.
 
 - The **sign-in policy** (`signin.Policy[Tx]`) is `NewAuth`'s third argument, required:
-  `signin.AllowAll` allows every sign-in, or the application's rule answers
-  `AllowSignIn`, `RequireMFA` or `DenySignIn` for every method once the user is known.
-- Each external method's **user resolver** is given to its `SignIn` function and decides
-  an identity that is not linked to any user yet: `LinkIdentity`, `ProvisionUser`,
-  `RequireConfirmation` or `RejectIdentity`. It receives the method's own identity type
+  `signin.AllowAll` allows every sign-in, or the application's rule answers for every
+  method once the user is known, with `signin.Allow()`, `signin.Deny(code)` or
+  `signin.RequireMFA(factors...)`. The factors are the methods the application's MFA
+  step may record when it completes the sign-in (`"email-otp"`, `"totp"`): the pending
+  status and the `PendingHook` report them, and `CompletePending` refuses any other;
+  none accepts any.
+- Each external registration's **user resolver** is given to its `SignIn` function and
+  decides an identity that is not linked to any user yet, with `signin.Reject(code)`,
+  `signin.Link(userID, trusted)`, `signin.Provision(newUser, onProvisioned)` or
+  `signin.Confirm(userID)`; `signin.Tenant(key)` on any of the last three stores the
+  application's tenant key on the link. It receives the method's own identity type
   (`*azure.Identity`, `*google.Identity`, `*workos.Identity`), decoded from the verified
   claims, with the raw claims on it for anything the fields do not carry.
 
@@ -107,35 +117,47 @@ A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
 1. **User resolution** (external methods): a linked identity is its user's;
    otherwise the user resolver runs and its outcome is applied: the link, or the new
-   user, its link and the rows `Resolution.OnProvisioned` writes.
+   user, its link and the rows `Provision`'s `onProvisioned` writes.
 2. **Decision and session**: the user is read (a disabled one is refused), the
    sign-in policy runs, and the session row is inserted with its auth events and custom
    session data.
 
-Each transaction **commits unless a hook or the storage returns an error**. A
-`RejectIdentity`, `RequireConfirmation`, `DenySignIn` or `RequireMFA` answer is not an
-error: it commits the hook's own writes (a record of a refused sign-up, an audit row) and
-writes no session. Because the resolution has committed by the time the policy runs:
+Each transaction **commits unless a hook or the storage returns an error**. A `Reject`,
+`Confirm`, `Deny` or `RequireMFA` answer is not an error: it commits the hook's own
+writes (a record of a refused sign-up, an audit row) and writes no session. Because the
+resolution has committed by the time the policy runs:
 
 - the policy (and the custom session data resolver) **reads the user a sign-in just
-  provisioned** and the rows `OnProvisioned` wrote, on both backends;
+  provisioned** and the rows `onProvisioned` wrote, on both backends;
 - `req.User` (`*sessioninfo.SignInUser`) tells them which user was resolved and
   how: `Source` is `UserNamed` (password), `UserExistingLink`, `UserNewLink` or
   `UserProvisioned` (`req.User.Provisioned()`), with the link's `Tenant`;
 - **a user the resolver provisioned stays, linked, when the policy then denies the
   sign-in or holds it for MFA**; the next sign-in goes through the link and the policy
-  decides again. Return `RejectIdentity` from the resolver when the user must not be
-  created at all. A hook error rolls back its own transaction only: an `OnProvisioned`
+  decides again. Return `signin.Reject` from the resolver when the user must not be
+  created at all. A hook error rolls back its own transaction only: an `onProvisioned`
   failure leaves no user, while a policy error leaves a provisioned user in place.
 
 ```go
 // The application's rules, typed to the store's transaction.
 func signInPolicy(ctx context.Context, tx *spanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-    // req.User is the user the sign-in resolved; decide AllowSignIn, RequireMFA or DenySignIn.
+    if req.User.Provisioned() { // a first sign-in through SSO: the MFA step enrols the person
+        return signin.RequireMFA("email-otp"), nil
+    }
+
+    return signin.Allow(), nil
 }
 
 func resolveWorkOSUser(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *workos.Identity) (*signin.Resolution, error) {
-    // identity.Email, identity.ConnectionID, ...: LinkIdentity, ProvisionUser, RequireConfirmation or RejectIdentity.
+    partner, ok, err := partnerOfConnection(ctx, tx, identity.ConnectionID) // the application's own rows
+    if err != nil {
+        return nil, err
+    }
+    if !ok {
+        return signin.Reject("not_invited"), nil
+    }
+
+    return signin.Provision(&signin.NewUser{Username: identity.Email}, nil, signin.Tenant(partner)), nil
 }
 
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
@@ -151,7 +173,7 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, sig
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-sso := workos.SignIn(auth, resolveWorkOSUser, &workos.Config{ // *workos.Method
+sso := workos.SignIn(auth, "workos", resolveWorkOSUser, &workos.Config{ // *workos.Method
     APIKey: cfg.WorkOSAPIKey, ClientID: cfg.WorkOSClientID, RedirectURL: cfg.SSORedirectURL,
     LoginURL: "/login",
 })
@@ -172,13 +194,14 @@ harmless.
 Registration is refused, with a panic, in one place, the way `http.ServeMux` refuses a
 duplicate pattern: these are wiring mistakes, found when the application starts.
 
-- **A method registered twice** on one `Auth`.
+- **A registration name used twice** on one `Auth`, by the same method or another, or a
+  registration without a name.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
   HashAlgorithm(...))` would have hashed with the default). Register every method, then
   build the router and serve.
-- **An external method without a user resolver** (`resolve` is nil).
+- **An external registration without a user resolver** (`resolve` is nil).
 - **A misconfigured method**: Azure or Google without its role sync slot, Google without
   its hosted domain, cookie or session options passed to `PasswordSignIn` instead of
   `NewAuth`.

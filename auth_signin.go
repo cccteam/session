@@ -22,6 +22,10 @@ import (
 type signInAttempt struct {
 	identity *sessioninfo.Identity
 	reason   sessioninfo.NewSessionReason
+	// registration names the external registration the identity came through, whose
+	// resolver resolves it and whose method reconciles its roles. It is empty for a
+	// password identity.
+	registration string
 	// userID and username name a password identity's user. The drivers take it
 	// from the request instead of resolving it.
 	userID   ccc.UUID
@@ -65,10 +69,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		AuthEvents: at.events,
 	}
 
-	// An external identity is resolved by its method's user resolver; a password identity
-	// names its user and needs none.
+	// An external identity is resolved by its registration's user resolver; a password
+	// identity names its user and needs none.
 	var resolve signin.UserResolver[Tx]
-	if m, ok := a.registered().external[at.identity.Method]; ok {
+	if m, ok := a.registered().external[at.registration]; ok {
 		resolve = m.resolve
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
@@ -121,7 +125,7 @@ func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req
 	if at.roleNames == nil {
 		return nil
 	}
-	m, ok := a.registered().external[at.identity.Method]
+	m, ok := a.registered().external[at.registration]
 	if !ok || m.SyncRoles == nil {
 		return nil
 	}

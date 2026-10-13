@@ -16,6 +16,7 @@ import (
 	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // lakeside is an external identity at the WorkOS connection conn_lakeside.
@@ -157,14 +158,11 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "ProvisionUser creates a password-less user, links the identity with its tenant, and signs in",
 			resolve: func(_, _ *dbtype.SessionUser, provisioned *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{
-					Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "new@lakeside.edu"}, Tenant: "partner-1",
-					OnProvisioned: func(_ context.Context, userID ccc.UUID) error {
-						*provisioned = append(*provisioned, userID)
+				return signin.Provision(&signin.NewUser{Username: "new@lakeside.edu"}, func(_ context.Context, userID ccc.UUID) error {
+					*provisioned = append(*provisioned, userID)
 
-						return nil
-					},
-				}
+					return nil
+				}, signin.Tenant("partner-1"))
 			},
 			check: func(t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, provisioned []ccc.UUID) {
 				t.Helper()
@@ -193,10 +191,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "an OnProvisioned failure writes nothing",
 			resolve: func(_, _ *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{
-					Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "new@lakeside.edu"},
-					OnProvisioned: func(context.Context, ccc.UUID) error { return errors.New("app rows failed") },
-				}
+				return signin.Provision(&signin.NewUser{Username: "new@lakeside.edu"}, func(context.Context, ccc.UUID) error { return errors.New("app rows failed") })
 			},
 			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -212,7 +207,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "LinkIdentity links a password-less user and signs in",
 			resolve: func(passwordless, _ *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: passwordless.ID}
+				return signin.Link(passwordless.ID, false)
 			},
 			check: func(t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, passwordless, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -230,7 +225,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "LinkIdentity is refused for a user that has a password",
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: withPassword.ID}
+				return signin.Link(withPassword.ID, false)
 			},
 			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -241,7 +236,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "LinkIdentity links a user that has a password when the connection is trusted for linking",
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: withPassword.ID, TrustedForLinking: true}
+				return signin.Link(withPassword.ID, true)
 			},
 			check: func(t *testing.T, _ AuthDriver, err error, req *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -253,7 +248,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "RequireConfirmation reports the pending confirmation and writes nothing",
 			resolve: func(_, withPassword *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{Outcome: signin.RequireConfirmation, UserID: withPassword.ID, Tenant: "partner-1"}
+				return signin.Confirm(withPassword.ID, signin.Tenant("partner-1"))
 			},
 			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, withPassword *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -262,8 +257,8 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 					t.Fatalf("sign-in error = %v, want a PendingSignInError", err)
 				}
 				want := signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(withPassword.ID), Username: withPassword.Username, Tenant: "partner-1"}
-				if *pending != want {
-					t.Errorf("PendingSignInError = %+v, want %+v", *pending, want)
+				if diff := cmp.Diff(want, *pending, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("PendingSignInError mismatch (-want +got):\n%s", diff)
 				}
 				assertNoLink(t.Context(), t, d, lakeside("idp_unknown"))
 			},
@@ -271,7 +266,7 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 		{
 			name: "RejectIdentity refuses with the resolver's code and writes nothing",
 			resolve: func(_, _ *dbtype.SessionUser, _ *[]ccc.UUID) *signin.Resolution {
-				return &signin.Resolution{Outcome: signin.RejectIdentity, Refusal: "not_invited"}
+				return signin.Reject("not_invited")
 			},
 			check: func(t *testing.T, d AuthDriver, err error, _ *sessioninfo.NewSessionRequest, _, _ *dbtype.SessionUser, _ []ccc.UUID) {
 				t.Helper()
@@ -330,7 +325,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 	}{
 		{
 			name:     "AllowSignIn signs in",
-			decision: &signin.Decision{Outcome: signin.AllowSignIn},
+			decision: signin.Allow(),
 			reason:   sessioninfo.ReasonLogin,
 			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
@@ -341,7 +336,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 		},
 		{
 			name:     "DenySignIn refuses with the policy's code",
-			decision: &signin.Decision{Outcome: signin.DenySignIn, Refusal: "sso_required"},
+			decision: signin.Deny("sso_required"),
 			reason:   sessioninfo.ReasonLogin,
 			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
@@ -358,7 +353,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 		},
 		{
 			name:     "the policy decides a password sign-in too",
-			decision: &signin.Decision{Outcome: signin.DenySignIn},
+			decision: signin.Deny(""),
 			reason:   sessioninfo.ReasonLogin,
 			password: true,
 			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
@@ -367,8 +362,8 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "RequireMFA reports the pending MFA for the user",
-			decision: &signin.Decision{Outcome: signin.RequireMFA},
+			name:     "RequireMFA reports the pending MFA for the user, with the factors the policy accepts",
+			decision: signin.RequireMFA("email-otp", "totp"),
 			reason:   sessioninfo.ReasonLogin,
 			check: func(t *testing.T, _ AuthDriver, err error, user *dbtype.SessionUser) {
 				t.Helper()
@@ -376,15 +371,15 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 				if !errors.As(err, &pending) {
 					t.Fatalf("sign-in error = %v, want a PendingSignInError", err)
 				}
-				want := signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username}
-				if *pending != want {
-					t.Errorf("PendingSignInError = %+v, want %+v", *pending, want)
+				want := signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username, Factors: []sessioninfo.AuthMethod{"email-otp", "totp"}}
+				if diff := cmp.Diff(want, *pending, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("PendingSignInError mismatch (-want +got):\n%s", diff)
 				}
 			},
 		},
 		{
 			name:      "a denied provisioning sign-in keeps the user and its link: the resolver's decision stands",
-			decision:  &signin.Decision{Outcome: signin.DenySignIn},
+			decision:  signin.Deny(""),
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
 			check: func(t *testing.T, d AuthDriver, err error, _ *dbtype.SessionUser) {
@@ -401,7 +396,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 		},
 		{
 			name:      "an MFA wait on a provisioning sign-in names the user it provisioned, so the application can send its code",
-			decision:  &signin.Decision{Outcome: signin.RequireMFA},
+			decision:  signin.RequireMFA(),
 			reason:    sessioninfo.ReasonLogin,
 			provision: true,
 			check: func(t *testing.T, d AuthDriver, err error, _ *dbtype.SessionUser) {
@@ -415,14 +410,14 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 					t.Fatalf("UserByUserName() error = %v, want the provisioned user", uerr)
 				}
 				want := signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username}
-				if *pending != want {
-					t.Errorf("PendingSignInError = %+v, want %+v", *pending, want)
+				if diff := cmp.Diff(want, *pending, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("PendingSignInError mismatch (-want +got):\n%s", diff)
 				}
 			},
 		},
 		{
 			name:     "a step-up completion is not decided again",
-			decision: &signin.Decision{Outcome: signin.RequireMFA},
+			decision: signin.RequireMFA(),
 			reason:   sessioninfo.ReasonStepUp,
 			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
@@ -440,7 +435,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			in := h.New(ctx, t, Auth, AuthConfig{
 				Auth: true,
 				Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
-					return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "fresh@lakeside.edu"}}, nil
+					return signin.Provision(&signin.NewUser{Username: "fresh@lakeside.edu"}, nil), nil
 				},
 				Policy: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
 					if req.UserID.IsNil() {
@@ -483,7 +478,7 @@ func testDisabledUserRefused(ctx context.Context, t *testing.T, h *AuthHarness) 
 
 func testProvisionUsernameTaken(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
-		return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "taken@lakeside.edu"}}, nil
+		return signin.Provision(&signin.NewUser{Username: "taken@lakeside.edu"}, nil), nil
 	}})
 	createUser(ctx, t, in.Driver, "taken@lakeside.edu")
 
@@ -501,7 +496,7 @@ func testConcurrentFirstSignIn(ctx context.Context, t *testing.T, h *AuthHarness
 		// Hold the window between the lookup and the link open, so the sign-ins race.
 		time.Sleep(100 * time.Millisecond)
 
-		return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: user.ID}, nil
+		return signin.Link(user.ID, false), nil
 	}})
 	user = createUser(ctx, t, in.Driver, "race@lakeside.edu")
 

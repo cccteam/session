@@ -30,6 +30,7 @@ var (
 // signInRegistration is what the password method's registration asks the Auth to
 // register.
 type signInRegistration struct {
+	name   string
 	method sessioninfo.AuthMethod
 	// password is the password method's settings.
 	password *sessioncore.PasswordSettings
@@ -47,6 +48,7 @@ type methodHandlers struct {
 // registration gave it.
 type externalMethod[Tx any] struct {
 	*signin.Method
+	name    string
 	resolve signin.UserResolver[Tx]
 }
 
@@ -57,14 +59,16 @@ type signInMethods[Tx any] struct {
 	mu    sync.Mutex
 	inUse atomic.Bool
 
-	registered map[sessioninfo.AuthMethod]bool
+	// registered holds the names of every registration, the password method's being
+	// its method name.
+	registered map[string]bool
 	// hasher and autoUpgrade are the password method's settings. They keep their
 	// defaults when it is not registered, since user management still hashes
 	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
-	// external holds the registered redirect-based methods.
-	external map[sessioninfo.AuthMethod]*externalMethod[Tx]
+	// external holds the registered redirect-based methods by registration name.
+	external map[string]*externalMethod[Tx]
 }
 
 // registered returns the Auth's sign-in methods and closes registration. Every read
@@ -92,12 +96,15 @@ func (a *Auth[S, U, Tx]) serving(h http.Handler) http.HandlerFunc {
 // method shares. A refused registration panics, because it is a wiring mistake found
 // at startup, the way http.ServeMux refuses a duplicate pattern. See the README's
 // "Registering sign-in methods".
-func (a *Auth[S, U, Tx]) refuseRegistration(method sessioninfo.AuthMethod, misuse error) {
+func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.AuthMethod, misuse error) {
 	if a.methods.inUse.Load() {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered after the Auth is in use (it has served a request or checked a password): register every sign-in method before serving", method))
 	}
-	if a.methods.registered[method] {
-		panic(fmt.Sprintf("session: the %s sign-in method is registered twice on one Auth: register each method once", method))
+	if name == "" {
+		panic(fmt.Sprintf("session: the %s sign-in method is registered without a name: name each registration (two Entra tenants are two registrations)", method))
+	}
+	if a.methods.registered[name] {
+		panic(fmt.Sprintf("session: the %s sign-in method is registered twice on one Auth under the name %q: give each registration its own name", method, name))
 	}
 	if misuse != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", method, misuse))
@@ -113,18 +120,18 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	a.methods.mu.Lock()
 	defer a.methods.mu.Unlock()
 
-	a.refuseRegistration(reg.method, reg.err)
-	a.methods.registered[reg.method] = true
+	a.refuseRegistration(reg.name, reg.method, reg.err)
+	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
 
 	return methodHandlers{login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler())}
 }
 
-// RegisterExternal registers a redirect-based sign-in method and returns its handlers.
-// It implements signin.Core: the method packages (azure, google, workos) reach it
-// through signin.Register, so an application never calls it directly. It panics on a
-// registration rule, as refuseRegistration documents, and when the registration has no
-// user resolver.
+// RegisterExternal registers a redirect-based sign-in method under its registration's
+// name and returns its handlers. It implements signin.Core: the method packages (azure,
+// google, workos) reach it through signin.Register, so an application never calls it
+// directly. It panics on a registration rule, as refuseRegistration documents, and when
+// the registration has no user resolver.
 func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.Handlers {
 	if a == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil *Auth: pass the Auth NewAuth returned", reg.Method))
@@ -133,7 +140,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	a.methods.mu.Lock()
 	defer a.methods.mu.Unlock()
 
-	a.refuseRegistration(reg.Method, reg.Err)
+	a.refuseRegistration(reg.Name, reg.Method, reg.Err)
 	if reg.Resolve == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method links external identities and needs a user resolver: pass one to its registration", reg.Method))
 	}
@@ -141,10 +148,10 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	if err != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
 	}
-	a.methods.registered[reg.Method] = true
-	a.methods.external[reg.Method] = &externalMethod[Tx]{Method: m, resolve: reg.Resolve}
+	a.methods.registered[reg.Name] = true
+	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, resolve: reg.Resolve}
 
-	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(m))}
+	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(reg.Name, m))}
 	if reg.FrontChannelLogout {
 		h.FrontChannelLogout = a.serving(a.frontChannelLogout())
 	}
@@ -172,10 +179,11 @@ type PasswordMethod struct {
 // session options belong to NewAuth.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, or when it is given an option that is not a password option.
+// request, or when it is given an option that is not a password option. The
+// registration is named "password".
 func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMethod {
 	settings := sessioncore.DefaultPasswordSettings()
-	reg := &signInRegistration{method: sessioninfo.MethodPassword, password: &settings}
+	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
 			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes); pass cookie and session options to NewAuth")

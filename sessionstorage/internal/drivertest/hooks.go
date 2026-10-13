@@ -33,7 +33,7 @@ func testRejectionKeepsResolverWrites(ctx context.Context, t *testing.T, h *Auth
 			return nil, errors.Wrap(err, "HookTx.Record()")
 		}
 
-		return &signin.Resolution{Outcome: signin.RejectIdentity, Refusal: "not_invited"}, nil
+		return signin.Reject("not_invited"), nil
 	}})
 
 	_, _, err := signIn(ctx, in, lakeside("idp_stranger"), sessioninfo.ReasonLogin)
@@ -52,7 +52,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AuthHa
 	}{
 		{
 			name:     "a denied external sign-in",
-			decision: &signin.Decision{Outcome: signin.DenySignIn, Refusal: "sso_required"},
+			decision: signin.Deny("sso_required"),
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				assertRefused(t, err, "sso_required", signin.ErrSignInDenied)
@@ -61,7 +61,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AuthHa
 		{
 			name:     "a denied password sign-in",
 			password: true,
-			decision: &signin.Decision{Outcome: signin.DenySignIn, Refusal: "sso_required"},
+			decision: signin.Deny("sso_required"),
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				assertRefused(t, err, "sso_required", signin.ErrSignInDenied)
@@ -69,7 +69,7 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AuthHa
 		},
 		{
 			name:     "a sign-in held for MFA",
-			decision: &signin.Decision{Outcome: signin.RequireMFA},
+			decision: signin.RequireMFA(),
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				var pending *signin.PendingSignInError
@@ -111,12 +111,9 @@ func testHeldOrRefusedKeepsHookWrites(_ context.Context, t *testing.T, h *AuthHa
 // and records the application's membership row for the new user in OnProvisioned.
 func provisioningResolver(username, tenant string) func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 	return func(_ context.Context, tx HookTx, _ *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
-		return &signin.Resolution{
-			Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: username}, Tenant: tenant,
-			OnProvisioned: func(ctx context.Context, userID ccc.UUID) error {
-				return tx.Record(ctx, "member:"+userID.String(), tenant)
-			},
-		}, nil
+		return signin.Provision(&signin.NewUser{Username: username}, func(ctx context.Context, userID ccc.UUID) error {
+			return tx.Record(ctx, "member:"+userID.String(), tenant)
+		}, signin.Tenant(tenant)), nil
 	}
 }
 
@@ -151,10 +148,10 @@ func testPolicySeesProvisionedUser(ctx context.Context, t *testing.T, h *AuthHar
 		Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
 			unseen, err := seesProvisioned(ctx, tx, req, "partner-1")
 			if err != nil || unseen != "" {
-				return &signin.Decision{Outcome: signin.DenySignIn, Refusal: sessioninfo.LoginRefusalCode(unseen)}, err
+				return signin.Deny(sessioninfo.LoginRefusalCode(unseen)), err
 			}
 
-			return &signin.Decision{Outcome: signin.AllowSignIn}, nil
+			return signin.Allow(), nil
 		},
 	})
 
@@ -280,10 +277,10 @@ func testSignInUserReported(_ context.Context, t *testing.T, h *AuthHarness) {
 			var sso *dbtype.SessionUser
 			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 				if req.Identity.Subject == "idp_link" {
-					return &signin.Resolution{Outcome: signin.LinkIdentity, UserID: sso.ID, Tenant: "partner-2"}, nil
+					return signin.Link(sso.ID, false, signin.Tenant("partner-2")), nil
 				}
 
-				return &signin.Resolution{Outcome: signin.ProvisionUser, NewUser: &signin.NewUser{Username: "new@lakeside.edu"}, Tenant: "partner-3"}, nil
+				return signin.Provision(&signin.NewUser{Username: "new@lakeside.edu"}, nil, signin.Tenant("partner-3")), nil
 			}})
 			sso = createUser(ctx, t, in.Driver, "sso@lakeside.edu")
 			pat := passwordUser(ctx, t, in.Driver, "pat@lakeside.edu")

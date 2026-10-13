@@ -39,10 +39,10 @@ handler from the value the registration returned and the registration rules appl
 A sign-in is one `SignIn` call on the store (`expectSignIn`), which asserts that the call
 carries the `Auth`'s policy and, for an external identity, its method's resolver; the
 callback tests run that resolver to prove it decodes the verified claims into the method's
-identity type. The registration rules themselves (a method twice, a method once the Auth
-is in use, an external method without a user resolver) are a table of panics in
-`TestAuth_RegistrationRefused`; the handler sets of the method types are asserted at
-compile time in `auth_methods_test.go`.
+identity type. The registration rules themselves (a registration name twice or missing, a
+method once the Auth is in use, an external registration without a user resolver) are a
+table of panics in `TestAuth_RegistrationRefused`; the handler sets of the method types
+are asserted at compile time in `auth_methods_test.go`.
 
 **Legacy types** (`legacy`). The `PasswordAuth` and `OIDCAzure` suites moved with the
 types: their flows against mocked stores, their impersonation and custom user data cases

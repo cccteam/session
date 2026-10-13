@@ -90,6 +90,9 @@ type PendingIdentity struct {
 	// ReturnURL is the path the sign-in returns to once it completes. It is empty for
 	// the root.
 	ReturnURL string
+	// Factors are the methods the sign-in policy accepts for the MFA step, for
+	// PendingMFA; none means any.
+	Factors []AuthMethod
 }
 
 // UserSource says how an Auth sign-in found its user.
@@ -120,7 +123,7 @@ type SignInUser struct {
 	// Source says how the sign-in found the user.
 	Source UserSource
 	// Tenant is the application's tenant key on the identity's link. It is the stored
-	// link's tenant, or Resolution.Tenant for a link made in this sign-in. It is empty
+	// link's tenant, or the resolution's signin.Tenant for a link made in this sign-in. It is empty
 	// for a password sign-in.
 	Tenant string
 }

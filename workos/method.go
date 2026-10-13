@@ -49,18 +49,19 @@ type Method struct {
 	callback http.HandlerFunc
 }
 
-// SignIn registers WorkOS SSO sign-in on auth and returns its handlers. The login
-// handler reads the "organization" query parameter. The identity key is
-// (connection_id, idp_id); resolve decides an identity that is not linked yet. Roles are
-// never synchronized from WorkOS.
+// SignIn registers WorkOS SSO sign-in on auth under name and returns its handlers.
+// name identifies the registration on auth. The login handler reads the "organization"
+// query parameter. The identity key is (connection_id, idp_id); resolve decides an
+// identity that is not linked yet. Roles are never synchronized from WorkOS.
 //
-// It panics when the method is already registered on auth, when auth has served a
+// It panics when name is empty or already used on auth, when auth has served a
 // request, or when resolve is nil.
-func SignIn[Tx any](auth signin.Core[Tx], resolve UserResolver[Tx], cfg *Config) *Method {
+func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
 	reg := &signin.Registration[Tx]{
+		Name:    name,
 		Method:  sessioninfo.MethodWorkOS,
 		Resolve: resolver(resolve),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {

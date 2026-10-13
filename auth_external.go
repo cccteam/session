@@ -45,9 +45,9 @@ func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 	})
 }
 
-// externalCallback completes the provider round trip. See the README's "The redirect
-// and response contract" for where it redirects.
-func (a *Auth[S, U, Tx]) externalCallback(m *signin.Method) http.HandlerFunc {
+// externalCallback completes the provider round trip of the registration named name.
+// See the README's "The redirect and response contract" for where it redirects.
+func (a *Auth[S, U, Tx]) externalCallback(name string, m *signin.Method) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -60,11 +60,12 @@ func (a *Auth[S, U, Tx]) externalCallback(m *signin.Method) http.HandlerFunc {
 		}
 
 		outcome, err := a.signIn(ctx, w, &signInAttempt{
-			identity:  v.Identity,
-			reason:    sessioninfo.ReasonLogin,
-			returnURL: v.ReturnURL,
-			roleNames: v.RoleNames,
-			sameSite:  sessioncore.SameSiteNone,
+			identity:     v.Identity,
+			reason:       sessioninfo.ReasonLogin,
+			registration: name,
+			returnURL:    v.ReturnURL,
+			roleNames:    v.RoleNames,
+			sameSite:     sessioncore.SameSiteNone,
 		})
 		if err != nil {
 			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)
