@@ -82,7 +82,7 @@ func (a *Auth[S, U, Tx]) externalCallback(name string, m *signin.Method) http.Ha
 
 				return err
 			case target == "":
-				target = pendingRedirectURL(m.LoginURL(), outcome.pending.Reason, v.ReturnURL)
+				target = pendingRedirectURL(m.LoginURL(), outcome.pending.Step, v.ReturnURL)
 			}
 			// The target is the configured login URL or the PendingHook's choice. It is
 			// written as is, never cleaned.

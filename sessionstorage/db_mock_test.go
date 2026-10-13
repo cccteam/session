@@ -256,6 +256,20 @@ func (mr *MockdbMockRecorder) AppendAuthEvent(ctx, sessionID, event any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*Mockdb)(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ConsumePendingSignIn mocks base method.
+func (m *Mockdb) ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumePendingSignIn", ctx, tokenHash, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConsumePendingSignIn indicates an expected call of ConsumePendingSignIn.
+func (mr *MockdbMockRecorder) ConsumePendingSignIn(ctx, tokenHash, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumePendingSignIn", reflect.TypeOf((*Mockdb)(nil).ConsumePendingSignIn), ctx, tokenHash, now)
+}
+
 // CreateUser mocks base method.
 func (m *Mockdb) CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -514,6 +528,20 @@ func (mr *MockdbMockRecorder) InsertImpersonatedSessionOIDC(ctx, session, req, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertImpersonatedSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertImpersonatedSessionOIDC), ctx, session, req, imp)
 }
 
+// InsertPendingSignIn mocks base method.
+func (m *Mockdb) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertPendingSignIn", ctx, p)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertPendingSignIn indicates an expected call of InsertPendingSignIn.
+func (mr *MockdbMockRecorder) InsertPendingSignIn(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPendingSignIn", reflect.TypeOf((*Mockdb)(nil).InsertPendingSignIn), ctx, p)
+}
+
 // InsertSession mocks base method.
 func (m *Mockdb) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -601,6 +629,21 @@ func (m *Mockdb) OIDCUsersEnabled() bool {
 func (mr *MockdbMockRecorder) OIDCUsersEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*Mockdb)(nil).OIDCUsersEnabled))
+}
+
+// PendingSignInByToken mocks base method.
+func (m *Mockdb) PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PendingSignInByToken", ctx, tokenHash, now)
+	ret0, _ := ret[0].(*dbtype.PendingSignIn)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PendingSignInByToken indicates an expected call of PendingSignInByToken.
+func (mr *MockdbMockRecorder) PendingSignInByToken(ctx, tokenHash, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingSignInByToken", reflect.TypeOf((*Mockdb)(nil).PendingSignInByToken), ctx, tokenHash, now)
 }
 
 // Session mocks base method.

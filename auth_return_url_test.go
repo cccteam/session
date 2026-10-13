@@ -131,9 +131,7 @@ func TestAuth_ReturnURLStaysInTheApplication(t *testing.T) {
 				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
 				})
-				pendingID := ccc.Must(ccc.NewUUID())
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(pendingID, nil)
-				f.livePending(pendingID)
+				f.expectHold("pat")
 
 				rr := f.callback(t, returnURL)
 
@@ -190,9 +188,7 @@ func TestAuth_ReturnURLInTheApplication(t *testing.T) {
 				f.expectSignIn(ccc.Must(ccc.NewUUID()), nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"}
 				})
-				pendingID := ccc.Must(ccc.NewUUID())
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(pendingID, nil)
-				f.livePending(pendingID)
+				f.expectHold("pat")
 
 				rr := f.callback(t, returnURL)
 

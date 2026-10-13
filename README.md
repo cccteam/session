@@ -88,12 +88,13 @@ schema").
 
 Apply the base migrations (`schema/*/migrations`) and the auth migrations
 (`schema/*/auth/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
-`SessionIdentities`, `SessionAuthEvents`), plus `impersonation` if you use it. Build the
-storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
-the `Auth` and to each method, typed to the storage's transaction
-(`*spanner.ReadWriteTransaction` or `pgx.Tx`) so they can read and write the application's
-own rows in the sign-in's transaction; a rule written for the other driver's transaction
-does not compile. On Spanner a rule may run more than once when the transaction retries,
+`SessionIdentities`, `SessionAuthEvents`, `SessionPendingSignIns`), plus
+`impersonation` if you use it. Build the storage with `NewSpannerAuth` /
+`NewPostgresAuth`. The application's rules are given to the `Auth` and to each method,
+typed to the storage's transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`) so
+they can read and write the application's own rows in the sign-in's transaction; a rule
+written for the other driver's transaction does not compile. On Spanner a rule may run
+more than once when the transaction retries,
 so it must not have side effects outside it, and a row it writes with a mutation is
 buffered until the commit, invisible to a later read in the same transaction: write with
 DML what a later rule must read.
@@ -302,15 +303,19 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 
 ### What a pending identity is
 
-A pending identity is a verified identity waiting for its confirmation or MFA: a preauth
-stepping-stone row in the session table (no user, never authenticated) and the
-`auth-pending` cookie, encrypted and authenticated with the cookie key, that carries the
-identity, the user it waits on, the steps so far and the return path, bound to that
-row. Completing, cancelling or replacing it expires the row, so a copied cookie completes
-nothing, and the row never validates as a session. The row is inserted with
-`ReasonPendingIdentity`, for which the custom session data resolver is **not** called: it
-has no user and carries no custom data. An identity's claims must fit the cookie once
-compressed (about 2.8 KB): a larger one is refused with `internal_error`.
+A pending identity is a verified identity waiting for its confirmation or MFA. It is a
+row of the `SessionPendingSignIns` table (migration `000002` of the auth schema) holding
+everything the sign-in carried: the identity and its claims, the registration it came
+through, the user it waits on, the steps so far, the role names the method asserted, the
+factors the policy accepts, the return path and when it expires. The browser holds only
+the `auth-pending` cookie, encrypted and authenticated with the cookie key, carrying an
+opaque 32-byte token; the row keeps the token's SHA-256. A pending identity is accepted
+only while its row is live: not expired and not consumed. Completing, cancelling or
+replacing it consumes the row by a conditional update, before the completion signs in,
+so the token is single-use: of two completions racing on a copied cookie, one proceeds
+and the other answers `pending_expired`. No session row exists until the sign-in
+completes, so nothing of a pending identity ever validates as a session. Expired and
+consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 
 ### Every session
 
@@ -325,7 +330,7 @@ compressed (about 2.8 KB): a larger one is refused with `internal_error`.
 - **Custom session data** is resolved in the transaction that inserts the session, after
   the user resolution has committed: the resolver reads the user (one just
   provisioned included) and the application's rows, and `req.User` says how the
-  user was found. It is never called for a pending identity's row.
+  user was found. A pending identity has no session row, so it has no custom data.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
   steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the

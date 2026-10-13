@@ -21,17 +21,11 @@ func NewSessionUserColumns(req *sessioninfo.NewSessionRequest, at time.Time) Ses
 	if !req.UserID.IsNil() {
 		user.UserID = ccc.NullUUIDFromUUID(req.UserID)
 	}
-	if req.Reason != sessioninfo.ReasonPreauth && req.Reason != sessioninfo.ReasonPendingIdentity {
+	if req.Reason != sessioninfo.ReasonPreauth {
 		user.AuthenticatedAt = &at
 	}
 
 	return user
-}
-
-// ResolvesCustomData reports whether the custom session data resolver runs for req. It
-// runs for every session except a pending identity's row, which has no user.
-func ResolvesCustomData(req *sessioninfo.NewSessionRequest) bool {
-	return req.Reason != sessioninfo.ReasonPendingIdentity
 }
 
 // InitialAuthEvents returns the auth events a new session records, oldest first. An

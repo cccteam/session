@@ -81,8 +81,8 @@ func WithPendingTimeout(d time.Duration) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.pendingTimeout = d }}
 }
 
-// WithPendingCookieName sets the cookie name of the pending-identity stepping-stone
-// session. (default: "auth-pending")
+// WithPendingCookieName sets the name of the pending cookie, which carries the opaque
+// token of the browser's pending sign-in. (default: "auth-pending")
 func WithPendingCookieName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.pendingCookie = name }}
 }

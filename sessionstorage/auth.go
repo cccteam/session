@@ -64,7 +64,8 @@ func WithAuthEvents(table *AuthEventsTable) Option {
 }
 
 // AuthStore is the storage behind an Auth session: users (SessionUsers), sessions with
-// UserId, identity links (SessionIdentities) and auth events, over one database. Tx is
+// UserId, identity links (SessionIdentities), auth events and pending sign-ins
+// (SessionPendingSignIns), over one database. Tx is
 // the database's transaction type, pgx.Tx or *spanner.ReadWriteTransaction, which the
 // sign-in hooks receive; NewPostgresAuth and NewSpannerAuth fix it.
 type AuthStore[Tx any] interface {
@@ -98,7 +99,22 @@ type AuthStore[Tx any] interface {
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records a step-up or confirmation on an existing session.
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+	// HoldSignIn stores a sign-in that waits for a confirmation or the application's MFA
+	// step and returns its row's ID. p.TokenHash is the hash of the opaque token the
+	// browser's pending cookie carries.
+	HoldSignIn(ctx context.Context, p *PendingSignIn) (ccc.UUID, error)
+	// PendingSignIn returns the live pending sign-in holding tokenHash: not consumed and
+	// not expired. Any other is NotFound.
+	PendingSignIn(ctx context.Context, tokenHash []byte) (*PendingSignIn, error)
+	// ConsumePendingSignIn consumes the live pending sign-in holding tokenHash by a
+	// conditional update, so it is consumed once; a pending sign-in that is not live
+	// (consumed, expired or unknown) is NotFound.
+	ConsumePendingSignIn(ctx context.Context, tokenHash []byte) error
 }
+
+// PendingSignIn is a sign-in held in the pending sign-ins table until its confirmation
+// or MFA step.
+type PendingSignIn = dbtype.PendingSignIn
 
 var (
 	_ AuthStore[pgx.Tx]                             = (*Auth[pgx.Tx])(nil)
@@ -233,6 +249,48 @@ func (a *Auth[Tx]) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, even
 
 	if err := a.db.AppendAuthEvent(ctx, sessionID, event); err != nil {
 		return errors.Wrap(err, "db.AppendAuthEvent()")
+	}
+
+	return nil
+}
+
+// HoldSignIn implements AuthStore.
+func (a *Auth[Tx]) HoldSignIn(ctx context.Context, p *PendingSignIn) (ccc.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
+	}
+	p.ID = id
+	if err := a.db.InsertPendingSignIn(ctx, p); err != nil {
+		return ccc.NilUUID, errors.Wrap(err, "db.InsertPendingSignIn()")
+	}
+
+	return id, nil
+}
+
+// PendingSignIn implements AuthStore.
+func (a *Auth[Tx]) PendingSignIn(ctx context.Context, tokenHash []byte) (*PendingSignIn, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	p, err := a.db.PendingSignInByToken(ctx, tokenHash, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.PendingSignInByToken()")
+	}
+
+	return p, nil
+}
+
+// ConsumePendingSignIn implements AuthStore.
+func (a *Auth[Tx]) ConsumePendingSignIn(ctx context.Context, tokenHash []byte) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.ConsumePendingSignIn(ctx, tokenHash, time.Now()); err != nil {
+		return errors.Wrap(err, "db.ConsumePendingSignIn()")
 	}
 
 	return nil

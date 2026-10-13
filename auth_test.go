@@ -1,9 +1,9 @@
 package session
 
 import (
+	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -76,6 +76,9 @@ type authFixture struct {
 	policyAsked int
 	// signedIn is the last sign-in the store was asked for.
 	signedIn *storeSignIn
+	// held are the pending sign-ins the store was asked to hold, by row ID, as the
+	// pending sign-ins table would hold them.
+	held map[ccc.UUID]*sessionstorage.PendingSignIn
 }
 
 // storeSignIn is one call of the mocked store's SignIn: the request, the resolver of the
@@ -89,7 +92,8 @@ type storeSignIn struct {
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	f := &authFixture{t: t, store: newAuthStoreMock(ctrl)}
+	f := &authFixture{t: t, store: newAuthStoreMock(ctrl), held: map[ccc.UUID]*sessionstorage.PendingSignIn{}}
+	f.store.EXPECT().PendingSignIn(gomock.Any(), gomock.Any()).DoAndReturn(f.livePending).AnyTimes()
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
@@ -130,13 +134,30 @@ func (f *authFixture) serve(h http.Handler, method, target string, body any, coo
 	return rr
 }
 
+// expectHold expects the store to hold one pending identity for username, keeps the row
+// as the pending sign-ins table would under a fresh ID, and returns that ID.
+func (f *authFixture) expectHold(username string) ccc.UUID {
+	pendingID := ccc.Must(ccc.NewUUID())
+	f.store.EXPECT().HoldSignIn(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p *sessionstorage.PendingSignIn) (ccc.UUID, error) {
+		if p.Username != username || len(p.TokenHash) != sha256.Size || p.ID != ccc.NilUUID || !p.ExpiresAt.After(time.Now()) || p.ConsumedAt != nil {
+			f.t.Errorf("HoldSignIn() = %+v, want a live row for %s with a token hash and no ID", p, username)
+		}
+		held := *p
+		held.ID = pendingID
+		f.held[pendingID] = &held
+
+		return pendingID, nil
+	})
+
+	return pendingID
+}
+
 // hold makes a pending identity as a sign-in would and returns the cookies that carry
-// it, with the stepping-stone row's ID.
+// it, with its row's ID.
 func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *signin.PendingSignInError) ([]*http.Cookie, ccc.UUID) {
 	t.Helper()
 
-	pendingID := ccc.Must(ccc.NewUUID())
-	f.store.EXPECT().CreateSession(gomock.Any(), pendingRow(wait.Username)).Return(pendingID, nil)
+	pendingID := f.expectHold(wait.Username)
 	rr := httptest.NewRecorder()
 	if _, err := f.auth.holdPending(context.Background(), rr, at, wait); err != nil {
 		t.Fatalf("holdPending() error = %v", err)
@@ -145,16 +166,54 @@ func (f *authFixture) hold(t *testing.T, at *signInAttempt, wait *signin.Pending
 	return rr.Result().Cookies(), pendingID
 }
 
-// pendingRow matches the insert of a pending identity's stepping-stone row for
-// username: ReasonPendingIdentity, which the storage never resolves custom session data
-// for, and no identity, user or custom data.
-func pendingRow(username string) gomock.Matcher {
-	return gomock.Eq(&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: username})
+// heldBy returns the held row whose token hash is tokenHash, live or not.
+func (f *authFixture) heldBy(tokenHash []byte) *sessionstorage.PendingSignIn {
+	for _, p := range f.held {
+		if bytes.Equal(p.TokenHash, tokenHash) {
+			return p
+		}
+	}
+
+	return nil
 }
 
-// livePending expects the stepping-stone row id to be read, live and without a user.
-func (f *authFixture) livePending(id ccc.UUID) {
-	f.store.EXPECT().Session(gomock.Any(), id).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, UpdatedAt: time.Now()}}, nil).AnyTimes()
+// livePending answers the store's lookup by token hash as the table would: the held row
+// while it is live, NotFound once consumed, expired or unknown.
+func (f *authFixture) livePending(_ context.Context, tokenHash []byte) (*sessionstorage.PendingSignIn, error) {
+	p := f.heldBy(tokenHash)
+	if p == nil || p.ConsumedAt != nil || !time.Now().Before(p.ExpiresAt) {
+		return nil, httpio.NewNotFoundMessage("no live pending sign-in")
+	}
+	row := *p
+
+	return &row, nil
+}
+
+// expectConsume expects the pending identity id to be consumed once, by its token hash,
+// and marks the held row consumed as the table's conditional update would.
+func (f *authFixture) expectConsume(id ccc.UUID) {
+	f.store.EXPECT().ConsumePendingSignIn(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tokenHash []byte) error {
+		p := f.heldBy(tokenHash)
+		if p == nil || p.ID != id {
+			f.t.Errorf("ConsumePendingSignIn() of token hash %x, want the pending identity %s consumed", tokenHash, id)
+
+			return httpio.NewNotFoundMessage("no live pending sign-in")
+		}
+		if p.ConsumedAt != nil || !time.Now().Before(p.ExpiresAt) {
+			return httpio.NewNotFoundMessage("no live pending sign-in")
+		}
+		now := time.Now()
+		p.ConsumedAt = &now
+
+		return nil
+	})
+}
+
+// consumed marks the held row id consumed, as a completion, a cancellation or a
+// replacement would have.
+func (f *authFixture) consumed(id ccc.UUID) {
+	now := time.Now()
+	f.held[id].ConsumedAt = &now
 }
 
 // cookieNamed is the last cookie named name the response set: the one the browser keeps.
@@ -641,7 +700,7 @@ func TestAuth_PasswordLogin(t *testing.T) {
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.expectHold("pat")
 			},
 			wantStatus:  http.StatusOK,
 			wantMFA:     true,
@@ -836,7 +895,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.expectHold("pat")
 			},
 			wantLocation: "/login?pending=confirmation&returnUrl=%2Fnext",
 			wantPending:  true,
@@ -1031,7 +1090,6 @@ func TestAuth_PendingHook(t *testing.T) {
 
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
-	pendingID := ccc.Must(ccc.NewUUID())
 
 	type hookResult struct {
 		redirectURL string
@@ -1047,7 +1105,7 @@ func TestAuth_PendingHook(t *testing.T) {
 		wantStatus   int
 		wantLocation string
 		wantBody     string
-		// wantDiscarded says the pending identity was discarded: its row expired and,
+		// wantDiscarded says the pending identity was discarded: its row consumed and,
 		// unless the hook answered, its cookie deleted.
 		wantDiscarded bool
 	}{
@@ -1096,11 +1154,11 @@ func TestAuth_PendingHook(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
 			var (
-				rowStored bool
-				got       *sessioninfo.PendingIdentity
+				f   *authFixture
+				got *sessioninfo.PendingIdentity
 			)
 			hook := func(_ context.Context, w http.ResponseWriter, r *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
-				if !rowStored || !slices.ContainsFunc((&http.Response{Header: w.Header()}).Cookies(), func(c *http.Cookie) bool { return c.Name == defaultPendingCookieName }) {
+				if len(f.held) == 0 || !slices.ContainsFunc((&http.Response{Header: w.Header()}).Cookies(), func(c *http.Cookie) bool { return c.Name == defaultPendingCookieName }) {
 					t.Error("the hook ran before the pending identity was stored")
 				}
 				got = pending
@@ -1110,18 +1168,14 @@ func TestAuth_PendingHook(t *testing.T) {
 
 				return tt.hook.redirectURL, tt.hook.err
 			}
-			f := newAuthFixture(t, ctrl, WithPendingHook(hook))
+			f = newAuthFixture(t, ctrl, WithPendingHook(hook))
 			user := &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}
 			f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 				return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Factors: []sessioninfo.AuthMethod{"email-otp"}}
 			})
-			f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).DoAndReturn(func(context.Context, *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
-				rowStored = true
-
-				return pendingID, nil
-			})
+			pendingID := f.expectHold("pat")
 			if tt.wantDiscarded {
-				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+				f.expectConsume(pendingID)
 			}
 
 			var rr *httptest.ResponseRecorder
@@ -1215,7 +1269,7 @@ func TestAuth_IdentityLinkedHook(t *testing.T) {
 			})
 			var wait *signin.PendingSignInError
 			if errors.As(tt.stop, &wait) {
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
+				f.expectHold("pat")
 			}
 
 			_, err := f.auth.signIn(context.Background(), httptest.NewRecorder(), &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos", sameSite: sessioncore.SameSiteNone})
@@ -1240,9 +1294,10 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 	confirmation := &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
 
 	tests := []struct {
-		name          string
-		wait          *signin.PendingSignInError
-		pendingRow    func(f *authFixture, id ccc.UUID)
+		name string
+		wait *signin.PendingSignInError
+		// stale says the row is no longer live when the confirmation arrives.
+		stale         bool
 		password      string
 		prepare       func(f *authFixture, pendingID ccc.UUID)
 		wantStatus    int
@@ -1269,7 +1324,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 
 					return nil
 				})
-				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+				f.expectConsume(pendingID)
 			},
 			wantStatus:   http.StatusOK,
 			wantLinked:   1,
@@ -1284,8 +1339,8 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}
 				})
-				f.store.EXPECT().CreateSession(gomock.Any(), pendingRow("pat")).Return(ccc.Must(ccc.NewUUID()), nil)
-				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+				f.expectHold("pat")
+				f.expectConsume(pendingID)
 			},
 			wantStatus:   http.StatusOK,
 			wantMFA:      true,
@@ -1293,16 +1348,17 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wantReplaced: true,
 		},
 		{
-			name:       "a wrong password is invalid credentials, links nothing and leaves the pending identity",
+			name:       "a wrong password is invalid credentials, links nothing and leaves the pending identity unconsumed",
 			wait:       confirmation,
 			password:   "wrong",
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:     "an identity linked meanwhile to another user is refused",
+			name:     "an identity linked meanwhile to another user is refused, and the pending identity is spent",
 			wait:     confirmation,
 			password: "pw",
-			prepare: func(f *authFixture, _ ccc.UUID) {
+			prepare: func(f *authFixture, pendingID ccc.UUID) {
+				f.expectConsume(pendingID)
 				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(nil, httpio.NewConflictMessage("already linked"))
 				f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{UserID: otherID}, nil)
 			},
@@ -1316,11 +1372,9 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wantStatus: http.StatusConflict,
 		},
 		{
-			name: "a pending identity whose row is no longer live has expired",
-			wait: confirmation,
-			pendingRow: func(f *authFixture, id ccc.UUID) {
-				f.store.EXPECT().Session(gomock.Any(), id).Return(&sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Expired: true}}, nil)
-			},
+			name:       "a pending identity whose row is no longer live has expired",
+			wait:       confirmation,
+			stale:      true,
 			password:   "pw",
 			wantStatus: http.StatusUnauthorized,
 			wantCode:   sessioninfo.RefusedPendingExpired,
@@ -1344,10 +1398,8 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			var pendingID ccc.UUID
 			if !tt.noPendingSent {
 				cookies, pendingID = f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"}, tt.wait)
-				if tt.pendingRow != nil {
-					tt.pendingRow(f, pendingID)
-				} else {
-					f.livePending(pendingID)
+				if tt.stale {
+					f.consumed(pendingID)
 				}
 			}
 			if tt.prepare != nil {
@@ -1406,14 +1458,15 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 						t.Errorf("SignIn() request = %+v, events mismatch (-want +got):\n%s", req, diff)
 					}
 				}, nil)
-				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+				f.expectConsume(pendingID)
 			},
 			wantSession: true,
 		},
 		{
 			name: "an identity resolving to another user than it waited on is refused and its session expired",
 			wait: mfa,
-			prepare: func(f *authFixture, _ ccc.UUID) {
+			prepare: func(f *authFixture, pendingID ccc.UUID) {
+				f.expectConsume(pendingID)
 				f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
 					req.UserID = ccc.Must(ccc.NewUUID())
 
@@ -1430,12 +1483,12 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			wait: mfaBy("totp", "email-otp"),
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
 				f.expectSignIn(sessionID, nil, nil)
-				f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+				f.expectConsume(pendingID)
 			},
 			wantSession: true,
 		},
 		{
-			name:    "a step-up by a method the policy did not accept is refused, and the pending sign-in stays",
+			name:    "a step-up by a method the policy did not accept is refused, and the pending sign-in stays unconsumed",
 			wait:    mfaBy("totp"),
 			wantErr: httpio.HasBadRequest,
 		},
@@ -1445,9 +1498,10 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			wantErr: httpio.HasConflict,
 		},
 		{
-			name: "a user the store finds disabled at completion is refused",
+			name: "a user the store finds disabled at completion is refused, and the pending identity is spent",
 			wait: mfa,
-			prepare: func(f *authFixture, _ ccc.UUID) {
+			prepare: func(f *authFixture, pendingID ccc.UUID) {
+				f.expectConsume(pendingID)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
 				})
@@ -1461,7 +1515,6 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
 			cookies, pendingID := f.hold(t, &signInAttempt{identity: password, reason: sessioninfo.ReasonLogin, userID: userID}, tt.wait)
-			f.livePending(pendingID)
 			if tt.prepare != nil {
 				tt.prepare(f, pendingID)
 			}
@@ -1502,7 +1555,6 @@ func TestAuth_PendingStatusAndCancel(t *testing.T) {
 	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
 	cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, returnURL: "/next"},
 		&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())), Username: "pat"})
-	f.livePending(pendingID)
 
 	rr := f.serve(f.auth.Pending().Status(), http.MethodGet, "/pending", nil, cookies)
 	var status struct {
@@ -1521,23 +1573,28 @@ func TestAuth_PendingStatusAndCancel(t *testing.T) {
 		t.Errorf("Status() = %s, want no user username", rr.Body.String())
 	}
 
-	f.store.EXPECT().DestroySession(gomock.Any(), pendingID).Return(nil)
+	f.expectConsume(pendingID)
 	rr = f.serve(f.auth.Pending().Cancel(), http.MethodPost, "/pending/cancel", nil, cookies)
 	if rr.Code != http.StatusOK || !pendingDeleted(rr) {
 		t.Errorf("Cancel() = %d, pending cookie deleted %v; want 200 and deleted", rr.Code, pendingDeleted(rr))
 	}
 
-	// A cookie that is not the pending identity's is ignored.
+	// A cookie that is not the pending identity's is ignored, and the store is not asked.
 	rr = f.serve(f.auth.Pending().Status(), http.MethodGet, "/pending", nil, []*http.Cookie{{Name: defaultPendingCookieName, Value: "forged", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}})
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Status() with a forged cookie = %d, want 404", rr.Code)
 	}
 
+	// A consumed pending identity's cookie is a spent token: pending_expired, and nothing to cancel.
+	rr = f.serve(f.auth.Pending().Status(), http.MethodGet, "/pending", nil, cookies)
+	if rr.Code != http.StatusUnauthorized || refusalCode(t, rr) != sessioninfo.RefusedPendingExpired {
+		t.Errorf("Status() with a consumed token = %d %s, want 401 pending_expired", rr.Code, rr.Body.String())
+	}
+
 	// An MFA wait reports the factors the policy accepts, so the page offers those steps.
 	userID := ccc.Must(ccc.NewUUID())
-	cookies, pendingID = f.hold(t, &signInAttempt{identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}, reason: sessioninfo.ReasonLogin, userID: userID},
+	cookies, _ = f.hold(t, &signInAttempt{identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: userID.String()}, reason: sessioninfo.ReasonLogin, userID: userID},
 		&signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Factors: []sessioninfo.AuthMethod{"email-otp", "totp"}})
-	f.livePending(pendingID)
 	rr = f.serve(f.auth.Pending().Status(), http.MethodGet, "/pending", nil, cookies)
 	var mfa struct {
 		Reason  string   `json:"reason"`
@@ -1545,42 +1602,6 @@ func TestAuth_PendingStatusAndCancel(t *testing.T) {
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &mfa); err != nil || rr.Code != http.StatusOK || mfa.Reason != "mfa" || !slices.Equal(mfa.Factors, []string{"email-otp", "totp"}) {
 		t.Errorf("Status() of an MFA wait = %d %s, want reason mfa with factors [email-otp totp]", rr.Code, rr.Body.String())
-	}
-}
-
-func TestPendingState_Encoding(t *testing.T) {
-	t.Parallel()
-
-	state := &pendingState{
-		ID:        ccc.Must(ccc.NewUUID()),
-		Identity:  sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Claims: json.RawMessage(`{"raw_attributes":{"a":"b"}}`)},
-		Reason:    sessioninfo.PendingMFA,
-		UserID:    ccc.NullUUIDFromUUID(ccc.Must(ccc.NewUUID())),
-		ExpiresAt: time.Now().Add(time.Minute).Truncate(time.Second),
-		Events:    []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}},
-		RoleNames: []string{},
-	}
-	encoded, err := encodePending(state)
-	if err != nil {
-		t.Fatalf("encodePending() error = %v", err)
-	}
-	got, err := decodePending(encoded)
-	if err != nil {
-		t.Fatalf("decodePending() error = %v", err)
-	}
-	if diff := cmp.Diff(state, got, cmpopts.EquateApproxTime(time.Second)); diff != "" {
-		t.Errorf("round trip mismatch (-want +got):\n%s", diff)
-	}
-
-	// Claims too large for a cookie are refused rather than truncated.
-	huge := *state
-	noise := make([]byte, 4096)
-	if _, err := rand.Read(noise); err != nil {
-		t.Fatal(err)
-	}
-	huge.Identity.Claims = json.RawMessage(`"` + hex.EncodeToString(noise) + `"`)
-	if _, err := encodePending(&huge); err == nil {
-		t.Error("encodePending() of oversized claims error = nil, want a refusal")
 	}
 }
 

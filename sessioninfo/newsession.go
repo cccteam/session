@@ -28,10 +28,6 @@ const (
 	// impersonated user, or the actor for a role principal — and UserID is the
 	// impersonated user's record ID, or the zero UUID for a role principal.
 	ReasonImpersonation NewSessionReason = "Impersonation"
-	// ReasonPendingIdentity indicates the row of an Auth session's pending identity. It
-	// has no user and is never authenticated. The custom session data resolver is
-	// not called for it.
-	ReasonPendingIdentity NewSessionReason = "PendingIdentity"
 )
 
 // NewSessionRequest carries the inputs to a new-session creation. It is a struct so

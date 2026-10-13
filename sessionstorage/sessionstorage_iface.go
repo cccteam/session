@@ -225,6 +225,12 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired, ending an impersonated session's record with reason Logout.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// InsertPendingSignIn inserts a pending sign-in.
+	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
+	// PendingSignInByToken returns the pending sign-in holding tokenHash that is live at now, or NotFound.
+	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
+	// ConsumePendingSignIn marks the live pending sign-in holding tokenHash consumed at now by a conditional update; NotFound when it is not live.
+	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
 	// ImpersonationEnabled reports whether an impersonation record table is configured.
 	ImpersonationEnabled() bool
 	// InsertImpersonatedSession inserts a session row and its impersonation record atomically,

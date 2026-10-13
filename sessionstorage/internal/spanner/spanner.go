@@ -38,6 +38,8 @@ type SessionStorageDriver struct {
 	authEvents *AuthEventsConfig
 	// identitiesTableName names the auth schema's identities table.
 	identitiesTableName string
+	// pendingTableName names the auth schema's pending sign-ins table.
+	pendingTableName string
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -54,6 +56,7 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 		userTableName:       "SessionUsers",
 		oidcUserTableName:   "OIDCUsers",
 		identitiesTableName: "SessionIdentities",
+		pendingTableName:    "SessionPendingSignIns",
 	}
 }
 
@@ -256,8 +259,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // rows that must land with it), honoring the request's custom session data semantics:
 // per-call data wins and is committed with the session mutations in a single Apply
 // (the configured resolver is not invoked); otherwise a configured resolver runs
-// within a read-write transaction (except for a pending identity's row, see
-// dbtype.ResolvesCustomData); otherwise the session mutations are applied alone.
+// within a read-write transaction; otherwise the session mutations are applied alone.
 func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UUID, sessionMutations []*spanner.Mutation, req *sessioninfo.NewSessionRequest) error {
 	if req.CustomData != nil {
 		if s.customData == nil {
@@ -279,7 +281,7 @@ func (s *SessionStorageDriver) applySessionInsert(ctx context.Context, id ccc.UU
 		return nil
 	}
 
-	if s.customData == nil || s.customData.Resolver == nil || !dbtype.ResolvesCustomData(req) {
+	if s.customData == nil || s.customData.Resolver == nil {
 		if _, err := s.spanner.Apply(ctx, sessionMutations); err != nil {
 			return errors.Wrap(err, "spanner.Client.Apply()")
 		}

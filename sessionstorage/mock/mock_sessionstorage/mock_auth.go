@@ -89,6 +89,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) AppendAuthEvent(ctx, sessionID, event a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*MockAuthStore[Tx])(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ConsumePendingSignIn mocks base method.
+func (m *MockAuthStore[Tx]) ConsumePendingSignIn(ctx context.Context, tokenHash []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumePendingSignIn", ctx, tokenHash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConsumePendingSignIn indicates an expected call of ConsumePendingSignIn.
+func (mr *MockAuthStoreMockRecorder[Tx]) ConsumePendingSignIn(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumePendingSignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).ConsumePendingSignIn), ctx, tokenHash)
+}
+
 // CreateImpersonatedSession mocks base method.
 func (m *MockAuthStore[Tx]) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
@@ -275,6 +289,21 @@ func (mr *MockAuthStoreMockRecorder[Tx]) EndImpersonation(ctx, sessionID, reason
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockAuthStore[Tx])(nil).EndImpersonation), ctx, sessionID, reason)
 }
 
+// HoldSignIn mocks base method.
+func (m *MockAuthStore[Tx]) HoldSignIn(ctx context.Context, p *sessionstorage.PendingSignIn) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HoldSignIn", ctx, p)
+	ret0, _ := ret[0].(ccc.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HoldSignIn indicates an expected call of HoldSignIn.
+func (mr *MockAuthStoreMockRecorder[Tx]) HoldSignIn(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HoldSignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).HoldSignIn), ctx, p)
+}
+
 // IdentitiesByUser mocks base method.
 func (m *MockAuthStore[Tx]) IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*sessionstorage.SessionIdentity, error) {
 	m.ctrl.T.Helper()
@@ -346,6 +375,21 @@ func (m *MockAuthStore[Tx]) OIDCUsersEnabled() bool {
 func (mr *MockAuthStoreMockRecorder[Tx]) OIDCUsersEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockAuthStore[Tx])(nil).OIDCUsersEnabled))
+}
+
+// PendingSignIn mocks base method.
+func (m *MockAuthStore[Tx]) PendingSignIn(ctx context.Context, tokenHash []byte) (*sessionstorage.PendingSignIn, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PendingSignIn", ctx, tokenHash)
+	ret0, _ := ret[0].(*sessionstorage.PendingSignIn)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PendingSignIn indicates an expected call of PendingSignIn.
+func (mr *MockAuthStoreMockRecorder[Tx]) PendingSignIn(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingSignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).PendingSignIn), ctx, tokenHash)
 }
 
 // Session mocks base method.

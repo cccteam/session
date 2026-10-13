@@ -40,6 +40,8 @@ type SessionStorageDriver struct {
 	authEvents *AuthEventsConfig
 	// identitiesTableName names the auth schema's identities table.
 	identitiesTableName string
+	// pendingTableName names the auth schema's pending sign-ins table.
+	pendingTableName string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -50,6 +52,7 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 		userTableName:       "SessionUsers",
 		oidcUserTableName:   "OIDCUsers",
 		identitiesTableName: "SessionIdentities",
+		pendingTableName:    "SessionPendingSignIns",
 	}
 }
 
@@ -248,8 +251,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 // execSessionInsert executes a session-insert statement, honoring the request's custom
 // session data semantics: per-call data wins and is written with the session insert in
 // one transaction (the configured resolver is not invoked); otherwise a configured
-// resolver runs within the same transaction (except for a pending identity's row, see
-// dbtype.ResolvesCustomData); otherwise the insert executes alone.
+// resolver runs within the same transaction; otherwise the insert executes alone.
 // A non-nil companion runs inside the same transaction right after the session insert,
 // for rows that must land with the session (an impersonation record).
 func (s *SessionStorageDriver) execSessionInsert(
@@ -260,7 +262,7 @@ func (s *SessionStorageDriver) execSessionInsert(
 		return errors.New("custom session data provided but no custom session data config is attached")
 	}
 
-	resolve := !perCallData && s.customData != nil && s.customData.Resolver != nil && dbtype.ResolvesCustomData(req)
+	resolve := !perCallData && s.customData != nil && s.customData.Resolver != nil
 	if companion == nil && !perCallData && !resolve {
 		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")

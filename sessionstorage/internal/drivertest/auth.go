@@ -32,6 +32,9 @@ type AuthDriver interface {
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
+	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
+	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -160,7 +163,6 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a denied or held sign-in keeps the sign-in policy's own writes", run: testHeldOrRefusedKeepsHookWrites},
 		{name: "the policy of a provisioning sign-in reads the new user and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedUser},
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
-		{name: "a pending identity's row never calls the custom session data resolver", run: testPendingRowSkipsCustomData},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
@@ -168,6 +170,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
+		{name: "a pending sign-in is read back by its token hash with everything it carried", run: testPendingSignInRoundTrip},
+		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},
+		{name: "an expired pending sign-in is neither read nor consumed", run: testPendingSignInExpired},
+		{name: "concurrent completions of one pending sign-in consume it once", run: testPendingSignInConcurrentConsume},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

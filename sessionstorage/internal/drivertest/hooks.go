@@ -191,30 +191,6 @@ func testCustomDataSeesProvisionedUser(ctx context.Context, t *testing.T, h *Aut
 	}
 }
 
-func testPendingRowSkipsCustomData(ctx context.Context, t *testing.T, h *AuthHarness) {
-	var calls int
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true,
-		CustomData: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (any, error) {
-			calls++
-
-			return nil, errors.New("a resolver that looks the user up fails without one")
-		},
-	})
-
-	id, err := in.Driver.InsertSession(ctx, newInsertSession("pat@lakeside.edu"), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonPendingIdentity, Username: "pat@lakeside.edu"})
-	if err != nil {
-		t.Fatalf("InsertSession() of a pending identity's row error = %v, want it inserted without the resolver", err)
-	}
-	if calls != 0 {
-		t.Errorf("custom session data resolver ran %d times for a pending identity's row, want 0", calls)
-	}
-	sess := mustSession(ctx, t, in.Driver, id)
-	if sess.UserID.Valid || sess.AuthenticatedAt != nil {
-		t.Errorf("pending row = UserID %v, AuthenticatedAt %v; want no user and never authenticated", sess.UserID, sess.AuthenticatedAt)
-	}
-}
-
 func testSignInUserReported(_ context.Context, t *testing.T, h *AuthHarness) {
 	tests := []struct {
 		name string

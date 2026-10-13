@@ -42,6 +42,9 @@ type signInAttempt struct {
 	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
 	sameSite  sessioncore.SameSite
+	// fromPending reports a completion of the browser's pending identity, consumed
+	// before the sign-in; only its cookie remains, to delete or replace.
+	fromPending bool
 }
 
 // signInOutcome is a sign-in's result: a session, or a pending identity.
@@ -55,7 +58,7 @@ type signInOutcome struct {
 // user, asks the sign-in policy and inserts the session with its auth events. Roles are then
 // reconciled, and only after that are the cookies for the new session ID written, so a
 // refusal writes no cookie. A sign-in that must wait becomes the browser's pending
-// identity, replacing any earlier one. A sign-in that succeeds consumes it.
+// identity, replacing any earlier one. A sign-in that succeeds ends it.
 func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *signInAttempt) (*signInOutcome, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -109,7 +112,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		return nil, err
 	}
 
-	a.dropPending(ctx, w)
+	a.endPending(ctx, w, at)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil

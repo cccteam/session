@@ -48,8 +48,10 @@ off an identity's subject or email. Custom session data is resolved with `Reason
 `ReasonIdentityLinked` (a confirmed link), `ReasonStepUp` (an MFA completion),
 `ReasonExternalAuth` (`StartAuthenticatedSession`) or `ReasonRegeneration`, with
 `req.Identity` and `req.Claims` for the external methods, and with `ReasonPreauth` for
-the stepping-stone row of a pending identity, which belongs to no user. Custom user
-data works as for username/password; provision it in the user resolver's
+a preauth stepping-stone row, which belongs to no user. A pending identity (a sign-in
+waiting for its confirmation or MFA) is a row of `SessionPendingSignIns`, not a
+session, and resolves no custom data until it completes. Custom user data works as for
+username/password; provision it in the user resolver's
 `signin.Provision` hook, inside the session transaction.
 
 ## Patterns
