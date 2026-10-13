@@ -160,12 +160,18 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 		return err
 	}
 
-	_, err = a.startSession(ctx, w, &sessioninfo.NewSessionRequest{
+	// The regenerated session keeps the provider's session id of the session it
+	// replaces, so a provider-initiated logout still finds it.
+	req2 := &sessioninfo.NewSessionRequest{
 		Reason:     sessioninfo.ReasonRegeneration,
 		Username:   user.Username,
 		UserID:     user.ID,
 		AuthEvents: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}},
-	})
+	}
+	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
+		req2.ProviderSessionID = current.ProviderSessionID
+	}
+	_, err = a.startSession(ctx, w, req2)
 
 	return err
 }

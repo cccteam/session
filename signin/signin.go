@@ -101,6 +101,10 @@ type Verified struct {
 	// synchronizes no roles, and never nil when it does: "no roles asserted" is an empty
 	// list.
 	RoleNames []string
+	// ProviderSessionID is the provider's own session id for this sign-in (an OpenID
+	// Connect sid claim), which a provider-initiated logout names; "" when the method
+	// has none.
+	ProviderSessionID string
 }
 
 // Handlers are a registered method's HTTP handlers, built by the core.

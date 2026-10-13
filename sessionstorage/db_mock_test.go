@@ -426,6 +426,20 @@ func (mr *MockdbMockRecorder) DestroySessionOIDC(ctx, oidcSID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionOIDC", reflect.TypeOf((*Mockdb)(nil).DestroySessionOIDC), ctx, oidcSID)
 }
 
+// DestroySessionsByProviderSessionID mocks base method.
+func (m *Mockdb) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroySessionsByProviderSessionID", ctx, providerSessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroySessionsByProviderSessionID indicates an expected call of DestroySessionsByProviderSessionID.
+func (mr *MockdbMockRecorder) DestroySessionsByProviderSessionID(ctx, providerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionsByProviderSessionID", reflect.TypeOf((*Mockdb)(nil).DestroySessionsByProviderSessionID), ctx, providerSessionID)
+}
+
 // DestroyUserSessions mocks base method.
 func (m *Mockdb) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
 	m.ctrl.T.Helper()

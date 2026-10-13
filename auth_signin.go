@@ -38,6 +38,8 @@ type signInAttempt struct {
 	events []sessioninfo.AuthEvent
 	// returnURL is where an external sign-in sends the browser afterwards.
 	returnURL string
+	// providerSessionID is the provider's session id the sign-in carried, "" when none.
+	providerSessionID string
 	// roleNames are the role names the method asserted, reconciled once the user is
 	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
@@ -64,12 +66,13 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	defer span.End()
 
 	req := &sessioninfo.NewSessionRequest{
-		Reason:     at.reason,
-		Username:   at.username,
-		UserID:     at.userID,
-		Claims:     at.identity.Claims,
-		Identity:   at.identity,
-		AuthEvents: at.events,
+		Reason:            at.reason,
+		Username:          at.username,
+		UserID:            at.userID,
+		Claims:            at.identity.Claims,
+		Identity:          at.identity,
+		AuthEvents:        at.events,
+		ProviderSessionID: at.providerSessionID,
 	}
 
 	// An external identity is resolved by its registration's user resolver; a password

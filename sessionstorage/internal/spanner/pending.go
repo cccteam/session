@@ -18,31 +18,32 @@ import (
 
 // pendingColumns are the pending sign-ins table's columns.
 const pendingColumns = `Id, TokenHash, Step, Registration, Method, Connection, Subject, Email, EmailVerified, IdpAmr, Claims, ` +
-	`UserId, Username, Tenant, Events, RoleNames, Factors, ReturnUrl, CreatedAt, ExpiresAt, ConsumedAt`
+	`UserId, Username, Tenant, Events, RoleNames, Factors, ReturnUrl, ProviderSessionId, CreatedAt, ExpiresAt, ConsumedAt`
 
 // pendingRow is a pending sign-in as the table holds it.
 type pendingRow struct {
-	ID            string             `spanner:"Id"`
-	TokenHash     []byte             `spanner:"TokenHash"`
-	Step          string             `spanner:"Step"`
-	Registration  string             `spanner:"Registration"`
-	Method        string             `spanner:"Method"`
-	Connection    string             `spanner:"Connection"`
-	Subject       string             `spanner:"Subject"`
-	Email         string             `spanner:"Email"`
-	EmailVerified bool               `spanner:"EmailVerified"`
-	IdpAmr        []string           `spanner:"IdpAmr"`
-	Claims        []byte             `spanner:"Claims"`
-	UserID        spanner.NullString `spanner:"UserId"`
-	Username      string             `spanner:"Username"`
-	Tenant        string             `spanner:"Tenant"`
-	Events        []byte             `spanner:"Events"`
-	RoleNames     []string           `spanner:"RoleNames"`
-	Factors       []string           `spanner:"Factors"`
-	ReturnURL     string             `spanner:"ReturnUrl"`
-	CreatedAt     time.Time          `spanner:"CreatedAt"`
-	ExpiresAt     time.Time          `spanner:"ExpiresAt"`
-	ConsumedAt    spanner.NullTime   `spanner:"ConsumedAt"`
+	ID                string             `spanner:"Id"`
+	TokenHash         []byte             `spanner:"TokenHash"`
+	Step              string             `spanner:"Step"`
+	Registration      string             `spanner:"Registration"`
+	Method            string             `spanner:"Method"`
+	Connection        string             `spanner:"Connection"`
+	Subject           string             `spanner:"Subject"`
+	Email             string             `spanner:"Email"`
+	EmailVerified     bool               `spanner:"EmailVerified"`
+	IdpAmr            []string           `spanner:"IdpAmr"`
+	Claims            []byte             `spanner:"Claims"`
+	UserID            spanner.NullString `spanner:"UserId"`
+	Username          string             `spanner:"Username"`
+	Tenant            string             `spanner:"Tenant"`
+	Events            []byte             `spanner:"Events"`
+	RoleNames         []string           `spanner:"RoleNames"`
+	Factors           []string           `spanner:"Factors"`
+	ReturnURL         string             `spanner:"ReturnUrl"`
+	ProviderSessionID spanner.NullString `spanner:"ProviderSessionId"`
+	CreatedAt         time.Time          `spanner:"CreatedAt"`
+	ExpiresAt         time.Time          `spanner:"ExpiresAt"`
+	ConsumedAt        spanner.NullTime   `spanner:"ConsumedAt"`
 }
 
 // newPendingRow renders p as the table holds it.
@@ -60,6 +61,9 @@ func newPendingRow(p *dbtype.PendingSignIn) (*pendingRow, error) {
 	}
 	if p.UserID.Valid {
 		r.UserID = spanner.NullString{StringVal: p.UserID.String(), Valid: true}
+	}
+	if p.ProviderSessionID != "" {
+		r.ProviderSessionID = spanner.NullString{StringVal: p.ProviderSessionID, Valid: true}
 	}
 	if p.ConsumedAt != nil {
 		r.ConsumedAt = spanner.NullTime{Time: *p.ConsumedAt, Valid: true}
@@ -92,6 +96,9 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 			return nil, errors.Wrap(err, "ccc.UUIDFromString()")
 		}
 		p.UserID = ccc.NullUUIDFromUUID(userID)
+	}
+	if r.ProviderSessionID.Valid {
+		p.ProviderSessionID = r.ProviderSessionID.StringVal
 	}
 	if r.ConsumedAt.Valid {
 		consumedAt := r.ConsumedAt.Time

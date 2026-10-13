@@ -66,12 +66,18 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 		authenticatedAt = spanner.NullTime{Time: *user.AuthenticatedAt, Valid: true}
 	}
 
+	var providerSessionID spanner.NullString
+	if user.ProviderSessionID != nil {
+		providerSessionID = spanner.NullString{StringVal: *user.ProviderSessionID, Valid: true}
+	}
+
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession
-		UserID          ccc.NullUUID     `spanner:"UserId"`
-		AuthenticatedAt spanner.NullTime `spanner:"AuthenticatedAt"`
-	}{ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt})
+		UserID            ccc.NullUUID       `spanner:"UserId"`
+		AuthenticatedAt   spanner.NullTime   `spanner:"AuthenticatedAt"`
+		ProviderSessionID spanner.NullString `spanner:"ProviderSessionId"`
+	}{ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt, ProviderSessionID: providerSessionID})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}
@@ -120,7 +126,7 @@ func (s *SessionStorageDriver) userColumns() string {
 		return ""
 	}
 
-	return ", s.UserId, s.AuthenticatedAt"
+	return ", s.UserId, s.AuthenticatedAt, s.ProviderSessionId"
 }
 
 // readUser reads the user columns from row, starting at column idx, and returns
@@ -134,6 +140,10 @@ func readUser(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, err
 	if err := row.Column(idx+1, &authenticatedAt); err != nil {
 		return idx, errors.Wrapf(err, "row.Column(%d/AuthenticatedAt)", idx+1)
 	}
+	var providerSessionID spanner.NullString
+	if err := row.Column(idx+2, &providerSessionID); err != nil {
+		return idx, errors.Wrapf(err, "row.Column(%d/ProviderSessionId)", idx+2)
+	}
 
 	if userID.Valid {
 		id, err := ccc.NullUUIDFromString(userID.StringVal)
@@ -146,8 +156,53 @@ func readUser(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, err
 		t := authenticatedAt.Time
 		sessData.AuthenticatedAt = &t
 	}
+	if providerSessionID.Valid {
+		sessData.ProviderSessionID = providerSessionID.StringVal
+	}
 
-	return idx + 2, nil
+	return idx + 3, nil
+}
+
+// DestroySessionsByProviderSessionID expires every live session whose sign-in carried
+// the provider's session id, as a provider-initiated logout asks; an impersonated
+// session's record ends Logout. It needs the auth schema.
+func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
+	}
+
+	now := time.Now()
+	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if s.impersonation != nil {
+			endRecords := spanner.NewStatement(fmt.Sprintf(`
+				UPDATE %s
+				SET EndedAt = @now, EndReason = @reason
+				WHERE EndedAt IS NULL AND SessionId IN (SELECT Id FROM %s WHERE Expired = FALSE AND ProviderSessionId = @sid)`,
+				s.impersonation.TableName, s.sessionTableName))
+			endRecords.Params["sid"] = providerSessionID
+			endRecords.Params["now"] = now
+			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
+			if _, err := txn.Update(ctx, endRecords); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+		}
+		expire := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = @now WHERE Expired = FALSE AND ProviderSessionId = @sid`, s.sessionTableName))
+		expire.Params["sid"] = providerSessionID
+		expire.Params["now"] = now
+		if _, err := txn.Update(ctx, expire); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
 }
 
 // authEventRow is one auth event row as the events query returns it.

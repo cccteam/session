@@ -36,10 +36,12 @@ type PendingSignIn struct {
 	Factors []sessioninfo.AuthMethod
 	// ReturnURL is the sanitized path the sign-in returns to; empty for a password
 	// sign-in.
-	ReturnURL  string
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	ConsumedAt *time.Time
+	ReturnURL string
+	// ProviderSessionID is the provider's session id the sign-in carried, "" when none.
+	ProviderSessionID string
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	ConsumedAt        *time.Time
 }
 
 // MethodNames renders methods as the strings a database array holds; nil stays nil.

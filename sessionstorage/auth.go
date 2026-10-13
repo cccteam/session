@@ -99,6 +99,10 @@ type AuthStore[Tx any] interface {
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records a step-up or confirmation on an existing session.
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+	// DestroySessionsByProviderSessionID expires every live session whose sign-in
+	// carried the provider's session id, as a provider-initiated logout asks; an
+	// impersonated session's record ends Logout.
+	DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error
 	// SetIdentitiesTableName sets the name of the identities table. (default: SessionIdentities)
 	SetIdentitiesTableName(name string)
 	// SetPendingSignInsTableName sets the name of the pending sign-ins table. (default: SessionPendingSignIns)
@@ -312,4 +316,16 @@ func (a *Auth[Tx]) SetIdentitiesTableName(name string) {
 // SetPendingSignInsTableName implements AuthStore.
 func (a *Auth[Tx]) SetPendingSignInsTableName(name string) {
 	a.db.SetPendingSignInsTableName(name)
+}
+
+// DestroySessionsByProviderSessionID implements AuthStore.
+func (a *Auth[Tx]) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.DestroySessionsByProviderSessionID(ctx, providerSessionID); err != nil {
+		return errors.Wrap(err, "db.DestroySessionsByProviderSessionID()")
+	}
+
+	return nil
 }

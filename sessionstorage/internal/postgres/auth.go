@@ -48,7 +48,7 @@ func (s *SessionStorageDriver) AuthEventsEnabled() bool {
 // sessionInsertStatement renders the insert of a non-OIDC session row. With the
 // user columns enabled it also writes UserId and AuthenticatedAt.
 func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (query string, args []any) {
-	args = make([]any, 0, 7)
+	args = make([]any, 0, 8)
 	args = append(args, id, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired)
 	if !s.users {
 		return fmt.Sprintf(`
@@ -67,10 +67,10 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 
 	return fmt.Sprintf(`
 		INSERT INTO "%s"
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt")
+			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7)
-		`, s.sessionTableName), append(args, userID, user.AuthenticatedAt)
+			($1, $2, $3, $4, $5, $6, $7, $8)
+		`, s.sessionTableName), append(args, userID, user.AuthenticatedAt, user.ProviderSessionID)
 }
 
 // initialAuthEvent chains the insert of the new session's auth events
@@ -125,17 +125,18 @@ func (s *SessionStorageDriver) userColumns() string {
 		return ""
 	}
 
-	return `, s."UserId", s."AuthenticatedAt"`
+	return `, s."UserId", s."AuthenticatedAt", s."ProviderSessionId"`
 }
 
 // userScan holds the scan destinations of the user columns.
 type userScan struct {
-	userID          *ccc.UUID
-	authenticatedAt *time.Time
+	userID            *ccc.UUID
+	authenticatedAt   *time.Time
+	providerSessionID *string
 }
 
 func (a *userScan) dests() []any {
-	return []any{&a.userID, &a.authenticatedAt}
+	return []any{&a.userID, &a.authenticatedAt, &a.providerSessionID}
 }
 
 func (a *userScan) apply(sessData *dbtype.SessionData) {
@@ -143,6 +144,51 @@ func (a *userScan) apply(sessData *dbtype.SessionData) {
 		sessData.UserID = ccc.NullUUIDFromUUID(*a.userID)
 	}
 	sessData.AuthenticatedAt = a.authenticatedAt
+	if a.providerSessionID != nil {
+		sessData.ProviderSessionID = *a.providerSessionID
+	}
+}
+
+// DestroySessionsByProviderSessionID expires every live session whose sign-in carried
+// the provider's session id, as a provider-initiated logout asks; an impersonated
+// session's record ends Logout. It needs the auth schema.
+func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	now := time.Now()
+	if s.impersonation != nil {
+		endRecords := fmt.Sprintf(`
+			UPDATE %s i SET "EndedAt" = $2, "EndReason" = $3
+			WHERE i."EndedAt" IS NULL AND EXISTS (
+				SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."Expired" = FALSE AND s."ProviderSessionId" = $1)`,
+			pgx.Identifier{s.impersonation.TableName}.Sanitize(), pgx.Identifier{s.sessionTableName}.Sanitize())
+		if _, err := txn.Exec(ctx, endRecords, providerSessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+	}
+	expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "ProviderSessionId" = $1`, pgx.Identifier{s.sessionTableName}.Sanitize())
+	if _, err := txn.Exec(ctx, expire, providerSessionID, now); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
 }
 
 // readAuthEvents reads a session's auth events, oldest first.

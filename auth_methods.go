@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
@@ -205,9 +206,23 @@ func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 // continues in a new one. Route it behind ValidateSession.
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
 
-// frontChannelLogout answers 501 until Auth sessions record the provider's session ID.
+// frontChannelLogout handles a provider-initiated logout: it ends every session whose
+// sign-in carried the provider's session id the request names (?sid=) and answers
+// 200; a request without a sid is 400. The provider calls it in a frame, with no
+// session of its own, so it reads nothing from the browser.
 func (a *Auth[S, U, Tx]) frontChannelLogout() http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return httpio.NewEncoder(w).ClientMessage(r.Context(), httpio.NewNotImplementedMessage("front-channel logout is not supported by Auth sessions yet"))
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		sid := r.URL.Query().Get("sid")
+		if sid == "" {
+			return httpio.NewEncoder(w).BadRequestMessage(ctx, "missing sid query parameter")
+		}
+		if err := a.storage.DestroySessionsByProviderSessionID(ctx, sid); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySessionsByProviderSessionID()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
 	})
 }

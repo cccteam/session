@@ -261,6 +261,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) DestroySession(ctx, sessionID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockAuthStore[Tx])(nil).DestroySession), ctx, sessionID)
 }
 
+// DestroySessionsByProviderSessionID mocks base method.
+func (m *MockAuthStore[Tx]) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DestroySessionsByProviderSessionID", ctx, providerSessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DestroySessionsByProviderSessionID indicates an expected call of DestroySessionsByProviderSessionID.
+func (mr *MockAuthStoreMockRecorder[Tx]) DestroySessionsByProviderSessionID(ctx, providerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySessionsByProviderSessionID", reflect.TypeOf((*MockAuthStore[Tx])(nil).DestroySessionsByProviderSessionID), ctx, providerSessionID)
+}
+
 // DestroyUserSessions mocks base method.
 func (m *MockAuthStore[Tx]) DestroyUserSessions(ctx context.Context, userID ccc.UUID) error {
 	m.ctrl.T.Helper()

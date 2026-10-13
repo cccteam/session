@@ -25,6 +25,7 @@ CREATE TABLE "SessionPendingSignIns"
     "RoleNames" character varying[],
     "Factors" character varying[],
     "ReturnUrl" character varying NOT NULL,
+    "ProviderSessionId" character varying,
     "CreatedAt" timestamp with time zone NOT NULL,
     "ExpiresAt" timestamp with time zone NOT NULL,
     "ConsumedAt" timestamp with time zone,

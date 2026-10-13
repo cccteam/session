@@ -21,6 +21,7 @@ CREATE TABLE SessionPendingSignIns (
     RoleNames     ARRAY<STRING(MAX)>,
     Factors       ARRAY<STRING(MAX)>,
     ReturnUrl     STRING(MAX) NOT NULL,
+    ProviderSessionId STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL,
     ExpiresAt     TIMESTAMP NOT NULL,
     ConsumedAt    TIMESTAMP,

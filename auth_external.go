@@ -60,12 +60,13 @@ func (a *Auth[S, U, Tx]) externalCallback(name string, m *signin.Method) http.Ha
 		}
 
 		outcome, err := a.signIn(ctx, w, &signInAttempt{
-			identity:     v.Identity,
-			reason:       sessioninfo.ReasonLogin,
-			registration: name,
-			returnURL:    v.ReturnURL,
-			roleNames:    v.RoleNames,
-			sameSite:     sessioncore.SameSiteNone,
+			identity:          v.Identity,
+			reason:            sessioninfo.ReasonLogin,
+			registration:      name,
+			returnURL:         v.ReturnURL,
+			roleNames:         v.RoleNames,
+			providerSessionID: v.ProviderSessionID,
+			sameSite:          sessioncore.SameSiteNone,
 		})
 		if err != nil {
 			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)

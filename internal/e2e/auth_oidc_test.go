@@ -68,6 +68,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	mountAuth(r, auth, func(r chi.Router) {
 		r.Get("/azure/login", azureMethod.Login())
 		r.Get("/azure/callback", azureMethod.Callback())
+		r.Get("/azure/logout", azureMethod.FrontChannelLogout())
 		r.Get("/google/login", googleMethod.Login())
 		r.Get("/google/callback", googleMethod.Callback())
 	})
@@ -105,6 +106,13 @@ func mustHost(t *testing.T, raw string) string {
 
 func azureClaims(tid, oid, username string) map[string]any {
 	return map[string]any{"sub": "pairwise-" + oid, "tid": tid, "oid": oid, "preferred_username": username, "email": username, "amr": []string{"pwd", "mfa"}}
+}
+
+// withSID adds the provider's session id (the sid claim) to claims.
+func withSID(claims map[string]any, sid string) map[string]any {
+	claims["sid"] = sid
+
+	return claims
 }
 
 func googleClaims(sub, email string) map[string]any {
@@ -190,6 +198,33 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				if resolved, _ := a.hooks.counts(); resolved != 0 {
 					t.Errorf("user resolver ran %d times, want never", resolved)
 				}
+			},
+		},
+		{
+			name: "an Entra front-channel logout ends the sessions whose sign-in carried its sid and no other, called by the provider without a session",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
+						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
+					}
+				})
+
+				named := a.browser(t)
+				assertRedirect(t, named.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-1")), "/home", url.Values{})
+				other := a.browser(t)
+				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-2")), "/home", url.Values{})
+				named.view(ctx)
+				other.view(ctx)
+
+				// Entra calls the logout URL in a frame: a client with no cookies.
+				provider := a.browser(t)
+				provider.expect(ctx, http.StatusOK, http.MethodGet, "/azure/logout?sid=sid-pat-1&iss="+url.QueryEscape(a.azure.Server.URL), nil)
+
+				named.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+				if v := other.view(ctx); v.Username != "pat@lakeside.edu" {
+					t.Errorf("the session under another sid = %+v, want it still signed in", v)
+				}
+				provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/azure/logout", nil)
 			},
 		},
 		{

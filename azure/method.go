@@ -48,6 +48,9 @@ type Identity struct {
 	Roles []string
 	// AMR are the authentication methods the token asserts (the amr claim).
 	AMR []string
+	// SessionID is the sid claim: Entra's session id, which its front-channel logout
+	// names.
+	SessionID string
 	// Claims are the ID token's claims as issued, for anything the fields above do not
 	// carry.
 	Claims json.RawMessage
@@ -118,8 +121,10 @@ func (m *Method) Login() http.HandlerFunc { return m.login }
 //   - to <LoginURL>?code=<LoginRefusalCode> when it is refused.
 func (m *Method) Callback() http.HandlerFunc { return m.callback }
 
-// FrontChannelLogout handles Microsoft-initiated logout. Auth sessions do not record the
-// provider's session ID yet, so it answers 501 Not Implemented.
+// FrontChannelLogout handles Microsoft-initiated logout. It ends every session whose
+// sign-in carried the sid the request names (?sid=), answers 200, and 400 without a
+// sid. Register its URL as the application's front-channel logout URL in Entra. Route it
+// without ValidateSession: Entra calls it in a frame, with no session of its own.
 func (m *Method) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
 // claims are the ID token's claims the method reads.
@@ -131,6 +136,7 @@ type claims struct {
 	Name              string   `json:"name"`
 	Roles             []string `json:"roles"`
 	Amr               []string `json:"amr"`
+	Sid               string   `json:"sid"`
 }
 
 // identityOf decodes the ID token's claims into the identity. A token without tid and
@@ -146,7 +152,7 @@ func identityOf(rawClaims json.RawMessage) (*Identity, error) {
 
 	return &Identity{
 		TenantID: c.Tid, ObjectID: c.Oid, Email: c.Email, PreferredUsername: c.PreferredUsername, Name: c.Name,
-		Roles: c.Roles, AMR: c.Amr, Claims: rawClaims,
+		Roles: c.Roles, AMR: c.Amr, SessionID: c.Sid, Claims: rawClaims,
 	}, nil
 }
 
@@ -173,7 +179,6 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 			return authn.AuthCodeURL(ctx, w, returnURL)
 		},
 		Complete: func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*signin.Verified, error) {
-			// Auth sessions do not record the provider's session ID (sid) yet.
 			var rawClaims json.RawMessage
 			returnURL, _, err := authn.Verify(ctx, w, r, &rawClaims)
 			if err != nil {
@@ -188,7 +193,8 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodAzure, Connection: id.TenantID, Subject: id.ObjectID, Email: id.Email, Claims: rawClaims, IDPAMR: id.AMR,
 				},
-				ReturnURL: returnURL,
+				ReturnURL:         returnURL,
+				ProviderSessionID: id.SessionID,
 			}
 			if roles != nil {
 				v.RoleNames = signin.RoleNames(id.Roles)

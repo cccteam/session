@@ -28,7 +28,9 @@ type SessionData struct {
 	Impersonation   *Impersonation
 	UserID          ccc.NullUUID
 	AuthenticatedAt *time.Time
-	AuthEvents      []sessioninfo.AuthEvent
+	// ProviderSessionID is the provider's session id the sign-in carried, "" when none.
+	ProviderSessionID string
+	AuthEvents        []sessioninfo.AuthEvent
 }
 
 // InsertSession defines the structure for inserting new session data into the database.

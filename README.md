@@ -378,9 +378,16 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
   refuses a user's last means of sign-in.
-- **Not yet supported**: provider-initiated (front-channel) logout.
-  `azure.Method.FrontChannelLogout()` answers 501 until the auth schema records the
-  provider's session ID.
+- **Provider-initiated (front-channel) logout** is keyed by the provider's session id:
+  an Azure sign-in records the ID token's `sid` claim on its session row
+  (`ProviderSessionId`), a pending sign-in carries it to the session it completes, and a
+  regenerated session keeps it. `azure.Method.FrontChannelLogout()` ends every live
+  session under the `sid` the request names, impersonations started from it included
+  (their records end `Logout`), answers 200, and 400 without a `sid`; it reads nothing
+  from the browser, since Entra calls it in a frame. Register its route as the
+  application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions
+  of the same user under another `sid`, or signed in by a method that reports no
+  session id (password, Google, WorkOS), are not touched.
 
 ## Legacy session types
 
