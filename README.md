@@ -62,12 +62,17 @@ method checks the user's password; an external method produces a verified
 **identity** that is linked to a user through the identities table, keyed by
 `(method, connection, subject)` and **never by email**.
 
+Each redirect-based method is its own package (`session/azure`, `session/google`,
+`session/workos`), built on the `session/signin` contract and the shared `session/oidc`
+machinery; an application imports the packages of the methods it offers and registers
+each with its `SignIn` function and `Config`.
+
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
-| `azure` | `AzureSignIn(auth, roleSync, issuer, clientID, secret, redirectURL, ...)` → `*AzureMethod`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `RoleSync(manager)` or `DisableRoleSync()` |
-| `google` | `GoogleSignIn(auth, roleSync, clientID, secret, redirectURL, hostedDomain, ...)` → `*GoogleMethod`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `GoogleRoleSync(...)` or `DisableRoleSync()` |
-| `workos` | `WorkOSSignIn(auth, apiKey, clientID, redirectURL, ...)` → `*WorkOSMethod`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `azure` | `azure.SignIn(auth, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `workos` | `workos.SignIn(auth, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 ### Storage and schema
 
@@ -125,8 +130,10 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-workos := session.WorkOSSignIn(auth, cfg.WorkOSAPIKey, cfg.WorkOSClientID, cfg.SSORedirectURL,
-    session.WithLoginURL("/login")) // *session.WorkOSMethod
+sso := workos.SignIn(auth, &workos.Config{ // *workos.Method
+    APIKey: cfg.WorkOSAPIKey, ClientID: cfg.WorkOSClientID, RedirectURL: cfg.SSORedirectURL,
+    LoginURL: "/login",
+})
 ```
 
 `NewAuth` refuses the OIDC-only storage features (`WithOIDCUsers`, the custom user data
@@ -138,7 +145,7 @@ A sign-in method is registered on the `Auth`, and its registration returns the m
 own handlers; routes are wired from that value. The handler is the proof of
 registration: a method that was not registered has no handlers to wire, and each method
 is its own type, so a handler exists only on the method it belongs to
-(`FrontChannelLogout` only on `*AzureMethod`). A registered method with no route is
+(`FrontChannelLogout` only on `*azure.Method`). A registered method with no route is
 harmless.
 
 Registration is refused, with a panic, in one place, the way `http.ServeMux` refuses a
@@ -161,8 +168,8 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 ```go
 r.Use(auth.StartSession, auth.SetXSRFToken)
 r.Get("/api/user/authenticated", auth.Authenticated())
-r.Get("/api/user/sso/login", workos.Login())       // ?organization=…&returnUrl=…
-r.Get("/api/user/sso/callback", workos.Callback())
+r.Get("/api/user/sso/login", sso.Login())       // ?organization=…&returnUrl=…
+r.Get("/api/user/sso/callback", sso.Callback())
 r.Get("/api/user/pending", auth.Pending().Status())
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
@@ -292,7 +299,7 @@ compressed (about 2.8 KB): a larger one is refused with `internal_error`.
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
   refuses a user's last means of sign-in.
 - **Not yet supported**: provider-initiated (front-channel) logout.
-  `AzureMethod.FrontChannelLogout()` answers 501 until the auth schema records the
+  `azure.Method.FrontChannelLogout()` answers 501 until the auth schema records the
   provider's session ID.
 
 ## OIDC role synchronization
@@ -305,7 +312,7 @@ designed for organizations that manage roles centrally in the directory. The rol
 names come from the provider's native mechanism — Azure delivers them in the token's
 `roles` claim (App Role ↔ group assignments); Google has no such claim, so the Google
 sign-in derives them from Google Groups membership at login (see the "Google Workspace
-OIDC" section). See the `OIDCAzure` and `GoogleSignIn` godoc for the full semantics.
+OIDC" section). See the `OIDCAzure` and `google.SignIn` godoc for the full semantics.
 
 A membership is written where the role is held. A global role is held in the global
 partition, and a domain role is held in every tenant domain, so one membership reaches
@@ -349,12 +356,13 @@ since the sync no longer keeps a list of tenants, and give the manager the
 `accesstypes.PolicyScope` signatures above. Older code that passed the manager straight
 to `NewOIDCAzure` wraps it in `session.RoleSync(manager)`, and
 `session.DisableUserRoleManagement()` becomes `session.DisableRoleSync()`, which also
-disables the at-least-one-role login gate.
+disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
+`google.RoleSync`, in the `session/google` package.
 
 ## Google Workspace OIDC
 
 Google Workspace sign-in is a method of the `Auth` session, registered with
-`GoogleSignIn(auth, roleSync, clientID, clientSecret, redirectURL, hostedDomain)` (see
+`google.SignIn(auth, &google.Config{...})` from the `session/google` package (see
 "Registering sign-in methods" above). It is the counterpart of the Azure method: the
 same session machinery, custom data axes and role-reconciliation semantics, built on
 Google's identity model instead of Entra's. The mental-model difference that drives
@@ -365,14 +373,14 @@ the user is (`email`, `sub`) and which Workspace org they belong to (`hd`), and 
 about what they may do. Authorization signals therefore come from the directory itself
 (Google Groups), fetched at login.
 
-There is no `issuerURL` parameter — Google operates a single issuer for all orgs;
+There is no `IssuerURL` setting — Google operates a single issuer for all orgs;
 tenancy is the `hd` claim, not the issuer. The identity is linked to its user by the
 `sub` claim alone, which is globally unique among all Google identities and never
 reused; the username is the verified `email` claim (`email_verified` is enforced).
 Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
-Google-initiated logout: `Logout` destroys the local session only. The `roleSync` slot
-is `GoogleRoleSync(manager, groupPrefix, lookup)` or `DisableRoleSync()` (see "The
-group naming convention").
+Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
+is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
+"The group naming convention").
 
 ### Restricting login to your organization
 
@@ -382,7 +390,7 @@ Two layers, one enforced by Google and one by this library:
    Cloud project that belongs to your Workspace org and set the consent screen's user
    type to *Internal*. Google then refuses users outside the org (`org_internal`
    error) before they ever reach your callback.
-2. **`hostedDomain`** (library-side, required): sent as the `hd` hint on the
+2. **`HostedDomain`** (library-side, required): sent as the `hd` hint on the
    authorization request (pre-selects org users in the user chooser — UX only),
    and enforced against the verified ID token's `hd` claim. A consumer user carries
    no `hd` claim at all, so the check fails closed. This is the trusted backstop even
@@ -390,7 +398,7 @@ Two layers, one enforced by Google and one by this library:
 
 ### The group naming convention
 
-`GoogleRoleSync` derives candidate role names from group emails: a group whose local
+`google.RoleSync` derives candidate role names from group emails: a group whose local
 part is the configured prefix followed by a role name maps to that role, everything
 else is ignored. With prefix `app-myapp-`:
 
@@ -418,17 +426,17 @@ Google user for software rather than a person), no domain-wide delegation (a
 setting that lets such a user act as anyone in the organization), and no admin
 role.
 
-The last argument of `GoogleRoleSync` is a `session.GroupLookup`, which sets how far
+The last argument of `google.RoleSync` is a `google.GroupLookup`, which sets how far
 the lookup reaches. It has two values:
 
-- `session.DirectGroups()` (the default): one call. Only the groups the person is
+- `google.DirectGroups()` (the default): one call. Only the groups the person is
   directly assigned to count, however the directory is nested (role groups should then
   hold people, not other groups — matching Entra's direct-only App Role resolution).
-- `session.NestedGroups()`: the groups those groups are in count too, level by level,
+- `google.NestedGroups()`: the groups those groups are in count too, level by level,
   up to 10 levels. Each level is one round of calls to Google, so a deeply nested
   directory makes login slower. `DirectGroups` restores the one call.
 
-`session.ParseGroupLookup(value)` reads the setting from configuration: `direct` or
+`google.ParseGroupLookup(value)` reads the setting from configuration: `direct` or
 `nested`, in any letter case, with surrounding space ignored. An empty value means
 `DirectGroups`. Any other value is an error, so a misspelled setting stops the
 application when it constructs its auth.

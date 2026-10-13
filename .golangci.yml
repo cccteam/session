@@ -175,16 +175,16 @@ linters:
         path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc(_skipAuth)?(_test)?\.go
+        path: oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go|auth_external\.go
+        path: google/verifier(_skipAuth)?(_test)?\.go|google/method\.go
         text: email_verified
       # The WorkOS API's wire format is snake_case.
       - linters:
           - tagliatelle
-        path: internal/workossso/|internal/e2e/auth_test\.go
+        path: workos/|internal/e2e/auth_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
@@ -203,7 +203,7 @@ linters:
       # POST /sso/token, so the secret is marshaled on purpose, to WorkOS only.
       - linters:
           - gosec
-        path: internal/workossso/workossso\.go
+        path: workos/client\.go
         text: G117
       - linters:
           - gomoddirectives

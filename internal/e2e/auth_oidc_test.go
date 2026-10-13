@@ -15,10 +15,12 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session"
-	"github.com/cccteam/session/internal/googleoidc"
+	"github.com/cccteam/session/azure"
+	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -43,19 +45,25 @@ func newOIDCApp(ctx context.Context, t *testing.T) *oidcApp {
 
 	h := &hooks{}
 	db, store := newAuthStore(ctx, t, h)
-	azure := oidctest.NewFakeIDP(t, "azure-client")
-	google := oidctest.NewFakeIDP(t, "google-client")
+	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
+	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
 	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
-	azureMethod := session.AzureSignIn(auth, session.DisableRoleSync(), azure.Server.URL, "azure-client", "secret", "https://app.example/azure/callback")
+	azureMethod := azure.SignIn(auth, &azure.Config{
+		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
+		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",
+	})
 	googleIssuerMu.Lock()
-	issuer := googleoidc.IssuerURL
-	googleoidc.IssuerURL = google.Server.URL
-	googleMethod := session.GoogleSignIn(auth, session.DisableRoleSync(), "google-client", "secret", "https://app.example/google/callback", hostedDomain)
-	googleoidc.IssuerURL = issuer
+	issuer := google.IssuerURL
+	google.IssuerURL = googleIDP.Server.URL
+	googleMethod := google.SignIn(auth, &google.Config{
+		RoleSync: google.DisableRoleSync(), HostedDomain: hostedDomain,
+		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
+	})
+	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
 
 	r := chi.NewRouter()
@@ -68,7 +76,7 @@ func newOIDCApp(ctx context.Context, t *testing.T) *oidcApp {
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &oidcApp{authApp: &authApp{db: db, server: server, api: auth.API(), hooks: h}, azure: azure, google: google}
+	return &oidcApp{authApp: &authApp{db: db, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP}
 }
 
 // oidcSignIn runs a login round trip through provider at prefix (/azure or /google)

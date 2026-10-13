@@ -2,15 +2,11 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
-	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/tracer"
-	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/sessioninfo"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -72,28 +68,4 @@ func oidcCallback(
 
 		return nil
 	})
-}
-
-// decodeClaims decodes the fields a callback needs from the verified claims.
-func decodeClaims[C any](rawClaims json.RawMessage) (*C, error) {
-	claims := new(C)
-	if err := json.Unmarshal(rawClaims, claims); err != nil {
-		return nil, errors.Wrap(err, "json.Unmarshal()")
-	}
-
-	return claims, nil
-}
-
-// requireRoles reconciles username's roles to roleNames. It refuses the login with
-// RefusedNoRoles when no recognized role results.
-func (r *roleSyncConfig) requireRoles(ctx context.Context, username accesstypes.User, roleNames []string) error {
-	hasRole, err := r.reconcile(ctx, username, roleNames)
-	if err != nil {
-		return errors.Wrap(err, "roleSyncConfig.reconcile()")
-	}
-	if !hasRole {
-		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoRoles, httpio.NewUnauthorizedMessage("Unauthorized: user has no roles"))
-	}
-
-	return nil
 }

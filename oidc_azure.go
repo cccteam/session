@@ -10,10 +10,12 @@ import (
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/cookie"
-	"github.com/cccteam/session/internal/azureoidc"
 	"github.com/cccteam/session/internal/basesession"
+	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -60,8 +62,8 @@ var _ OIDCAzureHandlers = &OIDCAzure[NoCustomData, NoCustomData]{}
 // or removed, and the at-least-one-role login gate does not apply
 // (application-managed roles, or no roles at all).
 type OIDCAzure[SessionData, UserData any] struct {
-	roleSync    *roleSyncConfig
-	oidc        azureoidc.Authenticator
+	roleSync    *signin.RoleReconciler
+	oidc        azure.Authenticator
 	storage     sessionstorage.OIDCStore
 	baseSession *basesession.BaseSession
 }
@@ -84,9 +86,9 @@ func NewOIDCAzure[SessionData, UserData any](
 	issuerURL, clientID, clientSecret, redirectURL string,
 	options ...OIDCAzureOption,
 ) (*OIDCAzure[SessionData, UserData], error) {
-	roleSyncCfg, err := azureRoleSync(roleSync)
+	roleSyncCfg, err := signin.ReconcilerOf(roleSync)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "signin.ReconcilerOf()")
 	}
 	if err := verifyOIDCStorage[SessionData, UserData](storage); err != nil {
 		return nil, err
@@ -97,33 +99,19 @@ func NewOIDCAzure[SessionData, UserData any](
 		return nil, err
 	}
 
-	oidc := azureoidc.New(cookieClient, issuerURL, clientID, clientSecret, redirectURL)
+	authn := azure.NewOIDC(cookieClient, issuerURL, clientID, clientSecret, redirectURL)
 	for _, opt := range options {
 		if o, ok := any(opt).(OIDCOption); ok {
-			o(oidc)
+			o(authn)
 		}
 	}
 
 	return &OIDCAzure[SessionData, UserData]{
 		roleSync:    roleSyncCfg,
-		oidc:        oidc,
+		oidc:        authn,
 		baseSession: baseSession,
 		storage:     storage,
 	}, nil
-}
-
-// azureRoleSync validates an Azure sign-in's required role sync slot. It returns nil
-// when role sync is disabled.
-func azureRoleSync(roleSync RoleSyncConfig) (*roleSyncConfig, error) {
-	if roleSync == nil {
-		return nil, errors.New("roleSync is required: pass session.RoleSync(manager) or session.DisableRoleSync()")
-	}
-	roleSyncCfg := roleSync.config()
-	if roleSyncCfg != nil && roleSyncCfg.manager == nil {
-		return nil, errors.New("session.RoleSync() requires a non-nil UserRoleManager")
-	}
-
-	return roleSyncCfg, nil
 }
 
 // Authenticated is the handler reports if the session is authenticated
@@ -176,7 +164,7 @@ func (o *OIDCAzure[T, U]) EndImpersonation() http.HandlerFunc {
 
 // Login initiates the OIDC login flow by redirecting the user to the authorization URL.
 func (o *OIDCAzure[T, U]) Login() http.HandlerFunc {
-	return oidcLogin(o.baseSession, o.oidc, "azureoidc")
+	return oidcLogin(o.baseSession, o.oidc, "azure")
 }
 
 // CallbackOIDC is the handler for the callback from the OIDC auth provider.
@@ -197,10 +185,10 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		var rawClaims json.RawMessage
 		returnURL, oidcSID, err := o.oidc.Verify(ctx, w, r, &rawClaims)
 		if err != nil {
-			return "", errors.Wrap(err, "azureoidc.Authenticator.Verify()")
+			return "", errors.Wrap(err, "azure.Authenticator.Verify()")
 		}
 
-		claims, err := decodeClaims[claims](rawClaims)
+		claims, err := oidc.DecodeClaims[claims](rawClaims)
 		if err != nil {
 			return "", err
 		}
@@ -209,8 +197,8 @@ func (o *OIDCAzure[T, U]) CallbackOIDC() http.HandlerFunc {
 		// leaves a live session or auth cookie behind. With role sync disabled the
 		// reconciliation and its at-least-one-role gate are skipped entirely.
 		if o.roleSync != nil {
-			if err := o.roleSync.requireRoles(ctx, accesstypes.User(claims.Username), claims.Roles); err != nil {
-				return "", err
+			if err := o.roleSync.RequireRoles(ctx, accesstypes.User(claims.Username), claims.Roles); err != nil {
+				return "", errors.Wrap(err, "signin.RoleReconciler.RequireRoles()")
 			}
 		}
 
@@ -273,9 +261,9 @@ type OIDCAzureAPI[SessionData, UserData any] struct {
 	oidc *OIDCAzure[SessionData, UserData]
 }
 
-func newOIDCAzureAPI[T, U any](oidc *OIDCAzure[T, U]) *OIDCAzureAPI[T, U] {
+func newOIDCAzureAPI[T, U any](o *OIDCAzure[T, U]) *OIDCAzureAPI[T, U] {
 	return &OIDCAzureAPI[T, U]{
-		oidc: oidc,
+		oidc: o,
 	}
 }
 

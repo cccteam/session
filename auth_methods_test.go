@@ -3,6 +3,10 @@ package session
 import (
 	"net/http"
 	"testing"
+
+	"github.com/cccteam/session/azure"
+	"github.com/cccteam/session/google"
+	"github.com/cccteam/session/workos"
 )
 
 // The handler sets of the sign-in method types. Each method type carries only its own
@@ -24,20 +28,20 @@ var (
 		loginHandler
 		callbackHandler
 		frontChannelLogoutHandler
-	} = (*AzureMethod)(nil)
+	} = (*azure.Method)(nil)
 	_ interface {
 		loginHandler
 		callbackHandler
-	} = (*GoogleMethod)(nil)
+	} = (*google.Method)(nil)
 	_ interface {
 		loginHandler
 		callbackHandler
-	} = (*WorkOSMethod)(nil)
+	} = (*workos.Method)(nil)
 )
 
 // TestSignInMethodTypes_HandlerSets proves the other half, which a compile-time
 // assertion cannot state: no method type has a handler that belongs to another method.
-// FrontChannelLogout exists only on *AzureMethod, ChangeUserPassword only on
+// FrontChannelLogout exists only on *azure.Method, ChangeUserPassword only on
 // *PasswordMethod, and the password method has no Callback.
 func TestSignInMethodTypes_HandlerSets(t *testing.T) {
 	t.Parallel()
@@ -51,9 +55,9 @@ func TestSignInMethodTypes_HandlerSets(t *testing.T) {
 		want   handlerSet
 	}{
 		{name: "*PasswordMethod", method: (*PasswordMethod)(nil), want: handlerSet{changePassword: true}},
-		{name: "*AzureMethod", method: (*AzureMethod)(nil), want: handlerSet{callback: true, frontChannelLogout: true}},
-		{name: "*GoogleMethod", method: (*GoogleMethod)(nil), want: handlerSet{callback: true}},
-		{name: "*WorkOSMethod", method: (*WorkOSMethod)(nil), want: handlerSet{callback: true}},
+		{name: "*azure.Method", method: (*azure.Method)(nil), want: handlerSet{callback: true, frontChannelLogout: true}},
+		{name: "*google.Method", method: (*google.Method)(nil), want: handlerSet{callback: true}},
+		{name: "*workos.Method", method: (*workos.Method)(nil), want: handlerSet{callback: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

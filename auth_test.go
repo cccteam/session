@@ -18,16 +18,18 @@ import (
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
-	"github.com/cccteam/session/internal/azureoidc"
+	"github.com/cccteam/session/azure"
+	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
-	"github.com/cccteam/session/internal/googleoidc"
-	"github.com/cccteam/session/mock/mock_azureoidc"
-	"github.com/cccteam/session/mock/mock_googleoidc"
-	"github.com/cccteam/session/mock/mock_session"
+	"github.com/cccteam/session/mock/mock_azure"
+	"github.com/cccteam/session/mock/mock_google"
+	"github.com/cccteam/session/mock/mock_signin"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/cccteam/session/signin"
+	"github.com/cccteam/session/workos"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -47,8 +49,8 @@ func newAuthStoreMock(ctrl *gomock.Controller, identities bool) *mock_sessionsto
 }
 
 // authFixture is an Auth over a mocked store, with password sign-in registered. A test
-// registers an external method over a mocked authenticator with azureSignIn or
-// googleSignIn, the registration path of AzureSignIn and GoogleSignIn.
+// registers an external method over a mocked authenticator through its package's
+// Config.Authenticator, the registration path production takes with the real one.
 type authFixture struct {
 	auth     *Auth[NoCustomData, NoCustomData]
 	password *PasswordMethod
@@ -74,16 +76,6 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 	f.password = PasswordSignIn(a)
 
 	return f
-}
-
-// mockedAzure is the authenticator builder of azureSignIn that answers authn.
-func mockedAzure(authn azureoidc.Authenticator) func(*internalcookie.Client) azureoidc.Authenticator {
-	return func(*internalcookie.Client) azureoidc.Authenticator { return authn }
-}
-
-// mockedGoogle is the authenticator builder of googleSignIn that answers authn.
-func mockedGoogle(authn googleoidc.Authenticator) func(*internalcookie.Client, []string) googleoidc.Authenticator {
-	return func(*internalcookie.Client, []string) googleoidc.Authenticator { return authn }
 }
 
 // serve runs h behind the Auth's StartSession with cookies, as a mounted route would.
@@ -292,20 +284,20 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		a := newBareAuth(t, ctrl, true)
 
 		password := PasswordSignIn(a, AutoUpgradeHashes(false))
-		workos := WorkOSSignIn(a, "sk", "client", "https://app/sso/callback", WithWorkOSBaseURL("https://workos.test"), WithLoginURL("/signin"))
-		azure := AzureSignIn(a, RoleSync(mock_session.NewMockUserRoleManager(ctrl)), "https://issuer", "client", "secret", "https://app/azure/callback", WithLoginURL("/signin"))
-		google := GoogleSignIn(a, DisableRoleSync(), "client", "secret", "https://app/google/callback", "example.com")
+		sso := workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback", BaseURL: "https://workos.test", LoginURL: "/signin"})
+		entra := azure.SignIn(a, &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
+		workspace := google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
 
 		for name, h := range map[string]http.HandlerFunc{
 			"PasswordMethod.Login":              password.Login(),
 			"PasswordMethod.ChangeUserPassword": password.ChangeUserPassword(),
-			"WorkOSMethod.Login":                workos.Login(),
-			"WorkOSMethod.Callback":             workos.Callback(),
-			"AzureMethod.Login":                 azure.Login(),
-			"AzureMethod.Callback":              azure.Callback(),
-			"AzureMethod.FrontChannelLogout":    azure.FrontChannelLogout(),
-			"GoogleMethod.Login":                google.Login(),
-			"GoogleMethod.Callback":             google.Callback(),
+			"workos.Method.Login":               sso.Login(),
+			"workos.Method.Callback":            sso.Callback(),
+			"azure.Method.Login":                entra.Login(),
+			"azure.Method.Callback":             entra.Callback(),
+			"azure.Method.FrontChannelLogout":   entra.FrontChannelLogout(),
+			"google.Method.Login":               workspace.Login(),
+			"google.Method.Callback":            workspace.Callback(),
 		} {
 			if h == nil {
 				t.Errorf("%s() = nil", name)
@@ -328,9 +320,9 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 	t.Run("the Azure front-channel logout answers 501", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		azure := AzureSignIn(f.auth, DisableRoleSync(), "https://issuer", "client", "secret", "https://app/azure/callback")
+		entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 
-		if rr := f.serve(azure.FrontChannelLogout(), http.MethodGet, "/azure/logout", nil, nil); rr.Code != http.StatusNotImplemented {
+		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout", nil, nil); rr.Code != http.StatusNotImplemented {
 			t.Errorf("FrontChannelLogout() status = %d, want 501", rr.Code)
 		}
 	})
@@ -339,12 +331,14 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 func TestAuth_RegistrationRefused(t *testing.T) {
 	t.Parallel()
 
-	workos := func(a *Auth[NoCustomData, NoCustomData]) { WorkOSSignIn(a, "sk", "client", "https://app/sso/callback") }
-	azure := func(a *Auth[NoCustomData, NoCustomData]) {
-		AzureSignIn(a, DisableRoleSync(), "https://issuer", "client", "secret", "https://app/azure/callback")
+	sso := func(a *Auth[NoCustomData, NoCustomData]) {
+		workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 	}
-	google := func(a *Auth[NoCustomData, NoCustomData]) {
-		GoogleSignIn(a, DisableRoleSync(), "client", "secret", "https://app/google/callback", "example.com")
+	entra := func(a *Auth[NoCustomData, NoCustomData]) {
+		azure.SignIn(a, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+	}
+	workspace := func(a *Auth[NoCustomData, NoCustomData]) {
+		google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomain: "example.com"})
 	}
 	password := func(a *Auth[NoCustomData, NoCustomData]) { PasswordSignIn(a) }
 
@@ -370,20 +364,20 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		},
 		{
 			name: "the WorkOS method registered twice", identities: true,
-			before: workos, register: workos, wantHas: "workos sign-in method is registered twice",
+			before: sso, register: sso, wantHas: "workos sign-in method is registered twice",
 		},
 		{
 			name: "the Azure method registered twice", identities: true,
-			before: azure, register: azure, wantHas: "azure sign-in method is registered twice",
+			before: entra, register: entra, wantHas: "azure sign-in method is registered twice",
 		},
 		{
 			name: "the Google method registered twice", identities: true,
-			before: google, register: google, wantHas: "google sign-in method is registered twice",
+			before: workspace, register: workspace, wantHas: "google sign-in method is registered twice",
 		},
 		{
 			name: "a method registered after the Auth served its first request", identities: true,
 			before:   func(a *Auth[NoCustomData, NoCustomData]) { password(a); served(a) },
-			register: workos, wantHas: "after the Auth is in use",
+			register: sso, wantHas: "after the Auth is in use",
 		},
 		{
 			name: "a first method registered after the Auth served a request", identities: true,
@@ -405,15 +399,15 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			register: password, wantHas: "after the Auth is in use",
 		},
 		{
-			name: "the WorkOS method on storage without identities", register: workos,
+			name: "the WorkOS method on storage without identities", register: sso,
 			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the workos sign-in method links external identities",
 		},
 		{
-			name: "the Azure method on storage without identities", register: azure,
+			name: "the Azure method on storage without identities", register: entra,
 			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the azure sign-in method links external identities",
 		},
 		{
-			name: "the Google method on storage without identities", register: google,
+			name: "the Google method on storage without identities", register: workspace,
 			wantErrIs: sessionstorage.ErrIdentitiesNotConfigured, wantHas: "the google sign-in method links external identities",
 		},
 		{
@@ -424,14 +418,14 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method without its role sync slot", identities: true,
 			register: func(a *Auth[NoCustomData, NoCustomData]) {
-				AzureSignIn(a, nil, "https://issuer", "client", "secret", "https://app/azure/callback")
+				azure.SignIn(a, &azure.Config{IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "roleSync is required",
 		},
 		{
 			name: "a Google method without its hosted domain", identities: true,
 			register: func(a *Auth[NoCustomData, NoCustomData]) {
-				GoogleSignIn(a, DisableRoleSync(), "client", "secret", "https://app/google/callback", "")
+				google.SignIn(a, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback"})
 			},
 			wantHas: "hostedDomain is required",
 		},
@@ -443,7 +437,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a method registered on a nil *Auth", identities: true,
 			register: func(*Auth[NoCustomData, NoCustomData]) {
-				WorkOSSignIn((*Auth[NoCustomData, NoCustomData])(nil), "sk", "client", "https://app/sso/callback")
+				workos.SignIn((*Auth[NoCustomData, NoCustomData])(nil), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			},
 			wantHas: "registered on a nil *Auth",
 		},
@@ -598,14 +592,14 @@ func TestAuth_ExternalLogin(t *testing.T) {
 	tests := []struct {
 		name         string
 		target       string
-		prepare      func(authn *mock_azureoidc.MockAuthenticator)
+		prepare      func(authn *mock_azure.MockAuthenticator)
 		wantStatus   int
 		wantLocation string
 	}{
 		{
 			name:   "a local return path rides to the provider",
 			target: "/azure/login?returnUrl=" + url.QueryEscape("/reports?id=1"),
-			prepare: func(authn *mock_azureoidc.MockAuthenticator) {
+			prepare: func(authn *mock_azure.MockAuthenticator) {
 				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/reports?id=1").Return("https://idp/authorize?state=s", nil)
 			},
 			wantStatus:   http.StatusFound,
@@ -634,7 +628,7 @@ func TestAuth_ExternalLogin(t *testing.T) {
 		{
 			name:   "a provider that cannot start the login sends the browser back with a code",
 			target: "/azure/login",
-			prepare: func(authn *mock_azureoidc.MockAuthenticator) {
+			prepare: func(authn *mock_azure.MockAuthenticator) {
 				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "").Return("", errors.New("discovery failed"))
 			},
 			wantStatus:   http.StatusFound,
@@ -646,14 +640,14 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			authn := mock_azureoidc.NewMockAuthenticator(ctrl)
+			authn := mock_azure.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
-			azure := azureSignIn(f.auth, DisableRoleSync(), mockedAzure(authn))
+			entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.DisableRoleSync(), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(authn)
 			}
 
-			rr := f.serve(azure.Login(), http.MethodGet, tt.target, nil, nil)
+			rr := f.serve(entra.Login(), http.MethodGet, tt.target, nil, nil)
 
 			if rr.Code != tt.wantStatus || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want %d %q", rr.Code, rr.Header().Get("Location"), tt.wantStatus, tt.wantLocation)
@@ -679,7 +673,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 	tests := []struct {
 		name         string
 		claims       string
-		prepare      func(f *authFixture, roles *mock_session.MockUserRoleManager)
+		prepare      func(f *authFixture, roles *mock_signin.MockUserRoleManager)
 		wantLocation string
 		wantSession  bool
 		wantPending  bool
@@ -687,7 +681,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the user it resolved to",
 			claims: claims,
-			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"}}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims {
@@ -706,7 +700,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
 			claims: claims,
-			prepare: func(f *authFixture, roles *mock_session.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				createSession(f.store, sessionID, resolved, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
 				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
@@ -722,7 +716,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
 			claims: claims,
-			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
+			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&sessionstorage.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
@@ -734,7 +728,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "a resolver's refusal sends its code to the login page",
 			claims: claims,
-			prepare: func(f *authFixture, _ *mock_session.MockUserRoleManager) {
+			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
 				createSession(f.store, sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return dbtype.Refusal("", sessioninfo.RefusedIdentityRejected, sessionstorage.ErrIdentityRejected, "identity rejected")
 				})
@@ -747,8 +741,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			roles := mock_session.NewMockUserRoleManager(ctrl)
-			authn := mock_azureoidc.NewMockAuthenticator(ctrl)
+			roles := mock_signin.NewMockUserRoleManager(ctrl)
+			authn := mock_azure.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 			authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
@@ -758,12 +752,12 @@ func TestAuth_AzureCallback(t *testing.T) {
 
 					return "/next", "sid", nil
 				})
-			azure := azureSignIn(f.auth, RoleSync(roles), mockedAzure(authn))
+			entra := azure.SignIn(f.auth, &azure.Config{RoleSync: signin.RoleSync(roles), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(f, roles)
 			}
 
-			rr := f.serve(azure.Callback(), http.MethodGet, "/azure/callback?code=c&state=s", nil, nil)
+			rr := f.serve(entra.Callback(), http.MethodGet, "/azure/callback?code=c&state=s", nil, nil)
 
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
@@ -820,7 +814,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			authn := mock_googleoidc.NewMockAuthenticator(ctrl)
+			authn := mock_google.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 			authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
@@ -830,12 +824,12 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 					return "/home", "access-token", nil
 				})
-			google := googleSignIn(f.auth, DisableRoleSync(), "example.com", mockedGoogle(authn))
+			workspace := google.SignIn(f.auth, &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(f)
 			}
 
-			rr := f.serve(google.Callback(), http.MethodGet, "/google/callback", nil, nil)
+			rr := f.serve(workspace.Callback(), http.MethodGet, "/google/callback", nil, nil)
 
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != tt.wantLocation {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
@@ -948,14 +942,14 @@ func TestAuth_PendingHook(t *testing.T) {
 				f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(user, nil)
 				rr = f.serve(f.password.Login(), http.MethodPost, "/login", map[string]string{"username": "pat", "password": "pw"}, nil)
 			} else {
-				authn := mock_googleoidc.NewMockAuthenticator(ctrl)
+				authn := mock_google.NewMockAuthenticator(ctrl)
 				authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 				authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
 						return "/home", "access-token", json.Unmarshal([]byte(`{"sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
 					})
-				google := googleSignIn(f.auth, DisableRoleSync(), "example.com", mockedGoogle(authn))
-				rr = f.serve(google.Callback(), http.MethodGet, "/google/callback", nil, nil)
+				workspace := google.SignIn(f.auth, &google.Config{RoleSync: google.DisableRoleSync(), HostedDomain: "example.com", Authenticator: authn})
+				rr = f.serve(workspace.Callback(), http.MethodGet, "/google/callback", nil, nil)
 			}
 
 			if rr.Code != tt.wantStatus || rr.Header().Get("Location") != tt.wantLocation {
@@ -1624,7 +1618,9 @@ func TestAuth_RegistrationRacingTheFirstRequest(t *testing.T) {
 		a := newBareAuth(t, gomock.NewController(t), true)
 		done := make(chan any)
 		go func() {
-			done <- registrationPanic(func() { WorkOSSignIn(a, "sk", "client", "https://app/sso/callback") })
+			done <- registrationPanic(func() {
+				workos.SignIn(a, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			})
 		}()
 		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		a.StartSession(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

@@ -28,10 +28,10 @@ whenever a handler or middleware is added to the shared interface.
 
 **Auth unit tests** (`auth_test.go`, `auth_methods_test.go` in the root package). The
 Auth's flows against a mocked store. The fixture registers password sign-in with
-`PasswordSignIn`; a test registers an external method over a mocked authenticator with
-`azureSignIn` or `googleSignIn`, the same registration path `AzureSignIn` and
-`GoogleSignIn` take with the real authenticator, so every flow test wires its handler
-from the value the registration returned and the registration rules apply to it. The
+`PasswordSignIn`; a test registers an external method over a mocked authenticator through its
+package's `Config.Authenticator` (`azure.SignIn`, `google.SignIn`, `workos.SignIn`), the
+same registration path production takes with the real one, so every flow test wires its
+handler from the value the registration returned and the registration rules apply to it. The
 registration rules themselves (a method twice, a method once the Auth is in use, an
 external method without identities) are a table of panics in
 `TestAuth_RegistrationRefused`; the handler sets of the method types are asserted at
@@ -61,13 +61,13 @@ the driver package's `testdata/auth_test/app_tables` fixture (`HookRecords` and 
 the backends shows up: Spanner's buffered writes are invisible to later reads in the same
 transaction, PostgreSQL's are not.
 
-**Verifiers** (`internal/azureoidc`, `internal/googleoidc`, `internal/workossso`). Real
+**Verifiers** (`azure`, `google`, `workos`). Real
 login round trips against `internal/oidctest.FakeIDP`, which signs real RS256 tokens, and,
 for WorkOS, against a fake code exchange. Both build tags are
 tested: the production verifier under the default tag and the `skipAuth` simulator under
-its own. The Google groups lookup has the same split: `googlegroups` is the Admin SDK
+its own. The Google groups lookup has the same split: the Cloud Identity Groups API
 adapter under the default tag and, under `skipAuth`, the simulated directory that answers
-groups from `APP_ROLES`; `role_sync_google_skipAuth_test.go` proves the role sync reads
+groups from `APP_ROLES`; `google/rolesync_skipAuth_test.go` proves the role sync reads
 those simulated groups as exactly the roles `APP_ROLES` names, so a directory-run Google
 auth can be signed in to in development.
 

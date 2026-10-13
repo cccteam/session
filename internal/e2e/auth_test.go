@@ -18,6 +18,7 @@ import (
 	"github.com/cccteam/session"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/workos"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
@@ -238,7 +239,7 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 }
 
 // newPasswordWorkOSApp is an application with password and WorkOS sign-in on one Auth.
-func newPasswordWorkOSApp(ctx context.Context, t *testing.T, workos *fakeWorkOS) *authApp {
+func newPasswordWorkOSApp(ctx context.Context, t *testing.T, fake *fakeWorkOS) *authApp {
 	t.Helper()
 
 	h := &hooks{}
@@ -249,7 +250,7 @@ func newPasswordWorkOSApp(ctx context.Context, t *testing.T, workos *fakeWorkOS)
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	password := session.PasswordSignIn(auth)
-	sso := session.WorkOSSignIn(auth, "sk_test", workosClientID, "https://app.example/sso/callback", session.WithWorkOSBaseURL(workos.server.URL))
+	sso := workos.SignIn(auth, &workos.Config{APIKey: "sk_test", ClientID: workosClientID, RedirectURL: "https://app.example/sso/callback", BaseURL: fake.server.URL})
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
@@ -380,7 +381,7 @@ func (b *browser) location(ctx context.Context, path string) *url.URL {
 
 // workOSSignIn runs a WorkOS round trip for the upstream identity idpID of the Lakeside
 // connection and returns where the callback sent the browser.
-func (b *browser) workOSSignIn(ctx context.Context, workos *fakeWorkOS, returnURL, idpID, email string) *url.URL {
+func (b *browser) workOSSignIn(ctx context.Context, idp *fakeWorkOS, returnURL, idpID, email string) *url.URL {
 	b.t.Helper()
 
 	authorize := b.location(ctx, "/sso/login?organization=org_lakeside&returnUrl="+url.QueryEscape(returnURL))
@@ -389,7 +390,7 @@ func (b *browser) workOSSignIn(ctx context.Context, workos *fakeWorkOS, returnUR
 		b.t.Fatalf("authorization URL = %s, want /sso/authorize for org_lakeside with a state", authorize)
 	}
 
-	code := workos.issue(idpID, email)
+	code := idp.issue(idpID, email)
 
 	return b.location(ctx, "/sso/callback?code="+url.QueryEscape(code)+"&state="+url.QueryEscape(q.Get("state")))
 }
@@ -452,7 +453,7 @@ func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS)
+		run  func(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS)
 	}{
 		{
 			name: "a password sign-in establishes a session under a new ID that belongs to the user and records the password method",
@@ -508,8 +509,8 @@ func TestAuthSeams_PasswordAndWorkOS(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			workos := newFakeWorkOS(t)
-			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, workos), workos)
+			idp := newFakeWorkOS(t)
+			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, idp), idp)
 		})
 	}
 }
@@ -536,7 +537,7 @@ func seamPasswordSignIn(ctx context.Context, t *testing.T, a *authApp, _ *fakeWo
 	}
 }
 
-func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	a.hooks.set(func(h *hooks) {
@@ -547,7 +548,7 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
@@ -556,7 +557,7 @@ func seamWorkOSProvisionThenLink(ctx context.Context, t *testing.T, a *authApp, 
 
 	other := a.browser(t)
 	other.prime(ctx)
-	assertRedirect(t, other.workOSSignIn(ctx, workos, "", "idp_sam", "sam@lakeside.edu"), "/", url.Values{})
+	assertRedirect(t, other.workOSSignIn(ctx, idp, "", "idp_sam", "sam@lakeside.edu"), "/", url.Values{})
 	if second := other.view(ctx); second.UserID != first.UserID {
 		t.Errorf("second sign-in user = %s, want %s", second.UserID, first.UserID)
 	}
@@ -586,7 +587,7 @@ func provisionMember(_ context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRe
 	}, nil
 }
 
-func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	var sources []sessioninfo.UserSource
@@ -613,7 +614,7 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	first := b.view(ctx)
 	if first.Username != "sam@lakeside.edu" || first.UserID == "" {
 		t.Fatalf("session = %+v, want the provisioned user sam@lakeside.edu", first)
@@ -621,7 +622,7 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 
 	other := a.browser(t)
 	other.prime(ctx)
-	assertRedirect(t, other.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, other.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
 	if second := other.view(ctx); second.UserID != first.UserID {
 		t.Errorf("second sign-in user = %s, want %s", second.UserID, first.UserID)
 	}
@@ -636,7 +637,7 @@ func seamWorkOSProvisionPolicyReadsUser(ctx context.Context, t *testing.T, a *au
 	}
 }
 
-func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	a.hooks.set(func(h *hooks) {
@@ -651,7 +652,7 @@ func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authAp
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_x", "x@lakeside.edu"), "/login", url.Values{"code": {"not_invited"}})
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_x", "x@lakeside.edu"), "/login", url.Values{"code": {"not_invited"}})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 
 	var outcome string
@@ -660,7 +661,7 @@ func seamWorkOSRejectedKeepsAttempt(ctx context.Context, t *testing.T, a *authAp
 	}
 }
 
-func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	a.hooks.set(func(h *hooks) {
@@ -674,7 +675,7 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 	b := a.browser(t)
 	b.prime(ctx)
 	anonymous := b.sessionID(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/app/mfa", url.Values{})
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/app/mfa", url.Values{})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 
 	var pending *sessioninfo.PendingIdentity
@@ -702,7 +703,7 @@ func seamWorkOSProvisionHeldForMFA(ctx context.Context, t *testing.T, a *authApp
 	}
 }
 
-func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
@@ -714,7 +715,7 @@ func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_pat", "pat@lakeside.edu"), "/login",
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_pat", "pat@lakeside.edu"), "/login",
 		url.Values{"pending": {"confirmation"}, "returnUrl": {"/dashboard"}})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 
@@ -755,7 +756,7 @@ func seamWorkOSConfirmWithPassword(ctx context.Context, t *testing.T, a *authApp
 	// The identity is linked now: the next sign-in goes straight in.
 	next := a.browser(t)
 	next.prime(ctx)
-	assertRedirect(t, next.workOSSignIn(ctx, workos, "/dashboard", "idp_pat", "pat@lakeside.edu"), "/dashboard", url.Values{})
+	assertRedirect(t, next.workOSSignIn(ctx, idp, "/dashboard", "idp_pat", "pat@lakeside.edu"), "/dashboard", url.Values{})
 	if got := next.view(ctx).UserID; got != pat.String() {
 		t.Errorf("linked sign-in user = %s, want %s", got, pat)
 	}
@@ -794,7 +795,7 @@ func seamPasswordMFA(ctx context.Context, t *testing.T, a *authApp, _ *fakeWorkO
 	replay.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 }
 
-func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
@@ -813,7 +814,7 @@ func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, workos *f
 
 	b := a.browser(t)
 	b.prime(ctx)
-	b.workOSSignIn(ctx, workos, "/", "idp_pat", "pat@lakeside.edu")
+	b.workOSSignIn(ctx, idp, "/", "idp_pat", "pat@lakeside.edu")
 	if body := b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/confirm", map[string]string{"password": seedPassword}); !strings.Contains(string(body), `"mfaIsRequired":true`) {
 		t.Fatalf("confirm = %s, want mfaIsRequired true", body)
 	}
@@ -823,7 +824,7 @@ func seamConfirmThenMFA(ctx context.Context, t *testing.T, a *authApp, workos *f
 	assertEventsSeen(t, b.view(ctx), "workos:"+lakesideConnection, "link-confirmation", "email-otp")
 }
 
-func seamWorkOSRefused(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSRefused(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	a.hooks.set(func(h *hooks) {
@@ -834,7 +835,7 @@ func seamWorkOSRefused(ctx context.Context, t *testing.T, a *authApp, workos *fa
 
 	b := a.browser(t)
 	b.prime(ctx)
-	assertRedirect(t, b.workOSSignIn(ctx, workos, "/dashboard", "idp_x", "x@lakeside.edu"), "/login", url.Values{"code": {"not_invited"}})
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_x", "x@lakeside.edu"), "/login", url.Values{"code": {"not_invited"}})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 	b.expect(ctx, http.StatusNotFound, http.MethodGet, "/pending", nil)
 }
@@ -856,13 +857,13 @@ func seamWorkOSLoginGuards(ctx context.Context, t *testing.T, a *authApp, _ *fak
 	}
 }
 
-func seamWorkOSCallbackBinding(ctx context.Context, t *testing.T, a *authApp, workos *fakeWorkOS) {
+func seamWorkOSCallbackBinding(ctx context.Context, t *testing.T, a *authApp, idp *fakeWorkOS) {
 	t.Helper()
 
 	b := a.browser(t)
 	state := b.location(ctx, "/sso/login?organization=org_lakeside").Query().Get("state")
 
-	code := workos.issue("idp_x", "x@lakeside.edu")
+	code := idp.issue("idp_x", "x@lakeside.edu")
 	assertRedirect(t, b.location(ctx, "/sso/callback?code="+code+"&state=forged"), "/login", url.Values{"code": {"invalid_state"}})
 
 	stranger := a.browser(t)

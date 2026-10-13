@@ -16,11 +16,12 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/testkey"
-	"github.com/cccteam/session/mock/mock_azureoidc"
+	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/mock/mock_cookie"
-	"github.com/cccteam/session/mock/mock_session"
+	"github.com/cccteam/session/mock/mock_signin"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/errors/v5"
 	gomock "go.uber.org/mock/gomock"
@@ -33,14 +34,14 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		prepare         func(http.ResponseWriter, *mock_azureoidc.MockAuthenticator)
+		prepare         func(http.ResponseWriter, *mock_azure.MockAuthenticator)
 		wantErr         bool
 		wantStatusCode  int
 		wantRedirectURL string
 	}{
 		{
 			name: "fails to get the auth code url",
-			prepare: func(w http.ResponseWriter, oidc *mock_azureoidc.MockAuthenticator) {
+			prepare: func(w http.ResponseWriter, oidc *mock_azure.MockAuthenticator) {
 				oidc.EXPECT().AuthCodeURL(gomock.Any(), w, "testReturnUrl").Return("", errors.New("failed to get auth code url")).Times(1)
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 			},
@@ -50,7 +51,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 		},
 		{
 			name: "success initiating login",
-			prepare: func(w http.ResponseWriter, oidc *mock_azureoidc.MockAuthenticator) {
+			prepare: func(w http.ResponseWriter, oidc *mock_azure.MockAuthenticator) {
 				oidc.EXPECT().AuthCodeURL(gomock.Any(), w, "testReturnUrl").Return("testAuthCodeUrl", nil).Times(1)
 			},
 			wantStatusCode:  http.StatusFound,
@@ -62,7 +63,7 @@ func TestOIDCAzureSessionLogin(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
+			authenticator := mock_azure.NewMockAuthenticator(ctrl)
 			cookieClient, err := internalcookie.NewCookieClient(cookieKey)
 			if err != nil {
 				t.Errorf("cookie.NewCookieClient() error = %v", err)
@@ -122,13 +123,13 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 	tests := []struct {
 		name            string
 		disableRoleSync bool
-		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_azureoidc.MockAuthenticator, *mock_session.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
+		prepare         func(*mock_cookie.MockHandler, http.ResponseWriter, *http.Request, *mock_azure.MockAuthenticator, *mock_signin.MockUserRoleManager, *mock_sessionstorage.MockOIDCStore)
 		wantErr         bool
 		wantRedirectURL string
 	}{
 		{
 			name: "fails to verify callback request",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, _ *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))).Times(1)
 			},
@@ -137,7 +138,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to unmarshal claims",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, _ *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				// Verify succeeds but never populates the raw claims (nil payload).
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).Return("/testReturnUrl", "a test SID value", nil).Times(1)
@@ -147,7 +148,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to create new session",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
@@ -161,7 +162,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "custom session data resolver abort with an uncoded client message answers login_refused with no cookies",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
@@ -177,7 +178,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "custom session data resolver refuses with its own code, which rides to the login page",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
@@ -193,7 +194,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to get existing user roles",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				// The sync asks with no scopes: every membership the user holds, wherever held.
@@ -204,7 +205,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "aborts the sync when RoleExists returns an error",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{every: {"testRole0"}}, nil).Times(1)
@@ -217,7 +218,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to add user roles",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
@@ -232,7 +233,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "fails to delete user roles",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
@@ -248,7 +249,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "unauthorized due to no assigned roles",
-			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
@@ -267,7 +268,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		{
 			name:            "role sync disabled: login proceeds with no role claims and no role calls",
 			disableRoleSync: true,
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, _ *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, _ *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				// No UserRoleManager expectations: with role sync disabled, neither the
 				// reconciliation nor the at-least-one-role gate runs.
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username"}`)).Times(1)
@@ -279,7 +280,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 		},
 		{
 			name: "success authenticating via OIDC callback",
-			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azureoidc.MockAuthenticator, u *mock_session.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
+			prepare: func(c *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, s *mock_sessionstorage.MockOIDCStore) {
 				rawClaims := `{"preferred_username": "test username", "roles": ["testRole1", "testRole2", "testRole3","testRole5"]}`
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims interface{}) (string, string, error) {
@@ -334,13 +335,17 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			user := mock_session.NewMockUserRoleManager(ctrl)
-			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
+			user := mock_signin.NewMockUserRoleManager(ctrl)
+			authenticator := mock_azure.NewMockAuthenticator(ctrl)
 			sessionStorage := newOIDCStoreMock(ctrl)
 			c := mock_cookie.NewMockHandler(ctrl)
-			var rs *roleSyncConfig
+			var rs *signin.RoleReconciler
 			if !tt.disableRoleSync {
-				rs = &roleSyncConfig{manager: user}
+				var err error
+				rs, err = signin.ReconcilerOf(signin.RoleSync(user))
+				if err != nil {
+					t.Fatalf("signin.ReconcilerOf() error = %v", err)
+				}
 			}
 			a := &OIDCAzure[NoCustomData, NoCustomData]{
 				roleSync: rs,
@@ -417,7 +422,7 @@ func TestOIDCAzure_FrontChannelLogout(t *testing.T) {
 			t.Parallel()
 
 			ctrl := gomock.NewController(t)
-			authenticator := mock_azureoidc.NewMockAuthenticator(ctrl)
+			authenticator := mock_azure.NewMockAuthenticator(ctrl)
 			sessionStorage := newOIDCStoreMock(ctrl)
 
 			c := mock_cookie.NewMockHandler(ctrl)
@@ -548,6 +553,55 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("OIDCAzureAPI.UpdateCustomSessionData() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		roleSync func(manager UserRoleManager) RoleSyncConfig
+		wantErr  bool
+	}{
+		{
+			name: "nil role sync slot is a construction error",
+			roleSync: func(UserRoleManager) RoleSyncConfig {
+				return nil
+			},
+			wantErr: true,
+		},
+		{
+			name: "RoleSync with a nil manager is a construction error",
+			roleSync: func(UserRoleManager) RoleSyncConfig {
+				return RoleSync(nil)
+			},
+			wantErr: true,
+		},
+		{
+			name:     "RoleSync with a manager constructs",
+			roleSync: RoleSync,
+		},
+		{
+			name: "DisableRoleSync constructs",
+			roleSync: func(UserRoleManager) RoleSyncConfig {
+				return DisableRoleSync()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+
+			storage := newOIDCStoreMock(ctrl)
+			manager := mock_signin.NewMockUserRoleManager(ctrl)
+
+			_, err := NewOIDCAzure[NoCustomData, NoCustomData](storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewOIDCAzure() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

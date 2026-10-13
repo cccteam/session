@@ -14,6 +14,7 @@ import (
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -95,8 +96,8 @@ func WithPendingCookieName(name string) AuthOption {
 // sessions, cookies, XSRF, custom data, impersonation and the middleware work the same
 // for every method.
 //
-// Register sign-in methods with PasswordSignIn, AzureSignIn, GoogleSignIn and
-// WorkOSSignIn after NewAuth and before serving the first request. Each returns the
+// Register sign-in methods with PasswordSignIn, azure.SignIn, google.SignIn and
+// workos.SignIn after NewAuth and before serving the first request. Each returns the
 // method's handlers.
 //
 // Every session belongs to a user (SessionUsers). A sign-in either establishes a
@@ -175,7 +176,7 @@ func NewAuth[SessionData, UserData any](storage sessionstorage.AuthStore, cookie
 			registered:  make(map[sessioninfo.AuthMethod]bool),
 			hasher:      securehash.New(securehash.Argon2()),
 			autoUpgrade: true,
-			external:    make(map[sessioninfo.AuthMethod]*externalMethod),
+			external:    make(map[sessioninfo.AuthMethod]*signin.Method),
 		},
 	}, nil
 }

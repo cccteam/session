@@ -127,10 +127,10 @@ func (a *Auth[S, U]) afterInsert(ctx context.Context, at *signInAttempt, req *se
 		return nil
 	}
 	m, ok := a.registered().external[at.identity.Method]
-	if !ok || m.syncRoles == nil {
+	if !ok || m.SyncRoles == nil {
 		return nil
 	}
-	if err := m.syncRoles(ctx, req.Username, at.roleNames); err != nil {
+	if err := m.SyncRoles(ctx, req.Username, at.roleNames); err != nil {
 		return errors.Wrap(err, "role synchronization")
 	}
 

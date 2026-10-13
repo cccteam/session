@@ -10,11 +10,10 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
-	internalcookie "github.com/cccteam/session/internal/cookie"
-	"github.com/cccteam/session/internal/workossso"
-	"github.com/cccteam/session/mock/mock_azureoidc"
+	"github.com/cccteam/session/mock/mock_azure"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/workos"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,8 +43,8 @@ var offSiteReturnURLs = []string{
 // whose code exchange a fake WorkOS answers with one profile.
 type returnURLFixture struct {
 	*authFixture
-	workos *WorkOSMethod
-	client *workossso.Client
+	sso    *workos.Method
+	client *workos.Client
 }
 
 func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixture {
@@ -58,12 +57,9 @@ func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixtur
 	t.Cleanup(fake.Close)
 
 	f := &returnURLFixture{authFixture: newAuthFixture(t, ctrl)}
-	f.workos = workOSSignIn(f.auth, func(cookies *internalcookie.Client) workossso.Authenticator {
-		f.client = workossso.New(cookies, "sk", "client", "https://app/sso/callback")
-		f.client.SetBaseURL(fake.URL)
-
-		return f.client
-	})
+	f.client = workos.NewClient(f.auth.cookies, "sk", "client", "https://app/sso/callback")
+	f.client.SetBaseURL(fake.URL)
+	f.sso = workos.SignIn(f.auth, &workos.Config{Authenticator: f.client})
 
 	return f
 }
@@ -83,7 +79,7 @@ func (f *returnURLFixture) callback(t *testing.T, returnURL string) *httptest.Re
 		t.Fatalf("url.Parse() error = %v", err)
 	}
 
-	return f.serve(f.workos.Callback(), http.MethodGet, "/sso/callback?code=c&state="+url.QueryEscape(u.Query().Get("state")), nil, started.Result().Cookies())
+	return f.serve(f.sso.Callback(), http.MethodGet, "/sso/callback?code=c&state="+url.QueryEscape(u.Query().Get("state")), nil, started.Result().Cookies())
 }
 
 // TestAuth_ReturnURLStaysInTheApplication drives the external Login, Callback and
@@ -101,7 +97,7 @@ func TestAuth_ReturnURLStaysInTheApplication(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
 
-				rr := f.serve(f.workos.Login(), http.MethodGet, "/sso/login?organization=org_1&returnUrl="+url.QueryEscape(returnURL), nil, nil)
+				rr := f.serve(f.sso.Login(), http.MethodGet, "/sso/login?organization=org_1&returnUrl="+url.QueryEscape(returnURL), nil, nil)
 
 				if rr.Code != http.StatusBadRequest || rr.Header().Get("Location") != "" {
 					t.Errorf("Login() = %d %q, want 400 and no Location", rr.Code, rr.Header().Get("Location"))
@@ -163,7 +159,7 @@ func TestOIDCCallback_ReturnURLStaysInTheApplication(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			authn := mock_azureoidc.NewMockAuthenticator(ctrl)
+			authn := mock_azure.NewMockAuthenticator(ctrl)
 			h := oidcCallback(f.auth.baseSession, authn, func(context.Context, http.ResponseWriter, *http.Request) (string, error) {
 				return returnURL, nil
 			})
@@ -192,7 +188,7 @@ func TestAuth_ReturnURLInTheApplication(t *testing.T) {
 				t.Parallel()
 				f := newReturnURLFixture(t, gomock.NewController(t))
 
-				login := f.serve(f.workos.Login(), http.MethodGet, "/sso/login?organization=org_1&returnUrl="+url.QueryEscape(returnURL), nil, nil)
+				login := f.serve(f.sso.Login(), http.MethodGet, "/sso/login?organization=org_1&returnUrl="+url.QueryEscape(returnURL), nil, nil)
 				if login.Code != http.StatusFound {
 					t.Fatalf("Login() = %d, want 302", login.Code)
 				}
