@@ -67,7 +67,10 @@ divergence the suite exists to catch. Driver behaviour that is not impersonation
 lives in each driver's own `*_test.go`, which is where new conformance tables should be
 carved from next. Needs Docker.
 
-The users cases (`RunAuth`) give the application's hooks a `HookTx`, which each
+The users cases (`RunAuth`) apply the shipped migration sets as an application would,
+from both starting layouts: the base set plus the auth set, and the legacy Azure layout
+(the `oidc` set with the user anchor seeded from `testdata/auth_test/oidc_anchor_seed`)
+upgraded by the `auth-from-oidc` set. They give the application's hooks a `HookTx`, which each
 harness adapts to its backend's transaction, so a case can have the resolver, the policy
 and the custom session data resolver write and read rows as an application does. Those
 cases prepare the `AuthWithAppTables` schema: the shipped auth migrations plus

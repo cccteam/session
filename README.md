@@ -86,11 +86,43 @@ schema").
 
 ### Storage and schema
 
-Apply the base migrations (`schema/*/migrations`) and the auth migrations
-(`schema/*/auth/migrations`: `Sessions.UserId` and `AuthenticatedAt`,
-`SessionIdentities`, `SessionAuthEvents`, `SessionPendingSignIns`), plus
-`impersonation` if you use it. Build the storage with `NewSpannerAuth` /
-`NewPostgresAuth`. The application's rules are given to the `Auth` and to each method,
+Each auth group owns six tables: sessions and users (the base migrations,
+`schema/*/migrations`), identities, auth events and pending sign-ins (the auth
+migrations, `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt` and
+`ProviderSessionId` to the sessions table), and impersonations
+(`schema/*/impersonation/migrations`) if you use it. Which set to apply depends on
+where the group starts:
+
+- **A new group**: the base set, then the auth set.
+- **A group on the legacy password type** (`legacy.PasswordAuth`): the auth set only;
+  the base set is already there. Nothing is backfilled: a session row from before the
+  upgrade has no `UserId` and is refused as a session, so each person signs in once.
+  To keep live sessions, set `UserId` from the users table by username first.
+- **A group on the legacy Azure type** (`legacy.OIDCAzure`, the `oidc` set): the
+  `schema/*/auth-from-oidc/migrations` set, at the cutover. It creates the users table,
+  turns `OidcSid` into the nullable `ProviderSessionId`, adds the auth tables, and
+  copies the OIDC user anchor's rows into users and Azure identities **under the same
+  ids**, so a custom user data table keyed by the anchor keeps its rows once its foreign
+  key points at the users table; live sessions take their user by username (on Spanner
+  they end at the cutover, since the column is dropped rather than renamed). A group
+  that never enabled the anchor skips the backfill statements and provisions each person
+  at their first sign-in through its user resolver. The anchor table is dropped in the
+  release after the cutover, never in the same one, so a rollback to the legacy type
+  stays possible until then.
+
+The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
+null only for a role-principal impersonation), and deleting a user deletes its
+sessions, their auth events and its identity links; your custom data tables cascade
+from the session and user rows likewise. Sessions are marked expired, never deleted, by
+the library: retention is the application's policy, and auth events last exactly as
+long as their session rows.
+
+An application whose groups are named applies the sets under the group's names and
+tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
+`WithIdentitiesTableName` and `WithPendingSignInsTableName` on `NewAuth`, and
+`NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. Build the
+storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
+the `Auth` and to each method,
 typed to the storage's transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`) so
 they can read and write the application's own rows in the sign-in's transaction; a rule
 written for the other driver's transaction does not compile. On Spanner a rule may run

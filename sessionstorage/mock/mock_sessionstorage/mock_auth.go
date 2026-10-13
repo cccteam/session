@@ -407,6 +407,18 @@ func (mr *MockAuthStoreMockRecorder[Tx]) Session(ctx, sessionID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockAuthStore[Tx])(nil).Session), ctx, sessionID)
 }
 
+// SetIdentitiesTableName mocks base method.
+func (m *MockAuthStore[Tx]) SetIdentitiesTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetIdentitiesTableName", name)
+}
+
+// SetIdentitiesTableName indicates an expected call of SetIdentitiesTableName.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetIdentitiesTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdentitiesTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetIdentitiesTableName), name)
+}
+
 // SetOIDCUserTableName mocks base method.
 func (m *MockAuthStore[Tx]) SetOIDCUserTableName(name string) {
 	m.ctrl.T.Helper()
@@ -417,6 +429,18 @@ func (m *MockAuthStore[Tx]) SetOIDCUserTableName(name string) {
 func (mr *MockAuthStoreMockRecorder[Tx]) SetOIDCUserTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetOIDCUserTableName), name)
+}
+
+// SetPendingSignInsTableName mocks base method.
+func (m *MockAuthStore[Tx]) SetPendingSignInsTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPendingSignInsTableName", name)
+}
+
+// SetPendingSignInsTableName indicates an expected call of SetPendingSignInsTableName.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetPendingSignInsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetPendingSignInsTableName), name)
 }
 
 // SetSessionTableName mocks base method.

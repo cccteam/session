@@ -66,6 +66,16 @@ func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
 }
 
+// SetIdentitiesTableName sets the name of the identities table.
+func (s *SessionStorageDriver) SetIdentitiesTableName(name string) {
+	s.identitiesTableName = name
+}
+
+// SetPendingSignInsTableName sets the name of the pending sign-ins table.
+func (s *SessionStorageDriver) SetPendingSignInsTableName(name string) {
+	s.pendingTableName = name
+}
+
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	ctx, span := tracer.Start(ctx)

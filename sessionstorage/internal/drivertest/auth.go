@@ -52,6 +52,21 @@ const (
 	// tables: HookRecords, which hooks use through HookTx, and SessionCustomData for
 	// CustomStringData.
 	AuthWithAppTables
+	// AuthFromOIDC is a legacy Azure group (the oidc set and the impersonation
+	// migration) with the user anchor seeded by the driver package's test data
+	// (two anchored users, old@lakeside.edu and other@lakeside.edu, under the ids
+	// AnchoredOld and AnchoredOther, and a live session SeededLegacySession of
+	// old@lakeside.edu), upgraded by the shipped auth-from-oidc set.
+	AuthFromOIDC
+)
+
+// The anchor rows the AuthFromOIDC schema is seeded with.
+var (
+	AnchoredOld          = ccc.Must(ccc.UUIDFromString("11111111-2222-3333-4444-555555555555"))
+	AnchoredOther        = ccc.Must(ccc.UUIDFromString("66666666-7777-8888-9999-aaaaaaaaaaaa"))
+	SeededLegacySession  = ccc.Must(ccc.UUIDFromString("bbbbbbbb-cccc-dddd-eeee-ffffffffffff"))
+	anchoredOldIdentity  = &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tid-1", Subject: "oid-old", Email: "old@lakeside.edu"}
+	anchoredOtherSubject = "oid-other"
 )
 
 // HookTx is an application hook's view of its transaction, adapted by each harness to
@@ -174,6 +189,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},
 		{name: "an expired pending sign-in is neither read nor consumed", run: testPendingSignInExpired},
 		{name: "concurrent completions of one pending sign-in consume it once", run: testPendingSignInConcurrentConsume},
+		{name: "deleting a user deletes its sessions, their auth events and its identity links by the schema's cascade", run: testDeleteUserCascades},
+		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
+		{name: "the upgrade from the legacy Azure layout keeps the anchor's users and identities under their ids, gives live sessions their user, and serves Auth", run: testUpgradeFromOIDC},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

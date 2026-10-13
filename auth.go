@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -27,6 +28,10 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
+	// identitiesTable and pendingSignInsTable name the group's tables; "" keeps the
+	// store's defaults.
+	identitiesTable     string
+	pendingSignInsTable string
 }
 
 // authOption is an Auth settings option.
@@ -85,6 +90,43 @@ func WithPendingTimeout(d time.Duration) AuthOption {
 // token of the browser's pending sign-in. (default: "auth-pending")
 func WithPendingCookieName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.pendingCookie = name }}
+}
+
+// WithIdentitiesTableName sets the name of the group's identities table, beside
+// WithSessionTableName and WithUserTableName. (default: SessionIdentities)
+func WithIdentitiesTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.identitiesTable = name }}
+}
+
+// WithPendingSignInsTableName sets the name of the group's pending sign-ins table.
+// (default: SessionPendingSignIns)
+func WithPendingSignInsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.pendingSignInsTable = name }}
+}
+
+// tableIdentifier is the shape of a table name an option may set: it is interpolated
+// into SQL.
+var tableIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
+
+// nameTables applies the table-name options to the store.
+func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSettings) error {
+	for _, table := range []struct {
+		option, name string
+		set          func(string)
+	}{
+		{option: "WithIdentitiesTableName", name: settings.identitiesTable, set: storage.SetIdentitiesTableName},
+		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
+	} {
+		if table.name == "" {
+			continue
+		}
+		if !tableIdentifier.MatchString(table.name) {
+			return errors.Newf("%s(%q): a table name starts with a letter or underscore, followed by up to 127 letters, numbers or underscores", table.option, table.name)
+		}
+		table.set(table.name)
+	}
+
+	return nil
 }
 
 // Auth is one session type that any registered sign-in method can establish. Auth,
@@ -162,6 +204,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	}
 	if settings.pendingTimeout <= 0 {
 		return nil, errors.New("the pending timeout must be positive")
+	}
+	if err := nameTables(storage, &settings); err != nil {
+		return nil, err
 	}
 
 	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)

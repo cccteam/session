@@ -225,6 +225,10 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired, ending an impersonated session's record with reason Logout.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// SetIdentitiesTableName sets the name of the identities table.
+	SetIdentitiesTableName(name string)
+	// SetPendingSignInsTableName sets the name of the pending sign-ins table.
+	SetPendingSignInsTableName(name string)
 	// InsertPendingSignIn inserts a pending sign-in.
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	// PendingSignInByToken returns the pending sign-in holding tokenHash that is live at now, or NotFound.

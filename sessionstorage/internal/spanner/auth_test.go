@@ -36,6 +36,11 @@ func authSources(schema drivertest.AuthSchema) []string {
 		return append(legacy, "file://../../../schema/spanner/auth/migrations")
 	case drivertest.AuthWithAppTables:
 		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables")
+	case drivertest.AuthFromOIDC:
+		return []string{
+			"file://../../../schema/spanner/oidc/migrations", "file://../../../schema/spanner/impersonation/migrations",
+			"file://testdata/auth_test/oidc_anchor_seed", "file://../../../schema/spanner/auth-from-oidc/migrations",
+		}
 	default:
 		panic("unknown schema")
 	}

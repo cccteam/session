@@ -99,6 +99,10 @@ type AuthStore[Tx any] interface {
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records a step-up or confirmation on an existing session.
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+	// SetIdentitiesTableName sets the name of the identities table. (default: SessionIdentities)
+	SetIdentitiesTableName(name string)
+	// SetPendingSignInsTableName sets the name of the pending sign-ins table. (default: SessionPendingSignIns)
+	SetPendingSignInsTableName(name string)
 	// HoldSignIn stores a sign-in that waits for a confirmation or the application's MFA
 	// step and returns its row's ID. p.TokenHash is the hash of the opaque token the
 	// browser's pending cookie carries.
@@ -298,4 +302,14 @@ func (a *Auth[Tx]) ConsumePendingSignIn(ctx context.Context, tokenHash []byte) e
 	}
 
 	return nil
+}
+
+// SetIdentitiesTableName implements AuthStore.
+func (a *Auth[Tx]) SetIdentitiesTableName(name string) {
+	a.db.SetIdentitiesTableName(name)
+}
+
+// SetPendingSignInsTableName implements AuthStore.
+func (a *Auth[Tx]) SetPendingSignInsTableName(name string) {
+	a.db.SetPendingSignInsTableName(name)
 }

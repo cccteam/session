@@ -7,7 +7,7 @@ CREATE TABLE SessionPendingSignIns (
     TokenHash     BYTES(32) NOT NULL,
     Step          STRING(16) NOT NULL,
     Registration  STRING(MAX) NOT NULL,
-    Method        STRING(32) NOT NULL,
+    Method        STRING(MAX) NOT NULL,
     Connection    STRING(MAX) NOT NULL,
     Subject       STRING(MAX) NOT NULL,
     Email         STRING(MAX) NOT NULL,

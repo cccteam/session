@@ -661,6 +661,18 @@ func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*Mockdb)(nil).Session), ctx, sessionID)
 }
 
+// SetIdentitiesTableName mocks base method.
+func (m *Mockdb) SetIdentitiesTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetIdentitiesTableName", name)
+}
+
+// SetIdentitiesTableName indicates an expected call of SetIdentitiesTableName.
+func (mr *MockdbMockRecorder) SetIdentitiesTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdentitiesTableName", reflect.TypeOf((*Mockdb)(nil).SetIdentitiesTableName), name)
+}
+
 // SetOIDCUserTableName mocks base method.
 func (m *Mockdb) SetOIDCUserTableName(name string) {
 	m.ctrl.T.Helper()
@@ -671,6 +683,18 @@ func (m *Mockdb) SetOIDCUserTableName(name string) {
 func (mr *MockdbMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*Mockdb)(nil).SetOIDCUserTableName), name)
+}
+
+// SetPendingSignInsTableName mocks base method.
+func (m *Mockdb) SetPendingSignInsTableName(name string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPendingSignInsTableName", name)
+}
+
+// SetPendingSignInsTableName indicates an expected call of SetPendingSignInsTableName.
+func (mr *MockdbMockRecorder) SetPendingSignInsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPendingSignInsTableName", reflect.TypeOf((*Mockdb)(nil).SetPendingSignInsTableName), name)
 }
 
 // SetSessionTableName mocks base method.

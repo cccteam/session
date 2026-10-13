@@ -341,6 +341,23 @@ func TestNewAuth(t *testing.T) {
 			wantErrHas: "pending timeout",
 		},
 		{
+			name: "the group's identities and pending sign-ins tables are named on the store",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetIdentitiesTableName("StaffIdentities")
+				s.EXPECT().SetPendingSignInsTableName("StaffPendingSignIns")
+
+				return s
+			},
+			options: []AuthOption{WithIdentitiesTableName("StaffIdentities"), WithPendingSignInsTableName("StaffPendingSignIns")},
+		},
+		{
+			name:       "a table name that is not an identifier is refused before it reaches SQL",
+			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
+			options:    []AuthOption{WithIdentitiesTableName(`Staff"; DROP TABLE`)},
+			wantErrHas: "WithIdentitiesTableName",
+		},
+		{
 			name: "storage with the OIDC user anchor",
 			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
 				s := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)

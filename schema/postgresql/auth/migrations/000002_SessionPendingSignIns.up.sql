@@ -10,7 +10,7 @@ CREATE TABLE "SessionPendingSignIns"
     "TokenHash" bytea NOT NULL,
     "Step" character varying(16) NOT NULL,
     "Registration" character varying NOT NULL,
-    "Method" character varying(32) NOT NULL,
+    "Method" character varying NOT NULL,
     "Connection" character varying NOT NULL,
     "Subject" character varying NOT NULL,
     "Email" character varying NOT NULL,

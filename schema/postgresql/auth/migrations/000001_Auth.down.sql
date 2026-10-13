@@ -1,7 +1,10 @@
 BEGIN;
 DROP TABLE IF EXISTS "SessionAuthEvents";
 DROP TABLE IF EXISTS "SessionIdentities";
+DROP INDEX IF EXISTS "Sessions_ProviderSessionId_idx";
 DROP INDEX IF EXISTS "Sessions_UserId_idx";
+ALTER TABLE "Sessions" DROP CONSTRAINT IF EXISTS "Sessions_UserId_fkey";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "ProviderSessionId";
 ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "AuthenticatedAt";
 ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "UserId";
 COMMIT;
