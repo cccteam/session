@@ -41,12 +41,12 @@ type oidcApp[Tx any] struct {
 func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidcApp[Tx] {
 	t.Helper()
 
-	h := &hooks[Tx]{}
+	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
 	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

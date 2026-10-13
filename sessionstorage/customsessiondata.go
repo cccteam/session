@@ -20,6 +20,10 @@ import (
 // creation (login, external authentication, and session regeneration each create a
 // session and re-resolve fresh). Returning an error aborts the transaction: no session
 // is created and the login/session start fails.
+//
+// Deprecated: it types the legacy stores' custom session data and leaves with them; an
+// Auth store takes a NewSessionResolver, typed to its transaction, through
+// NewCustomSessionData.
 type SpannerNewSessionResolver[T any] func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest) (*T, error)
 
 // PostgresNewSessionResolver resolves custom session data for a session being created in
@@ -28,6 +32,10 @@ type SpannerNewSessionResolver[T any] func(ctx context.Context, txn *cloudspanne
 // creation (login, external authentication, and session regeneration each create a
 // session and re-resolve fresh). Returning an error aborts the transaction: no session
 // is created and the login/session start fails.
+//
+// Deprecated: it types the legacy stores' custom session data and leaves with them; an
+// Auth store takes a NewSessionResolver, typed to its transaction, through
+// NewCustomSessionData.
 type PostgresNewSessionResolver[T any] func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) (*T, error)
 
 // SpannerCustomSessionData is the validated custom session data configuration for
@@ -35,6 +43,10 @@ type PostgresNewSessionResolver[T any] func(ctx context.Context, txn pgx.Tx, req
 // reflected once at construction; rows are scanned into T on every authenticated
 // request. Build it with NewSpannerCustomSessionData and attach it via
 // WithSpannerCustomSessionData.
+//
+// Deprecated: it serves the legacy stores (NewSpannerPasswordAuth, NewSpannerOIDC,
+// NewSpannerPreauth) and leaves with them; an Auth store takes one CustomSessionData,
+// typed to its transaction, through NewCustomSessionData and Auth.WithCustomSessionData.
 type SpannerCustomSessionData[T any] struct {
 	tableName string
 	codec     *dbtype.CustomDataCodec
@@ -56,6 +68,8 @@ type SpannerCustomSessionData[T any] struct {
 //   - T must not map a field to "SessionId" (it is implied and reserved).
 //
 // See the "Custom session data" section of the README for the full lifecycle.
+//
+// Deprecated: see SpannerCustomSessionData; an Auth store uses NewCustomSessionData.
 func NewSpannerCustomSessionData[T any](tableName string, resolver SpannerNewSessionResolver[T]) (*SpannerCustomSessionData[T], error) {
 	codec, err := dbtype.NewCustomDataCodec(reflect.TypeFor[T](), dbtype.SpannerTagKey)
 	if err != nil {
@@ -112,6 +126,10 @@ func (c *SpannerCustomSessionData[T]) driverConfig() *spanner.CustomSessionDataC
 // reflected once at construction; rows are scanned into T on every authenticated
 // request. Build it with NewPostgresCustomSessionData and attach it via
 // WithPostgresCustomSessionData.
+//
+// Deprecated: it serves the legacy stores (NewPostgresPasswordAuth, NewPostgresOIDC,
+// NewPostgresPreauth) and leaves with them; an Auth store takes one CustomSessionData,
+// typed to its transaction, through NewCustomSessionData and Auth.WithCustomSessionData.
 type PostgresCustomSessionData[T any] struct {
 	tableName string
 	codec     *dbtype.CustomDataCodec
@@ -133,6 +151,8 @@ type PostgresCustomSessionData[T any] struct {
 //   - T must not map a field to "SessionId" (it is implied and reserved).
 //
 // See the "Custom session data" section of the README for the full lifecycle.
+//
+// Deprecated: see PostgresCustomSessionData; an Auth store uses NewCustomSessionData.
 func NewPostgresCustomSessionData[T any](tableName string, resolver PostgresNewSessionResolver[T]) (*PostgresCustomSessionData[T], error) {
 	codec, err := dbtype.NewCustomDataCodec(reflect.TypeFor[T](), dbtype.PostgresTagKey)
 	if err != nil {

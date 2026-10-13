@@ -18,6 +18,7 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
 	"github.com/cccteam/session/workos"
 	"github.com/go-chi/chi/v5"
@@ -38,6 +39,8 @@ const (
 // receive it to write and read the application's own rows.
 type hooks[Tx any] struct {
 	mu sync.Mutex
+	// rows reaches the application's own tables in a sign-in's transaction.
+	rows appRows[Tx]
 	// resolve decides a WorkOS identity that is not linked yet; resolveTx the same,
 	// with the sign-in's transaction. Unset, every unlinked identity is rejected.
 	resolve   func(identity *workos.Identity) *signin.Resolution
@@ -109,6 +112,17 @@ func (h *hooks[Tx]) signInPolicy(ctx context.Context, tx Tx, req *sessioninfo.Ne
 	return h.policy(req), nil
 }
 
+// sessionData resolves a new session's custom data in the transaction that inserts the
+// session: the partner its user is a member of, "" when none.
+func (h *hooks[Tx]) sessionData(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*appSessionData, error) {
+	partner, _, err := h.rows.partnerOf(ctx, tx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &appSessionData{Partner: partner}, nil
+}
+
 func (h *hooks[Tx]) pendingHook(_ context.Context, _ http.ResponseWriter, _ *http.Request, pending *sessioninfo.PendingIdentity) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -141,19 +155,50 @@ func (h *hooks[Tx]) counts() (resolved int, linked []ccc.UUID) {
 	return h.resolved, append([]ccc.UUID(nil), h.linked...)
 }
 
+// appSessionData is the application's custom session data: the partner the session's
+// user is a member of, resolved in the sign-in's transaction. One struct serves both
+// backends through its tags.
+type appSessionData struct {
+	Partner string `db:"Partner" spanner:"Partner"`
+}
+
+// appUserData is the application's custom user data, written with the user.
+type appUserData struct {
+	Locale string `db:"Locale" spanner:"Locale"`
+}
+
 // authApp is an application on one Auth session over a backend with the users, auth
-// events and impersonation schema.
+// events, impersonation and custom data schema.
 type authApp[Tx any] struct {
 	db     appDB
 	rows   appRows[Tx]
 	server *httptest.Server
-	api    *session.AuthAPI[session.NoCustomData, session.NoCustomData, Tx]
+	api    *session.AuthAPI[appSessionData, appUserData, Tx]
 	hooks  *hooks[Tx]
 }
 
+// withCustomData attaches the application's custom session and user data to store
+// through the store's one configuration of each, typed to its transaction, the way an
+// application does.
+func withCustomData[Tx any](t *testing.T, store *sessionstorage.Auth[Tx], h *hooks[Tx]) *sessionstorage.Auth[Tx] {
+	t.Helper()
+
+	sessionData, err := sessionstorage.NewCustomSessionData("SessionCustomData", h.sessionData)
+	if err != nil {
+		t.Fatalf("sessionstorage.NewCustomSessionData() error = %v", err)
+	}
+	userData, err := sessionstorage.NewCustomUserData[appUserData]("UserCustomData")
+	if err != nil {
+		t.Fatalf("sessionstorage.NewCustomUserData() error = %v", err)
+	}
+
+	return store.WithCustomSessionData(sessionData).WithCustomUserData(userData)
+}
+
 // mountAuth mounts auth's shared routes, the way the README prescribes, plus the
-// application's own MFA step and a /whoami that reports the validated session.
-func mountAuth[Tx any](r chi.Router, auth *session.Auth[session.NoCustomData, session.NoCustomData, Tx], routes func(r chi.Router)) {
+// application's own MFA step, a /whoami that reports the validated session and a
+// /session-data that reports its custom data.
+func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx], routes func(r chi.Router)) {
 	api := auth.API()
 
 	r.Use(auth.StartSession, auth.SetXSRFToken)
@@ -182,6 +227,15 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[session.NoCustomData, se
 		r.Group(func(r chi.Router) {
 			r.Use(auth.ValidateSession)
 			r.Get("/whoami", whoami)
+			r.Get("/session-data", func(w http.ResponseWriter, r *http.Request) {
+				data, err := api.CustomData(r.Context())
+				if err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				_ = httpio.NewEncoder(w).Ok(data)
+			})
 			r.Post("/logout", auth.Logout())
 			r.Post("/impersonate", func(w http.ResponseWriter, r *http.Request) {
 				var body struct {
@@ -239,9 +293,9 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], fake *fakeWorkOS) *authApp[Tx] {
 	t.Helper()
 
-	h := &hooks[Tx]{}
+	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
-	auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, h.signInPolicy,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy,
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
@@ -412,6 +466,18 @@ func (b *browser) view(ctx context.Context) *sessionView {
 	return v
 }
 
+// sessionData reads the validated session's custom data.
+func (b *browser) sessionData(ctx context.Context) *appSessionData {
+	b.t.Helper()
+
+	data := &appSessionData{}
+	if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/session-data", nil), data); err != nil {
+		b.t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	return data
+}
+
 func (b *browser) sessionID(ctx context.Context) string {
 	b.t.Helper()
 
@@ -522,6 +588,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a disabled user's session is refused on its next request, and a user-principal impersonation belongs to the impersonated user",
 			run:  seamDisabledAndImpersonation[Tx],
+		},
+		{
+			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
+			run:  seamCustomData[Tx],
 		},
 	}
 	for _, tt := range tests {
@@ -890,4 +960,51 @@ func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *
 
 	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+}
+
+func seamCustomData[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
+	t.Helper()
+
+	a.hooks.set(func(h *hooks[Tx]) { h.resolveTx = a.provisionMember })
+
+	// A provisioning sign-in: the resolver reads the membership OnProvisioned wrote,
+	// in the same transaction, for the user the sign-in just provisioned.
+	b := a.browser(t)
+	b.prime(ctx)
+	assertRedirect(t, b.workOSSignIn(ctx, idp, "/dashboard", "idp_sam", "sam@lakeside.edu"), "/dashboard", url.Values{})
+	if got := b.sessionData(ctx); got.Partner != "lakeside" {
+		t.Errorf("custom session data after the provisioning sign-in = %+v, want the lakeside membership OnProvisioned wrote", got)
+	}
+
+	// A password sign-in of a user with no membership resolves an empty row, under the
+	// same configuration.
+	a.seed(ctx, t, "pat@lakeside.edu")
+	other := a.browser(t)
+	other.prime(ctx)
+	if status, mfa := other.passwordLogin(ctx, seedPassword); status != http.StatusOK || mfa {
+		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 without MFA", status, mfa)
+	}
+	if got := other.sessionData(ctx); got.Partner != "" {
+		t.Errorf("custom session data of a user without a membership = %+v, want an empty partner", got)
+	}
+
+	// Custom user data is written with the user, read on demand, and updated in place.
+	pw := seedPassword
+	kim, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "kim@lakeside.edu", Password: &pw}, &appUserData{Locale: "en-AU"})
+	if err != nil {
+		t.Fatalf("CreateSessionUser() error = %v", err)
+	}
+	if got, err := a.api.CustomUserData(ctx, kim); err != nil || got.Locale != "en-AU" {
+		t.Errorf("CustomUserData() = %+v, %v; want the locale written with the user", got, err)
+	}
+	if err := a.api.UpdateCustomUserData(ctx, kim, func(d *appUserData) error {
+		d.Locale = "fr-CA"
+
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateCustomUserData() error = %v", err)
+	}
+	if got, err := a.api.CustomUserData(ctx, kim); err != nil || got.Locale != "fr-CA" {
+		t.Errorf("CustomUserData() after the update = %+v, %v; want fr-CA", got, err)
+	}
 }

@@ -127,11 +127,14 @@ type Auth[Tx any] struct {
 	userStorage
 	// flow is the driver as the sign-in flow drives it, typed by its transaction.
 	flow signinflow.Driver[Tx]
+	// custom attaches the custom data configurations to the driver.
+	custom customDataAttacher[Tx]
 }
 
 // NewSpannerAuth creates Spanner Auth storage over the auth schema (the base
 // migrations plus schema/spanner/auth/migrations). Attach the auth events and
-// impersonation tables with WithAuthEvents and WithImpersonation.
+// impersonation tables with WithAuthEvents and WithImpersonation, and custom session
+// and user data with the store's WithCustomSessionData and WithCustomUserData.
 func NewSpannerAuth(client *cloudspanner.Client, opts ...SpannerOption) *Auth[*cloudspanner.ReadWriteTransaction] {
 	driver := spanner.NewSessionStorageDriver(client)
 	driver.EnableAuth()
@@ -139,12 +142,13 @@ func NewSpannerAuth(client *cloudspanner.Client, opts ...SpannerOption) *Auth[*c
 		opt.applySpanner(driver)
 	}
 
-	return &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver}
+	return &Auth[*cloudspanner.ReadWriteTransaction]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: spannerCustomData{driver}}
 }
 
 // NewPostgresAuth creates PostgreSQL Auth storage over the auth schema (the base
 // migrations plus schema/postgresql/auth/migrations). Attach the auth events and
-// impersonation tables with WithAuthEvents and WithImpersonation.
+// impersonation tables with WithAuthEvents and WithImpersonation, and custom session
+// and user data with the store's WithCustomSessionData and WithCustomUserData.
 func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] {
 	driver := postgres.NewSessionStorageDriver(pg)
 	driver.EnableAuth()
@@ -152,7 +156,7 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 		opt.applyPostgres(driver)
 	}
 
-	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver}
+	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: postgresCustomData{driver}}
 }
 
 // SignIn implements AuthStore.

@@ -49,6 +49,10 @@ type PostgresOIDCUserDataHook[U any] func(ctx context.Context, txn pgx.Tx, req *
 // the user record, untouched by logout, expiry, and session regeneration — and is read
 // on demand, never joined into the per-request session read. Build it with
 // NewSpannerCustomUserData and attach it via WithSpannerCustomUserData.
+//
+// Deprecated: it serves the legacy stores and leaves with them; an Auth store takes one
+// CustomUserData, which fits either driver, through NewCustomUserData and
+// Auth.WithCustomUserData.
 type SpannerCustomUserData[U any] struct {
 	tableName string
 	codec     *dbtype.CustomDataCodec
@@ -72,6 +76,8 @@ type SpannerCustomUserData[U any] struct {
 //   - U must not map a field to "UserId" (it is implied and reserved).
 //
 // See the "Custom user data" section of the README for the full lifecycle.
+//
+// Deprecated: see SpannerCustomUserData; an Auth store uses NewCustomUserData.
 func NewSpannerCustomUserData[U any](tableName string, hook SpannerOIDCUserDataHook[U]) (*SpannerCustomUserData[U], error) {
 	codec, err := dbtype.NewCustomDataCodec(reflect.TypeFor[U](), dbtype.SpannerTagKey)
 	if err != nil {
@@ -138,6 +144,10 @@ func (c *SpannerCustomUserData[U]) driverConfig() *spanner.CustomUserDataConfig 
 // the user record, untouched by logout, expiry, and session regeneration — and is read
 // on demand, never joined into the per-request session read. Build it with
 // NewPostgresCustomUserData and attach it via WithPostgresCustomUserData.
+//
+// Deprecated: it serves the legacy stores and leaves with them; an Auth store takes one
+// CustomUserData, which fits either driver, through NewCustomUserData and
+// Auth.WithCustomUserData.
 type PostgresCustomUserData[U any] struct {
 	tableName string
 	codec     *dbtype.CustomDataCodec
@@ -161,6 +171,8 @@ type PostgresCustomUserData[U any] struct {
 //   - U must not map a field to "UserId" (it is implied and reserved).
 //
 // See the "Custom user data" section of the README for the full lifecycle.
+//
+// Deprecated: see PostgresCustomUserData; an Auth store uses NewCustomUserData.
 func NewPostgresCustomUserData[U any](tableName string, hook PostgresOIDCUserDataHook[U]) (*PostgresCustomUserData[U], error) {
 	codec, err := dbtype.NewCustomDataCodec(reflect.TypeFor[U](), dbtype.PostgresTagKey)
 	if err != nil {

@@ -596,8 +596,8 @@ How it works:
   transaction that inserts the session row** (login, external auth, session
   regeneration) and returns the `*T` to store, committed atomically with the session.
   If it returns an error, the login fails: no session, no cookies. For an `Auth`
-  sign-in it runs after the user resolution has committed (see "Auth sessions"), and
-  never for a pending identity's row.
+  sign-in it runs after the user resolution has committed (see "Auth sessions"); a
+  pending identity has no session row, so nothing is resolved until it completes.
 
 - **Every request reads it — automatically.** Session validation fetches the custom
   row together with the session (a single `LEFT JOIN` query) and your handlers get a
@@ -610,9 +610,9 @@ How it works:
   for initial population.
 
 - **Everything is checked at startup.** The session type is generic over the same
-  struct (`PasswordAuth[MyData, ...]`), and construction verifies the storage's custom
-  data config was built for it. Misconfiguration is a boot failure, not a request-time
-  surprise.
+  struct (`Auth[MyData, ...]`), and construction verifies the storage's custom data
+  configuration was built for it. Misconfiguration is a boot failure, not a request-time
+  surprise; a resolver typed to the other driver's transaction does not compile.
 
 - **Cleanup is the database's job.** Sessions are marked expired in place; your
   `ON DELETE CASCADE` foreign key removes the custom row whenever a session row is
@@ -666,11 +666,55 @@ columns at creation. Names are validated for shape at construction (letter/under
 start, ≤128 chars), but whether they exist in your table is discovered by the database —
 a mismatch surfaces as a query error.
 
-### Configuration — username/password with a resolver
+### Configuration — Auth
 
-The struct and resolver are declared together with the table name in one validated
-config unit, attached to the storage via a typed option, and the session type is built
-for the same `T`:
+An `Auth` store takes one custom session data configuration. The struct, the table
+name and the resolver are declared together with `NewCustomSessionData`; `T` and the
+store's transaction type are inferred from the resolver, and the transaction type
+selects the driver and the tags that name the columns (`db:"..."` for PostgreSQL,
+`spanner:"..."` for Spanner). The configuration is attached with the store's
+`WithCustomSessionData`, which takes only a configuration typed to that store's
+transaction: one built for the other driver does not compile there. The session type is
+built for the same `T`:
+
+```go
+type MyData struct {
+    TenantID string `db:"TenantId"`
+    RoleID   string `db:"RoleId"`
+}
+
+sessionData, err := sessionstorage.NewCustomSessionData(
+    "SessionCustomData",
+    func(ctx context.Context, tx pgx.Tx, req *sessioninfo.NewSessionRequest) (*MyData, error) {
+        // Runs ONCE per session creation, inside the transaction that inserts the
+        // session, after the user resolution: req.UserID is the user (one the
+        // resolver just provisioned included) and req.User says how it was found.
+        member, err := loadMember(ctx, tx, req.UserID)   // reads are tx-consistent
+        if err != nil {
+            return nil, err                             // aborts the sign-in
+        }
+        return &MyData{TenantID: member.TenantID, RoleID: member.RoleID}, nil
+    },
+)
+if err != nil { /* non-struct T, no persistable fields, invalid identifier, reserved SessionId, ... */ }
+
+store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
+    WithCustomSessionData(sessionData)
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, signInPolicy)
+```
+
+With a `nil` resolver, name both types: `NewCustomSessionData[MyData, pgx.Tx]("SessionCustomData", nil)`;
+session creation then performs a plain insert, and custom data comes only from per-call
+values (below) or `UpdateCustomSessionData`. A Spanner store takes a resolver over
+`*spanner.ReadWriteTransaction` and reads `spanner:"..."` tags; a struct tagged for both
+drivers serves either. The per-driver pair (`NewSpannerCustomSessionData`,
+`NewPostgresCustomSessionData` and their options) serves the legacy stores below.
+
+### Configuration — legacy username/password with a resolver
+
+For the legacy stores, the struct and resolver are declared together with the table
+name in one validated config unit per driver, attached to the storage via a typed
+option, and the session type is built for the same `T`:
 
 ```go
 type MyData struct {
@@ -712,7 +756,7 @@ attaching a Spanner config to a Postgres storage does not compile.
 The second type parameter is the custom **user** data struct (see "Custom user data");
 apps that use neither axis instantiate both with `session.NoCustomData`.
 
-### Configuration — Azure OIDC from verified claims
+### Configuration — legacy Azure OIDC from verified claims
 
 For OIDC logins the resolver receives the **complete raw verified ID-token claims** as
 `req.Claims json.RawMessage` — the library does not curate a claims struct; unmarshal the
@@ -916,12 +960,16 @@ differences that follow from durability:
 - **Reads are on demand, never per-request.** User data is *not* joined into the
   session read and never appears in the request context; fetch it when you need it with
   `API().CustomUserData(ctx, userID)`. A user with no row yields a zero-value `U`.
-- **The write path depends on the auth mode**, because the two modes learn about users
+- **The write path depends on the auth mode**, because the modes learn about users
   differently:
-  - **Password auth**: users are created explicitly, so initial data is **per-call on
+  - **Auth**: initial data is **per-call on `CreateSessionUser`**, written atomically
+    with the user insert, or written by the user resolver's `signin.Provision` hook in
+    the sign-in's transaction for a user it provisions. There is no login hook: an
+    identity's claims reach the resolver, which decides what to keep.
+  - **Legacy password auth**: users are created explicitly, so initial data is **per-call on
     `CreateSessionUser`**, written atomically with the user insert. There is no
     login-time hook — password logins carry no claims.
-  - **Azure OIDC**: users just *arrive*, known only by their verified claims, so the
+  - **Legacy Azure OIDC**: users just *arrive*, known only by their verified claims, so the
     config carries a **login hook** that runs inside every OIDC session-insert
     transaction, after the anchor upsert (requires the OIDC user anchor).
   - **Preauth**: unsupported — there is no user record to anchor durable data to
@@ -945,7 +993,42 @@ CREATE TABLE UserCustomData (
 ) PRIMARY KEY (UserId);
 ```
 
-### Configuration — password auth
+### Configuration — Auth
+
+An `Auth` store takes one custom user data configuration, which fits either driver:
+`NewCustomUserData` validates the columns `U`'s `db:"..."` tags name for PostgreSQL and
+its `spanner:"..."` tags name for Spanner, and the store's `WithCustomUserData` attaches
+it. The session type is built for the same `U`:
+
+```go
+type UserData struct {
+    Locale string `db:"Locale" spanner:"Locale"`
+    Theme  string `db:"Theme" spanner:"Theme"`
+}
+
+userData, err := sessionstorage.NewCustomUserData[UserData]("UserCustomData")
+
+store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
+    WithCustomSessionData(sessionData).
+    WithCustomUserData(userData)
+auth, err := session.NewAuth[MyData, UserData](store, cookieKey, signInPolicy)
+
+// Create: initial data lands atomically with the user insert (at most one value —
+// it is the complete row). Omit it for a plain insert (reads yield zero-value U).
+id, err := auth.API().CreateSessionUser(ctx, req, &UserData{Locale: "en-AU"})
+
+// Read: on demand, by user ID — never from the session context.
+u, err := auth.API().CustomUserData(ctx, userID)
+
+// Update: transactional read-modify-write — mutate the current row (zero-value U
+// when none) and the full row is written back.
+err = auth.API().UpdateCustomUserData(ctx, userID, func(d *UserData) error {
+    d.Theme = "dark"
+    return nil
+})
+```
+
+### Configuration — legacy password auth
 
 ```go
 type UserData struct {
@@ -978,7 +1061,7 @@ err = auth.API().UpdateCustomUserData(ctx, userID, func(d *UserData) error {
 })
 ```
 
-### Configuration — OIDC with a login hook
+### Configuration — legacy OIDC with a login hook
 
 The hook is how OIDC user data tracks the directory. It runs inside every OIDC
 session-insert transaction — after the `OIDCUsers` anchor upsert, before the session
