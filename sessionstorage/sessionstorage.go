@@ -3,7 +3,6 @@ package sessionstorage
 import (
 	"context"
 	"reflect"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -44,9 +43,7 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string, custom
 	defer span.End()
 
 	session := &dbtype.InsertSession{
-		Username:  username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Username: username,
 	}
 
 	req := &sessioninfo.NewSessionRequest{

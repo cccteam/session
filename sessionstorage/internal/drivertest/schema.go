@@ -120,7 +120,7 @@ func testUpgradeFromOIDC(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	if _, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(pat.Username),
 		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: pat.Username, UserID: pat.ID},
-		&dbtype.InsertImpersonation{ActorUsername: "old@lakeside.edu", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr(pat.Username), StartedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		&dbtype.InsertImpersonation{ActorUsername: "old@lakeside.edu", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr(pat.Username), ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Errorf("InsertImpersonatedSession() on the upgraded schema error = %v", err)
 	}
 }

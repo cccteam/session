@@ -46,7 +46,8 @@ type pendingRow struct {
 	ConsumedAt        spanner.NullTime   `spanner:"ConsumedAt"`
 }
 
-// newPendingRow renders p as the table holds it.
+// newPendingRow renders p as the table holds it: created at the commit time and not
+// consumed, whatever p carries.
 func newPendingRow(p *dbtype.PendingSignIn) (*pendingRow, error) {
 	events, err := json.Marshal(p.Events)
 	if err != nil {
@@ -57,16 +58,13 @@ func newPendingRow(p *dbtype.PendingSignIn) (*pendingRow, error) {
 		Method: string(p.Identity.Method), Connection: p.Identity.Connection, Subject: p.Identity.Subject, Email: p.Identity.Email,
 		EmailVerified: p.Identity.EmailVerified, IdpAmr: p.Identity.IDPAMR, Claims: []byte(p.Identity.Claims),
 		Username: p.Username, Tenant: p.Tenant, Events: events, RoleNames: p.RoleNames, Factors: dbtype.MethodNames(p.Factors),
-		ReturnURL: p.ReturnURL, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt,
+		ReturnURL: p.ReturnURL, CreatedAt: spanner.CommitTimestamp, ExpiresAt: p.ExpiresAt,
 	}
 	if p.UserID.Valid {
 		r.UserID = spanner.NullString{StringVal: p.UserID.String(), Valid: true}
 	}
 	if p.ProviderSessionID != "" {
 		r.ProviderSessionID = spanner.NullString{StringVal: p.ProviderSessionID, Valid: true}
-	}
-	if p.ConsumedAt != nil {
-		r.ConsumedAt = spanner.NullTime{Time: *p.ConsumedAt, Valid: true}
 	}
 
 	return r, nil
@@ -161,15 +159,15 @@ func (s *SessionStorageDriver) PendingSignInByToken(ctx context.Context, tokenHa
 // row.
 var errPendingNotLive = errors.New("no live pending sign-in")
 
-// ConsumePendingSignIn marks the pending sign-in holding tokenHash consumed at now when
-// it is live. A pending sign-in that is not live, because it was consumed, has expired
-// or does not exist, is NotFound: the update is conditional, so a pending sign-in is
-// consumed once.
+// ConsumePendingSignIn marks the pending sign-in holding tokenHash consumed, at the
+// commit time, when it is live at now. A pending sign-in that is not live, because it
+// was consumed, has expired or does not exist, is NotFound: the update is conditional,
+// so a pending sign-in is consumed once.
 func (s *SessionStorageDriver) ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = @now WHERE TokenHash = @tokenHash AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.pendingTableName))
+	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = PENDING_COMMIT_TIMESTAMP() WHERE TokenHash = @tokenHash AND ConsumedAt IS NULL AND ExpiresAt > @now`, s.pendingTableName))
 	stmt.Params["tokenHash"] = tokenHash
 	stmt.Params["now"] = now
 

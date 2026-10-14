@@ -30,8 +30,7 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 
 		return id
 	}
-	now := time.Now()
-	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: pat.Username, Principal: accesstypes.UserPrincipal(accesstypes.User(sam.Username)), StartedAt: now, ExpiresAt: now.Add(time.Hour)})
+	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: pat.Username, Principal: accesstypes.UserPrincipal(accesstypes.User(sam.Username)), ExpiresAt: time.Now().Add(time.Hour)})
 	impersonated, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(sam.Username),
 		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: sam.Username, UserID: sam.ID, ProviderSessionID: "sid-1"}, imp)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -281,7 +280,6 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 	}
 
 	table := s.oidcUserTable()
-	now := time.Now()
 
 	selectQuery := fmt.Sprintf(`SELECT "Id" FROM %s WHERE "Tid" = $1 AND "Oid" = $2 FOR UPDATE`, table)
 
@@ -291,8 +289,8 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 	case err == nil:
 		// Username is a mutable attribute: write the token's current value in place so
 		// an IdP rename never orphans the record.
-		updateQuery := fmt.Sprintf(`UPDATE %s SET "Username" = $2, "UpdatedAt" = $3 WHERE "Id" = $1`, table)
-		if _, err := txn.Exec(ctx, updateQuery, id, req.Username, now); err != nil {
+		updateQuery := fmt.Sprintf(`UPDATE %s SET "Username" = $2, "UpdatedAt" = now() WHERE "Id" = $1`, table)
+		if _, err := txn.Exec(ctx, updateQuery, id, req.Username); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	case errors.Is(err, pgx.ErrNoRows):
@@ -306,9 +304,9 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 			INSERT INTO %s
 				("Id", "Tid", "Oid", "Username", "CreatedAt", "UpdatedAt")
 			VALUES
-				($1, $2, $3, $4, $5, $6)
+				($1, $2, $3, $4, now(), now())
 			`, table)
-		if _, err := txn.Exec(ctx, insertQuery, id, req.Tid, req.Oid, req.Username, now, now); err != nil {
+		if _, err := txn.Exec(ctx, insertQuery, id, req.Tid, req.Oid, req.Username); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	default:

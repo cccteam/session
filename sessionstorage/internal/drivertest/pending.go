@@ -21,9 +21,9 @@ import (
 // consumed once by a conditional update, and that an expired row is dead, on every
 // backend.
 
-// pendingOpts compares pending sign-ins with timestamps to the second (the backends
-// store different precisions) and nil and empty slices alike.
-var pendingOpts = cmp.Options{cmpopts.EquateApproxTime(time.Second), cmpopts.EquateEmpty()}
+// pendingOpts compares pending sign-ins, nil and empty slices alike, leaving out the
+// two times the database writes (CreatedAt, ConsumedAt), which the cases check apart.
+var pendingOpts = cmp.Options{cmpopts.EquateEmpty(), cmpopts.IgnoreFields(dbtype.PendingSignIn{}, "CreatedAt", "ConsumedAt")}
 
 // tokenHash is a distinct 32-byte hash for the test's token n.
 func tokenHash(n byte) []byte {
@@ -34,9 +34,11 @@ func tokenHash(n byte) []byte {
 }
 
 // newPendingSignIn is a pending sign-in for userID, with every field set, that expires in
-// an hour.
+// an hour. Its CreatedAt and ConsumedAt carry values the insert must ignore: the row is
+// created at the database's time and is not consumed.
 func newPendingSignIn(userID ccc.NullUUID, hash []byte) *dbtype.PendingSignIn {
 	now := time.Now().Truncate(time.Microsecond)
+	ignored := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	return &dbtype.PendingSignIn{
 		ID:           ccc.Must(ccc.NewUUID()),
@@ -55,8 +57,9 @@ func newPendingSignIn(userID ccc.NullUUID, hash []byte) *dbtype.PendingSignIn {
 		Factors:           []sessioninfo.AuthMethod{"email-otp", "totp"},
 		ReturnURL:         "/reports?x=1",
 		ProviderSessionID: "sid-1",
-		CreatedAt:         now,
+		CreatedAt:         ignored,
 		ExpiresAt:         now.Add(time.Hour),
+		ConsumedAt:        &ignored,
 	}
 }
 
@@ -81,9 +84,11 @@ func testPendingSignInRoundTrip(ctx context.Context, t *testing.T, h *AuthHarnes
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			w := startWindow(h.ClockLead)
 			if err := in.Driver.InsertPendingSignIn(ctx, tt.p); err != nil {
 				t.Fatalf("InsertPendingSignIn() error = %v", err)
 			}
+			w.done()
 
 			got, err := in.Driver.PendingSignInByToken(ctx, tt.p.TokenHash, time.Now())
 			if err != nil {
@@ -92,6 +97,7 @@ func testPendingSignInRoundTrip(ctx context.Context, t *testing.T, h *AuthHarnes
 			if diff := cmp.Diff(tt.p, got, pendingOpts); diff != "" {
 				t.Errorf("PendingSignInByToken() mismatch (-want +got):\n%s", diff)
 			}
+			w.assertStamped(t, "PendingSignInByToken().CreatedAt", got.CreatedAt)
 			if got.ConsumedAt != nil {
 				t.Errorf("PendingSignInByToken().ConsumedAt = %v, want nil", got.ConsumedAt)
 			}
@@ -111,8 +117,15 @@ func testPendingSignInConsumedOnce(ctx context.Context, t *testing.T, h *AuthHar
 		t.Fatalf("InsertPendingSignIn() error = %v", err)
 	}
 
+	w := startWindow(h.ClockLead)
 	if err := in.Driver.ConsumePendingSignIn(ctx, p.TokenHash, time.Now()); err != nil {
 		t.Fatalf("ConsumePendingSignIn() error = %v", err)
+	}
+	w.done()
+	if consumedAt := h.PendingConsumedAt(ctx, t, in.Raw, p.TokenHash); consumedAt == nil {
+		t.Error("ConsumedAt = nil after ConsumePendingSignIn(), want the database's time")
+	} else {
+		w.assertStamped(t, "ConsumedAt", *consumedAt)
 	}
 	if err := in.Driver.ConsumePendingSignIn(ctx, p.TokenHash, time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("second ConsumePendingSignIn() error = %v, want NotFound: a pending sign-in is consumed once", err)

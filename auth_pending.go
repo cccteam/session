@@ -130,12 +130,12 @@ func errPendingExpired() error {
 // holdPending stores a sign-in that must wait as the browser's pending identity. It
 // inserts the row, consumes any earlier pending identity the browser had (unless the
 // sign-in completed it, which consumed it already), and writes the pending cookie with
-// the new token.
+// the new token. The row is created at the database's time; the events it holds that
+// have no time take that time when the sign-in completes (pendingEvents).
 func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter, at *signInAttempt, wait *signin.PendingSignInError) (*pendingState, error) {
-	now := time.Now()
 	events := at.events
 	if events == nil {
-		events = []sessioninfo.AuthEvent{identityEvent(at.identity, now)}
+		events = []sessioninfo.AuthEvent{identityEvent(at.identity)}
 	}
 	token, hash, err := newPendingToken()
 	if err != nil {
@@ -154,8 +154,7 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		Factors:           wait.Factors,
 		ReturnURL:         pendingReturnURL(at.returnURL),
 		ProviderSessionID: at.providerSessionID,
-		CreatedAt:         now,
-		ExpiresAt:         now.Add(a.settings.pendingTimeout),
+		ExpiresAt:         time.Now().Add(a.settings.pendingTimeout),
 	}
 	if at.identity.Method == sessioninfo.MethodPassword {
 		p.UserID = ccc.NullUUIDFromUUID(at.userID)
@@ -296,7 +295,7 @@ func (a *Auth[S, U, Tx]) completePending(
 		registration:      p.Registration,
 		username:          p.Username,
 		expectUserID:      p.UserID,
-		events:            append(slices.Clone(p.Events), more...),
+		events:            append(pendingEvents(p), more...),
 		returnURL:         p.ReturnURL,
 		roleNames:         p.RoleNames,
 		providerSessionID: p.ProviderSessionID,
@@ -311,6 +310,21 @@ func (a *Auth[S, U, Tx]) completePending(
 	}
 
 	return a.signIn(ctx, w, at)
+}
+
+// pendingEvents returns the events p carried, with the time p was held, as the database
+// recorded it, on those that have none: the session then records the sign-in at its own
+// time, which is past, rather than at the completion's. An event that already has a
+// time keeps it.
+func pendingEvents(p *pendingState) []sessioninfo.AuthEvent {
+	events := slices.Clone(p.Events)
+	for i := range events {
+		if events[i].At.IsZero() {
+			events[i].At = p.CreatedAt
+		}
+	}
+
+	return events
 }
 
 // acceptedFactors refuses a step-up event whose method is not one the sign-in policy
@@ -439,7 +453,7 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 		return nil, err
 	}
 
-	return a.completePending(ctx, w, p, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation, At: time.Now()})
+	return a.completePending(ctx, w, p, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation})
 }
 
 // linkPending links a confirmed pending identity to userID and reports the link. If the

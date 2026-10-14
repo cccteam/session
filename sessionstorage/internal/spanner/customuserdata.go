@@ -255,8 +255,6 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn *spanner.
 	iter := txn.Query(ctx, stmt)
 	defer iter.Stop()
 
-	now := time.Now()
-
 	row, err := iter.Next()
 	if err != nil {
 		if !errors.Is(err, iterator.Done) {
@@ -274,8 +272,8 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn *spanner.
 			Tid:       req.Tid,
 			Oid:       req.Oid,
 			Username:  req.Username,
-			CreatedAt: now,
-			UpdatedAt: now,
+			CreatedAt: spanner.CommitTimestamp,
+			UpdatedAt: spanner.CommitTimestamp,
 		}
 		m, err := spanner.InsertStruct(s.oidcUserTableName, user)
 		if err != nil {
@@ -303,7 +301,7 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn *spanner.
 	}{
 		ID:        id,
 		Username:  req.Username,
-		UpdatedAt: now,
+		UpdatedAt: spanner.CommitTimestamp,
 	}
 	m, err := spanner.UpdateStruct(s.oidcUserTableName, update)
 	if err != nil {

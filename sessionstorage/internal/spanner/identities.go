@@ -132,9 +132,9 @@ func (s *SessionStorageDriver) lookupIdentity(ctx context.Context, q querier, me
 	return identities[0], nil
 }
 
-// TouchIdentityIn buffers the move of the link's LastUsedAt to now.
-func (s *SessionStorageDriver) TouchIdentityIn(_ context.Context, tx *spanner.ReadWriteTransaction, linkID ccc.UUID, now time.Time) error {
-	touch := spanner.UpdateMap(s.identitiesTableName, map[string]any{idColumn: linkID, "LastUsedAt": now})
+// TouchIdentityIn buffers the move of the link's LastUsedAt to the commit time.
+func (s *SessionStorageDriver) TouchIdentityIn(_ context.Context, tx *spanner.ReadWriteTransaction, linkID ccc.UUID) error {
+	touch := spanner.UpdateMap(s.identitiesTableName, map[string]any{idColumn: linkID, "LastUsedAt": spanner.CommitTimestamp})
 	if err := tx.BufferWrite([]*spanner.Mutation{touch}); err != nil {
 		return errors.Wrap(err, "txn.BufferWrite()")
 	}
@@ -144,21 +144,23 @@ func (s *SessionStorageDriver) TouchIdentityIn(_ context.Context, tx *spanner.Re
 
 // LinkIdentityIn buffers a new link of identity to userID.
 func (s *SessionStorageDriver) LinkIdentityIn(
-	_ context.Context, tx *spanner.ReadWriteTransaction, userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time,
-) (*dbtype.SessionIdentity, error) {
-	link, mutation, err := s.newIdentityLink(userID, identity, tenant, now)
+	_ context.Context, tx *spanner.ReadWriteTransaction, userID ccc.UUID, identity *sessioninfo.Identity, tenant string,
+) error {
+	_, mutation, err := s.newIdentityLink(userID, identity, tenant)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := tx.BufferWrite([]*spanner.Mutation{mutation}); err != nil {
-		return nil, errors.Wrap(err, "txn.BufferWrite()")
+		return errors.Wrap(err, "txn.BufferWrite()")
 	}
 
-	return link, nil
+	return nil
 }
 
-// newIdentityLink renders a new link of identity to userID and its insert mutation.
-func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time) (*dbtype.SessionIdentity, *spanner.Mutation, error) {
+// newIdentityLink renders a new link of identity to userID and its insert mutation. The
+// mutation writes CreatedAt and LastUsedAt with the commit timestamp; the link carries
+// them zero until the commit reports it.
+func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, *spanner.Mutation, error) {
 	if !dbtype.IsExternal(identity) || identity.Subject == "" {
 		return nil, nil, httpio.NewBadRequestMessage("only an external identity with a subject can be linked")
 	}
@@ -169,12 +171,12 @@ func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessio
 	}
 	link := &dbtype.SessionIdentity{
 		ID: id, UserID: userID, Method: identity.Method, Connection: identity.Connection, Subject: identity.Subject,
-		Tenant: dbtype.OptionalString(tenant), EmailAtLink: dbtype.OptionalString(identity.Email), CreatedAt: now, LastUsedAt: now,
+		Tenant: dbtype.OptionalString(tenant), EmailAtLink: dbtype.OptionalString(identity.Email),
 	}
 
 	return link, spanner.InsertMap(s.identitiesTableName, map[string]any{
 		idColumn: link.ID, "UserId": link.UserID, "Method": string(link.Method), "Connection": link.Connection, "Subject": link.Subject,
-		"Tenant": nullString(link.Tenant), "EmailAtLink": nullString(link.EmailAtLink), "CreatedAt": now, "LastUsedAt": now,
+		"Tenant": nullString(link.Tenant), "EmailAtLink": nullString(link.EmailAtLink), "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 	}), nil
 }
 
@@ -230,7 +232,7 @@ func (s *SessionStorageDriver) InsertSessionIn(
 	if err != nil {
 		return err
 	}
-	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil, row.CreatedAt)...)
+	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil)...)
 	if err := tx.BufferWrite(mutations); err != nil {
 		return errors.Wrap(err, "txn.BufferWrite()")
 	}
@@ -323,17 +325,20 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID ccc.UUID
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	link, mutation, err := s.newIdentityLink(userID, identity, tenant, time.Now())
+	link, mutation, err := s.newIdentityLink(userID, identity, tenant)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+	committedAt, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation})
+	if err != nil {
 		if spanner.ErrCode(err) == codes.AlreadyExists {
 			return nil, httpio.NewConflictMessagef("identity (%s, %q, %q) is already linked", identity.Method, identity.Connection, identity.Subject)
 		}
 
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
 	}
+	// The link's times are the commit's, which Apply reports.
+	link.CreatedAt, link.LastUsedAt = committedAt, committedAt
 
 	return link, nil
 }
@@ -402,7 +407,6 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 		return errors.New("DestroyUserSessions needs the auth schema: use Auth storage")
 	}
 
-	now := time.Now()
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		// The local-actor records name the actor by username.
 		var username string
@@ -416,30 +420,32 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 		}
 
-		// Sessions first: the expiry predicate reads the records while they are still live.
-		expire := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s s
-			SET Expired = TRUE, UpdatedAt = @now
-			WHERE s.Expired = FALSE AND (s.UserId = @userId OR %s)`, s.sessionTableName, s.heldByLocalActor()))
-		expire.Params["userId"] = userID.String()
-		expire.Params["now"] = now
+		// The sessions are selected first and expired by id: the selection reads the
+		// records while they are still live, and once a statement has written the commit
+		// timestamp to a table, nothing later in the transaction may read that table.
+		selectSessions := spanner.NewStatement(fmt.Sprintf(`
+			SELECT s.Id, s.Expired
+			FROM %s s
+			WHERE s.UserId = @userId OR %s`, s.sessionTableName, s.heldByLocalActor()))
+		selectSessions.Params["userId"] = userID.String()
 		if s.impersonation != nil {
-			expire.Params["username"] = username
+			selectSessions.Params["username"] = username
 		}
-		if _, err := txn.Update(ctx, expire); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		ids, live, err := selectSessionIDs(ctx, txn, selectSessions)
+		if err != nil {
+			return err
+		}
+		if err := s.expireSessions(ctx, txn, live); err != nil {
+			return err
 		}
 
 		if s.impersonation != nil {
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s
-				SET EndedAt = @now, EndReason = @reason
-				WHERE EndedAt IS NULL AND (
-					SessionId IN (SELECT Id FROM %s WHERE UserId = @userId)
-					OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName, s.sessionTableName))
-			endRecords.Params["userId"] = userID.String()
+				SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
+				WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName))
+			endRecords.Params["ids"] = ids
 			endRecords.Params["username"] = username
-			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -457,7 +463,7 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 
 // AppendAuthEvent records a step-up or confirmation on a live session, after its
 // earlier events, and moves the session's AuthenticatedAt to the event's time. A zero
-// event time is now.
+// event time is the commit time.
 func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -467,9 +473,6 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 	}
 	if event.Method == "" {
 		return httpio.NewBadRequestMessage("an auth event needs a method")
-	}
-	if event.At.IsZero() {
-		event.At = time.Now()
 	}
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -498,7 +501,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 
 		mutations := []*spanner.Mutation{s.authEventMutation(sessionID, seq+1, event)}
 		if s.users {
-			mutations = append(mutations, spanner.UpdateMap(s.sessionTableName, map[string]any{idColumn: sessionID.String(), "AuthenticatedAt": event.At}))
+			mutations = append(mutations, spanner.UpdateMap(s.sessionTableName, map[string]any{idColumn: sessionID.String(), "AuthenticatedAt": commitTime(event.At)}))
 		}
 		if err := txn.BufferWrite(mutations); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")

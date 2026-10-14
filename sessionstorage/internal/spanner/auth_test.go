@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -19,10 +20,12 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:             newAuthInstance,
-		CountAuthEvents: countAuthEvents,
-		DeleteSession:   deleteSession,
-		Recorded:        recorded,
+		New:               newAuthInstance,
+		CountAuthEvents:   countAuthEvents,
+		DeleteSession:     deleteSession,
+		Recorded:          recorded,
+		PendingConsumedAt: pendingConsumedAt,
+		ClockLead:         emulatorClockLead,
 	})
 }
 
@@ -91,6 +94,22 @@ func countAuthEvents(ctx context.Context, t *testing.T, raw any, sessionID ccc.U
 	}
 
 	return int(n)
+}
+
+func pendingConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT ConsumedAt FROM SessionPendingSignIns WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var consumedAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &consumedAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !consumedAt.Valid {
+		return nil
+	}
+
+	return &consumedAt.Time
 }
 
 func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) {

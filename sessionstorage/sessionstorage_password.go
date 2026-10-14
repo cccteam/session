@@ -2,7 +2,6 @@ package sessionstorage
 
 import (
 	"context"
-	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -63,9 +62,7 @@ func (s *userStorage) CreateSession(ctx context.Context, req *sessioninfo.NewSes
 	defer span.End()
 
 	session := &dbtype.InsertSession{
-		Username:  req.Username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Username: req.Username,
 	}
 
 	id, err := s.db.InsertSession(ctx, session, req)

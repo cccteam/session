@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/session/internal/dbtype"
@@ -43,10 +42,8 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "00000000-0000-0000-0000-000000000001",
 				InsertSession: dbtype.InsertSession{
-					Username:  "test user 2",
-					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
-					UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
-					Expired:   true,
+					Username: "test user 2",
+					Expired:  true,
 				},
 			},
 			req:       sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "test user 2"},
@@ -58,10 +55,8 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "00000000-0000-0000-0000-000000000001",
 				InsertSession: dbtype.InsertSession{
-					Username:  "test user 2",
-					CreatedAt: time.Date(2018, 5, 3, 1, 2, 3, 0, time.UTC),
-					UpdatedAt: time.Date(2017, 6, 4, 3, 2, 1, 0, time.UTC),
-					Expired:   true,
+					Username: "test user 2",
+					Expired:  true,
 				},
 			},
 			req:       sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "test user 2"},
@@ -77,8 +72,8 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				WHERE Id = '%s'
 					AND Username = 'test user 2'
 					AND OidcSid = '00000000-0000-0000-0000-000000000001'
-					AND CreatedAt = TIMESTAMP '2018-05-03 01:02:03 UTC'
-					AND UpdatedAt = TIMESTAMP '2017-06-04 03:02:01 UTC'
+					AND CreatedAt = UpdatedAt
+					AND CreatedAt > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE)
 					AND Expired = true`,
 			},
 			wantErr: false,
@@ -88,9 +83,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "00000000-0000-0000-0000-000000000002",
 				InsertSession: dbtype.InsertSession{
-					Username:  "claims user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
+					Username: "claims user",
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "claims user", Claims: rawClaims},
@@ -122,9 +115,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "00000000-0000-0000-0000-000000000003",
 				InsertSession: dbtype.InsertSession{
-					Username:  "abort user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
+					Username: "abort user",
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "abort user", Claims: rawClaims},

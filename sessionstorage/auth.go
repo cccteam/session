@@ -176,8 +176,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
-	now := time.Now()
-	session := &dbtype.InsertSession{Username: req.Username, CreatedAt: now, UpdatedAt: now}
+	session := &dbtype.InsertSession{Username: req.Username}
 
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, resolve, policy); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

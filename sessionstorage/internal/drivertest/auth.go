@@ -154,6 +154,12 @@ type AuthHarness struct {
 	DeleteSession func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID)
 	// Recorded reads key from the HookRecords table directly, as committed.
 	Recorded func(ctx context.Context, t *testing.T, raw any, key string) (value string, found bool)
+	// PendingConsumedAt reads the ConsumedAt of the pending sign-in holding tokenHash
+	// directly: nil while it is live.
+	PendingConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// ClockLead is how far the backend's clock may run ahead of the host's; see
+	// Harness.ClockLead.
+	ClockLead time.Duration
 }
 
 // RunAuth runs the users conformance suite against h. Every case prepares its
@@ -196,6 +202,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
 		{name: "the upgrade from the legacy Azure layout keeps the anchor's users and identities under their ids, gives live sessions their user, and serves Auth", run: testUpgradeFromOIDC},
 		{name: "a sign-in records the provider's session id, and a provider-initiated logout ends the sessions under that id and no other", run: testProviderSessionLogout},
+		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
+		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,11 +214,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 	}
 }
 
-// newInsertSession is a fresh session row for username.
+// newInsertSession is a fresh session row for username. Its times are the driver's.
 func newInsertSession(username string) *dbtype.InsertSession {
-	now := time.Now()
-
-	return &dbtype.InsertSession{Username: username, CreatedAt: now, UpdatedAt: now}
+	return &dbtype.InsertSession{Username: username}
 }
 
 // createUser creates a user, with a password hash when withPassword.
@@ -236,9 +242,10 @@ func mustSession(ctx context.Context, t *testing.T, d AuthDriver, id ccc.UUID) *
 	return sess
 }
 
-// eventsOpts compares auth events with timestamps to the second (the backends store
-// different precisions) and nil and empty slices alike.
-var eventsOpts = cmp.Options{cmpopts.EquateApproxTime(time.Second), cmpopts.EquateEmpty()}
+// eventsOpts compares auth events, nil and empty slices alike. Times are compared
+// exactly: an event's time is the database's, read with the session, or a caller's,
+// stored as given.
+var eventsOpts = cmp.Options{cmpopts.EquateEmpty()}
 
 func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, LegacySessions, AuthConfig{Impersonation: true})
@@ -254,7 +261,7 @@ func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 	impID, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(user.Username),
 		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: user.Username, UserID: user.ID},
-		&dbtype.InsertImpersonation{ActorUsername: "actor", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr(user.Username), StartedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+		&dbtype.InsertImpersonation{ActorUsername: "actor", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr(user.Username), ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("InsertImpersonatedSession() on the legacy schema error = %v", err)
 	}
@@ -290,8 +297,7 @@ func testSessionUserColumns(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			insert := newInsertSession(tt.req.Username)
-			id, err := in.Driver.InsertSession(ctx, insert, tt.req)
+			id, err := in.Driver.InsertSession(ctx, newInsertSession(tt.req.Username), tt.req)
 			if err != nil {
 				t.Fatalf("InsertSession() error = %v", err)
 			}
@@ -303,8 +309,8 @@ func testSessionUserColumns(ctx context.Context, t *testing.T, h *AuthHarness) {
 			if got := sess.AuthenticatedAt != nil; got != tt.wantAuthenticated {
 				t.Fatalf("Session().AuthenticatedAt = %v, want set %v", sess.AuthenticatedAt, tt.wantAuthenticated)
 			}
-			if tt.wantAuthenticated && sess.AuthenticatedAt.Sub(insert.CreatedAt).Abs() > time.Second {
-				t.Errorf("Session().AuthenticatedAt = %v, want the creation time %v", sess.AuthenticatedAt, insert.CreatedAt)
+			if tt.wantAuthenticated {
+				assertSameTime(t, "Session().AuthenticatedAt", *sess.AuthenticatedAt, sess.CreatedAt)
 			}
 			if len(sess.AuthEvents) != 0 {
 				t.Errorf("Session().AuthEvents = %v, want none without an auth events table", sess.AuthEvents)
@@ -335,16 +341,16 @@ func testInitialAuthEvent(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			insert := newInsertSession(user.Username)
-			id, err := in.Driver.InsertSession(ctx, insert, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, Identity: tt.identity})
+			id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, Identity: tt.identity})
 			if err != nil {
 				t.Fatalf("InsertSession() error = %v", err)
 			}
 
+			sess := mustSession(ctx, t, in.Driver, id)
 			for i := range tt.wantEvents {
-				tt.wantEvents[i].At = insert.CreatedAt
+				tt.wantEvents[i].At = sess.CreatedAt
 			}
-			if diff := cmp.Diff(tt.wantEvents, mustSession(ctx, t, in.Driver, id).AuthEvents, eventsOpts); diff != "" {
+			if diff := cmp.Diff(tt.wantEvents, sess.AuthEvents, eventsOpts); diff != "" {
 				t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -411,18 +417,20 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AuthHarness) {
 			if tt.identity != nil {
 				req.Identity = tt.identity(user)
 			}
-			insert := newInsertSession(user.Username)
-			id, err := in.Driver.InsertSession(ctx, insert, req)
+			id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), req)
 			if err != nil {
 				t.Fatalf("InsertSession() error = %v", err)
 			}
 
+			// An event without a time takes the session's creation time; one with a
+			// time keeps it.
+			sess := mustSession(ctx, t, in.Driver, id)
 			for i := range tt.wantEvents {
 				if tt.wantEvents[i].At.IsZero() {
-					tt.wantEvents[i].At = insert.CreatedAt
+					tt.wantEvents[i].At = sess.CreatedAt
 				}
 			}
-			if diff := cmp.Diff(tt.wantEvents, mustSession(ctx, t, in.Driver, id).AuthEvents, eventsOpts); diff != "" {
+			if diff := cmp.Diff(tt.wantEvents, sess.AuthEvents, eventsOpts); diff != "" {
 				t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 			}
 			if got := h.CountAuthEvents(ctx, t, in.Raw, id); got != len(tt.wantEvents) {
@@ -455,10 +463,8 @@ func testImpersonatedSessionUser(ctx context.Context, t *testing.T, h *AuthHarne
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
-			imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: "alice@example.com", Principal: tt.principal, StartedAt: now, ExpiresAt: now.Add(time.Hour)})
-			insert := newInsertSession(user.Username)
-			id, err := in.Driver.InsertImpersonatedSession(ctx, insert, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: user.Username, UserID: tt.userID}, imp)
+			imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: "alice@example.com", Principal: tt.principal, ExpiresAt: time.Now().Add(time.Hour)})
+			id, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: user.Username, UserID: tt.userID}, imp)
 			if err != nil {
 				t.Fatalf("InsertImpersonatedSession() error = %v", err)
 			}
@@ -467,7 +473,7 @@ func testImpersonatedSessionUser(ctx context.Context, t *testing.T, h *AuthHarne
 			if sess.UserID != tt.wantUserID {
 				t.Errorf("Session().UserID = %v, want %v", sess.UserID, tt.wantUserID)
 			}
-			want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodImpersonation, Connection: "alice@example.com", At: insert.CreatedAt}}
+			want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodImpersonation, Connection: "alice@example.com", At: sess.CreatedAt}}
 			if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
 				t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 			}

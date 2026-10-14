@@ -33,6 +33,8 @@ func RunImpersonation(t *testing.T, h *Harness) {
 		{name: "ActiveImpersonations lists live records newest first", run: testActiveImpersonations},
 		{name: "DestroyImpersonatedSession expires one session and ends its record", run: testDestroyImpersonatedSession},
 		{name: "username-keyed operations distinguish local and foreign actors", run: testUsernameKeyedOperations},
+		{name: "a session, its record and its end take the database's time", run: testDatabaseTimeOnInsert},
+		{name: "DestroyAllUserSessions stamps every session and record it ends with one time, the database's", run: testDatabaseTimeOnDestroyAll},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -163,8 +165,7 @@ func testSessionReadsRecord(_ context.Context, t *testing.T, h *Harness) {
 }
 
 func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) {
-	started := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
-	expires := started.Add(time.Hour)
+	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
 
 	tests := []struct {
 		name       string
@@ -183,7 +184,6 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 				ActorRealm:    strPtr("admin-portal"),
 				PrincipalKind: dbtype.PrincipalKindRole,
 				PrincipalRole: strPtr("PartnerViewer"),
-				StartedAt:     started,
 				ExpiresAt:     expires,
 			},
 		},
@@ -202,7 +202,6 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 				PrincipalUser:   strPtr("bob@partner.org"),
 				Mask:            strPtr("List,Read"),
 				Reason:          strPtr("ticket JRN-2"),
-				StartedAt:       started,
 				ExpiresAt:       expires,
 			},
 			wantCustom: &CustomStringData{CustomString: "support"},
@@ -220,8 +219,9 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			ctx := t.Context()
 			c := h.New(ctx, t, SeededImpersonation, tt.cfg).Driver
 
-			now := time.Now()
-			id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: tt.req.Username, CreatedAt: now, UpdatedAt: now}, tt.req, tt.imp)
+			w := startWindow(h.ClockLead)
+			id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: tt.req.Username}, tt.req, tt.imp)
+			w.done()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("InsertImpersonatedSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -236,6 +236,8 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			if got.Username != tt.req.Username || got.Expired {
 				t.Errorf("Session() = (%q, expired %v), want (%q, live)", got.Username, got.Expired, tt.req.Username)
 			}
+			// The record starts when the row is created, at the database's time.
+			w.assertStamped(t, "Session().CreatedAt", got.CreatedAt)
 			want := &dbtype.Impersonation{
 				SessionID:       id,
 				ActorUsername:   tt.imp.ActorUsername,
@@ -246,7 +248,7 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 				PrincipalRole:   tt.imp.PrincipalRole,
 				Mask:            tt.imp.Mask,
 				Reason:          tt.imp.Reason,
-				StartedAt:       tt.imp.StartedAt,
+				StartedAt:       got.CreatedAt,
 				ExpiresAt:       tt.imp.ExpiresAt,
 			}
 			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
@@ -262,15 +264,13 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 // The shipped OIDC session schema declares OidcSid NOT NULL; the impersonated insert
 // writes the OIDC-shaped row with an empty identity provider session ID.
 func testInsertImpersonatedSessionOIDC(_ context.Context, t *testing.T, h *Harness) {
-	started := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "bob@example.com"}
 	imp := &dbtype.InsertImpersonation{
 		ActorUsername: "alice@example.com",
 		PrincipalKind: dbtype.PrincipalKindUser,
 		PrincipalUser: strPtr("bob@example.com"),
 		Mask:          strPtr("List,Read"),
-		StartedAt:     started,
-		ExpiresAt:     started.Add(time.Hour),
+		ExpiresAt:     time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond),
 	}
 
 	tests := []struct {
@@ -287,9 +287,10 @@ func testInsertImpersonatedSessionOIDC(_ context.Context, t *testing.T, h *Harne
 			ctx := t.Context()
 			inst := h.New(ctx, t, OIDC, tt.cfg)
 
-			now := time.Now()
-			session := &dbtype.InsertOIDCSession{InsertSession: dbtype.InsertSession{Username: req.Username, CreatedAt: now, UpdatedAt: now}}
+			session := &dbtype.InsertOIDCSession{InsertSession: dbtype.InsertSession{Username: req.Username}}
+			w := startWindow(h.ClockLead)
 			id, err := inst.Driver.InsertImpersonatedSessionOIDC(ctx, session, req, imp)
+			w.done()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("InsertImpersonatedSessionOIDC() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -304,13 +305,14 @@ func testInsertImpersonatedSessionOIDC(_ context.Context, t *testing.T, h *Harne
 			if got.Username != req.Username || got.Expired {
 				t.Errorf("Session() = (%q, expired %v), want (%q, live)", got.Username, got.Expired, req.Username)
 			}
+			w.assertStamped(t, "Session().CreatedAt", got.CreatedAt)
 			want := &dbtype.Impersonation{
 				SessionID:     id,
 				ActorUsername: imp.ActorUsername,
 				PrincipalKind: imp.PrincipalKind,
 				PrincipalUser: imp.PrincipalUser,
 				Mask:          imp.Mask,
-				StartedAt:     imp.StartedAt,
+				StartedAt:     got.CreatedAt,
 				ExpiresAt:     imp.ExpiresAt,
 			}
 			if diff := cmp.Diff(want, got.Impersonation); diff != "" {
@@ -472,15 +474,15 @@ func testActiveImpersonations(ctx context.Context, t *testing.T, h *Harness) {
 	c := inst.Driver
 
 	now := time.Now()
-	insert := func(actor string, principal accesstypes.Principal, expiresAt, updatedAt time.Time) ccc.UUID {
+	insert := func(actor string, principal accesstypes.Principal, expiresAt time.Time) ccc.UUID {
 		t.Helper()
 		username := actor
 		if user, ok := principal.User(); ok {
 			username = string(user)
 		}
-		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, StartedAt: time.Now(), ExpiresAt: expiresAt})
+		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, ExpiresAt: expiresAt})
 		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: username}
-		id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: username, CreatedAt: updatedAt, UpdatedAt: updatedAt}, req, imp)
+		id, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: username}, req, imp)
 		if err != nil {
 			t.Fatalf("InsertImpersonatedSession() error = %v", err)
 		}
@@ -490,15 +492,16 @@ func testActiveImpersonations(ctx context.Context, t *testing.T, h *Harness) {
 	}
 
 	// The seeded records are all past their hard cap and never appear.
-	liveUser := insert("alice@example.com", accesstypes.UserPrincipal("bob@partner.org"), now.Add(time.Hour), now)
-	liveRole := insert("dave@example.com", accesstypes.RolePrincipal("Editor"), now.Add(time.Hour), now)
-	ended := insert("alice@example.com", accesstypes.UserPrincipal("carol@partner.org"), now.Add(time.Hour), now)
+	liveUser := insert("alice@example.com", accesstypes.UserPrincipal("bob@partner.org"), now.Add(time.Hour))
+	liveRole := insert("dave@example.com", accesstypes.RolePrincipal("Editor"), now.Add(time.Hour))
+	ended := insert("alice@example.com", accesstypes.UserPrincipal("carol@partner.org"), now.Add(time.Hour))
 	if err := c.EndImpersonation(ctx, ended, "Logout"); err != nil {
 		t.Fatalf("EndImpersonation() error = %v", err)
 	}
-	_ = insert("alice@example.com", accesstypes.UserPrincipal("erin@partner.org"), now.Add(-time.Minute), now) // hard cap passed
-	idle := insert("alice@example.com", accesstypes.RolePrincipal("Viewer"), now.Add(time.Hour), now.Add(-time.Hour))
-	expiredSession := insert("alice@example.com", accesstypes.UserPrincipal("frank@partner.org"), now.Add(time.Hour), now)
+	_ = insert("alice@example.com", accesstypes.UserPrincipal("erin@partner.org"), now.Add(-time.Minute)) // hard cap passed
+	idle := insert("alice@example.com", accesstypes.RolePrincipal("Viewer"), now.Add(time.Hour))
+	h.SetSessionUpdatedAt(ctx, t, inst.Raw, idle, now.Add(-time.Hour)) // the driver takes no time: backdated directly
+	expiredSession := insert("alice@example.com", accesstypes.UserPrincipal("frank@partner.org"), now.Add(time.Hour))
 	h.ExpireSession(ctx, t, inst.Raw, expiredSession)
 
 	tests := []struct {
@@ -602,13 +605,12 @@ func testUsernameKeyedOperations(ctx context.Context, t *testing.T, h *Harness) 
 	const name = "dave@example.com"
 	const target = "erin@example.com"
 	session := func(username string) *dbtype.InsertSession {
-		return &dbtype.InsertSession{Username: username, CreatedAt: now, UpdatedAt: now}
+		return &dbtype.InsertSession{Username: username}
 	}
 	request := func(username string) *sessioninfo.NewSessionRequest {
 		return &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: username}
 	}
 	impersonated := func(username string, imp *sessioninfo.Impersonation) ccc.UUID {
-		imp.StartedAt = now
 		imp.ExpiresAt = now.Add(time.Hour)
 		id, err := c.InsertImpersonatedSession(ctx, session(username), request(username), dbtype.NewInsertImpersonation(imp))
 		if err != nil {

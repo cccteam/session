@@ -207,10 +207,8 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 		{
 			name: "success",
 			insertSession: &dbtype.InsertSession{
-				Username:  "testuser",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "testuser",
+				Expired:  false,
 			},
 			sourceURL: []string{"file://../../../schema/postgresql/migrations", "file://testdata/sessions_test/valid_sessions"},
 			preAssertions: []string{
@@ -223,10 +221,8 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 		{
 			name: "invalid schema",
 			insertSession: &dbtype.InsertSession{
-				Username:  "testuser",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "testuser",
+				Expired:  false,
 			},
 			sourceURL: []string{"file://testdata/sessions_test/invalid_schema"},
 			wantErr:   true,
@@ -1185,10 +1181,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "success inserting session with custom data",
 			insertSession: &dbtype.InsertSession{
-				Username:  "newuser",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "newuser",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1210,10 +1204,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "success inserting session with multiple custom data types",
 			insertSession: &dbtype.InsertSession{
-				Username:  "newuser_multi",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "newuser_multi",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1247,10 +1239,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "resolver receives the new session request",
 			insertSession: &dbtype.InsertSession{
-				Username:  "reason_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "reason_user",
+				Expired:  false,
 			},
 			req: sessioninfo.NewSessionRequest{
 				Reason:   sessioninfo.ReasonRegeneration,
@@ -1280,10 +1270,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "atomicity: custom data insert failure rolls back session insert",
 			insertSession: &dbtype.InsertSession{
-				Username:  "atomic_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "atomic_user",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1305,10 +1293,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "atomicity: resolver error aborts session insert",
 			insertSession: &dbtype.InsertSession{
-				Username:  "resolver_err_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "resolver_err_user",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1330,10 +1316,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "nil resolver degrades to plain insert without custom data row",
 			insertSession: &dbtype.InsertSession{
-				Username:  "plain_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "plain_user",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1353,10 +1337,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "resolver returning nil writes no custom data row",
 			insertSession: &dbtype.InsertSession{
-				Username:  "nilresolve_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "nilresolve_user",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
@@ -1379,10 +1361,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "per-call custom data written atomically and resolver skipped",
 			insertSession: &dbtype.InsertSession{
-				Username:  "percall_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "percall_user",
+				Expired:  false,
 			},
 			req: sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonExternalAuth,
@@ -1408,10 +1388,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "per-call custom data without config errors before insert",
 			insertSession: &dbtype.InsertSession{
-				Username:  "percall_noconfig_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "percall_noconfig_user",
+				Expired:  false,
 			},
 			req: sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonExternalAuth,
@@ -1430,10 +1408,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "per-call custom data of the wrong type errors before insert",
 			insertSession: &dbtype.InsertSession{
-				Username:  "percall_wrongtype_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "percall_wrongtype_user",
+				Expired:  false,
 			},
 			req: sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonExternalAuth,
@@ -1456,10 +1432,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "atomicity: per-call custom data with bad column rolls back session insert",
 			insertSession: &dbtype.InsertSession{
-				Username:  "percall_atomic_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "percall_atomic_user",
+				Expired:  false,
 			},
 			req: sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonExternalAuth,
@@ -1482,10 +1456,8 @@ func TestSessionStorageDriver_InsertSession_CustomData(t *testing.T) {
 		{
 			name: "success inserting session with custom column name matching base session column",
 			insertSession: &dbtype.InsertSession{
-				Username:  "collision_insert_user",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-				Expired:   false,
+				Username: "collision_insert_user",
+				Expired:  false,
 			},
 			req: newSessionRequest,
 			config: &CustomSessionDataConfig{
