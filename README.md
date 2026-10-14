@@ -43,6 +43,28 @@ deprecated with it). Which sets a group applies is in "Storage and schema" below
 db-initiator in one read-write transaction, so check that your migration runner
 executes DML on Spanner.
 
+**Time columns are the database's.** Every column that records when something happened
+(a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, an auth event's
+`OccurredAt`, an impersonation record's `StartedAt` and `EndedAt`, an identity link's
+`CreatedAt` and `LastUsedAt`, a pending sign-in's `CreatedAt` and `ConsumedAt`, the OIDC
+user anchor's `CreatedAt` and `UpdatedAt`) is written with the database's time, never
+the application's: Spanner's commit timestamp, PostgreSQL's transaction time (`now()`).
+A host clock that runs ahead of the database's therefore cannot be refused, and the
+rows one write stores carry one time. On Spanner the columns carry
+`allow_commit_timestamp = true`: the shipped sets mark them (a `CommitTimestamps`
+migration in each), and a table created by hand or named per group needs the same
+option before a v0.13 driver writes to it, since a write to a column without it fails:
+
+```sql
+ALTER TABLE Sessions ALTER COLUMN CreatedAt SET OPTIONS (allow_commit_timestamp = true);
+ALTER TABLE Sessions ALTER COLUMN UpdatedAt SET OPTIONS (allow_commit_timestamp = true);
+```
+
+A deadline (`ExpiresAt`) is the application's and is written as given. An auth event
+the application hands the library (`sessioninfo.AuthEvent`) carries a zero `At` when it
+happens now, and the database stamps it; an earlier event carries its time, stored as
+given.
+
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
 Earlier revisions of the DDL declared `timestamp without time zone`, which keeps the wall

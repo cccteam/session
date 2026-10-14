@@ -67,14 +67,13 @@ func TestSessionStorageDriver_LockUserIn(t *testing.T) {
 	// A session insert for the user is not held: its foreign key takes FOR KEY SHARE.
 	sessionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	now := time.Now()
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID}
-	if _, err := d.InsertSession(sessionCtx, &dbtype.InsertSession{Username: user.Username, CreatedAt: now, UpdatedAt: now}, req); err != nil {
+	if _, err := d.InsertSession(sessionCtx, &dbtype.InsertSession{Username: user.Username}, req); err != nil {
 		t.Fatalf("InsertSession() while a link decision holds the user error = %v, want it not held", err)
 	}
 
 	// The first links and commits; a link decision after it sees the link.
-	if _, err := d.LinkIdentityIn(ctx, first, user.ID, identity, "", now); err != nil {
+	if err := d.LinkIdentityIn(ctx, first, user.ID, identity, ""); err != nil {
 		t.Fatalf("LinkIdentityIn() error = %v", err)
 	}
 	if err := first.Commit(ctx); err != nil {
@@ -149,9 +148,8 @@ func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *
 	errs := make([]error, len(identities))
 	for i, identity := range identities {
 		wg.Go(func() {
-			now := time.Now()
 			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: identity.Email, Identity: identity}
-			_, errs[i] = signIn(ctx, &dbtype.InsertSession{Username: identity.Email, CreatedAt: now, UpdatedAt: now}, req)
+			_, errs[i] = signIn(ctx, &dbtype.InsertSession{Username: identity.Email}, req)
 		})
 	}
 	wg.Wait()

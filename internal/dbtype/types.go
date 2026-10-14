@@ -35,12 +35,11 @@ type SessionData struct {
 	AuthEvents            []sessioninfo.AuthEvent
 }
 
-// InsertSession defines the structure for inserting new session data into the database.
+// InsertSession is the caller-supplied part of a new session row. The driver writes
+// CreatedAt and UpdatedAt with the database's time at commit, never the application's.
 type InsertSession struct {
-	Username  string    `spanner:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"`
+	Username string `spanner:"Username"`
+	Expired  bool   `spanner:"Expired"`
 }
 
 // InsertOIDCSession defines the structure for inserting new OIDC session data into the database.

@@ -3,7 +3,6 @@ package sessionstorage
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -68,9 +67,7 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string, claims 
 	session := &dbtype.InsertOIDCSession{
 		OidcSID: oidcSID,
 		InsertSession: dbtype.InsertSession{
-			Username:  username,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			Username: username,
 		},
 	}
 

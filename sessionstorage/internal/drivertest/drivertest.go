@@ -81,8 +81,16 @@ type Harness struct {
 	RecordEnd func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) (endedAt *time.Time, endReason *string)
 	// ExpireSession marks the session row expired directly, bypassing the driver.
 	ExpireSession func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID)
+	// SetSessionUpdatedAt writes the session row's UpdatedAt directly, bypassing the
+	// driver, which never takes a time: a backdated one makes an idle session.
+	SetSessionUpdatedAt func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID, updatedAt time.Time)
 	// OIDCSid reads the session row's identity provider session ID directly.
 	OIDCSid func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) string
+	// ClockLead is how far the backend's clock may run ahead of the host's. Zero for a
+	// backend on the host's clock; the Spanner emulator dispenses strictly increasing
+	// microsecond timestamps, so under load its commit timestamps run ahead of real
+	// time by the calls it served (see timeWindow).
+	ClockLead time.Duration
 }
 
 // The rows the SeededImpersonation schema seeds. Every seeded record is past its hard

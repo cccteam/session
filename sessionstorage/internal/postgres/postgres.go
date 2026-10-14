@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
@@ -257,16 +256,16 @@ func (s *SessionStorageDriver) typedScanDests(baseDests []any, sessData *dbtype.
 	return dests, impScan, nil
 }
 
-// UpdateSessionActivity updates the session activity column with the current time
+// UpdateSessionActivity moves the session's UpdatedAt to the database's time.
 func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE %s SET "UpdatedAt" = $1
-		WHERE "Id" = $2`, s.sessionTable())
+		UPDATE %s SET "UpdatedAt" = now()
+		WHERE "Id" = $1`, s.sessionTable())
 
-	res, err := s.conn.Exec(ctx, query, time.Now(), sessionID)
+	res, err := s.conn.Exec(ctx, query, sessionID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to update Sessions table for ID: %s", sessionID)
 	}
@@ -294,7 +293,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 
 	query, args := s.sessionInsertStatement(id, insertSession, req)
 
-	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, nil, insertSession.CreatedAt, nil)); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, nil, nil)); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -371,24 +370,23 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	// A session that does not exist updates no row and is not an error: a browser can
 	// return with old state, and refusing it would be noise.
 	expireSession := fmt.Sprintf(`
-		UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2
+		UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = now()
 		WHERE "Id" = $1`, s.sessionTable())
-	now := time.Now()
 
 	if s.impersonation == nil {
-		if _, err := s.conn.Exec(ctx, expireSession, sessionID, now); err != nil {
+		if _, err := s.conn.Exec(ctx, expireSession, sessionID); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
 
 		return nil
 	}
 
-	// The row and its impersonation record, if any, end together: a live record on
-	// an expired row would misreport the end, and an ended record on a live row must
-	// never exist.
+	// The row and its impersonation record, if any, end together, at the one
+	// transaction time: a live record on an expired row would misreport the end, and
+	// an ended record on a live row must never exist.
 	endRecord := fmt.Sprintf(`
 		UPDATE %s
-		SET "EndedAt" = $2, "EndReason" = $3
+		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 
 	txn, err := s.conn.Begin(ctx)
@@ -399,10 +397,10 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 		_ = txn.Rollback(ctx)
 	}()
 
-	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
+	if _, err := txn.Exec(ctx, expireSession, sessionID); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecord, sessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
+	if _, err := txn.Exec(ctx, endRecord, sessionID, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -585,10 +583,10 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	// A live role-principal impersonation by a foreign actor carrying this name belongs to
 	// that actor, not to the renamed user, and keeps the name its record names.
 	sessionQuery := fmt.Sprintf(`
-		UPDATE %s s SET "Username" = $2, "UpdatedAt" = $3
+		UPDATE %s s SET "Username" = $2, "UpdatedAt" = now()
 		WHERE s."Username" = $1 AND s."Expired" = FALSE AND NOT %s`, s.sessionTable(), s.foreignRolePrincipalRecord())
 
-	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername, time.Now()); err != nil {
+	if _, err := tx.Exec(ctx, sessionQuery, oldUsername, newUsername); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -717,9 +715,9 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	if s.impersonation == nil {
 		query := fmt.Sprintf(`
 			UPDATE %s
-			SET "Expired" = TRUE, "UpdatedAt" = $2
+			SET "Expired" = TRUE, "UpdatedAt" = now()
 			WHERE "Username" = $1`, s.sessionTable())
-		if _, err := s.conn.Exec(ctx, query, username, time.Now()); err != nil {
+		if _, err := s.conn.Exec(ctx, query, username); err != nil {
 			return errors.Wrap(err, "Queryer.Exec()")
 		}
 
@@ -732,13 +730,13 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	// this user holds as a local actor under other names go too.
 	query := fmt.Sprintf(`
 		UPDATE %s s
-		SET "Expired" = TRUE, "UpdatedAt" = $2
+		SET "Expired" = TRUE, "UpdatedAt" = now()
 		WHERE (s."Username" = $1 AND NOT %s) OR %s`, s.sessionTable(), s.foreignRolePrincipalRecord(), s.heldByLocalActor())
 
 	// The live impersonation records of those sessions end with them, as Revoked.
 	endRecords := fmt.Sprintf(`
 		UPDATE %s i
-		SET "EndedAt" = $2, "EndReason" = $3
+		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE i."EndedAt" IS NULL AND (
 			(EXISTS (SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."Username" = $1)
 				AND NOT (i."PrincipalKind" = '%s' AND i."ActorRealm" IS NOT NULL))
@@ -754,11 +752,10 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	}()
 
 	// Sessions first: the expiry predicate reads the records while they are still live.
-	now := time.Now()
-	if _, err := txn.Exec(ctx, query, username, now); err != nil {
+	if _, err := txn.Exec(ctx, query, username); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecords, username, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, endRecords, username, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 

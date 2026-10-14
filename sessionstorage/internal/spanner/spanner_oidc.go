@@ -3,6 +3,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -28,9 +29,13 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertOIDCSession
+		CreatedAt time.Time `spanner:"CreatedAt"`
+		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:                id,
 		InsertOIDCSession: insertSession,
+		CreatedAt:         spanner.CommitTimestamp,
+		UpdatedAt:         spanner.CommitTimestamp,
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, session)
@@ -112,7 +117,7 @@ func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(_ context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %[1]s
-			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE NOT Expired AND Username = (
 				SELECT Username
 				FROM %[1]s

@@ -78,7 +78,8 @@ func (s *SessionStorageDriver) pendingTable() string {
 	return pgx.Identifier{s.pendingTableName}.Sanitize()
 }
 
-// InsertPendingSignIn inserts p.
+// InsertPendingSignIn inserts p, created at the database's time and not consumed,
+// whatever p carries.
 func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -92,13 +93,12 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 		userID = &p.UserID.UUID
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21, NULL)`,
 		s.pendingTable(), pendingColumns)
 	if _, err := s.conn.Exec(ctx, query,
 		p.ID, p.TokenHash, string(p.Step), p.Registration, string(p.Identity.Method), p.Identity.Connection, p.Identity.Subject,
 		p.Identity.Email, p.Identity.EmailVerified, p.Identity.IDPAMR, []byte(p.Identity.Claims), userID, p.Username, p.Tenant,
-		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), dbtype.OptionalString(p.ProviderSessionIssuer),
-		p.CreatedAt, p.ExpiresAt, p.ConsumedAt,
+		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), dbtype.OptionalString(p.ProviderSessionIssuer), p.ExpiresAt,
 	); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
@@ -125,15 +125,15 @@ func (s *SessionStorageDriver) PendingSignInByToken(ctx context.Context, tokenHa
 	return rows[0].pending()
 }
 
-// ConsumePendingSignIn marks the pending sign-in holding tokenHash consumed at now when
-// it is live. A pending sign-in that is not live, because it was consumed, has expired
-// or does not exist, is NotFound: the update is conditional, so a pending sign-in is
-// consumed once.
+// ConsumePendingSignIn marks the pending sign-in holding tokenHash consumed, at the
+// database's time, when it is live at now. A pending sign-in that is not live, because
+// it was consumed, has expired or does not exist, is NotFound: the update is
+// conditional, so a pending sign-in is consumed once.
 func (s *SessionStorageDriver) ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = $2 WHERE "TokenHash" = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.pendingTable())
+	query := fmt.Sprintf(`UPDATE %s SET "ConsumedAt" = now() WHERE "TokenHash" = $1 AND "ConsumedAt" IS NULL AND "ExpiresAt" > $2`, s.pendingTable())
 	tag, err := s.conn.Exec(ctx, query, tokenHash, now)
 	if err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")

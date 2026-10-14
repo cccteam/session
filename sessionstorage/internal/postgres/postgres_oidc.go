@@ -28,9 +28,9 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 		INSERT INTO %s
 			("Id", "OidcSid", "Username", "CreatedAt", "UpdatedAt", "Expired")
 		VALUES
-			($1, $2, $3, $4, $5, $6)
+			($1, $2, $3, now(), now(), $4)
 		`, s.sessionTable())
-	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.Expired}
 
 	if err := s.execSessionInsertOIDC(ctx, id, query, args, req); err != nil {
 		return ccc.NilUUID, err
@@ -101,7 +101,7 @@ func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE %[1]s SET "Expired" = TRUE
+		UPDATE %[1]s SET "Expired" = TRUE, "UpdatedAt" = now()
 		WHERE NOT "Expired" AND "Username" = (
 			SELECT "Username"
 			FROM %[1]s

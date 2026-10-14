@@ -150,7 +150,6 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 							PrincipalKind: dbtype.PrincipalKindUser,
 							PrincipalUser: strPtr("bob"),
 							Mask:          strPtr("List,Read"),
-							StartedAt:     started,
 							ExpiresAt:     expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
@@ -220,7 +219,6 @@ func TestOIDC_CreateImpersonatedSession(t *testing.T) {
 							ActorUsername: "alice",
 							PrincipalKind: dbtype.PrincipalKindRole,
 							PrincipalRole: strPtr("Editor"),
-							StartedAt:     started,
 							ExpiresAt:     expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {

@@ -45,14 +45,34 @@ func (s *SessionStorageDriver) AuthEventsEnabled() bool {
 	return s.authEvents != nil
 }
 
-// sessionInsertMutation renders the insert of a non-OIDC session row. With the
-// user columns enabled it also writes UserId and AuthenticatedAt.
+// The session row's "when" columns are commit timestamps: every write sets them to
+// spanner.CommitTimestamp (a mutation) or PENDING_COMMIT_TIMESTAMP() (DML), and Spanner
+// stamps the row with the commit time. The application clock never reaches them, so a
+// clock that runs ahead of Spanner's cannot be refused as a timestamp in the future.
+// The columns must carry allow_commit_timestamp = true (schema/spanner).
+
+// commitTime renders a "when" value: t as given, or the commit timestamp when t is
+// zero, so the database stamps the row with its own time.
+func commitTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return spanner.CommitTimestamp
+	}
+
+	return t
+}
+
+// sessionInsertMutation renders the insert of a non-OIDC session row, created and
+// updated at the commit time. With the user columns enabled it also writes UserId,
+// AuthenticatedAt (the commit time, or null for a preauth session) and
+// ProviderSessionId.
 func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (*spanner.Mutation, error) {
 	if !s.users {
 		mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
 			ID ccc.UUID
 			*dbtype.InsertSession
-		}{ID: id, InsertSession: insertSession})
+			CreatedAt time.Time `spanner:"CreatedAt"`
+			UpdatedAt time.Time `spanner:"UpdatedAt"`
+		}{ID: id, InsertSession: insertSession, CreatedAt: spanner.CommitTimestamp, UpdatedAt: spanner.CommitTimestamp})
 		if err != nil {
 			return nil, errors.Wrap(err, "spanner.InsertStruct()")
 		}
@@ -60,10 +80,10 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 		return mutation, nil
 	}
 
-	user := dbtype.NewSessionUserColumns(req, insertSession.CreatedAt)
+	user := dbtype.NewSessionUserColumns(req)
 	var authenticatedAt spanner.NullTime
-	if user.AuthenticatedAt != nil {
-		authenticatedAt = spanner.NullTime{Time: *user.AuthenticatedAt, Valid: true}
+	if user.Authenticated {
+		authenticatedAt = spanner.NullTime{Time: spanner.CommitTimestamp, Valid: true}
 	}
 
 	var providerSessionID, providerSessionIssuer spanner.NullString
@@ -77,12 +97,15 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession
+		CreatedAt             time.Time          `spanner:"CreatedAt"`
+		UpdatedAt             time.Time          `spanner:"UpdatedAt"`
 		UserID                ccc.NullUUID       `spanner:"UserId"`
 		AuthenticatedAt       spanner.NullTime   `spanner:"AuthenticatedAt"`
 		ProviderSessionID     spanner.NullString `spanner:"ProviderSessionId"`
 		ProviderSessionIssuer spanner.NullString `spanner:"ProviderSessionIssuer"`
 	}{
-		ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt,
+		ID: id, InsertSession: insertSession, CreatedAt: spanner.CommitTimestamp, UpdatedAt: spanner.CommitTimestamp,
+		UserID: user.UserID, AuthenticatedAt: authenticatedAt,
 		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer,
 	})
 	if err != nil {
@@ -95,11 +118,11 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 // initialAuthEventMutations renders the inserts of the new session's auth events
 // (dbtype.InitialAuthEvents), numbered from 1. Without an auth events table it renders
 // none.
-func (s *SessionStorageDriver) initialAuthEventMutations(id ccc.UUID, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation, at time.Time) []*spanner.Mutation {
+func (s *SessionStorageDriver) initialAuthEventMutations(id ccc.UUID, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) []*spanner.Mutation {
 	if s.authEvents == nil {
 		return nil
 	}
-	events := dbtype.InitialAuthEvents(req, imp, at)
+	events := dbtype.InitialAuthEvents(req, imp)
 
 	mutations := make([]*spanner.Mutation, 0, len(events))
 	for i := range events {
@@ -109,7 +132,8 @@ func (s *SessionStorageDriver) initialAuthEventMutations(id ccc.UUID, req *sessi
 	return mutations
 }
 
-// authEventMutation renders the insert of one auth event row.
+// authEventMutation renders the insert of one auth event row. An event with a zero At
+// occurred at the commit time.
 func (s *SessionStorageDriver) authEventMutation(sessionID ccc.UUID, seq int64, event *sessioninfo.AuthEvent) *spanner.Mutation {
 	var connection spanner.NullString
 	if event.Connection != "" {
@@ -122,7 +146,7 @@ func (s *SessionStorageDriver) authEventMutation(sessionID ccc.UUID, seq int64, 
 		"Method":               string(event.Method),
 		"Connection":           connection,
 		"IdpAmr":               event.IDPAMR,
-		"OccurredAt":           event.At,
+		"OccurredAt":           commitTime(event.At),
 	})
 }
 
@@ -188,26 +212,26 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 		return errors.New("DestroySessionsByProviderSessionID needs the auth schema: use Auth storage")
 	}
 
-	now := time.Now()
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		// The records end first: their statement reads the session table, which the
+		// expiry then writes with the commit timestamp.
 		if s.impersonation != nil {
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s
-				SET EndedAt = @now, EndReason = @reason
+				SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 				WHERE EndedAt IS NULL AND SessionId IN (SELECT Id FROM %s WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer = @iss)`,
 				s.impersonation.TableName, s.sessionTableName))
 			endRecords.Params["sid"] = providerSessionID
 			endRecords.Params["iss"] = issuer
-			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 			}
 		}
-		expire := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = @now WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer = @iss`, s.sessionTableName))
+		expire := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
+			WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer = @iss`, s.sessionTableName))
 		expire.Params["sid"] = providerSessionID
 		expire.Params["iss"] = issuer
-		expire.Params["now"] = now
 		if _, err := txn.Update(ctx, expire); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}

@@ -63,7 +63,11 @@ type AuthEvent struct {
 	Method     AuthMethod
 	Connection string
 	IDPAMR     []string
-	At         time.Time
+	// At is when the event happened. On an event given to the library, zero means the
+	// time the database records it, which is the one to use unless the event happened
+	// earlier; a time that is set is stored as given and must not be later than the
+	// database's clock. On an event read back it is as stored.
+	At time.Time
 }
 
 // PendingReason says why a verified identity is waiting instead of becoming a session.

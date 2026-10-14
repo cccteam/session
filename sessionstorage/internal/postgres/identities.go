@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -91,10 +90,10 @@ func (s *SessionStorageDriver) lookupIdentity(ctx context.Context, q pgxscan.Que
 	return identities[0], nil
 }
 
-// TouchIdentityIn moves the link's LastUsedAt to now inside tx.
-func (s *SessionStorageDriver) TouchIdentityIn(ctx context.Context, tx pgx.Tx, linkID ccc.UUID, now time.Time) error {
-	touch := fmt.Sprintf(`UPDATE %s SET "LastUsedAt" = $2 WHERE "Id" = $1`, s.identitiesTable())
-	if _, err := tx.Exec(ctx, touch, linkID, now); err != nil {
+// TouchIdentityIn moves the link's LastUsedAt to the database's time inside tx.
+func (s *SessionStorageDriver) TouchIdentityIn(ctx context.Context, tx pgx.Tx, linkID ccc.UUID) error {
+	touch := fmt.Sprintf(`UPDATE %s SET "LastUsedAt" = now() WHERE "Id" = $1`, s.identitiesTable())
+	if _, err := tx.Exec(ctx, touch, linkID); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -102,17 +101,20 @@ func (s *SessionStorageDriver) TouchIdentityIn(ctx context.Context, tx pgx.Tx, l
 }
 
 // LinkIdentityIn writes a new link of identity to userID inside tx.
-func (s *SessionStorageDriver) LinkIdentityIn(
-	ctx context.Context, tx pgx.Tx, userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time,
-) (*dbtype.SessionIdentity, error) {
-	return s.insertLink(ctx, tx, userID, identity, tenant, now)
+func (s *SessionStorageDriver) LinkIdentityIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) error {
+	if _, err := s.insertLink(ctx, tx, userID, identity, tenant); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-// insertLink writes a new link of identity to userID through q.
+// insertLink writes a new link of identity to userID through q, created and last used
+// at the database's time, and returns it with those times.
 func (s *SessionStorageDriver) insertLink(
 	ctx context.Context, q interface {
-		Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	}, userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time,
+		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	}, userID ccc.UUID, identity *sessioninfo.Identity, tenant string,
 ) (*dbtype.SessionIdentity, error) {
 	if !dbtype.IsExternal(identity) || identity.Subject == "" {
 		return nil, httpio.NewBadRequestMessage("only an external identity with a subject can be linked")
@@ -124,12 +126,13 @@ func (s *SessionStorageDriver) insertLink(
 	}
 	link := &dbtype.SessionIdentity{
 		ID: id, UserID: userID, Method: identity.Method, Connection: identity.Connection, Subject: identity.Subject,
-		Tenant: dbtype.OptionalString(tenant), EmailAtLink: dbtype.OptionalString(identity.Email), CreatedAt: now, LastUsedAt: now,
+		Tenant: dbtype.OptionalString(tenant), EmailAtLink: dbtype.OptionalString(identity.Email),
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, s.identitiesTable(), identityColumns)
-	if _, err := q.Exec(ctx, query, link.ID, link.UserID, string(link.Method), link.Connection, link.Subject, link.Tenant, link.EmailAtLink, now, now); err != nil {
-		return nil, errors.Wrap(err, "Exec()")
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now()) RETURNING "CreatedAt", "LastUsedAt"`, s.identitiesTable(), identityColumns)
+	err = q.QueryRow(ctx, query, link.ID, link.UserID, string(link.Method), link.Connection, link.Subject, link.Tenant, link.EmailAtLink).Scan(&link.CreatedAt, &link.LastUsedAt)
+	if err != nil {
+		return nil, errors.Wrap(err, "QueryRow().Scan()")
 	}
 
 	return link, nil
@@ -203,7 +206,7 @@ func (s *SessionStorageDriver) InsertSessionIn(ctx context.Context, tx pgx.Tx, i
 	if _, err := tx.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if insertEvent := s.initialAuthEvent(id, req, nil, row.CreatedAt, nil); insertEvent != nil {
+	if insertEvent := s.initialAuthEvent(id, req, nil, nil); insertEvent != nil {
 		if err := insertEvent(ctx, tx); err != nil {
 			return err
 		}
@@ -272,7 +275,7 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID ccc.UUID
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	link, err := s.insertLink(ctx, s.conn, userID, identity, tenant, time.Now())
+	link, err := s.insertLink(ctx, s.conn, userID, identity, tenant)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
@@ -355,10 +358,9 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 		_ = txn.Rollback(ctx)
 	}()
 
-	now := time.Now()
 	if s.impersonation == nil {
-		expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "UserId" = $1`, s.sessionTable())
-		if _, err := txn.Exec(ctx, expire, userID, now); err != nil {
+		expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = now() WHERE "Expired" = FALSE AND "UserId" = $1`, s.sessionTable())
+		if _, err := txn.Exec(ctx, expire, userID); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	} else {
@@ -371,19 +373,19 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 
 		// Sessions first: the expiry predicate reads the records while they are still live.
 		expire := fmt.Sprintf(`
-			UPDATE %s s SET "Expired" = TRUE, "UpdatedAt" = $3
+			UPDATE %s s SET "Expired" = TRUE, "UpdatedAt" = now()
 			WHERE s."Expired" = FALSE AND (s."UserId" = $2 OR %s)`, s.sessionTable(), s.heldByLocalActor())
-		if _, err := txn.Exec(ctx, expire, username, userID, now); err != nil {
+		if _, err := txn.Exec(ctx, expire, username, userID); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 
 		endRecords := fmt.Sprintf(`
-			UPDATE %s i SET "EndedAt" = $3, "EndReason" = $4
+			UPDATE %s i SET "EndedAt" = now(), "EndReason" = $3
 			WHERE i."EndedAt" IS NULL AND (
 				EXISTS (SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."UserId" = $2)
 				OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
 			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
-		if _, err := txn.Exec(ctx, endRecords, username, userID, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+		if _, err := txn.Exec(ctx, endRecords, username, userID, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	}
@@ -397,7 +399,7 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID c
 
 // AppendAuthEvent records a step-up or confirmation on a live session, after its
 // earlier events, and moves the session's AuthenticatedAt to the event's time. A zero
-// event time is now.
+// event time is the database's time.
 func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -407,9 +409,6 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 	}
 	if event.Method == "" {
 		return httpio.NewBadRequestMessage("an auth event needs a method")
-	}
-	if event.At.IsZero() {
-		event.At = time.Now()
 	}
 
 	txn, err := s.conn.Begin(ctx)
@@ -442,7 +441,7 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID cc
 		return err
 	}
 	if s.users {
-		if _, err := txn.Exec(ctx, fmt.Sprintf(`UPDATE %s SET "AuthenticatedAt" = $2 WHERE "Id" = $1`, s.sessionTable()), sessionID, event.At); err != nil {
+		if _, err := txn.Exec(ctx, fmt.Sprintf(`UPDATE %s SET "AuthenticatedAt" = COALESCE($2, now()) WHERE "Id" = $1`, s.sessionTable()), sessionID, optionalTime(event.At)); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	}
