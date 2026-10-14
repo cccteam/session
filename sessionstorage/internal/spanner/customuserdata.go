@@ -313,7 +313,7 @@ func (s *SessionStorageDriver) upsertGoogleOIDCUser(ctx context.Context, txn *sp
 	iter := txn.Query(ctx, stmt)
 	defer iter.Stop()
 
-	now := time.Now()
+	now := s.now()
 
 	row, err := iter.Next()
 	if err != nil {
@@ -392,7 +392,7 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn *spanner.
 	iter := txn.Query(ctx, stmt)
 	defer iter.Stop()
 
-	now := time.Now()
+	now := s.now()
 
 	row, err := iter.Next()
 	if err != nil {

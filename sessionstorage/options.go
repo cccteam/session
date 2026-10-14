@@ -103,3 +103,18 @@ func (oidcUsersOption) applyPostgres(driver *postgres.SessionStorageDriver) { dr
 func WithOIDCUsers() Option {
 	return oidcUsersOption{}
 }
+
+type spannerCommitTimestampsOption struct{}
+
+func (spannerCommitTimestampsOption) applySpanner(driver *spanner.SessionStorageDriver) {
+	driver.EnableCommitTimestamps()
+}
+
+// WithSpannerCommitTimestamps makes Spanner-backed storage write the session table's
+// CreatedAt and UpdatedAt as the commit timestamp rather than the application's clock.
+// Both columns must set allow_commit_timestamp = true. Spanner refuses a value later
+// than its own clock in such a column, so application-clock writes fail whenever the
+// application's clock runs ahead of Spanner's, as it can against a local emulator.
+func WithSpannerCommitTimestamps() SpannerOption {
+	return spannerCommitTimestampsOption{}
+}

@@ -50,6 +50,16 @@ ALTER TABLE "Sessions"
     ALTER COLUMN "UpdatedAt" TYPE timestamptz USING "UpdatedAt" AT TIME ZONE 'UTC';
 ```
 
+**Spanner session timestamps can come from Spanner.** If the session table's `CreatedAt`
+and `UpdatedAt` set `allow_commit_timestamp = true`, Spanner refuses any value later than
+its own clock. The application's clock can run ahead of it, for example against a local
+emulator in a busy Docker VM, and session writes then fail. Pass
+`sessionstorage.WithSpannerCommitTimestamps()` to the Spanner constructor so session
+inserts and activity updates write the commit timestamp. Statements that update existing
+sessions always take the time from Spanner with `CURRENT_TIMESTAMP()`, with or without
+the option. The shipped DDL does not set `allow_commit_timestamp`, so leave the option off
+unless your schema sets it.
+
 ## OIDC role synchronization
 
 Role synchronization reconciles a user's application roles to the identity provider's

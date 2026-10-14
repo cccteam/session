@@ -29,6 +29,7 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	s.stampSession(&insertSession.InsertSession)
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertOIDCSession
@@ -65,6 +66,7 @@ func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, inse
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	s.stampSession(insertSession)
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession

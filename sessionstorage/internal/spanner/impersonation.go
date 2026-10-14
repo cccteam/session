@@ -132,6 +132,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	s.stampSession(insertSession)
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession
@@ -176,6 +177,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	s.stampSession(&insertSession.InsertSession)
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertOIDCSession
@@ -238,7 +240,7 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID c
 			WHERE SessionId = @id AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 	stmt.Params["id"] = sessionID
-	stmt.Params["endedAt"] = time.Now()
+	stmt.Params["endedAt"] = s.now()
 	stmt.Params["reason"] = reason
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -266,17 +268,16 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		return errors.New("impersonation is not configured on the storage")
 	}
 
-	now := time.Now()
+	now := s.now()
 
 	expireSessions := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
 			WHERE Id IN (
 				SELECT SessionId FROM %s WHERE ActorUsername = @actor AND EndedAt IS NULL
 			)
 	`, s.sessionTableName, s.impersonation.TableName))
 	expireSessions.Params["actor"] = actor
-	expireSessions.Params["now"] = now
 
 	endRecords := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
@@ -312,17 +313,16 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		return errors.New("impersonation is not configured on the storage")
 	}
 
-	now := time.Now()
+	now := s.now()
 
 	expireSession := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
 			WHERE Id = @id AND Id IN (
 				SELECT SessionId FROM %s WHERE SessionId = @id AND EndedAt IS NULL
 			)
 	`, s.sessionTableName, s.impersonation.TableName))
 	expireSession.Params["id"] = sessionID
-	expireSession.Params["now"] = now
 
 	endRecord := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
@@ -384,7 +384,7 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 		fmt.Fprintf(&columns, ", i.%s", col)
 	}
 
-	params := map[string]any{"now": time.Now(), "activeSince": activeSince}
+	params := map[string]any{"now": s.now(), "activeSince": activeSince}
 	var filters strings.Builder
 	if q.Actor != "" {
 		params["actor"] = q.Actor

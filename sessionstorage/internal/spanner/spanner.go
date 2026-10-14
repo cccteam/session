@@ -35,6 +35,9 @@ type SessionStorageDriver struct {
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
+	commitTimestamps  bool
+	// now is the application clock; tests replace it to run the clock ahead of Spanner's.
+	now func() time.Time
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -47,6 +50,7 @@ func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 		sessionTableName:  "Sessions",
 		userTableName:     "SessionUsers",
 		oidcUserTableName: "OIDCUsers",
+		now:               time.Now,
 	}
 }
 
@@ -60,6 +64,7 @@ func NewGoogleSessionStorageDriver(client *spanner.Client) *SessionStorageDriver
 		userTableName:     "SessionUsers",
 		oidcUserTableName: "GoogleOIDCUsers",
 		googleOIDC:        true,
+		now:               time.Now,
 	}
 }
 
@@ -71,6 +76,22 @@ func (s *SessionStorageDriver) SetSessionTableName(name string) {
 // SetUserTableName sets the name of the user table.
 func (s *SessionStorageDriver) SetUserTableName(name string) {
 	s.userTableName = name
+}
+
+// EnableCommitTimestamps makes session-table mutations write CreatedAt and UpdatedAt
+// as the Spanner commit timestamp instead of the application clock. The columns must
+// set allow_commit_timestamp = true.
+func (s *SessionStorageDriver) EnableCommitTimestamps() {
+	s.commitTimestamps = true
+}
+
+// stampSession replaces the session's application-clock timestamps with the commit
+// timestamp when commit timestamps are enabled.
+func (s *SessionStorageDriver) stampSession(session *dbtype.InsertSession) {
+	if s.commitTimestamps {
+		session.CreatedAt = spanner.CommitTimestamp
+		session.UpdatedAt = spanner.CommitTimestamp
+	}
 }
 
 // Session returns the session information from the database for given sessionID
@@ -188,7 +209,10 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:        sessionID,
-		UpdatedAt: time.Now(),
+		UpdatedAt: s.now(),
+	}
+	if s.commitTimestamps {
+		sessionUpdate.UpdatedAt = spanner.CommitTimestamp
 	}
 
 	mutation, err := spanner.UpdateStruct(s.sessionTableName, sessionUpdate)
@@ -221,6 +245,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
+	s.stampSession(insertSession)
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession
@@ -336,17 +361,16 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
+	now := s.now()
 
 	// A session that does not exist updates no row and is not an error: a browser can
 	// return with old state, and refusing it would be noise.
 	expireSession := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
 			WHERE Id = @id
 	`, s.sessionTableName))
 	expireSession.Params["id"] = sessionID
-	expireSession.Params["now"] = now
 	statements := []spanner.Statement{expireSession}
 
 	// The row and its impersonation record, if any, end together: a live record on
@@ -522,12 +546,11 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		// to that actor, not to the renamed account, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
-				SET Username = @newUsername, UpdatedAt = @updatedAt
+				SET Username = @newUsername, UpdatedAt = CURRENT_TIMESTAMP()
 				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
 		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
-		sessionsStmt.Params["updatedAt"] = time.Now()
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -684,19 +707,16 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
-
 	// Every session under the name is this user's — their own, a user-principal
 	// impersonation of them, a role-principal session they hold as a local actor — except
 	// a foreign actor's role-principal session, which only borrows the name. The sessions
 	// this user holds as a local actor under other names go too.
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s s
-			SET Expired = TRUE, UpdatedAt = @updatedAt
+			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
 			WHERE (s.Username = @username AND NOT %s) OR %s
 	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
 	stmt.Params["username"] = username
-	stmt.Params["updatedAt"] = now
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		// Sessions first: the expiry predicate reads the records while they are still live.
@@ -715,7 +735,7 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 						OR (ActorUsername = @username AND ActorRealm IS NULL))
 			`, s.impersonation.TableName, s.sessionTableName, dbtype.PrincipalKindRole))
 			endRecords.Params["username"] = username
-			endRecords.Params["now"] = now
+			endRecords.Params["now"] = s.now()
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
