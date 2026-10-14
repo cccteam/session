@@ -396,12 +396,18 @@ func (f *fakeWorkOS) token(w http.ResponseWriter, r *http.Request) {
 // issue registers a profile of the Lakeside connection for a new code and returns the
 // code.
 func (f *fakeWorkOS) issue(idpID, email string) string {
+	return f.issueFrom(lakesideConnection, idpID, email)
+}
+
+// issueFrom registers a profile of connection for a new code and returns the code: what
+// another organisation's identity provider would assert, email included.
+func (f *fakeWorkOS) issueFrom(connection, idpID, email string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	code := "code_" + ccc.Must(ccc.NewUUID()).String()
 	f.profiles[code] = map[string]any{
-		"id": "prof_" + idpID, "idp_id": idpID, "connection_id": lakesideConnection, "connection_type": "GenericSAML",
+		"id": "prof_" + idpID, "idp_id": idpID, "connection_id": connection, "connection_type": "GenericSAML",
 		"organization_id": "org_lakeside", "email": email, "first_name": "Pat", "last_name": "Lee",
 		"raw_attributes": map[string]any{"eduPersonPrincipalName": email},
 	}
@@ -444,13 +450,21 @@ func (b *browser) location(ctx context.Context, path string) *url.URL {
 func (b *browser) workOSSignIn(ctx context.Context, idp *fakeWorkOS, returnURL, idpID, email string) *url.URL {
 	b.t.Helper()
 
+	return b.workOSSignInFrom(ctx, idp, returnURL, lakesideConnection, idpID, email)
+}
+
+// workOSSignInFrom runs a WorkOS round trip for the upstream identity idpID that
+// connection asserts, and returns where the callback sent the browser.
+func (b *browser) workOSSignInFrom(ctx context.Context, idp *fakeWorkOS, returnURL, connection, idpID, email string) *url.URL {
+	b.t.Helper()
+
 	authorize := b.location(ctx, "/sso/login?organization=org_lakeside&returnUrl="+url.QueryEscape(returnURL))
 	q := authorize.Query()
 	if authorize.Path != "/sso/authorize" || q.Get("organization") != "org_lakeside" || q.Get("client_id") != workosClientID || q.Get("state") == "" {
 		b.t.Fatalf("authorization URL = %s, want /sso/authorize for org_lakeside with a state", authorize)
 	}
 
-	code := idp.issue(idpID, email)
+	code := idp.issueFrom(connection, idpID, email)
 
 	return b.location(ctx, "/sso/callback?code="+url.QueryEscape(code)+"&state="+url.QueryEscape(q.Get("state")))
 }
@@ -564,6 +578,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a WorkOS identity for a user with a password waits for that password, then links, reports the link and signs in",
 			run:  seamWorkOSConfirmWithPassword[Tx],
+		},
+		{
+			name: "an untrusted link of another connection's identity to a password-less user is refused with identity_rejected, and a trusted one links",
+			run:  seamWorkOSCrossConnectionLink[Tx],
 		},
 		{
 			name: "a policy that requires MFA holds the password sign-in, and the application's MFA step completes it under a new session ID",
@@ -960,6 +978,46 @@ func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *
 
 	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+}
+
+// seamWorkOSCrossConnectionLink: sam signs in through Lakeside and is provisioned
+// without a password. A resolver that matches by email then links the identity another
+// connection asserts for sam's email: refused, since sam has no password to confirm
+// with, unless the resolver vouches with trusted.
+func seamWorkOSCrossConnectionLink[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
+	t.Helper()
+
+	a.hooks.set(func(h *hooks[Tx]) { h.resolveTx = a.provisionMember })
+	first := a.browser(t)
+	first.prime(ctx)
+	assertRedirect(t, first.workOSSignIn(ctx, idp, "/home", "idp_sam", "sam@lakeside.edu"), "/home", url.Values{})
+	sam, err := ccc.UUIDFromString(first.view(ctx).UserID)
+	if err != nil {
+		t.Fatalf("ccc.UUIDFromString() error = %v", err)
+	}
+
+	trusted := false
+	a.hooks.set(func(h *hooks[Tx]) {
+		h.resolveTx = func(context.Context, Tx, *workos.Identity) (*signin.Resolution, error) {
+			return signin.Link(sam, trusted), nil
+		}
+	})
+	other := a.browser(t)
+	other.prime(ctx)
+	assertRedirect(t, other.workOSSignInFrom(ctx, idp, "/home", "conn_riverside", "idp_mallory", "sam@lakeside.edu"), "/login", url.Values{"code": {"identity_rejected"}})
+	other.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if links, err := a.api.Identities(ctx, sam); err != nil || len(links) != 1 {
+		t.Fatalf("Identities() = %d links, %v; want the Lakeside one only", len(links), err)
+	}
+
+	trusted = true
+	assertRedirect(t, other.workOSSignInFrom(ctx, idp, "/home", "conn_riverside", "idp_mallory", "sam@lakeside.edu"), "/home", url.Values{})
+	if v := other.view(ctx); v.UserID != sam.String() {
+		t.Errorf("trusted cross-connection session = %+v, want user %s", v, sam)
+	}
+	if links, err := a.api.Identities(ctx, sam); err != nil || len(links) != 2 {
+		t.Errorf("Identities() = %d links, %v; want the trusted link added", len(links), err)
+	}
 }
 
 func seamCustomData[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {

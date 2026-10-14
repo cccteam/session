@@ -952,6 +952,16 @@ func TestAuth_AzureCallback(t *testing.T) {
 			},
 			wantLocation: "/login?code=identity_rejected",
 		},
+		{
+			name:   "a link the store refuses across connections sends identity_rejected to the login page",
+			claims: claims,
+			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link")
+				})
+			},
+			wantLocation: "/login?code=identity_rejected",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

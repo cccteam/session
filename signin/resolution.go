@@ -93,10 +93,12 @@ func Reject(code sessioninfo.LoginRefusalCode) *Resolution {
 // password is refused (ErrLinkRequiresConfirmation) unless trusted is set, which is
 // right only for an enterprise connection on a domain the tenant has verified; use
 // Confirm for such a user otherwise. A user without a password (one an external
-// sign-in provisioned) is linked at once, since no confirmation can be asked of them:
-// for such a user the resolver's own evidence is the only check, so never choose
-// userID by an email address or another claim the identity's provider does not
-// verify, unless the connection itself is one the application trusts.
+// sign-in provisioned) cannot confirm, so the resolver's own evidence is the only
+// check: an untrusted link of an identity from another connection than the ones such
+// a user already signs in through is refused (ErrLinkCrossConnection); the same
+// connection, or a user with no identity yet, links. Never choose userID by an email
+// address or another claim the identity's provider does not verify, unless the
+// connection itself is one the application trusts, and then say so with trusted.
 func Link(userID ccc.UUID, trusted bool, opts ...ResolutionOption) *Resolution {
 	r := &Resolution{outcome: LinkIdentity, userID: userID, trusted: trusted}
 	for _, opt := range opts {
@@ -240,6 +242,13 @@ var (
 	// sessioninfo.RefusedIdentityRejected. The resolver should return Confirm instead.
 	ErrLinkRequiresConfirmation = errors.New(
 		"signin: an identity can't be linked to a user that has a password without confirmation (or a trusted link)")
+	// ErrLinkCrossConnection is the cause when the user resolver returned LinkIdentity
+	// (Link) without trusted for a user that has no password and already signs in
+	// through another connection. No confirmation can be asked of such a user, so the
+	// resolver's evidence is the only check, and it must say so with trusted, or reject.
+	// The code is sessioninfo.RefusedIdentityRejected.
+	ErrLinkCrossConnection = errors.New(
+		"signin: an identity from another connection can't be linked to a user without a password unless the link is trusted")
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
 	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy.
 	ErrSignInDenied = errors.New("signin: the sign-in policy denied the sign-in")

@@ -301,10 +301,20 @@ func (s *SessionStorageDriver) IdentitiesByUser(ctx context.Context, userID ccc.
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return queryIdentities(ctx, s.spanner.Single(), s.identitiesByUserStatement(userID))
+}
+
+// IdentitiesByUserIn lists a user's links inside tx, oldest first.
+func (s *SessionStorageDriver) IdentitiesByUserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID ccc.UUID) ([]*dbtype.SessionIdentity, error) {
+	return queryIdentities(ctx, tx, s.identitiesByUserStatement(userID))
+}
+
+// identitiesByUserStatement selects a user's links, oldest first.
+func (s *SessionStorageDriver) identitiesByUserStatement(userID ccc.UUID) spanner.Statement {
 	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT %s FROM %s WHERE UserId = @userId ORDER BY CreatedAt, Id`, identityColumns, s.identitiesTableName))
 	stmt.Params["userId"] = userID.String()
 
-	return queryIdentities(ctx, s.spanner.Single(), stmt)
+	return stmt
 }
 
 // LinkIdentity links identity to userID outside the sign-in flow. An identity that is

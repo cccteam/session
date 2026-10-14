@@ -141,7 +141,10 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "Azure and Google identities reach one user by their own keys, (tid, oid) and sub, never by email",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
-				var user ccc.UUID
+				var (
+					user    ccc.UUID
+					trusted bool
+				)
 				a.hooks.set(func(h *hooks[Tx]) {
 					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
 						if identity.TenantID != azureTenant {
@@ -151,7 +154,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
 					}
 					h.resolveGoogle = func(*google.Identity) *signin.Resolution {
-						return signin.Link(user, false)
+						return signin.Link(user, trusted)
 					}
 				})
 
@@ -161,7 +164,12 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				assertEventsSeen(t, v, "azure:"+azureTenant)
 				a.hooks.set(func(*hooks[Tx]) { user = ccc.Must(ccc.UUIDFromString(v.UserID)) })
 
+				// Pat has no password, so a Google identity reaches the Azure-provisioned user
+				// only when the resolver vouches for it: untrusted, the link is refused.
 				g := a.browser(t)
+				assertRedirect(t, g.oidcSignIn(ctx, a.google, "/google", googleClaims("google-sub-pat", "pat@lakeside.edu")), "/login",
+					url.Values{"code": {"identity_rejected"}})
+				a.hooks.set(func(*hooks[Tx]) { trusted = true })
 				assertRedirect(t, g.oidcSignIn(ctx, a.google, "/google", googleClaims("google-sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				gv := g.view(ctx)
 				if gv.UserID != v.UserID {

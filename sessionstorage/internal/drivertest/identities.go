@@ -27,6 +27,14 @@ func lakeside(subject string) *sessioninfo.Identity {
 	}
 }
 
+// riverside is an external identity at another WorkOS connection, conn_riverside.
+func riverside(subject string) *sessioninfo.Identity {
+	return &sessioninfo.Identity{
+		Method: sessioninfo.MethodWorkOS, Connection: "conn_riverside", Subject: subject,
+		Email: subject + "@lakeside.edu", EmailVerified: true,
+	}
+}
+
 // signIn establishes a session for identity with reason through the instance's sign-in
 // flow, as a sign-in method would.
 func signIn(ctx context.Context, in *AuthInstance, identity *sessioninfo.Identity, reason sessioninfo.NewSessionReason) (ccc.UUID, *sessioninfo.NewSessionRequest, error) {
@@ -310,6 +318,52 @@ func testResolverOutcomes(_ context.Context, t *testing.T, h *AuthHarness) {
 			defer mu.Unlock()
 			tt.check(t, in.Driver, err, req, passwordless, withPassword, provisioned)
 		})
+	}
+}
+
+func testLinkAcrossConnections(ctx context.Context, t *testing.T, h *AuthHarness) {
+	var (
+		user    *dbtype.SessionUser
+		trusted bool
+		mu      sync.Mutex
+	)
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return signin.Link(user.ID, trusted), nil
+	}})
+	user = createUser(ctx, t, in.Driver, "cross@lakeside.edu")
+	if _, err := in.Driver.LinkIdentity(ctx, user.ID, lakeside("idp_cross"), ""); err != nil {
+		t.Fatalf("LinkIdentity() error = %v", err)
+	}
+
+	// An identity from another connection, untrusted: refused, nothing linked. The user
+	// has no password, so nothing could confirm the link.
+	_, _, err := signIn(ctx, in, riverside("idp_cross_other"), sessioninfo.ReasonLogin)
+	assertRefused(t, err, sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
+	assertNoLink(ctx, t, in.Driver, riverside("idp_cross_other"))
+
+	// A second identity on the connection the user already signs in through links: the
+	// provider keeps its subjects unique.
+	if _, req, err := signIn(ctx, in, lakeside("idp_cross_second"), sessioninfo.ReasonLogin); err != nil || req.UserID != user.ID {
+		t.Errorf("same-connection sign-in = (%v, %v), want the user %v linked", req.UserID, err, user.ID)
+	}
+
+	// The other connection, trusted: the resolver vouches, so it links.
+	mu.Lock()
+	trusted = true
+	mu.Unlock()
+	if _, req, err := signIn(ctx, in, riverside("idp_cross_other"), sessioninfo.ReasonLogin); err != nil || req.UserID != user.ID {
+		t.Errorf("trusted cross-connection sign-in = (%v, %v), want the user %v linked", req.UserID, err, user.ID)
+	}
+
+	links, err := in.Driver.IdentitiesByUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("IdentitiesByUser() error = %v", err)
+	}
+	if len(links) != 3 {
+		t.Errorf("IdentitiesByUser() = %d links, want 3: the seeded one, the same-connection one and the trusted one", len(links))
 	}
 }
 

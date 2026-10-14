@@ -217,9 +217,19 @@ func (s *SessionStorageDriver) IdentitiesByUser(ctx context.Context, userID ccc.
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return s.identitiesByUser(ctx, s.conn, userID)
+}
+
+// IdentitiesByUserIn lists a user's links inside tx, oldest first.
+func (s *SessionStorageDriver) IdentitiesByUserIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID) ([]*dbtype.SessionIdentity, error) {
+	return s.identitiesByUser(ctx, tx, userID)
+}
+
+// identitiesByUser lists a user's links through q, oldest first.
+func (s *SessionStorageDriver) identitiesByUser(ctx context.Context, q pgxscan.Querier, userID ccc.UUID) ([]*dbtype.SessionIdentity, error) {
 	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "UserId" = $1 ORDER BY "CreatedAt", "Id"`, identityColumns, s.identitiesTable())
 	var identities []*dbtype.SessionIdentity
-	if err := pgxscan.Select(ctx, s.conn, &identities, query, userID); err != nil {
+	if err := pgxscan.Select(ctx, q, &identities, query, userID); err != nil {
 		return nil, errors.Wrap(err, "pgxscan.Select()")
 	}
 

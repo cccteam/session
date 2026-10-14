@@ -31,6 +31,8 @@ type Driver[Tx any] interface {
 	// LinkIdentityIn writes a new link of identity to userID. A link of the same identity
 	// made meanwhile ends the transaction with an IdentityConflict.
 	LinkIdentityIn(ctx context.Context, tx Tx, userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time) (*dbtype.SessionIdentity, error)
+	// IdentitiesByUserIn lists userID's links inside tx, oldest first.
+	IdentitiesByUserIn(ctx context.Context, tx Tx, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
 	// UserIn reads the part of userID's user the flow decides on. A missing user is
 	// NotFound.
 	UserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
@@ -196,6 +198,15 @@ func applyResolution[Tx any](
 		if user.HasPassword && !res.Trusted() {
 			return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
 		}
+		if !user.HasPassword && !res.Trusted() {
+			crosses, err := linksAnotherConnection(ctx, d, tx, res.UserID(), req.Identity)
+			if err != nil {
+				return "", "", nil, err
+			}
+			if crosses {
+				return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
+			}
+		}
 		if _, err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant(), now); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
@@ -352,4 +363,22 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 	}
 
 	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
+}
+
+// linksAnotherConnection reports whether userID already signs in through a connection
+// other than identity's. A user without a password cannot confirm a link, so an
+// untrusted link across connections is refused: the resolver's evidence is the only
+// check, and it must say so with trusted.
+func linksAnotherConnection[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID ccc.UUID, identity *sessioninfo.Identity) (bool, error) {
+	links, err := d.IdentitiesByUserIn(ctx, tx, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "Driver.IdentitiesByUserIn()")
+	}
+	for _, link := range links {
+		if link.Method != identity.Method || link.Connection != identity.Connection {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

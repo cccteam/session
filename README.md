@@ -161,7 +161,12 @@ DML what a later rule must read.
   `signin.Confirm(userID)`; `signin.Tenant(key)` on any of the last three stores the
   application's tenant key on the link. It receives the method's own identity type
   (`*azure.Identity`, `*google.Identity`, `*workos.Identity`), decoded from the verified
-  claims, with the raw claims on it for anything the fields do not carry.
+  claims, with the raw claims on it for anything the fields do not carry. A `Link` is
+  the resolver's own evidence, and the library asks for more when it can: a user who
+  has a password must confirm with it (`Confirm`) unless the link is `trusted`; a user
+  without a password cannot confirm, so an identity from another connection than the
+  ones that user already signs in through is refused unless the link is `trusted`. Never
+  choose the user by an email or another claim the provider does not verify.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 

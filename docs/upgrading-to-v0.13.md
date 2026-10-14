@@ -265,6 +265,11 @@ conflict by that name.
 - **The pending flow** (`?pending=confirmation` or `?pending=mfa` on the login page)
   exists only when the resolver or the policy asks for it. With `signin.AllowAll` and a
   resolver that never answers `signin.Confirm`, no page is needed for it.
+- **Linking across connections.** A resolver's `signin.Link(userID, false)` is refused
+  for a user who has a password (confirm with `signin.Confirm`) and for a user without
+  one when the identity comes through another connection than the ones that user
+  already signs in through; `trusted` links in both cases. The v0.12 types never
+  linked, so this only reaches resolvers written for `Auth`.
 - **Role synchronization** is unchanged.
 
 ### Rolling back
