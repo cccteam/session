@@ -6,7 +6,6 @@ package signinflow
 
 import (
 	"context"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
@@ -26,11 +25,12 @@ type Driver[Tx any] interface {
 	// IdentityIn returns the link for (method, connection, subject), or nil when the
 	// identity is not linked.
 	IdentityIn(ctx context.Context, tx Tx, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
-	// TouchIdentityIn moves a link's LastUsedAt to now.
-	TouchIdentityIn(ctx context.Context, tx Tx, linkID ccc.UUID, now time.Time) error
-	// LinkIdentityIn writes a new link of identity to userID. A link of the same identity
-	// made meanwhile ends the transaction with an IdentityConflict.
-	LinkIdentityIn(ctx context.Context, tx Tx, userID ccc.UUID, identity *sessioninfo.Identity, tenant string, now time.Time) (*dbtype.SessionIdentity, error)
+	// TouchIdentityIn moves a link's LastUsedAt to the database's time at commit.
+	TouchIdentityIn(ctx context.Context, tx Tx, linkID ccc.UUID) error
+	// LinkIdentityIn writes a new link of identity to userID, created and last used at
+	// the database's time at commit. A link of the same identity made meanwhile ends the
+	// transaction with an IdentityConflict.
+	LinkIdentityIn(ctx context.Context, tx Tx, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) error
 	// IdentitiesByUserIn lists userID's links inside tx, oldest first.
 	IdentitiesByUserIn(ctx context.Context, tx Tx, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
 	// UserIn reads the part of userID's user the flow decides on. A missing user is
@@ -163,15 +163,13 @@ func resolveIdentity[Tx any](
 func resolveIn[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx],
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
-	now := time.Now()
-
 	link, err := d.IdentityIn(ctx, tx, req.Identity.Method, req.Identity.Connection, req.Identity.Subject)
 	if err != nil {
 		return "", "", nil, errors.Wrap(err, "Driver.IdentityIn()")
 	}
 	if link != nil {
 		req.UserID = link.UserID
-		if err := d.TouchIdentityIn(ctx, tx, link.ID, now); err != nil {
+		if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
 		}
 		if link.Tenant != nil {
@@ -186,7 +184,7 @@ func resolveIn[Tx any](
 		return "", "", nil, errors.Wrap(err, "signin.UserResolver()")
 	}
 
-	return applyResolution(ctx, d, tx, req, res, now)
+	return applyResolution(ctx, d, tx, req, res)
 }
 
 // applyResolution acts on the user resolver's answer for an unlinked identity. A link
@@ -194,7 +192,7 @@ func resolveIn[Tx any](
 // the user was found and its tenant. A pending confirmation or a refusal is returned
 // as stop.
 func applyResolution[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, now time.Time,
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution,
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
 	if res == nil {
 		res = signin.Reject("")
@@ -222,7 +220,7 @@ func applyResolution[Tx any](
 				return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
 			}
 		}
-		if _, err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant(), now); err != nil {
+		if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
 		req.UserID = res.UserID()
@@ -240,7 +238,7 @@ func applyResolution[Tx any](
 		if err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.InsertUserIn()")
 		}
-		if _, err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant(), now); err != nil {
+		if err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant()); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 		}
 		req.UserID = id

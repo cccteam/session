@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -358,9 +357,7 @@ func TestSessionStorageDriver_InsertSessionOIDC_OIDCUsers(t *testing.T) {
 		return &dbtype.InsertOIDCSession{
 			OidcSID: "oidc-sid-1",
 			InsertSession: dbtype.InsertSession{
-				Username:  username,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				Username: username,
 			},
 		}
 	}

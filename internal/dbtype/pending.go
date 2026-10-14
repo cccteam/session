@@ -41,9 +41,12 @@ type PendingSignIn struct {
 	// and ProviderSessionIssuer the issuer it belongs to.
 	ProviderSessionID     string
 	ProviderSessionIssuer string
-	CreatedAt             time.Time
-	ExpiresAt             time.Time
-	ConsumedAt            *time.Time
+	// ExpiresAt is the caller's deadline. CreatedAt and ConsumedAt are the database's:
+	// an insert writes CreatedAt with its commit time and leaves ConsumedAt null,
+	// whatever the value carries, and a consumption stamps ConsumedAt.
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
 }
 
 // MethodNames renders methods as the strings a database array holds; nil stays nil.

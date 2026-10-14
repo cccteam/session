@@ -143,16 +143,17 @@ func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AuthHarness
 	if sess.UserID != ccc.NullUUIDFromUUID(user.ID) || sess.Username != user.Username {
 		t.Errorf("Session() = UserID %v, Username %q; want the linked user %v, %q", sess.UserID, sess.Username, user.ID, user.Username)
 	}
-	want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: time.Now()}}
+	want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: sess.CreatedAt}}
 	if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
 		t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 	}
+	// The resolution touches the link and commits before the session is inserted.
 	touched, err := in.Driver.Identity(ctx, identity.Method, identity.Connection, identity.Subject)
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	if !touched.LastUsedAt.After(link.LastUsedAt) {
-		t.Errorf("Identity().LastUsedAt = %v, want it moved past %v by the sign-in", touched.LastUsedAt, link.LastUsedAt)
+	if !touched.LastUsedAt.After(link.LastUsedAt) || touched.LastUsedAt.After(sess.CreatedAt) {
+		t.Errorf("Identity().LastUsedAt = %v, want it moved past %v by the sign-in's resolution, no later than the session's creation %v", touched.LastUsedAt, link.LastUsedAt, sess.CreatedAt)
 	}
 }
 
@@ -777,8 +778,7 @@ func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AuthHarness) 
 	}
 	impersonate := func(actor string, principal accesstypes.Principal, userID ccc.UUID, username string) ccc.UUID {
 		t.Helper()
-		now := time.Now()
-		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, StartedAt: now, ExpiresAt: now.Add(time.Hour)})
+		imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: actor, Principal: principal, ExpiresAt: time.Now().Add(time.Hour)})
 		id, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: username, UserID: userID}, imp)
 		if err != nil {
 			t.Fatalf("InsertImpersonatedSession() error = %v", err)
@@ -832,14 +832,17 @@ func testAppendAuthEvent(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatalf("sign-in error = %v", err)
 	}
 
-	stepUp := time.Now().Add(time.Minute).Truncate(time.Millisecond)
+	signedIn := mustSession(ctx, t, in.Driver, id)
+
+	// A step-up with a time (a past one: the database refuses a future one) is recorded
+	// at that time, which becomes the session's authentication time.
+	stepUp := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
 	if err := in.Driver.AppendAuthEvent(ctx, id, &sessioninfo.AuthEvent{Method: "email-otp", At: stepUp}); err != nil {
 		t.Fatalf("AppendAuthEvent() error = %v", err)
 	}
-
 	sess := mustSession(ctx, t, in.Driver, id)
 	want := []sessioninfo.AuthEvent{
-		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: time.Now()},
+		{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside", IDPAMR: []string{"mfa"}, At: signedIn.CreatedAt},
 		{Method: "email-otp", At: stepUp},
 	}
 	if diff := cmp.Diff(want, sess.AuthEvents, eventsOpts); diff != "" {
@@ -848,6 +851,22 @@ func testAppendAuthEvent(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if sess.AuthenticatedAt == nil || !sess.AuthenticatedAt.Equal(stepUp) {
 		t.Errorf("Session().AuthenticatedAt = %v, want the step-up time %v", sess.AuthenticatedAt, stepUp)
 	}
+
+	// A step-up without a time is recorded at the database's, and so is the session.
+	w := startWindow(h.ClockLead)
+	if err := in.Driver.AppendAuthEvent(ctx, id, &sessioninfo.AuthEvent{Method: "totp"}); err != nil {
+		t.Fatalf("AppendAuthEvent() without a time error = %v", err)
+	}
+	w.done()
+	sess = mustSession(ctx, t, in.Driver, id)
+	if len(sess.AuthEvents) != 3 || sess.AuthEvents[2].Method != "totp" {
+		t.Fatalf("Session().AuthEvents = %v, want the step-up appended third", sess.AuthEvents)
+	}
+	w.assertStamped(t, "Session().AuthEvents[2].At", sess.AuthEvents[2].At)
+	if sess.AuthenticatedAt == nil {
+		t.Fatal("Session().AuthenticatedAt = nil, want the step-up's time")
+	}
+	assertSameTime(t, "Session().AuthenticatedAt", *sess.AuthenticatedAt, sess.AuthEvents[2].At)
 
 	h.DeleteSession(ctx, t, in.Raw, id)
 	if err := in.Driver.AppendAuthEvent(ctx, id, &sessioninfo.AuthEvent{Method: "email-otp"}); !httpio.HasNotFound(err) {

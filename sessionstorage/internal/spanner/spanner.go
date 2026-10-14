@@ -238,7 +238,7 @@ func (s *SessionStorageDriver) readCustomData(row *spanner.Row, idx int) (data a
 	return data, idx, nil
 }
 
-// UpdateSessionActivity updates the session activity column with the current time
+// UpdateSessionActivity moves the session's UpdatedAt to the database's time at commit.
 func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -248,7 +248,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:        sessionID,
-		UpdatedAt: time.Now(),
+		UpdatedAt: spanner.CommitTimestamp,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.sessionTableName, sessionUpdate)
@@ -285,7 +285,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	if err != nil {
 		return ccc.NilUUID, err
 	}
-	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil, insertSession.CreatedAt)...)
+	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil)...)
 
 	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
@@ -389,30 +389,26 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
-
 	// A session that does not exist updates no row and is not an error: a browser can
 	// return with old state, and refusing it would be noise.
 	expireSession := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE Id = @id
 	`, s.sessionTableName))
 	expireSession.Params["id"] = sessionID
-	expireSession.Params["now"] = now
 	statements := []spanner.Statement{expireSession}
 
-	// The row and its impersonation record, if any, end together: a live record on
-	// an expired row would misreport the end, and an ended record on a live row must
-	// never exist.
+	// The row and its impersonation record, if any, end together, at the one commit
+	// time: a live record on an expired row would misreport the end, and an ended
+	// record on a live row must never exist.
 	if s.impersonation != nil {
 		endRecord := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET EndedAt = @now, EndReason = @reason
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 			WHERE SessionId = @id AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 		endRecord.Params["id"] = sessionID
-		endRecord.Params["now"] = now
 		endRecord.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
 		statements = append(statements, endRecord)
 	}
@@ -564,12 +560,11 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		// to that actor, not to the renamed user, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
-				SET Username = @newUsername, UpdatedAt = @updatedAt
+				SET Username = @newUsername, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
 		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
-		sessionsStmt.Params["updatedAt"] = time.Now()
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -755,38 +750,39 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
-
 	// Every session under the name is this user's — their own, a user-principal
 	// impersonation of them, a role-principal session they hold as a local actor — except
 	// a foreign actor's role-principal session, which only borrows the name. The sessions
 	// this user holds as a local actor under other names go too.
-	stmt := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s s
-			SET Expired = TRUE, UpdatedAt = @updatedAt
+	//
+	// The sessions are selected first and expired by id: the selection reads the records
+	// while they are still live, and once a statement has written the commit timestamp
+	// to a table, nothing later in the transaction may read that table.
+	selectSessions := spanner.NewStatement(fmt.Sprintf(`
+			SELECT s.Id, s.Expired
+			FROM %s s
 			WHERE (s.Username = @username AND NOT %s) OR %s
 	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
-	stmt.Params["username"] = username
-	stmt.Params["updatedAt"] = now
+	selectSessions.Params["username"] = username
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		// Sessions first: the expiry predicate reads the records while they are still live.
-		if _, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		ids, _, err := selectSessionIDs(ctx, txn, selectSessions)
+		if err != nil {
+			return err
+		}
+		if err := s.expireSessions(ctx, txn, ids); err != nil {
+			return err
 		}
 
 		if s.impersonation != nil {
 			// The live impersonation records of those sessions end with them, as Revoked.
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 					UPDATE %s
-					SET EndedAt = @now, EndReason = @reason
-					WHERE EndedAt IS NULL AND (
-						(SessionId IN (SELECT Id FROM %s WHERE Username = @username)
-							AND NOT (PrincipalKind = '%s' AND ActorRealm IS NOT NULL))
-						OR (ActorUsername = @username AND ActorRealm IS NULL))
-			`, s.impersonation.TableName, s.sessionTableName, dbtype.PrincipalKindRole))
+					SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
+					WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))
+			`, s.impersonation.TableName))
+			endRecords.Params["ids"] = ids
 			endRecords.Params["username"] = username
-			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -797,6 +793,46 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
+// selectSessionIDs runs stmt, which selects a session's Id and Expired, inside txn and
+// returns the ids it matched: all of them, and those not yet expired. Neither slice is
+// nil, so each binds to an ARRAY<STRING> parameter.
+func selectSessionIDs(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) (all, live []string, err error) {
+	all, live = []string{}, []string{}
+	err = txn.Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			id      string
+			expired bool
+		)
+		if err := row.Columns(&id, &expired); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		all = append(all, id)
+		if !expired {
+			live = append(live, id)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return all, live, nil
+}
+
+// expireSessions expires the sessions ids inside txn, with UpdatedAt at the commit
+// timestamp. Nothing later in txn may read the session table. The statement runs even
+// for no ids, so a session table the statement does not fit is reported.
+func (s *SessionStorageDriver) expireSessions(ctx context.Context, txn *spanner.ReadWriteTransaction, ids []string) error {
+	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id IN UNNEST(@ids)`, s.sessionTableName))
+	stmt.Params["ids"] = ids
+	if _, err := txn.Update(ctx, stmt); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 	}
 
 	return nil

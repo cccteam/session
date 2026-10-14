@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -384,9 +383,10 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 	return err
 }
 
-// identityEvent returns the auth event of a sign-in with identity at time at.
-func identityEvent(identity *sessioninfo.Identity, at time.Time) sessioninfo.AuthEvent {
-	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR), At: at}
+// identityEvent returns the auth event of a sign-in with identity. Its time is the
+// database's when the event is stored.
+func identityEvent(identity *sessioninfo.Identity) sessioninfo.AuthEvent {
+	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR)}
 }
 
 // validateEvents refuses an auth event without a method.

@@ -16,10 +16,11 @@ func TestImpersonation(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunImpersonation(t, &drivertest.Harness{
-		New:           newImpersonationInstance,
-		RecordEnd:     recordEnd,
-		ExpireSession: expireSession,
-		OIDCSid:       oidcSid,
+		New:                 newImpersonationInstance,
+		RecordEnd:           recordEnd,
+		ExpireSession:       expireSession,
+		SetSessionUpdatedAt: setSessionUpdatedAt,
+		OIDCSid:             oidcSid,
 	})
 }
 
@@ -92,6 +93,14 @@ func expireSession(ctx context.Context, t *testing.T, raw any, id ccc.UUID) {
 	t.Helper()
 
 	if _, err := queryer(t, raw).Exec(ctx, `UPDATE "Sessions" SET "Expired" = TRUE WHERE "Id" = $1`, id); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+}
+
+func setSessionUpdatedAt(ctx context.Context, t *testing.T, raw any, id ccc.UUID, updatedAt time.Time) {
+	t.Helper()
+
+	if _, err := queryer(t, raw).Exec(ctx, `UPDATE "Sessions" SET "UpdatedAt" = $2 WHERE "Id" = $1`, id, updatedAt); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 }

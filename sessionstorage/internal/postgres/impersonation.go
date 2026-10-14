@@ -122,7 +122,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 	insertRecord := func(ctx context.Context, txn pgx.Tx) error {
 		return s.insertImpersonation(ctx, txn, id, imp)
 	}
-	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertSession.CreatedAt, insertRecord)); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertRecord)); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -152,21 +152,22 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 		INSERT INTO %s
 			("Id", "OidcSid", "Username", "CreatedAt", "UpdatedAt", "Expired")
 		VALUES
-			($1, $2, $3, $4, $5, $6)
+			($1, $2, $3, now(), now(), $4)
 		`, s.sessionTable())
-	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.CreatedAt, insertSession.UpdatedAt, insertSession.Expired}
+	args := []any{id, insertSession.OidcSID, insertSession.Username, insertSession.Expired}
 
 	insertRecord := func(ctx context.Context, txn pgx.Tx) error {
 		return s.insertImpersonation(ctx, txn, id, imp)
 	}
-	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertSession.CreatedAt, insertRecord)); err != nil {
+	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertRecord)); err != nil {
 		return ccc.NilUUID, err
 	}
 
 	return id, nil
 }
 
-// insertImpersonation writes the impersonation record for a new session inside txn.
+// insertImpersonation writes the impersonation record for a new session inside txn,
+// started at the database's time.
 func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.Tx, id ccc.UUID, imp *dbtype.InsertImpersonation) error {
 	var sourceSessionID *string
 	if imp.SourceSessionID != nil {
@@ -178,11 +179,11 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 		INSERT INTO %s
 			("SessionId", "ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUser", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 	args := []any{
 		id, imp.ActorUsername, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUser, imp.PrincipalRole,
-		imp.Mask, imp.Reason, imp.StartedAt, imp.ExpiresAt,
+		imp.Mask, imp.Reason, imp.ExpiresAt,
 	}
 
 	if _, err := txn.Exec(ctx, query, args...); err != nil {
@@ -204,10 +205,10 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID c
 
 	query := fmt.Sprintf(`
 		UPDATE %s
-		SET "EndedAt" = $2, "EndReason" = $3
+		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 
-	if _, err := s.conn.Exec(ctx, query, sessionID, time.Now(), reason); err != nil {
+	if _, err := s.conn.Exec(ctx, query, sessionID, reason); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 
@@ -228,12 +229,12 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 	impTable := pgx.Identifier{s.impersonation.TableName}.Sanitize()
 	expireSessions := fmt.Sprintf(`
 		UPDATE %s s
-		SET "Expired" = TRUE, "UpdatedAt" = $2
+		SET "Expired" = TRUE, "UpdatedAt" = now()
 		FROM %s i
 		WHERE i."SessionId" = s."Id" AND i."ActorUsername" = $1 AND i."EndedAt" IS NULL`, s.sessionTable(), impTable)
 	endRecords := fmt.Sprintf(`
 		UPDATE %s
-		SET "EndedAt" = $2, "EndReason" = $3
+		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "ActorUsername" = $1 AND "EndedAt" IS NULL`, impTable)
 
 	txn, err := s.conn.Begin(ctx)
@@ -244,11 +245,10 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		_ = txn.Rollback(ctx)
 	}()
 
-	now := time.Now()
-	if _, err := txn.Exec(ctx, expireSessions, actor, now); err != nil {
+	if _, err := txn.Exec(ctx, expireSessions, actor); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecords, actor, now, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+	if _, err := txn.Exec(ctx, endRecords, actor, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
@@ -273,12 +273,12 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 	impTable := pgx.Identifier{s.impersonation.TableName}.Sanitize()
 	expireSession := fmt.Sprintf(`
 		UPDATE %s s
-		SET "Expired" = TRUE, "UpdatedAt" = $2
+		SET "Expired" = TRUE, "UpdatedAt" = now()
 		FROM %s i
 		WHERE i."SessionId" = s."Id" AND s."Id" = $1 AND i."EndedAt" IS NULL`, s.sessionTable(), impTable)
 	endRecord := fmt.Sprintf(`
 		UPDATE %s
-		SET "EndedAt" = $2, "EndReason" = $3
+		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, impTable)
 
 	txn, err := s.conn.Begin(ctx)
@@ -289,11 +289,10 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		_ = txn.Rollback(ctx)
 	}()
 
-	now := time.Now()
-	if _, err := txn.Exec(ctx, expireSession, sessionID, now); err != nil {
+	if _, err := txn.Exec(ctx, expireSession, sessionID); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
-	if _, err := txn.Exec(ctx, endRecord, sessionID, now, reason); err != nil {
+	if _, err := txn.Exec(ctx, endRecord, sessionID, reason); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 

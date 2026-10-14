@@ -10,15 +10,19 @@ contract and the shared `session/oidc` machinery.
 An application takes this in two steps, and only the first has to happen at the
 upgrade:
 
-1. **Keep the legacy type.** An import edit. No schema change, no behaviour change.
+1. **Keep the legacy type.** An import edit and, on Spanner, the time-column
+   migrations of the sets the group applies (see "Time columns" below). No behaviour
+   change.
 2. **Move to `Auth`.** New sign-in and user-management code and one of the shipped
    schema upgrade sets, when the application is ready.
 
 ## 1. Keep the legacy type
 
 Replace the root package's names with the `legacy` package's. The types, their
-handlers, their APIs, their storage and their schema are the ones v0.12 shipped. Each
-legacy type logs one warning when it is constructed, saying it is deprecated.
+handlers, their APIs and their storage are the ones v0.12 shipped, and so is their
+schema but for the time columns, which on Spanner must allow commit timestamps before
+the v0.13 driver writes to them (see "Time columns"). Each legacy type logs one warning
+when it is constructed, saying it is deprecated.
 
 | v0.12 (`session`) | v0.13 (`legacy`) |
 | --- | --- |
@@ -287,6 +291,60 @@ conflict by that name.
   for every row. The legacy type reads
   `OidcSid` only for its front-channel logout, so the sessions stay but a logout cannot
   reach them. Roll back before dropping the anchor table.
+
+## Time columns
+
+v0.13 moves the ownership of "now" from the library to the database. Every column that
+records when something happened is written with the database's time: on Spanner the
+commit timestamp (`spanner.CommitTimestamp` in a mutation, `PENDING_COMMIT_TIMESTAMP()`
+in DML), on PostgreSQL the transaction time (`now()`). The columns are a session's
+`CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, an auth event's `OccurredAt`, an
+impersonation record's `StartedAt` and `EndedAt`, an identity link's `CreatedAt` and
+`LastUsedAt`, a pending sign-in's `CreatedAt` and `ConsumedAt`, and the OIDC user
+anchor's `CreatedAt` and `UpdatedAt`. A deadline (`ExpiresAt`) is still the
+application's: computed from its clock and written as given. Earlier versions wrote
+`time.Now()` into all of them, which Spanner refuses on a commit-timestamp column when
+the host clock runs ahead of its own ("Cannot write timestamps in the future"), and
+which gave the rows of one transaction several times.
+
+**On Spanner the columns must allow commit timestamps**, or every write to them fails.
+Each shipped set gained a migration that marks its columns (`ALTER TABLE … ALTER COLUMN
+… SET OPTIONS (allow_commit_timestamp = true)`). A group applies the migrations of the
+sets it uses, in the deploy that upgrades the library:
+
+| Set | Migration | Columns |
+| --- | --- | --- |
+| `schema/spanner/migrations` | `000003_CommitTimestamps` | `Sessions.CreatedAt`, `UpdatedAt` |
+| `schema/spanner/oidc/migrations` | `000004_CommitTimestamps` | `Sessions.CreatedAt`, `UpdatedAt`; `OIDCUsers.CreatedAt`, `UpdatedAt` |
+| `schema/spanner/impersonation/migrations` | `000002_CommitTimestamps` | `SessionImpersonations.StartedAt`, `EndedAt` |
+| `schema/spanner/auth/migrations` | `000003_CommitTimestamps` | `Sessions.AuthenticatedAt`; `SessionIdentities.CreatedAt`, `LastUsedAt`; `SessionAuthEvents.OccurredAt`; `SessionPendingSignIns.CreatedAt`, `ConsumedAt` |
+| `schema/spanner/auth-from-oidc/migrations` | `000005_CommitTimestamps` | the auth set's columns; the `oidc` set's `000004` covers the sessions and anchor tables |
+
+This reaches the legacy types too: step 1 above is an import edit on PostgreSQL, and
+on Spanner also the base (or `oidc`) set's migration and the impersonation set's. An
+application whose tables are named per group, or whose sessions table was written by
+hand, marks the same columns under its names. The option is set on a populated table
+without rewriting it, a row deletion policy on the column is unaffected, and a column
+that already carries the option (the ccc schema convention) needs nothing. A group that
+upgrades from the legacy Azure layout applies the `oidc` set through `000004` before
+`auth-from-oidc`, so the anchor table is still there to mark; it is dropped in the
+release after, as before.
+
+Nothing changes on PostgreSQL: `now()` needs no DDL.
+
+**Rolling back.** The down migrations clear the option. They are not needed to run a
+v0.12 driver, which writes plain values and keeps working against a marked column as
+before, so the option can also stay.
+
+**What an application sees.** `sessioninfo.AuthEvent.At` is zero on an event the
+application hands the library (`StartAuthenticatedSession`, `CompletePending`,
+`AppendAuthEvent`) when the event happens now, and the database stamps it; an event
+that happened earlier carries its time, which is stored as given and must not be later
+than the database's clock. An impersonation's `StartedAt` and an identity link's
+`CreatedAt` and `LastUsedAt`, read back, are the database's. The rows one write stores
+agree exactly: a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, its events'
+`OccurredAt` and its record's `StartedAt` are one time, and a revocation stamps every
+session and record it touches with one time.
 
 ## Checking the upgrade
 

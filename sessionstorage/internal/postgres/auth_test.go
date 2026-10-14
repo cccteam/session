@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/sessioninfo"
@@ -18,10 +19,11 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:             newAuthInstance,
-		CountAuthEvents: countAuthEvents,
-		DeleteSession:   deleteSession,
-		Recorded:        recorded,
+		New:               newAuthInstance,
+		CountAuthEvents:   countAuthEvents,
+		DeleteSession:     deleteSession,
+		Recorded:          recorded,
+		PendingConsumedAt: pendingConsumedAt,
 	})
 }
 
@@ -88,6 +90,17 @@ func countAuthEvents(ctx context.Context, t *testing.T, raw any, sessionID ccc.U
 	}
 
 	return n
+}
+
+func pendingConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var consumedAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "ConsumedAt" FROM "SessionPendingSignIns" WHERE "TokenHash" = $1`, tokenHash).Scan(&consumedAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return consumedAt
 }
 
 func deleteSession(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID) {

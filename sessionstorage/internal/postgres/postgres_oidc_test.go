@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
@@ -45,9 +44,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "oidc session",
 				InsertSession: dbtype.InsertSession{
-					Username:  "test user 2",
-					CreatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
-					UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC),
+					Username: "test user 2",
 				},
 			},
 			req:       sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "test user 2"},
@@ -60,8 +57,8 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 				 WHERE "Id" = '%s'
 					 AND "Username" = 'test user 2'
 					 AND "OidcSid" = 'oidc session'
-					 AND "CreatedAt" = '2024-01-02 03:04:05+00:00'
-					 AND "UpdatedAt" = '2024-01-02 03:04:05+00:00'
+					 AND "CreatedAt" = "UpdatedAt"
+					 AND "CreatedAt" > now() - interval '1 minute'
 					 AND "Expired" = false`,
 			},
 			wantErr: false,
@@ -71,9 +68,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "oidc claims session",
 				InsertSession: dbtype.InsertSession{
-					Username:  "claims user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
+					Username: "claims user",
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "claims user", Claims: rawClaims},
@@ -105,9 +100,7 @@ func Test_client_InsertSessionOIDC(t *testing.T) {
 			insertSession: &dbtype.InsertOIDCSession{
 				OidcSID: "oidc abort session",
 				InsertSession: dbtype.InsertSession{
-					Username:  "abort user",
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
+					Username: "abort user",
 				},
 			},
 			req: sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "abort user", Claims: rawClaims},

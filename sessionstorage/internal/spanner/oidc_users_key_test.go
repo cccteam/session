@@ -3,7 +3,6 @@ package spanner
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
@@ -29,7 +28,7 @@ func TestSessionStorageDriver_OIDCUsers_LongKey(t *testing.T) {
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "long@example.com", Tid: tid, Oid: oid}
 	insert := &dbtype.InsertOIDCSession{
 		OidcSID:       "sid-1",
-		InsertSession: dbtype.InsertSession{Username: "long@example.com", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		InsertSession: dbtype.InsertSession{Username: "long@example.com"},
 	}
 
 	if _, err := driver.InsertSessionOIDC(ctx, insert, req); err != nil {
