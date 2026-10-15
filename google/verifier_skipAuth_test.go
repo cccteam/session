@@ -97,6 +97,55 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 	}
 }
 
+// Two registrations in one process sign in two people: a registration reads its own
+// username variable first, and hands the simulated groups lookup its name in place of
+// an access token.
+func TestOIDC_Verify_simulatedRegistration(t *testing.T) {
+	tests := []struct {
+		name         string
+		registration string
+		wantEmail    string
+	}{
+		{name: "a registration with a username variable of its own signs that person in", registration: "google", wantEmail: "navigator"},
+		{name: "a registration without one signs APP_USERNAME in", registration: "directory", wantEmail: "client"},
+		{name: "no registration signs APP_USERNAME in", registration: "", wantEmail: "client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APP_USERNAME", "client")
+			t.Setenv("APP_GOOGLE_USERNAME", "navigator")
+
+			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("google"), "", "", "/auth/callback", Workspace("test", "example.com"))
+			o.simulateAs(tt.registration)
+
+			ctx := t.Context()
+			rec := httptest.NewRecorder()
+			if _, err := o.AuthCodeURL(ctx, rec, "/app", ""); err != nil {
+				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+			}
+			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)
+			for _, c := range rec.Result().Cookies() {
+				callback.AddCookie(c)
+			}
+
+			got := struct {
+				Email string `json:"email"`
+				Sub   string `json:"sub"`
+			}{}
+			_, token, err := o.Verify(ctx, httptest.NewRecorder(), callback, &got)
+			if err != nil {
+				t.Fatalf("OIDC.Verify() error = %v", err)
+			}
+			if got.Email != tt.wantEmail || got.Sub != "skipauth-"+tt.wantEmail {
+				t.Errorf("OIDC.Verify() claims = %+v, want %s signed in", got, tt.wantEmail)
+			}
+			if token != tt.registration {
+				t.Errorf("OIDC.Verify() token = %q, want the registration %q for the simulated groups lookup", token, tt.registration)
+			}
+		})
+	}
+}
+
 func TestOIDC_Verify_requiresTheOIDCCookie(t *testing.T) {
 	t.Setenv("APP_USERNAME", "dev@example.com")
 

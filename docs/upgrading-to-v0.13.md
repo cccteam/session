@@ -90,6 +90,12 @@ r.Get("/api/user/authenticated", auth.Authenticated())
 r.Get("/api/user/login", entra.Login())
 r.Get("/api/user/callback", entra.Callback())
 r.Get("/api/user/logout/frontchannel", entra.FrontChannelLogout())
+r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // the README's "What the login page is told"
+    Methods: []session.AdvertisedMethod{
+        {Name: "password", Label: "Password", Path: "/api/user/session"},
+        {Name: "azure", Label: "Microsoft", Path: "/api/user/login"},
+    },
+}))
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
     r.Post("/api/user/session", password.Login())
