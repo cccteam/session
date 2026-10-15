@@ -9,12 +9,12 @@ retract (
 
 require (
 	aidanwoods.dev/go-paseto v1.6.0
-	cloud.google.com/go/spanner v1.95.1
-	github.com/cccteam/ccc v0.3.3
+	cloud.google.com/go/spanner v1.96.0
+	github.com/cccteam/ccc v0.3.4
 	github.com/cccteam/ccc/accesstypes v0.6.0
-	github.com/cccteam/ccc/securehash v0.0.14
-	github.com/cccteam/ccc/tracer v0.1.7
-	github.com/cccteam/db-initiator v0.4.0
+	github.com/cccteam/ccc/securehash v0.0.15
+	github.com/cccteam/ccc/tracer v0.1.8
+	github.com/cccteam/db-initiator v0.4.2
 	github.com/cccteam/httpio v0.7.21
 	github.com/cccteam/logger v0.1.27
 	github.com/cccteam/spxscan v0.0.16
@@ -34,7 +34,7 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
-	google.golang.org/api v0.300.0
+	google.golang.org/api v0.301.0
 	google.golang.org/grpc v1.84.0
 )
 
@@ -42,7 +42,7 @@ require (
 	aidanwoods.dev/go-result v0.3.1 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.0 // indirect
+	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.14.0 // indirect
