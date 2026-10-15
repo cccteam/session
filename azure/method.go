@@ -147,6 +147,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 			authn := cfg.Authenticator
 			if authn == nil {
 				o := NewOIDC(cookies, authority, cfg.Tenants, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
+				o.simulateAs(name)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}
