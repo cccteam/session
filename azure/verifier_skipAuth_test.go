@@ -12,6 +12,55 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// Two registrations in one process sign in two people: a registration reads its own
+// username and roles variables first.
+func TestOIDC_Verify_simulatedRegistration(t *testing.T) {
+	tests := []struct {
+		name         string
+		registration string
+		wantUsername string
+		wantRoles    []string
+	}{
+		{name: "a registration with variables of its own signs that person in with those roles", registration: "lakeside-entra", wantUsername: "pat@lakeside.edu", wantRoles: []string{"Admin", "Reader"}},
+		{name: "a registration without them signs APP_USERNAME in with APP_ROLES", registration: "riverside", wantUsername: "client", wantRoles: []string{"Viewer"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APP_USERNAME", "client")
+			t.Setenv("APP_ROLES", "Viewer")
+			t.Setenv("APP_LAKESIDE_ENTRA_USERNAME", "pat@lakeside.edu")
+			t.Setenv("APP_LAKESIDE_ENTRA_ROLES", "Admin, Reader")
+
+			o := NewOIDC(oidctest.NewCookieClient(t), "", "", "", "/auth/callback")
+			o.simulateAs(tt.registration)
+
+			ctx := t.Context()
+			rec := httptest.NewRecorder()
+			if _, err := o.AuthCodeURL(ctx, rec, "/app"); err != nil {
+				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+			}
+			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)
+			for _, c := range rec.Result().Cookies() {
+				callback.AddCookie(c)
+			}
+
+			got := struct {
+				PreferredUsername string   `json:"preferred_username"`
+				Roles             []string `json:"roles"`
+			}{}
+			if _, _, err := o.Verify(ctx, httptest.NewRecorder(), callback, &got); err != nil {
+				t.Fatalf("OIDC.Verify() error = %v", err)
+			}
+			if got.PreferredUsername != tt.wantUsername {
+				t.Errorf("preferred_username = %q, want %q", got.PreferredUsername, tt.wantUsername)
+			}
+			if diff := cmp.Diff(tt.wantRoles, got.Roles); diff != "" {
+				t.Errorf("roles mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 	type claims struct {
 		PreferredUsername string   `json:"preferred_username"`

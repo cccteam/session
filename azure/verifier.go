@@ -31,6 +31,13 @@ func NewOIDC(cookies signin.StateCookies, issuerURL, clientID, clientSecret, red
 	return &OIDC{Flow: oidc.NewFlow(cookies, internalcookie.AzureStateCookieName, loader)}
 }
 
+// simulateAs is the simulated build's hook (verifier_skipAuth.go), where the
+// registration's name selects the person who signs in. This verifier asks the tenant
+// who signed in, so the name changes nothing here.
+func (o *OIDC) simulateAs(string) {
+	// Nothing to record: the provider answers.
+}
+
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
 func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	u, err := o.Begin(ctx, w, returnURL)

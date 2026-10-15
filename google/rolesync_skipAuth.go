@@ -4,8 +4,9 @@ package google
 
 import (
 	"context"
-	"os"
 	"strings"
+
+	"github.com/cccteam/session/internal/simulated"
 )
 
 // skipAuthGroupDomain is the domain the simulated lookup spells its groups under: a
@@ -18,28 +19,28 @@ func defaultGroupsReader() groupsReader {
 	return simulatedGroups{}
 }
 
-// simulatedGroups is the lookup under the skipAuth build tag: no call to Google, no
-// token. It answers the person's groups from APP_ROLES, one group per comma-separated
-// entry spelled <role>@skipauth.invalid in lowercase, empty entries ignored, the way the
-// simulated sign-in answers who they are from APP_USERNAME. Every simulated user is in
-// the same groups, as every simulated login is APP_USERNAME, and nesting adds nothing.
+// simulatedGroups is the lookup under the skipAuth build tag: no call to Google. The
+// token it is handed is not a token but the registration's name, which the simulated
+// sign-in passed in its place (OIDC.Verify), and it answers the person's groups from
+// that registration's roles variable (APP_<NAME>_ROLES, else APP_ROLES), one group per
+// comma-separated entry spelled <role>@skipauth.invalid in lowercase, empty entries
+// ignored, the way the simulated sign-in answers who they are. Every sign-in through a
+// registration is in the same groups, as every such sign-in is the same person, and
+// nesting adds nothing.
 type simulatedGroups struct{}
 
-func (simulatedGroups) DirectGroups(context.Context, string, string) ([]string, error) {
-	return simulatedRoleGroups(), nil
+func (simulatedGroups) DirectGroups(_ context.Context, registration, _ string) ([]string, error) {
+	return simulatedRoleGroups(registration), nil
 }
 
-func (simulatedGroups) NestedGroups(context.Context, string, string) ([]string, error) {
-	return simulatedRoleGroups(), nil
+func (simulatedGroups) NestedGroups(_ context.Context, registration, _ string) ([]string, error) {
+	return simulatedRoleGroups(registration), nil
 }
 
-func simulatedRoleGroups() []string {
-	var groups []string
-	for _, role := range strings.Split(os.Getenv("APP_ROLES"), ",") {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			continue
-		}
+func simulatedRoleGroups(registration string) []string {
+	roles := simulated.Roles(registration)
+	groups := make([]string, 0, len(roles))
+	for _, role := range roles {
 		groups = append(groups, strings.ToLower(role)+"@"+skipAuthGroupDomain)
 	}
 

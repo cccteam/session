@@ -291,6 +291,13 @@ r.Get("/api/user/authenticated", auth.Authenticated())
 r.Get("/api/user/sso/login", sso.Login())       // ?organization=…&returnUrl=…
 r.Get("/api/user/sso/callback", sso.Callback())
 r.Get("/api/user/pending", auth.Pending().Status())
+r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // what the login page offers
+    Methods: []session.AdvertisedMethod{
+        {Name: "password", Label: "Password", Path: "/api/user/session"},
+        {Name: "workos", Label: "Single sign-on", Path: "/api/user/sso/login"},
+    },
+    Pending: session.PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+}))
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
     r.Post("/api/user/session", password.Login())
@@ -309,6 +316,42 @@ r.Group(func(r chi.Router) {
 The pending handlers and the API's pending methods read the pending identity
 `StartSession` found, so they must run behind it; the POSTs belong behind
 `ValidateXSRFToken` like the password login.
+
+### What the login page is told
+
+The login page renders from the server, so the browser bundle is the same in every
+environment and a method that is not registered has no button. `auth.Methods(list)` is
+the public route that tells it: for each method the application lists, its name, the
+method behind it, how it starts, its label and its path, in the list's order, and the
+pending sign-in routes when the list names them.
+
+```json
+{
+  "methods": [
+    {"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/session"},
+    {"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/api/user/sso/login"}
+  ],
+  "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"}
+}
+```
+
+- `kind` is how the method starts: `password` is a form that posts `{"username",
+  "password"}` to `path` and reads the JSON answer of the password login; `redirect`
+  sends the browser to `path` (a GET, with `?returnUrl=` naming the page to come back
+  to) and the method's callback brings it back. The kinds are
+  `signin.KindPassword` and `signin.KindRedirect`.
+- `name` is the registration's name on the `Auth`, `method` the method behind it
+  (`password`, `azure`, `google`, `workos`), for a page that shows a provider's mark.
+- `label` is the application's wording for the method.
+- `path` and the pending paths are the application's: the list is written where the
+  routes are wired, so the paths the page is told are the paths the router serves. A
+  registered method the list leaves out is not offered.
+
+`Methods` is called after every method is registered and panics on a wiring mistake,
+as a registration does: an empty list, a method that is not registered on the `Auth`,
+a name listed twice, a method without a label or with a path that is not a canonical
+path in the application, or a pending block with some of its paths. Route it beside
+the login routes: behind `StartSession`, before `ValidateSession`, no XSRF token.
 
 ### The redirect and response contract
 
@@ -617,6 +660,21 @@ with the groups Google returned. Two rules follow for your organization's groups
   cannot pass through it to the groups it is in.
 
 A groups-lookup failure fails the login — the same posture as a role-store error.
+
+## The simulated sign-in (`skipAuth`)
+
+Built with the `skipAuth` build tag, the Azure and Google methods contact no provider:
+the login route sends the browser straight to the callback, and the callback signs in
+the person the environment names, with the roles it names. `APP_USERNAME` is the
+person (the Azure `preferred_username`, the Google verified `email`) and `APP_ROLES`
+the roles, comma-separated (the Azure `roles` claim, the Google groups the simulated
+lookup answers). A registration reads its own pair first, `APP_<NAME>_USERNAME` and
+`APP_<NAME>_ROLES`, with the registration's name upper-cased and every character
+outside letters and digits written as an underscore (`lakeside-entra` reads
+`APP_LAKESIDE_ENTRA_USERNAME`), and the shared pair when its own is unset. An
+application with one registration sets the shared pair alone; one with several in one
+process (a console's `google` beside a portal's `directory`) gives each its own person.
+The tag is for development: a `skipAuth` binary admits whoever the environment names.
 
 ## Login refusal codes
 

@@ -93,6 +93,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 			authn := cfg.Authenticator
 			if authn == nil {
 				o := NewOIDC(cookies, cfg.IssuerURL, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
+				o.simulateAs(name)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}

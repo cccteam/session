@@ -90,6 +90,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 					scopes = []string{cloudIdentityScope}
 				}
 				o := NewOIDC(cookies, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL, cfg.HostedDomain, scopes...)
+				o.simulateAs(name)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}

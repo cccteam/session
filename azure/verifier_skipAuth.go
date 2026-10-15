@@ -8,12 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/simulated"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
@@ -41,6 +40,9 @@ type OIDC struct {
 	redirectURL string
 	cookies     signin.StateCookies
 	loginURL    string
+	// registration names the registration the simulated sign-in serves, which selects
+	// the environment it reads the person and their roles from (internal/simulated).
+	registration string
 }
 
 // NewOIDC returns a new OIDC Authenticator
@@ -54,6 +56,13 @@ func NewOIDC(cookies signin.StateCookies, _, _, _, redirectURL string) *OIDC {
 // SetLoginURL sets the URL to redirect to when an error occurs during the OIDC authentication process
 func (o *OIDC) SetLoginURL(url string) {
 	o.loginURL = url
+}
+
+// simulateAs names the registration this simulated sign-in serves: it signs in
+// APP_<NAME>_USERNAME in the roles APP_<NAME>_ROLES names when the variables are set,
+// APP_USERNAME and APP_ROLES otherwise.
+func (o *OIDC) simulateAs(registration string) {
+	o.registration = registration
 }
 
 // LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
@@ -79,10 +88,12 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 //   - the URL to redirect to following successful authentication
 //   - the 'sid' value from the session_state query parameter
 //
-// The simulated claims carry preferred_username and roles from APP_USERNAME and
-// APP_ROLES, plus a deterministic (tid, oid) pair — the fixed skipAuth tenant and a
-// UUIDv5 of APP_USERNAME — so logins satisfy the OIDC user anchor's fail-closed
-// (tid, oid) requirement and each simulated user maps to one durable anchor row.
+// The simulated claims carry preferred_username and roles from the registration's
+// username and roles variables (APP_<NAME>_USERNAME and APP_<NAME>_ROLES, else
+// APP_USERNAME and APP_ROLES), plus a deterministic (tid, oid) pair — the fixed skipAuth
+// tenant and a UUIDv5 of the username — so logins satisfy the OIDC user anchor's
+// fail-closed (tid, oid) requirement and each simulated user maps to one durable anchor
+// row.
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	type claimsSimulated struct {
 		PreferredUsername string   `json:"preferred_username"`
@@ -91,8 +102,8 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		Oid               string   `json:"oid"`
 	}
 	var c claimsSimulated
-	c.PreferredUsername = os.Getenv("APP_USERNAME")
-	c.Roles = strings.Split(os.Getenv("APP_ROLES"), ",")
+	c.PreferredUsername = simulated.Username(o.registration)
+	c.Roles = simulated.Roles(o.registration)
 	c.Tid = skipAuthTenantID.String()
 	c.Oid = uuid.NewV5(skipAuthOidNamespace, c.PreferredUsername).String()
 

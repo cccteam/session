@@ -87,7 +87,9 @@ its own. The Google groups lookup has the same split: the Cloud Identity Groups 
 adapter under the default tag and, under `skipAuth`, the simulated directory that answers
 groups from `APP_ROLES`; `google/rolesync_skipAuth_test.go` proves the role sync reads
 those simulated groups as exactly the roles `APP_ROLES` names, so a directory-run Google
-auth can be signed in to in development.
+auth can be signed in to in development. A registration's own pair
+(`APP_<NAME>_USERNAME`, `APP_<NAME>_ROLES`) is proven in the same files and in
+`internal/simulated`, so two registrations in one process sign in two people.
 
 ## Conventions
 

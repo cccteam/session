@@ -22,6 +22,7 @@ import (
 	"github.com/cccteam/session/signin"
 	"github.com/cccteam/session/workos"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/go-cmp/cmp"
 )
 
 // The password every seeded user has.
@@ -308,6 +309,15 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 		r.Get("/sso/login", sso.Login())
 		r.Get("/sso/callback", sso.Callback())
 		r.With(auth.ValidateXSRFToken).Post("/login", password.Login())
+		// The login page's list: the two methods at the paths above, and the pending
+		// routes mountAuth mounts.
+		r.Get("/methods", auth.Methods(&session.MethodList{
+			Methods: []session.AdvertisedMethod{
+				{Name: "password", Label: "Password", Path: "/login"},
+				{Name: "workos", Label: "Single sign-on", Path: "/sso/login"},
+			},
+			Pending: session.PendingRoutes{Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel"},
+		}))
 	})
 
 	server := httptest.NewTLSServer(r)
@@ -560,6 +570,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamPasswordSignIn[Tx],
 		},
 		{
+			name: "the login page is told the registered methods it offers and the pending routes, with no session and no token",
+			run:  seamMethodsList[Tx],
+		},
+		{
 			name: "a first WorkOS sign-in provisions the user the resolver names; the next signs in through the link without the resolver",
 			run:  seamWorkOSProvisionThenLink[Tx],
 		},
@@ -642,6 +656,26 @@ func seamPasswordSignIn[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx
 
 	if status, _ := b.passwordLogin(ctx, "wrong"); status != http.StatusUnauthorized {
 		t.Errorf("password login with a wrong password = %d, want 401", status)
+	}
+}
+
+func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	// A fresh browser: no session, no XSRF handshake.
+	var got map[string]any
+	if err := json.Unmarshal(a.browser(t).expect(ctx, http.StatusOK, http.MethodGet, "/methods", nil), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	want := map[string]any{
+		"methods": []any{
+			map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/login"},
+			map[string]any{"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/sso/login"},
+		},
+		"pending": map[string]any{"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("GET /methods mismatch (-want +got):\n%s", diff)
 	}
 }
 
