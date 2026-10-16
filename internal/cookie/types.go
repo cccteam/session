@@ -31,6 +31,9 @@ const (
 
 	// ReturnURL is the key used to store the return URL
 	ReturnURL cookie.Key = "returnURL"
+	// WorkOSOrganization is the key under which a WorkOS login's state cookie carries the
+	// organization the login requested, so the callback refuses a profile from another.
+	WorkOSOrganization cookie.Key = "organization"
 )
 
 const (

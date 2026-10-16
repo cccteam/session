@@ -167,6 +167,18 @@ func TestClient_Verify(t *testing.T) {
 			wantCode: sessioninfo.RefusedClaimsParse,
 		},
 		{
+			name:     "a profile from another organization than the login requested is refused",
+			query:    func(state string) string { return "code=c&state=" + state },
+			body:     `{"access_token":"at","profile":` + strings.Replace(profileJSON, `"organization_id":"org_1"`, `"organization_id":"org_2"`, 1) + `}`,
+			wantCode: sessioninfo.RefusedOrganizationMismatch,
+		},
+		{
+			name:     "a profile without an organization is refused",
+			query:    func(state string) string { return "code=c&state=" + state },
+			body:     `{"access_token":"at","profile":` + strings.Replace(profileJSON, `"organization_id":"org_1",`, ``, 1) + `}`,
+			wantCode: sessioninfo.RefusedOrganizationMismatch,
+		},
+		{
 			name:          "a valid callback yields the profile, and an off-site return URL becomes the root",
 			returnURL:     "//evil.example/",
 			query:         func(state string) string { return "code=c&state=" + state },
@@ -219,7 +231,7 @@ func TestClient_Verify(t *testing.T) {
 			if returnURL != tt.wantReturnURL {
 				t.Errorf("returnURL = %q, want %q", returnURL, tt.wantReturnURL)
 			}
-			if profile.ConnectionID != "conn_1" || profile.IDPID != "pat@idp" || profile.Email != "pat@lakeside.edu" {
+			if profile.ConnectionID != "conn_1" || profile.IDPID != "pat@idp" || profile.Email != "pat@lakeside.edu" || profile.OrganizationID != "org_1" {
 				t.Errorf("profile = %+v", profile)
 			}
 			if !strings.Contains(string(raw), "eduPersonPrincipalName") {

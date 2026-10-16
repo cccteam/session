@@ -1227,7 +1227,7 @@ func TestAuth_WorkOSCallback(t *testing.T) {
 		if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
 			t.Fatalf("the resolver the store was given error = %v", err)
 		}
-		want := &workos.Identity{Profile: workos.Profile{ID: "prof_1", IDPID: "idp_1", ConnectionID: "conn_1", Email: "pat@lakeside.edu"}}
+		want := &workos.Identity{Profile: workos.Profile{ID: "prof_1", IDPID: "idp_1", ConnectionID: "conn_1", OrganizationID: "org_1", Email: "pat@lakeside.edu"}}
 		if diff := cmp.Diff(want, f.identity, cmpopts.IgnoreFields(workos.Identity{}, "Raw")); diff != "" {
 			t.Errorf("the resolver's identity mismatch (-want +got):\n%s", diff)
 		}

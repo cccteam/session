@@ -53,7 +53,7 @@ func newReturnURLFixture(t *testing.T, ctrl *gomock.Controller) *returnURLFixtur
 
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
-		_, _ = io.WriteString(w, `{"profile":{"id":"prof_1","idp_id":"idp_1","connection_id":"conn_1","email":"pat@lakeside.edu"}}`)
+		_, _ = io.WriteString(w, `{"profile":{"id":"prof_1","idp_id":"idp_1","connection_id":"conn_1","organization_id":"org_1","email":"pat@lakeside.edu"}}`)
 	}))
 	t.Cleanup(fake.Close)
 

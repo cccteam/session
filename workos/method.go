@@ -88,8 +88,10 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 	return &Method{login: h.Login, callback: h.Callback}
 }
 
-// Login redirects to WorkOS. It requires ?organization= and accepts ?returnUrl=, which
-// must be a path in this application; any other value is refused with 400.
+// Login redirects to WorkOS. It requires ?organization=, the WorkOS organization the
+// person signs in to, which the callback holds the returned profile to
+// (organization_mismatch otherwise), and accepts ?returnUrl=, which must be a path in
+// this application; any other value is refused with 400.
 func (m *Method) Login() http.HandlerFunc { return m.login }
 
 // Callback completes the provider round trip and redirects as the Azure method's

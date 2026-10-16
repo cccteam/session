@@ -41,8 +41,9 @@ type Authenticator interface {
 	// the WorkOS organization.
 	AuthorizationURL(ctx context.Context, w http.ResponseWriter, organization, returnURL string) (string, error)
 	// Verify checks the callback against the state cookie, exchanges its code for the
-	// profile and returns the sanitized return URL, the decoded profile and the raw
-	// profile JSON exactly as WorkOS returned it.
+	// profile, refuses a profile from another organization than the login requested,
+	// and returns the sanitized return URL, the decoded profile and the raw profile
+	// JSON exactly as WorkOS returned it.
 	Verify(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, profile *Profile, rawProfile json.RawMessage, err error)
 	// LoginURL is where a refused or pending login is sent.
 	LoginURL() string
@@ -108,7 +109,8 @@ func (c *Client) LoginURL() string {
 }
 
 // AuthorizationURL returns the URL that starts SSO for the given WorkOS organization ID,
-// after writing the registration's state cookie that binds the callback to this browser.
+// after writing the registration's state cookie that binds the callback to this browser
+// and carries the organization, so Verify refuses a profile from another.
 func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, organization, returnURL string) (string, error) {
 	if strings.TrimSpace(organization) == "" {
 		return "", httpio.NewBadRequestMessage("organization is required")
@@ -122,6 +124,7 @@ func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, orga
 
 	cval := cookie.NewValues().
 		SetString(internalcookie.OIDCState, state.String()).
+		SetString(internalcookie.WorkOSOrganization, organization).
 		SetString(internalcookie.ReturnURL, returnURL)
 
 	c.cookies.WriteStateCookie(w, cval)
@@ -137,9 +140,10 @@ func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, orga
 }
 
 // Verify validates the SSO callback request and exchanges its code for the user's
-// profile. Every failure is a sessioninfo.LoginRefusal. It returns the sanitized URL to
-// send the browser to after sign-in, the decoded profile, and the raw profile JSON
-// exactly as WorkOS returned it (including raw_attributes).
+// profile, which must belong to the organization the login requested
+// (organization_mismatch otherwise). Every failure is a sessioninfo.LoginRefusal. It
+// returns the sanitized URL to send the browser to after sign-in, the decoded profile,
+// and the raw profile JSON exactly as WorkOS returned it (including raw_attributes).
 func (c *Client) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, profile *Profile, rawProfile json.RawMessage, err error) {
 	cval, cookieName, err := c.cookies.ReadStateCookie(r)
 	if err != nil {
@@ -180,6 +184,11 @@ func (c *Client) Verify(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	}
 	if profile.ConnectionID == "" || profile.IDPID == "" {
 		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessage("SSO profile is missing connection_id or idp_id"))
+	}
+	// The profile must belong to the organization the login asked for, as WorkOS's own
+	// guidance requires: it is what lets an application tie a tenant to its login URL.
+	if organization, _ := cval.GetString(internalcookie.WorkOSOrganization); organization == "" || profile.OrganizationID != organization {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationMismatch, httpio.NewForbiddenMessage("SSO profile does not belong to the requested organization"))
 	}
 
 	return returnURL, profile, rawProfile, nil

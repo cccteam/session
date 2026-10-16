@@ -318,7 +318,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   `/reports#x`). An external `Login()` whose `returnUrl` breaks any of these is refused
   with **400**, and the callback sanitizes it again, falling back to `/`. The callback
   writes the `Location` header with exactly that value. Percent-encode a non-ASCII path
-  before passing it. A WorkOS `Login()` without `organization` is also 400.
+  before passing it. A WorkOS `Login()` without `organization` is also 400, and its callback refuses a profile from another organization than the login requested (`organization_mismatch`).
 - `pending` is the login page's routing marker. The page reads the pending identity from
   `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"]}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
@@ -661,6 +661,7 @@ table is the wire contract:
 | `parse_claims_failed` | `RefusedClaimsParse` | The verified ID token's claims would not decode. |
 | `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the user is outside the Workspace domain logins are restricted to. |
 | `email_not_verified` | `RefusedEmailNotVerified` | Google: the user's email address is not verified. |
+| `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the user resolver rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, or the identity resolved to another user than it waited on. |
