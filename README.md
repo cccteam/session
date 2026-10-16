@@ -173,11 +173,12 @@ A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 1. **User resolution** (external methods): a linked identity is its user's;
    otherwise the user resolver runs and its outcome is applied: the link, or the new
    user, its link and the rows `Provision`'s `onProvisioned` writes. A link decision
-   holds the user's row until the transaction ends (PostgreSQL: a `FOR NO KEY UPDATE`
-   lock, which does not hold session inserts; Spanner: the transaction is
-   serializable), so two racing sign-ins from two connections cannot both link a
-   password-less user. A transaction the database ends to break a deadlock (a resolver
-   that locked the user row itself) or a serialization failure runs once more.
+   holds the user against another link decision until the transaction ends
+   (PostgreSQL: a transaction-scoped advisory lock keyed by the user, which holds
+   neither session inserts nor a resolver's own reads of the user; Spanner: the
+   transaction is serializable), so two racing sign-ins from two connections cannot
+   both link a password-less user. A transaction the database ends to break a deadlock
+   or a serialization failure runs once more.
 2. **Decision and session**: the user is read (a disabled one is refused), the
    sign-in policy runs, and the session row is inserted with its auth events and custom
    session data.

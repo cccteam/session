@@ -36,9 +36,10 @@ type Driver[Tx any] interface {
 	// UserIn reads the part of userID's user the flow decides on. A missing user is
 	// NotFound.
 	UserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
-	// LockUserIn reads the user as UserIn does and holds its row against another link
+	// LockUserIn reads the user as UserIn does and holds the user against another link
 	// decision until tx ends, so the check of the user's links and the new link are
-	// not raced; a session insert for the user is not held. A missing user is NotFound.
+	// not raced; a session insert for the user, and a resolver's own reads of the user,
+	// are not held. A missing user is NotFound.
 	LockUserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.

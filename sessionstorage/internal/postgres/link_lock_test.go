@@ -97,11 +97,12 @@ func TestSessionStorageDriver_LockUserIn(t *testing.T) {
 	}
 }
 
-// TestSessionStorageDriver_LinkDeadlockRunsOnceMore proves the retry behind a deadlock:
-// two sign-ins whose resolver shares the user row's lock before the link decision locks
-// it deadlock, PostgreSQL ends one, and that one runs its resolution once more, sees the
-// winner's link and is refused across connections.
-func TestSessionStorageDriver_LinkDeadlockRunsOnceMore(t *testing.T) {
+// TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver proves the
+// link lock is independent of the row: two sign-ins whose resolver shares the user row's
+// lock before the link decision takes its lock do not deadlock (a row-lock upgrade
+// would, twice in a row under load); one links, the other waits, sees the winner's link
+// and is refused across connections, and neither resolution runs again.
+func TestSessionStorageDriver_LinkDecisionsDoNotDeadlockWithASharingResolver(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
@@ -116,8 +117,8 @@ func TestSessionStorageDriver_LinkDeadlockRunsOnceMore(t *testing.T) {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
-	// The first two resolutions each share the user row's lock, then wait for each
-	// other, so both hold it when their link decisions ask for the stronger lock.
+	// The two resolutions each share the user row's lock, then wait for each other, so
+	// both hold it when their link decisions take the link lock.
 	var (
 		runs    atomic.Int32
 		barrier sync.WaitGroup
@@ -163,14 +164,14 @@ func TestSessionStorageDriver_LinkDeadlockRunsOnceMore(t *testing.T) {
 			continue
 		}
 		if sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedIdentityRejected || !errors.Is(err, signin.ErrLinkCrossConnection) {
-			t.Errorf("sign-in %d error = %v, want the cross-connection refusal after the rerun", i, err)
+			t.Errorf("sign-in %d error = %v, want the cross-connection refusal", i, err)
 		}
 	}
 	if linked != 1 {
 		t.Errorf("%d sign-ins linked, want exactly one", linked)
 	}
-	if got := runs.Load(); got != 3 {
-		t.Errorf("the resolver ran %d times, want 3: both racing sign-ins and the loser's rerun", got)
+	if got := runs.Load(); got != 2 {
+		t.Errorf("the resolver ran %d times, want 2: once per sign-in, with no deadlock to recover from", got)
 	}
 	links, err := d.IdentitiesByUser(ctx, user.ID)
 	if err != nil {

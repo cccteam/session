@@ -141,12 +141,23 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx pgx.Tx, userID ccc
 	return s.userIn(ctx, tx, userID, "FOR SHARE")
 }
 
-// LockUserIn reads the user as UserIn does and holds its row against another link
-// decision until tx ends: FOR NO KEY UPDATE conflicts with another FOR NO KEY UPDATE
-// (and with UserIn's FOR SHARE), but not with the FOR KEY SHARE a session insert takes
-// on the user through its foreign key.
+// linkDecisionLockClass is the first key of the advisory lock a link decision takes,
+// keeping it apart from any advisory lock the application takes on its own.
+const linkDecisionLockClass = "session.link-decision"
+
+// LockUserIn reads the user as UserIn does and holds a transaction-scoped advisory lock
+// keyed by the user until tx ends, so two link decisions for one user run one after the
+// other and the second sees the first's link. An advisory lock rather than a stronger
+// row lock: upgrading the row lock deadlocks with a resolver that shared the row before
+// the decision, and twice in a row under load, while the advisory lock is independent
+// of row locks, so a resolver's own share lock and the key-share lock a session insert
+// takes through its foreign key go through.
 func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID) (*dbtype.User, error) {
-	return s.userIn(ctx, tx, userID, "FOR NO KEY UPDATE")
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`, linkDecisionLockClass, userID.String()); err != nil {
+		return nil, errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	return s.userIn(ctx, tx, userID, "FOR SHARE")
 }
 
 // userIn reads the user with the row lock clause lock.
