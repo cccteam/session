@@ -174,6 +174,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
 		{name: "an untrusted link from another connection to a password-less user is refused; the same connection or a trusted link links", run: testLinkAcrossConnections},
+		{name: "concurrent untrusted links from two connections to a password-less user link exactly one", run: testConcurrentCrossConnectionLinks},
 		{name: "the sign-in policy decides after the user is known", run: testSignInPolicy},
 		{name: "a disabled user is refused", run: testDisabledUserRefused},
 		{name: "a rejected sign-in keeps the user resolver's own writes", run: testRejectionKeepsResolverWrites},

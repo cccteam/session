@@ -51,7 +51,13 @@ func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context
 // user table's username index, or the identities table's key.
 func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != pgerrcode.UniqueViolation {
+	if !errors.As(err, &pgErr) {
+		return dbtype.NoSignInConflict
+	}
+	if pgErr.Code == pgerrcode.DeadlockDetected || pgErr.Code == pgerrcode.SerializationFailure {
+		return dbtype.LockConflict
+	}
+	if pgErr.Code != pgerrcode.UniqueViolation {
 		return dbtype.NoSignInConflict
 	}
 
@@ -132,7 +138,20 @@ func (s *SessionStorageDriver) insertLink(
 // UserIn reads the part of userID's user the sign-in decides on, inside tx, sharing its
 // row lock so a concurrent change waits. A missing user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 FOR SHARE`, s.userTable())
+	return s.userIn(ctx, tx, userID, "FOR SHARE")
+}
+
+// LockUserIn reads the user as UserIn does and holds its row against another link
+// decision until tx ends: FOR NO KEY UPDATE conflicts with another FOR NO KEY UPDATE
+// (and with UserIn's FOR SHARE), but not with the FOR KEY SHARE a session insert takes
+// on the user through its foreign key.
+func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID) (*dbtype.User, error) {
+	return s.userIn(ctx, tx, userID, "FOR NO KEY UPDATE")
+}
+
+// userIn reads the user with the row lock clause lock.
+func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID, lock string) (*dbtype.User, error) {
+	query := fmt.Sprintf(`SELECT "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 %s`, s.userTable(), lock)
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, userID).Scan(&u.Username, &u.HasPassword, &u.Disabled); err != nil {

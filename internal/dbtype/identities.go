@@ -53,4 +53,7 @@ const (
 	// IdentityConflict is the identities table refusing a link of an identity that a
 	// racing sign-in linked meanwhile.
 	IdentityConflict
+	// LockConflict is the database ending the transaction to break a deadlock or a
+	// serialization failure between racing sign-ins; the sign-in runs once more.
+	LockConflict
 )

@@ -36,6 +36,10 @@ type Driver[Tx any] interface {
 	// UserIn reads the part of userID's user the flow decides on. A missing user is
 	// NotFound.
 	UserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
+	// LockUserIn reads the user as UserIn does and holds its row against another link
+	// decision until tx ends, so the check of the user's links and the new link are
+	// not raced; a session insert for the user is not held. A missing user is NotFound.
+	LockUserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.
 	InsertUserIn(ctx context.Context, tx Tx, user *dbtype.InsertSessionUser) (ccc.UUID, error)
@@ -104,7 +108,8 @@ func SignIn[Tx any](
 // link's tenant. stop is a refusal or a pending confirmation; it still commits. When two
 // first sign-ins of one identity race, the loser's link fails on the identities key (a
 // provisioning loser on the username first), and its resolution runs once more and
-// finds the winner's link.
+// finds the winner's link. A transaction the database ends to break a deadlock or a
+// serialization failure between racing sign-ins runs once more too.
 func resolveIdentity[Tx any](
 	ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx],
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
@@ -134,6 +139,13 @@ func resolveIdentity[Tx any](
 
 			return "", "", nil, httpio.NewConflictMessagef("username %q already exists", req.Username)
 		case dbtype.IdentityConflict:
+			if attempt == 1 {
+				continue
+			}
+		case dbtype.LockConflict:
+			// The database broke a deadlock (a resolver that shared the user row's lock
+			// before the link decision locked it) or a serialization failure between
+			// racing sign-ins: the loser runs once more and sees what the winner wrote.
 			if attempt == 1 {
 				continue
 			}
@@ -191,9 +203,11 @@ func applyResolution[Tx any](
 	case signin.RejectIdentity:
 		return "", "", Refusal(res.Refusal(), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
 	case signin.LinkIdentity:
-		user, err := d.UserIn(ctx, tx, res.UserID())
+		// The row is held until the transaction ends, so two link decisions for one
+		// user run one after the other and the second sees the first's link.
+		user, err := d.LockUserIn(ctx, tx, res.UserID())
 		if err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.UserIn()")
+			return "", "", nil, errors.Wrap(err, "Driver.LockUserIn()")
 		}
 		if user.HasPassword && !res.Trusted() {
 			return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil

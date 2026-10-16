@@ -2,6 +2,7 @@ package drivertest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -364,6 +365,65 @@ func testLinkAcrossConnections(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 	if len(links) != 3 {
 		t.Errorf("IdentitiesByUser() = %d links, want 3: the seeded one, the same-connection one and the trusted one", len(links))
+	}
+}
+
+func testConcurrentCrossConnectionLinks(ctx context.Context, t *testing.T, h *AuthHarness) {
+	// Each racing pair signs in with its own subject, which names the user it links.
+	var (
+		mu    sync.Mutex
+		users = map[string]ccc.UUID{}
+	)
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: func(_ context.Context, _ HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		// Hold the sign-ins together, so their link decisions race.
+		time.Sleep(100 * time.Millisecond)
+		mu.Lock()
+		defer mu.Unlock()
+
+		return signin.Link(users[req.Identity.Subject], false), nil
+	}})
+
+	const n = 6
+	subjects := make([]string, n)
+	for i := range n {
+		subjects[i] = fmt.Sprintf("idp_pair_%d", i)
+		user := createUser(ctx, t, in.Driver, subjects[i]+"@lakeside.edu")
+		mu.Lock()
+		users[subjects[i]] = user.ID
+		mu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+	errs := make([][2]error, n)
+	for i := range n {
+		for j, identity := range []*sessioninfo.Identity{lakeside(subjects[i]), riverside(subjects[i])} {
+			wg.Go(func() {
+				_, _, errs[i][j] = signIn(ctx, in, identity, sessioninfo.ReasonLogin)
+			})
+		}
+	}
+	wg.Wait()
+
+	for i, pair := range errs {
+		linked := 0
+		for _, err := range pair {
+			if err == nil {
+				linked++
+
+				continue
+			}
+			assertRefused(t, err, sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
+		}
+		if linked != 1 {
+			t.Errorf("pair %d: %d sign-ins linked, want exactly one of the two connections", i, linked)
+		}
+		links, err := in.Driver.IdentitiesByUser(ctx, users[subjects[i]])
+		if err != nil {
+			t.Fatalf("IdentitiesByUser() error = %v", err)
+		}
+		if len(links) != 1 {
+			t.Errorf("pair %d: IdentitiesByUser() = %d links, want 1", i, len(links))
+		}
 	}
 }
 

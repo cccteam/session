@@ -202,6 +202,13 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 	return &u, nil
 }
 
+// LockUserIn reads the user as UserIn does. The read-write transaction is serializable:
+// when two link decisions for one user race, Spanner aborts one, the client reruns it,
+// and the rerun sees the other's link.
+func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID ccc.UUID) (*dbtype.User, error) {
+	return s.UserIn(ctx, tx, userID)
+}
+
 // InsertUserIn buffers a new user row and returns its ID.
 func (s *SessionStorageDriver) InsertUserIn(_ context.Context, tx *spanner.ReadWriteTransaction, insertUser *dbtype.InsertSessionUser) (ccc.UUID, error) {
 	user, mutation, err := newUserMutation(s.userTableName, insertUser)
