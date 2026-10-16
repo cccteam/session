@@ -331,7 +331,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			},
 		},
 		{
-			name: "an Entra front-channel logout ends the sessions whose sign-in carried its sid and no other, called by the provider without a session",
+			name: "an Entra front-channel logout ends the sessions whose sign-in carried its sid under its registration's issuer and no other, called by the provider without a session",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
 				a.hooks.set(func(h *hooks[Tx]) {
 					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
@@ -345,6 +345,10 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", withSID(azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu"), "sid-pat-2")), "/home", url.Values{})
 				named.view(ctx)
 				other.view(ctx)
+				// The same sid at the other Entra tenant is another issuer's: out of reach.
+				elsewhere := a.browser(t)
+				assertRedirect(t, elsewhere.oidcSignIn(ctx, a.riverside, "/riverside", withSID(azureClaims("22222222-2222-2222-2222-222222222222", "oid-rpat", "rpat@riverside.edu"), "sid-pat-1")), "/home", url.Values{})
+				elsewhere.view(ctx)
 				// An impersonation started on the session under sid-pat-1 keeps that id, so
 				// the logout reaches it too.
 				sam := a.seed(ctx, t, "sam@lakeside.edu")
@@ -365,6 +369,9 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				if v := other.view(ctx); v.Username != "pat@lakeside.edu" {
 					t.Errorf("the session under another sid = %+v, want it still signed in", v)
+				}
+				if v := elsewhere.view(ctx); v.Username != "rpat@riverside.edu" {
+					t.Errorf("the session under the same sid at another issuer = %+v, want it still signed in", v)
 				}
 				provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/azure/logout", nil)
 				provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/azure/logout?sid=sid-pat-2&iss="+url.QueryEscape("https://other.example"), nil)

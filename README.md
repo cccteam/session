@@ -96,8 +96,8 @@ schema").
 
 Each auth group owns six tables: sessions and users (the base migrations,
 `schema/*/migrations`), identities, auth events and pending sign-ins (the auth
-migrations, `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt` and
-`ProviderSessionId` to the sessions table), and impersonations
+migrations, `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
+`ProviderSessionId` and `ProviderSessionIssuer` to the sessions table), and impersonations
 (`schema/*/impersonation/migrations`) if you use it. Which set to apply depends on
 where the group starts:
 
@@ -410,14 +410,18 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
   refuses a user's last means of sign-in.
-- **Provider-initiated (front-channel) logout** is keyed by the provider's session id:
-  an Azure sign-in records the ID token's `sid` claim on its session row
-  (`ProviderSessionId`), a pending sign-in carries it to the session it completes, and a
-  regenerated session keeps it. `azure.Method.FrontChannelLogout()` ends every live
-  session under the `sid` the request names, impersonations started from it included
-  (their records end `Logout`), answers 200, and 400 without a `sid` or with an `iss`
-  naming another issuer; it reads nothing from the browser, since Entra calls it in a
-  frame, and a known `sid` is its only credential. Register its route as the
+- **Provider-initiated (front-channel) logout** is keyed by the registration's issuer
+  and the provider's session id, since a provider's session id is unique only within
+  its issuer: an Azure sign-in records the ID token's `sid` claim on its session row
+  with the registration's issuer (`ProviderSessionId`, `ProviderSessionIssuer`), a
+  pending sign-in carries them to the session it completes, and a regenerated session
+  keeps them. `azure.Method.FrontChannelLogout()` ends every live session under its
+  registration's issuer and the `sid` the request names, impersonations started from
+  it included (their records end `Logout`), answers 200, and 400 without a `sid` or
+  with an `iss` naming another issuer; it reads nothing from the browser, since Entra
+  calls it in a frame, and a known `sid` under this issuer is its only credential. A
+  session recorded with an id but no issuer (a legacy session the upgrade carried
+  over) is out of its reach until the person signs in again. Register its route as the
   application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions
   of the same user under another `sid`, or signed in by a method that reports no
   session id (password, Google, WorkOS), are not touched.

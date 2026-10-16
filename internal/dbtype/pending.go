@@ -37,11 +37,13 @@ type PendingSignIn struct {
 	// ReturnURL is the sanitized path the sign-in returns to; empty for a password
 	// sign-in.
 	ReturnURL string
-	// ProviderSessionID is the provider's session id the sign-in carried, "" when none.
-	ProviderSessionID string
-	CreatedAt         time.Time
-	ExpiresAt         time.Time
-	ConsumedAt        *time.Time
+	// ProviderSessionID is the provider's session id the sign-in carried, "" when none,
+	// and ProviderSessionIssuer the issuer it belongs to.
+	ProviderSessionID     string
+	ProviderSessionIssuer string
+	CreatedAt             time.Time
+	ExpiresAt             time.Time
+	ConsumedAt            *time.Time
 }
 
 // MethodNames renders methods as the strings a database array holds; nil stays nil.

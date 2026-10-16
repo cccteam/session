@@ -7,6 +7,7 @@ ALTER TABLE Sessions DROP CONSTRAINT FK_Sessions_SessionUsers;
 ALTER TABLE Sessions DROP COLUMN AuthenticatedAt;
 ALTER TABLE Sessions DROP COLUMN UserId;
 DROP INDEX SessionsByProviderSessionId;
+ALTER TABLE Sessions DROP COLUMN ProviderSessionIssuer;
 ALTER TABLE Sessions DROP COLUMN ProviderSessionId;
 ALTER TABLE Sessions ADD COLUMN OidcSid STRING(MAX) NOT NULL DEFAULT ('');
 CREATE INDEX SessionsByOidcSid ON Sessions(OidcSid DESC);

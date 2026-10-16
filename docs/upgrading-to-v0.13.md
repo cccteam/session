@@ -112,8 +112,8 @@ Two things every move shares:
 ### From the legacy password type
 
 **Schema.** Apply `schema/<backend>/auth/migrations` to the group. The base set is
-already there; the auth set adds `UserId`, `AuthenticatedAt` and `ProviderSessionId` to
-the sessions table and creates `SessionIdentities`, `SessionAuthEvents` and
+already there; the auth set adds `UserId`, `AuthenticatedAt`, `ProviderSessionId` and
+`ProviderSessionIssuer` to the sessions table and creates `SessionIdentities`, `SessionAuthEvents` and
 `SessionPendingSignIns`. Nothing is backfilled: `Auth` refuses a session row without a
 `UserId`, so each person signs in once after the cutover. To keep the live sessions
 instead, give them their user by username before the cutover:
@@ -149,9 +149,11 @@ group, four steps:
 
 1. `000001_SessionUsers` creates the users table, as the base set does.
 2. `000002_Auth` adds the Auth columns and tables. `OidcSid` becomes the nullable
-   `ProviderSessionId`: renamed on PostgreSQL, dropped and re-added on Spanner. On both
-   backends the live legacy sessions lose their `sid`, so a later Entra logout cannot
-   reach them; step 4 gives them their user.
+   `ProviderSessionId`, renamed on PostgreSQL (the ids stay) and dropped and re-added on
+   Spanner (the ids are lost), beside the new `ProviderSessionIssuer`, which the live
+   legacy sessions have no value for. A front-channel logout matches the issuer and the
+   id, so on both backends it cannot reach a legacy session until the person signs in
+   again; the application's own logout still ends it. Step 4 gives them their user.
 3. `000003_SessionPendingSignIns` creates the pending sign-ins table.
 4. `000004_OIDCUsersBackfill` copies the OIDC user anchor's rows into `SessionUsers`
    under the same ids, creates one Azure identity per row (`Method` `azure`,
@@ -279,9 +281,10 @@ conflict by that name.
   remove the columns and tables when they are not wanted.
 - **An Azure group.** The set's down migrations restore the legacy layout, and the
   anchor's rows were copied, not moved, so the legacy type resumes with them. On
-  PostgreSQL, step 2's down migration turns `ProviderSessionId` back into `OidcSid` and
-  fills the rows that have none (sessions other methods established) with an empty
-  string; on Spanner `OidcSid` comes back empty for every row. The legacy type reads
+  PostgreSQL, step 2's down migration drops `ProviderSessionIssuer`, turns
+  `ProviderSessionId` back into `OidcSid` and fills the rows that have none (sessions
+  other methods established) with an empty string; on Spanner `OidcSid` comes back empty
+  for every row. The legacy type reads
   `OidcSid` only for its front-channel logout, so the sessions stay but a logout cannot
   reach them. Roll back before dropping the anchor table.
 

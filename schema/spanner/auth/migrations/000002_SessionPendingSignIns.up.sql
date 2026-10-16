@@ -22,6 +22,7 @@ CREATE TABLE SessionPendingSignIns (
     Factors       ARRAY<STRING(MAX)>,
     ReturnUrl     STRING(MAX) NOT NULL,
     ProviderSessionId STRING(MAX),
+    ProviderSessionIssuer STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL,
     ExpiresAt     TIMESTAMP NOT NULL,
     ConsumedAt    TIMESTAMP,

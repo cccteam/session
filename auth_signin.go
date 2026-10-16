@@ -33,13 +33,15 @@ type signInAttempt struct {
 	// expectUserID is the user a pending identity waited on. When valid, a
 	// completion that now resolves to another user is refused.
 	expectUserID ccc.NullUUID
+	// providerSessionID is the provider's session id the sign-in carried, and
+	// providerSessionIssuer the registration's issuer it belongs to; both or neither.
+	providerSessionID     string
+	providerSessionIssuer string
 	// events are the auth events the session records. Nil records only the identity's
 	// method.
 	events []sessioninfo.AuthEvent
 	// returnURL is where an external sign-in sends the browser afterwards.
 	returnURL string
-	// providerSessionID is the provider's session id the sign-in carried, "" when none.
-	providerSessionID string
 	// roleNames are the role names the method asserted, reconciled once the user is
 	// known. They are nil when the method synchronizes no roles.
 	roleNames []string
@@ -66,13 +68,14 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	defer span.End()
 
 	req := &sessioninfo.NewSessionRequest{
-		Reason:            at.reason,
-		Username:          at.username,
-		UserID:            at.userID,
-		Claims:            at.identity.Claims,
-		Identity:          at.identity,
-		AuthEvents:        at.events,
-		ProviderSessionID: at.providerSessionID,
+		Reason:                at.reason,
+		Username:              at.username,
+		UserID:                at.userID,
+		Claims:                at.identity.Claims,
+		Identity:              at.identity,
+		AuthEvents:            at.events,
+		ProviderSessionID:     at.providerSessionID,
+		ProviderSessionIssuer: at.providerSessionIssuer,
 	}
 
 	// An external identity is resolved by its registration's user resolver; a password

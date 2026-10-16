@@ -83,6 +83,7 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 		sessData.AuthenticatedAt = *si.AuthenticatedAt
 	}
 	sessData.ProviderSessionID = si.ProviderSessionID
+	sessData.ProviderSessionIssuer = si.ProviderSessionIssuer
 	if si.Impersonation != nil {
 		sessData.Impersonation = si.Impersonation.ToSessionInfo()
 	}

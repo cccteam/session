@@ -122,6 +122,7 @@ func StartImpersonatedSession[T any](
 	// session id, so a provider-initiated logout of the actor ends it too.
 	if current, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); ok && current != nil {
 		newSessionReq.ProviderSessionID = current.ProviderSessionID
+		newSessionReq.ProviderSessionIssuer = current.ProviderSessionIssuer
 	}
 	if len(customData) == 1 && customData[0] != nil {
 		newSessionReq.CustomData = customData[0]

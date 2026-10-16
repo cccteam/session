@@ -12,18 +12,23 @@ import (
 )
 
 // A sign-in's provider session id (an OpenID Connect sid) is recorded with the session
-// row, and a provider-initiated logout ends every live session under it: the sign-in's
-// own, a regenerated one that kept it, and an impersonation started from it (its record
-// ends Logout). A session under another id, or none, stays.
+// row under the registration's issuer, and a provider-initiated logout ends every live
+// session under that issuer and id: the sign-in's own, a regenerated one that kept
+// them, and an impersonation started from it (its record ends Logout). A session under
+// another issuer or another id, one without an id, and one with an id but no issuer (a
+// legacy session the upgrade carried over) stay.
 
 func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
 	pat := createUser(ctx, t, in.Driver, "pat@lakeside.edu")
 	sam := createUser(ctx, t, in.Driver, "sam@lakeside.edu")
 
-	start := func(user *dbtype.SessionUser, sid string) ccc.UUID {
+	const lakeside, riverside = "https://login/lakeside", "https://login/riverside"
+	start := func(user *dbtype.SessionUser, issuer, sid string) ccc.UUID {
 		t.Helper()
-		id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, ProviderSessionID: sid})
+		id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{
+			Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID, ProviderSessionID: sid, ProviderSessionIssuer: issuer,
+		})
 		if err != nil {
 			t.Fatalf("InsertSession() error = %v", err)
 		}
@@ -33,24 +38,27 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 	now := time.Now()
 	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: pat.Username, Principal: accesstypes.UserPrincipal(accesstypes.User(sam.Username)), StartedAt: now, ExpiresAt: now.Add(time.Hour)})
 	impersonated, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(sam.Username),
-		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: sam.Username, UserID: sam.ID, ProviderSessionID: "sid-1"}, imp)
+		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: sam.Username, UserID: sam.ID, ProviderSessionID: "sid-1", ProviderSessionIssuer: lakeside}, imp)
 	if err != nil {
 		t.Fatalf("InsertImpersonatedSession() error = %v", err)
 	}
 
-	first := start(pat, "sid-1")
-	regenerated := start(pat, "sid-1")
-	otherSID := start(pat, "sid-2")
-	none := start(sam, "")
+	first := start(pat, lakeside, "sid-1")
+	regenerated := start(pat, lakeside, "sid-1")
+	otherIssuer := start(pat, riverside, "sid-1")
+	otherSID := start(pat, lakeside, "sid-2")
+	none := start(sam, "", "")
+	// A legacy session the upgrade carried over has an id but no issuer.
+	issuerless := start(sam, "", "sid-1")
 
-	if sess := mustSession(ctx, t, in.Driver, first); sess.ProviderSessionID != "sid-1" {
-		t.Errorf("Session().ProviderSessionID = %q, want sid-1 recorded with the row", sess.ProviderSessionID)
+	if sess := mustSession(ctx, t, in.Driver, first); sess.ProviderSessionID != "sid-1" || sess.ProviderSessionIssuer != lakeside {
+		t.Errorf("Session() provider session = (%q, %q), want (sid-1, %s) recorded with the row", sess.ProviderSessionID, sess.ProviderSessionIssuer, lakeside)
 	}
-	if sess := mustSession(ctx, t, in.Driver, none); sess.ProviderSessionID != "" {
-		t.Errorf("Session().ProviderSessionID of a sign-in without one = %q, want empty", sess.ProviderSessionID)
+	if sess := mustSession(ctx, t, in.Driver, none); sess.ProviderSessionID != "" || sess.ProviderSessionIssuer != "" {
+		t.Errorf("Session() provider session of a sign-in without one = (%q, %q), want empty", sess.ProviderSessionID, sess.ProviderSessionIssuer)
 	}
 
-	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, "sid-1"); err != nil {
+	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, lakeside, "sid-1"); err != nil {
 		t.Fatalf("DestroySessionsByProviderSessionID() error = %v", err)
 	}
 
@@ -62,8 +70,10 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 		{name: "the sign-in's own session", id: first, wantExpired: true},
 		{name: "a session regenerated from it", id: regenerated, wantExpired: true},
 		{name: "an impersonation started from it", id: impersonated, wantExpired: true},
+		{name: "a session under the same id at another issuer", id: otherIssuer},
 		{name: "a session under another provider session id", id: otherSID},
 		{name: "a session without one", id: none},
+		{name: "a session with the id but no issuer", id: issuerless},
 	} {
 		sess := mustSession(ctx, t, in.Driver, tc.id)
 		if sess.Expired != tc.wantExpired {
@@ -75,10 +85,17 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 
 	// A logout for an id no session carries ends nothing and is not an error.
-	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, "sid-unknown"); err != nil {
+	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, lakeside, "sid-unknown"); err != nil {
 		t.Errorf("DestroySessionsByProviderSessionID() of an unknown id error = %v", err)
 	}
 	if sess := mustSession(ctx, t, in.Driver, otherSID); sess.Expired {
 		t.Error("a session under another provider session id was expired by a logout for an unknown id")
+	}
+	// A logout naming no issuer reaches nothing, the issuerless session included.
+	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, "", "sid-1"); err != nil {
+		t.Errorf("DestroySessionsByProviderSessionID() without an issuer error = %v", err)
+	}
+	if sess := mustSession(ctx, t, in.Driver, issuerless); sess.Expired {
+		t.Error("a session with the id but no issuer was expired by a logout naming no issuer")
 	}
 }

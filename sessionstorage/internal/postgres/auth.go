@@ -67,10 +67,10 @@ func (s *SessionStorageDriver) sessionInsertStatement(id ccc.UUID, insertSession
 
 	return fmt.Sprintf(`
 		INSERT INTO %s
-			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId")
+			("Id", "Username", "CreatedAt", "UpdatedAt", "Expired", "UserId", "AuthenticatedAt", "ProviderSessionId", "ProviderSessionIssuer")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8)
-		`, s.sessionTable()), append(args, userID, user.AuthenticatedAt, user.ProviderSessionID)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, s.sessionTable()), append(args, userID, user.AuthenticatedAt, user.ProviderSessionID, user.ProviderSessionIssuer)
 }
 
 // initialAuthEvent chains the insert of the new session's auth events
@@ -125,18 +125,19 @@ func (s *SessionStorageDriver) userColumns() string {
 		return ""
 	}
 
-	return `, s."UserId", s."AuthenticatedAt", s."ProviderSessionId"`
+	return `, s."UserId", s."AuthenticatedAt", s."ProviderSessionId", s."ProviderSessionIssuer"`
 }
 
 // userScan holds the scan destinations of the user columns.
 type userScan struct {
-	userID            *ccc.UUID
-	authenticatedAt   *time.Time
-	providerSessionID *string
+	userID                *ccc.UUID
+	authenticatedAt       *time.Time
+	providerSessionID     *string
+	providerSessionIssuer *string
 }
 
 func (a *userScan) dests() []any {
-	return []any{&a.userID, &a.authenticatedAt, &a.providerSessionID}
+	return []any{&a.userID, &a.authenticatedAt, &a.providerSessionID, &a.providerSessionIssuer}
 }
 
 func (a *userScan) apply(sessData *dbtype.SessionData) {
@@ -147,12 +148,16 @@ func (a *userScan) apply(sessData *dbtype.SessionData) {
 	if a.providerSessionID != nil {
 		sessData.ProviderSessionID = *a.providerSessionID
 	}
+	if a.providerSessionIssuer != nil {
+		sessData.ProviderSessionIssuer = *a.providerSessionIssuer
+	}
 }
 
 // DestroySessionsByProviderSessionID expires every live session whose sign-in carried
-// the provider's session id, as a provider-initiated logout asks; an impersonated
-// session's record ends Logout. It needs the auth schema.
-func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+// the provider's session id under issuer, as a provider-initiated logout asks; an
+// impersonated session's record ends Logout. Both columns match, so a session recorded
+// without an issuer never does. It needs the auth schema.
+func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -171,16 +176,16 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 	now := time.Now()
 	if s.impersonation != nil {
 		endRecords := fmt.Sprintf(`
-			UPDATE %s i SET "EndedAt" = $2, "EndReason" = $3
+			UPDATE %s i SET "EndedAt" = $3, "EndReason" = $4
 			WHERE i."EndedAt" IS NULL AND EXISTS (
-				SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."Expired" = FALSE AND s."ProviderSessionId" = $1)`,
+				SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."Expired" = FALSE AND s."ProviderSessionId" = $1 AND s."ProviderSessionIssuer" = $2)`,
 			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
-		if _, err := txn.Exec(ctx, endRecords, providerSessionID, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
+		if _, err := txn.Exec(ctx, endRecords, providerSessionID, issuer, now, string(sessioninfo.ImpersonationEndedByLogout)); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	}
-	expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $2 WHERE "Expired" = FALSE AND "ProviderSessionId" = $1`, s.sessionTable())
-	if _, err := txn.Exec(ctx, expire, providerSessionID, now); err != nil {
+	expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = $3 WHERE "Expired" = FALSE AND "ProviderSessionId" = $1 AND "ProviderSessionIssuer" = $2`, s.sessionTable())
+	if _, err := txn.Exec(ctx, expire, providerSessionID, issuer, now); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 

@@ -47,7 +47,7 @@ func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 
 // externalCallback completes the provider round trip of the registration named name.
 // See the README's "The redirect and response contract" for where it redirects.
-func (a *Auth[S, U, Tx]) externalCallback(name string, m *signin.Method) http.HandlerFunc {
+func (a *Auth[S, U, Tx]) externalCallback(name, issuer string, m *signin.Method) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -59,14 +59,21 @@ func (a *Auth[S, U, Tx]) externalCallback(name string, m *signin.Method) http.Ha
 			return errors.Wrap(err, string(m.Name)+": complete the sign-in")
 		}
 
+		// The provider's session id is recorded under the registration's issuer, since
+		// it is unique only there; a registration without an issuer records none.
+		providerSessionID, providerSessionIssuer := v.ProviderSessionID, issuer
+		if providerSessionID == "" || providerSessionIssuer == "" {
+			providerSessionID, providerSessionIssuer = "", ""
+		}
 		outcome, err := a.signIn(ctx, w, &signInAttempt{
-			identity:          v.Identity,
-			reason:            sessioninfo.ReasonLogin,
-			registration:      name,
-			returnURL:         v.ReturnURL,
-			roleNames:         v.RoleNames,
-			providerSessionID: v.ProviderSessionID,
-			sameSite:          sessioncore.SameSiteNone,
+			identity:              v.Identity,
+			reason:                sessioninfo.ReasonLogin,
+			registration:          name,
+			returnURL:             v.ReturnURL,
+			roleNames:             v.RoleNames,
+			providerSessionID:     providerSessionID,
+			providerSessionIssuer: providerSessionIssuer,
+			sameSite:              sessioncore.SameSiteNone,
 		})
 		if err != nil {
 			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), err)

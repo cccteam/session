@@ -1,11 +1,13 @@
 -- Step 2 of 4: the Auth columns and tables, as the auth set creates them, on the
 -- legacy Azure sessions table. OidcSid gives way to ProviderSessionId, nullable: Auth
--- records the provider's session id when the method reports one. Spanner cannot
--- rename a column, so the legacy column is dropped: live legacy sessions end at the
--- cutover (one sign-in), which the upgrade expects anyway.
+-- records the provider's session id when the method reports one, with its issuer in
+-- ProviderSessionIssuer. Spanner cannot rename a column, so the legacy column is
+-- dropped: the live legacy sessions lose their id, and a later Entra logout cannot
+-- reach them until the person signs in again, which the upgrade expects anyway.
 DROP INDEX SessionsByOidcSid;
 ALTER TABLE Sessions DROP COLUMN OidcSid;
 ALTER TABLE Sessions ADD COLUMN ProviderSessionId STRING(MAX);
+ALTER TABLE Sessions ADD COLUMN ProviderSessionIssuer STRING(MAX);
 CREATE INDEX SessionsByProviderSessionId ON Sessions(ProviderSessionId);
 
 ALTER TABLE Sessions ADD COLUMN UserId STRING(36);

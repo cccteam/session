@@ -61,8 +61,10 @@ type NewSessionRequest struct {
 	Identity *Identity
 	// ProviderSessionID is the identity provider's session id the sign-in carried (an
 	// OpenID Connect sid claim), which a provider-initiated logout names; "" when the
-	// method has none. The session row records it.
-	ProviderSessionID string
+	// method has none. ProviderSessionIssuer is the registration's issuer it belongs
+	// to, set with it or not at all. The session row records both.
+	ProviderSessionID     string
+	ProviderSessionIssuer string
 	// AuthEvents are the auth events the new session records, in order, with the
 	// session row. An impersonated session records its impersonation event first. When
 	// AuthEvents is empty, a session that is not impersonated records one event for

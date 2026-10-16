@@ -66,18 +66,25 @@ func (s *SessionStorageDriver) sessionInsertMutation(id ccc.UUID, insertSession 
 		authenticatedAt = spanner.NullTime{Time: *user.AuthenticatedAt, Valid: true}
 	}
 
-	var providerSessionID spanner.NullString
+	var providerSessionID, providerSessionIssuer spanner.NullString
 	if user.ProviderSessionID != nil {
 		providerSessionID = spanner.NullString{StringVal: *user.ProviderSessionID, Valid: true}
+	}
+	if user.ProviderSessionIssuer != nil {
+		providerSessionIssuer = spanner.NullString{StringVal: *user.ProviderSessionIssuer, Valid: true}
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, &struct {
 		ID ccc.UUID
 		*dbtype.InsertSession
-		UserID            ccc.NullUUID       `spanner:"UserId"`
-		AuthenticatedAt   spanner.NullTime   `spanner:"AuthenticatedAt"`
-		ProviderSessionID spanner.NullString `spanner:"ProviderSessionId"`
-	}{ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt, ProviderSessionID: providerSessionID})
+		UserID                ccc.NullUUID       `spanner:"UserId"`
+		AuthenticatedAt       spanner.NullTime   `spanner:"AuthenticatedAt"`
+		ProviderSessionID     spanner.NullString `spanner:"ProviderSessionId"`
+		ProviderSessionIssuer spanner.NullString `spanner:"ProviderSessionIssuer"`
+	}{
+		ID: id, InsertSession: insertSession, UserID: user.UserID, AuthenticatedAt: authenticatedAt,
+		ProviderSessionID: providerSessionID, ProviderSessionIssuer: providerSessionIssuer,
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}
@@ -126,7 +133,7 @@ func (s *SessionStorageDriver) userColumns() string {
 		return ""
 	}
 
-	return ", s.UserId, s.AuthenticatedAt, s.ProviderSessionId"
+	return ", s.UserId, s.AuthenticatedAt, s.ProviderSessionId, s.ProviderSessionIssuer"
 }
 
 // readUser reads the user columns from row, starting at column idx, and returns
@@ -140,9 +147,12 @@ func readUser(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, err
 	if err := row.Column(idx+1, &authenticatedAt); err != nil {
 		return idx, errors.Wrapf(err, "row.Column(%d/AuthenticatedAt)", idx+1)
 	}
-	var providerSessionID spanner.NullString
+	var providerSessionID, providerSessionIssuer spanner.NullString
 	if err := row.Column(idx+2, &providerSessionID); err != nil {
 		return idx, errors.Wrapf(err, "row.Column(%d/ProviderSessionId)", idx+2)
+	}
+	if err := row.Column(idx+3, &providerSessionIssuer); err != nil {
+		return idx, errors.Wrapf(err, "row.Column(%d/ProviderSessionIssuer)", idx+3)
 	}
 
 	if userID.Valid {
@@ -159,14 +169,18 @@ func readUser(row *spanner.Row, idx int, sessData *dbtype.SessionData) (int, err
 	if providerSessionID.Valid {
 		sessData.ProviderSessionID = providerSessionID.StringVal
 	}
+	if providerSessionIssuer.Valid {
+		sessData.ProviderSessionIssuer = providerSessionIssuer.StringVal
+	}
 
-	return idx + 3, nil
+	return idx + 4, nil
 }
 
 // DestroySessionsByProviderSessionID expires every live session whose sign-in carried
-// the provider's session id, as a provider-initiated logout asks; an impersonated
-// session's record ends Logout. It needs the auth schema.
-func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error {
+// the provider's session id under issuer, as a provider-initiated logout asks; an
+// impersonated session's record ends Logout. Both columns match, so a session recorded
+// without an issuer never does. It needs the auth schema.
+func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -180,17 +194,19 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s
 				SET EndedAt = @now, EndReason = @reason
-				WHERE EndedAt IS NULL AND SessionId IN (SELECT Id FROM %s WHERE Expired = FALSE AND ProviderSessionId = @sid)`,
+				WHERE EndedAt IS NULL AND SessionId IN (SELECT Id FROM %s WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer = @iss)`,
 				s.impersonation.TableName, s.sessionTableName))
 			endRecords.Params["sid"] = providerSessionID
+			endRecords.Params["iss"] = issuer
 			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 			}
 		}
-		expire := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = @now WHERE Expired = FALSE AND ProviderSessionId = @sid`, s.sessionTableName))
+		expire := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = @now WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer = @iss`, s.sessionTableName))
 		expire.Params["sid"] = providerSessionID
+		expire.Params["iss"] = issuer
 		expire.Params["now"] = now
 		if _, err := txn.Update(ctx, expire); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")

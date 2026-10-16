@@ -57,8 +57,11 @@ type Registration[Tx any] struct {
 	Build func(cookies StateCookies) (*Method, error)
 	// FrontChannelLogout asks for the provider-initiated logout handler.
 	FrontChannelLogout bool
-	// Issuer is the provider's issuer, which a front-channel logout request may name
-	// (iss): one naming another issuer is refused. Empty skips the check.
+	// Issuer is the provider's issuer. A sign-in's provider session id is recorded
+	// under it, since a provider's session id is unique only within its issuer, and a
+	// front-channel logout ends the sessions under this issuer and the id it names; a
+	// request naming another issuer (iss) is refused. A registration without an issuer
+	// records no provider session id and can serve no front-channel logout.
 	Issuer string
 	// Err is a misuse the registration function found in its own arguments; the core
 	// panics with it.

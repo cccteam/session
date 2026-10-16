@@ -18,32 +18,33 @@ import (
 
 // pendingColumns are the pending sign-ins table's columns, in pendingRow's order.
 const pendingColumns = `"Id", "TokenHash", "Step", "Registration", "Method", "Connection", "Subject", "Email", "EmailVerified", "IdpAmr", "Claims", ` +
-	`"UserId", "Username", "Tenant", "Events", "RoleNames", "Factors", "ReturnUrl", "ProviderSessionId", "CreatedAt", "ExpiresAt", "ConsumedAt"`
+	`"UserId", "Username", "Tenant", "Events", "RoleNames", "Factors", "ReturnUrl", "ProviderSessionId", "ProviderSessionIssuer", "CreatedAt", "ExpiresAt", "ConsumedAt"`
 
 // pendingRow is a pending sign-in as the table holds it.
 type pendingRow struct {
-	ID                ccc.UUID   `db:"Id"`
-	TokenHash         []byte     `db:"TokenHash"`
-	Step              string     `db:"Step"`
-	Registration      string     `db:"Registration"`
-	Method            string     `db:"Method"`
-	Connection        string     `db:"Connection"`
-	Subject           string     `db:"Subject"`
-	Email             string     `db:"Email"`
-	EmailVerified     bool       `db:"EmailVerified"`
-	IdpAmr            []string   `db:"IdpAmr"`
-	Claims            []byte     `db:"Claims"`
-	UserID            *ccc.UUID  `db:"UserId"`
-	Username          string     `db:"Username"`
-	Tenant            string     `db:"Tenant"`
-	Events            []byte     `db:"Events"`
-	RoleNames         []string   `db:"RoleNames"`
-	Factors           []string   `db:"Factors"`
-	ReturnURL         string     `db:"ReturnUrl"`
-	ProviderSessionID *string    `db:"ProviderSessionId"`
-	CreatedAt         time.Time  `db:"CreatedAt"`
-	ExpiresAt         time.Time  `db:"ExpiresAt"`
-	ConsumedAt        *time.Time `db:"ConsumedAt"`
+	ID                    ccc.UUID   `db:"Id"`
+	TokenHash             []byte     `db:"TokenHash"`
+	Step                  string     `db:"Step"`
+	Registration          string     `db:"Registration"`
+	Method                string     `db:"Method"`
+	Connection            string     `db:"Connection"`
+	Subject               string     `db:"Subject"`
+	Email                 string     `db:"Email"`
+	EmailVerified         bool       `db:"EmailVerified"`
+	IdpAmr                []string   `db:"IdpAmr"`
+	Claims                []byte     `db:"Claims"`
+	UserID                *ccc.UUID  `db:"UserId"`
+	Username              string     `db:"Username"`
+	Tenant                string     `db:"Tenant"`
+	Events                []byte     `db:"Events"`
+	RoleNames             []string   `db:"RoleNames"`
+	Factors               []string   `db:"Factors"`
+	ReturnURL             string     `db:"ReturnUrl"`
+	ProviderSessionID     *string    `db:"ProviderSessionId"`
+	ProviderSessionIssuer *string    `db:"ProviderSessionIssuer"`
+	CreatedAt             time.Time  `db:"CreatedAt"`
+	ExpiresAt             time.Time  `db:"ExpiresAt"`
+	ConsumedAt            *time.Time `db:"ConsumedAt"`
 }
 
 func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
@@ -65,6 +66,9 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 	}
 	if r.ProviderSessionID != nil {
 		p.ProviderSessionID = *r.ProviderSessionID
+	}
+	if r.ProviderSessionIssuer != nil {
+		p.ProviderSessionIssuer = *r.ProviderSessionIssuer
 	}
 
 	return p, nil
@@ -88,12 +92,13 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 		userID = &p.UserID.UUID
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
 		s.pendingTable(), pendingColumns)
 	if _, err := s.conn.Exec(ctx, query,
 		p.ID, p.TokenHash, string(p.Step), p.Registration, string(p.Identity.Method), p.Identity.Connection, p.Identity.Subject,
 		p.Identity.Email, p.Identity.EmailVerified, p.Identity.IDPAMR, []byte(p.Identity.Claims), userID, p.Username, p.Tenant,
-		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), p.CreatedAt, p.ExpiresAt, p.ConsumedAt,
+		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), dbtype.OptionalString(p.ProviderSessionIssuer),
+		p.CreatedAt, p.ExpiresAt, p.ConsumedAt,
 	); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}

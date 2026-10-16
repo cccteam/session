@@ -5,12 +5,15 @@
 -- A session belongs to a user (UserId, null only for a role-principal impersonation),
 -- and deleting the user deletes its sessions, their auth events and its identity links.
 -- ProviderSessionId is the identity provider's session id when the method reports one,
--- for front-channel logout; it is nullable on every Auth sessions table so that a
--- method added later needs no DDL.
+-- for front-channel logout, and ProviderSessionIssuer the issuer it belongs to: a
+-- provider's session id is unique only within its issuer, so a logout matches both.
+-- They are nullable on every Auth sessions table so that a method added later needs
+-- no DDL.
 
 ALTER TABLE Sessions ADD COLUMN UserId STRING(36);
 ALTER TABLE Sessions ADD COLUMN AuthenticatedAt TIMESTAMP;
 ALTER TABLE Sessions ADD COLUMN ProviderSessionId STRING(MAX);
+ALTER TABLE Sessions ADD COLUMN ProviderSessionIssuer STRING(MAX);
 ALTER TABLE Sessions ADD CONSTRAINT FK_Sessions_SessionUsers FOREIGN KEY (UserId) REFERENCES SessionUsers (Id) ON DELETE CASCADE;
 
 CREATE INDEX SessionsByUserId ON Sessions(UserId);

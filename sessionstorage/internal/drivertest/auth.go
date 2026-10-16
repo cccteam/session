@@ -31,7 +31,7 @@ type AuthDriver interface {
 	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
-	DestroySessionsByProviderSessionID(ctx context.Context, providerSessionID string) error
+	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
@@ -196,7 +196,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "deleting a user deletes its sessions, their auth events and its identity links by the schema's cascade", run: testDeleteUserCascades},
 		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
 		{name: "the upgrade from the legacy Azure layout keeps the anchor's users and identities under their ids, gives live sessions their user, and serves Auth", run: testUpgradeFromOIDC},
-		{name: "a sign-in records the provider's session id, and a provider-initiated logout ends the sessions under that id and no other", run: testProviderSessionLogout},
+		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

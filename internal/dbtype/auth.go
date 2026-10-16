@@ -9,12 +9,14 @@ import (
 
 // SessionUserColumns holds the user columns of a new session row. UserID is null
 // for a preauth session and a role-principal impersonation. AuthenticatedAt is null for
-// a preauth session, which authenticates nothing. ProviderSessionID is null unless the
-// sign-in carried the provider's session id.
+// a preauth session, which authenticates nothing. ProviderSessionID and
+// ProviderSessionIssuer are null unless the sign-in carried the provider's session id,
+// which is recorded with the issuer it belongs to.
 type SessionUserColumns struct {
-	UserID            ccc.NullUUID
-	AuthenticatedAt   *time.Time
-	ProviderSessionID *string
+	UserID                ccc.NullUUID
+	AuthenticatedAt       *time.Time
+	ProviderSessionID     *string
+	ProviderSessionIssuer *string
 }
 
 // NewSessionUserColumns returns the user columns of a new session for req, created at at.
@@ -27,6 +29,7 @@ func NewSessionUserColumns(req *sessioninfo.NewSessionRequest, at time.Time) Ses
 		user.AuthenticatedAt = &at
 	}
 	user.ProviderSessionID = OptionalString(req.ProviderSessionID)
+	user.ProviderSessionIssuer = OptionalString(req.ProviderSessionIssuer)
 
 	return user
 }

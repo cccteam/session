@@ -1,11 +1,15 @@
 -- Step 2 of 4: the Auth columns and tables, as the auth set creates them, on the
 -- legacy Azure sessions table. OidcSid becomes ProviderSessionId, nullable: Auth
--- records the provider's session id when the method reports one.
+-- records the provider's session id when the method reports one, with its issuer in
+-- ProviderSessionIssuer. The legacy sessions keep their id but have no issuer, and a
+-- logout matches both, so a later Entra logout cannot reach them until the person
+-- signs in again.
 BEGIN;
 
 ALTER TABLE "Sessions" RENAME COLUMN "OidcSid" TO "ProviderSessionId";
 ALTER TABLE "Sessions" ALTER COLUMN "ProviderSessionId" DROP NOT NULL;
 ALTER INDEX "Sessions_OidcSid_idx" RENAME TO "Sessions_ProviderSessionId_idx";
+ALTER TABLE "Sessions" ADD COLUMN "ProviderSessionIssuer" character varying;
 
 ALTER TABLE "Sessions" ADD COLUMN "UserId" UUID;
 ALTER TABLE "Sessions" ADD COLUMN "AuthenticatedAt" timestamp with time zone;

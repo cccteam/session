@@ -142,20 +142,21 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		return nil, err
 	}
 	p := &pendingState{
-		TokenHash:         hash,
-		Step:              wait.Reason,
-		Registration:      at.registration,
-		Identity:          *at.identity,
-		UserID:            wait.UserID,
-		Username:          wait.Username,
-		Tenant:            wait.Tenant,
-		Events:            slices.Clone(events),
-		RoleNames:         at.roleNames,
-		Factors:           wait.Factors,
-		ReturnURL:         pendingReturnURL(at.returnURL),
-		ProviderSessionID: at.providerSessionID,
-		CreatedAt:         now,
-		ExpiresAt:         now.Add(a.settings.pendingTimeout),
+		TokenHash:             hash,
+		Step:                  wait.Reason,
+		Registration:          at.registration,
+		Identity:              *at.identity,
+		UserID:                wait.UserID,
+		Username:              wait.Username,
+		Tenant:                wait.Tenant,
+		Events:                slices.Clone(events),
+		RoleNames:             at.roleNames,
+		Factors:               wait.Factors,
+		ReturnURL:             pendingReturnURL(at.returnURL),
+		ProviderSessionID:     at.providerSessionID,
+		ProviderSessionIssuer: at.providerSessionIssuer,
+		CreatedAt:             now,
+		ExpiresAt:             now.Add(a.settings.pendingTimeout),
 	}
 	if at.identity.Method == sessioninfo.MethodPassword {
 		p.UserID = ccc.NullUUIDFromUUID(at.userID)
@@ -291,17 +292,18 @@ func (a *Auth[S, U, Tx]) completePending(
 ) (*signInOutcome, error) {
 	identity := p.Identity
 	at := &signInAttempt{
-		identity:          &identity,
-		reason:            reason,
-		registration:      p.Registration,
-		username:          p.Username,
-		expectUserID:      p.UserID,
-		events:            append(slices.Clone(p.Events), more...),
-		returnURL:         p.ReturnURL,
-		roleNames:         p.RoleNames,
-		providerSessionID: p.ProviderSessionID,
-		sameSite:          sessioncore.SameSiteStrict,
-		fromPending:       true,
+		identity:              &identity,
+		reason:                reason,
+		registration:          p.Registration,
+		username:              p.Username,
+		expectUserID:          p.UserID,
+		events:                append(slices.Clone(p.Events), more...),
+		returnURL:             p.ReturnURL,
+		roleNames:             p.RoleNames,
+		providerSessionID:     p.ProviderSessionID,
+		providerSessionIssuer: p.ProviderSessionIssuer,
+		sameSite:              sessioncore.SameSiteStrict,
+		fromPending:           true,
 	}
 	if identity.Method == sessioninfo.MethodPassword {
 		if !p.UserID.Valid {

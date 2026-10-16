@@ -47,16 +47,17 @@ func newPendingSignIn(userID ccc.NullUUID, hash []byte) *dbtype.PendingSignIn {
 			Method: sessioninfo.MethodWorkOS, Connection: "conn_1", Subject: "idp_pat", Email: "pat@lakeside.edu", EmailVerified: true,
 			Claims: json.RawMessage(`{"raw_attributes":{"department":"math"}}`), IDPAMR: []string{"pwd", "mfa"},
 		},
-		UserID:            userID,
-		Username:          "pat@lakeside.edu",
-		Tenant:            "lakeside",
-		Events:            []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", IDPAMR: []string{"pwd", "mfa"}, At: now}},
-		RoleNames:         []string{"Teacher", "Coach"},
-		Factors:           []sessioninfo.AuthMethod{"email-otp", "totp"},
-		ReturnURL:         "/reports?x=1",
-		ProviderSessionID: "sid-1",
-		CreatedAt:         now,
-		ExpiresAt:         now.Add(time.Hour),
+		UserID:                userID,
+		Username:              "pat@lakeside.edu",
+		Tenant:                "lakeside",
+		Events:                []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_1", IDPAMR: []string{"pwd", "mfa"}, At: now}},
+		RoleNames:             []string{"Teacher", "Coach"},
+		Factors:               []sessioninfo.AuthMethod{"email-otp", "totp"},
+		ReturnURL:             "/reports?x=1",
+		ProviderSessionID:     "sid-1",
+		ProviderSessionIssuer: "https://login/lakeside",
+		CreatedAt:             now,
+		ExpiresAt:             now.Add(time.Hour),
 	}
 }
 
@@ -73,7 +74,8 @@ func testPendingSignInRoundTrip(ctx context.Context, t *testing.T, h *AuthHarnes
 			name: "a confirmation wait without a user, roles, factors or claims",
 			p: func() *dbtype.PendingSignIn {
 				p := newPendingSignIn(ccc.NullUUID{}, tokenHash(2))
-				p.Step, p.Registration, p.Identity.Claims, p.RoleNames, p.Factors, p.ReturnURL, p.ProviderSessionID = sessioninfo.PendingConfirmation, "", nil, nil, nil, "", ""
+				p.Step, p.Registration, p.Identity.Claims, p.RoleNames, p.Factors, p.ReturnURL = sessioninfo.PendingConfirmation, "", nil, nil, nil, ""
+				p.ProviderSessionID, p.ProviderSessionIssuer = "", ""
 
 				return p
 			}(),

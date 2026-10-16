@@ -482,12 +482,32 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 	})
 
+	t.Run("a front-channel logout is scoped by its registration's issuer: a sid alone ends that issuer's sessions, and another issuer's name is refused", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		cfg := func(tenant string) *azure.Config {
+			return &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://login/" + tenant, ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + tenant + "/callback"}
+		}
+		azure.SignIn(f.auth, "lakeside", resolveAll[azure.Identity](), cfg("lakeside"))
+		riverside := azure.SignIn(f.auth, "riverside", resolveAll[azure.Identity](), cfg("riverside"))
+
+		// Entra may send the sid alone: the route's registration supplies the issuer.
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://login/riverside", "sid-1").Return(nil)
+		if rr := f.serve(riverside.FrontChannelLogout(), http.MethodGet, "/riverside/logout?sid=sid-1", nil, nil); rr.Code != http.StatusOK {
+			t.Errorf("FrontChannelLogout() with a sid alone status = %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		// Lakeside's issuer at riverside's route is refused before the store is asked.
+		if rr := f.serve(riverside.FrontChannelLogout(), http.MethodGet, "/riverside/logout?sid=sid-1&iss="+url.QueryEscape("https://login/lakeside"), nil, nil); rr.Code != http.StatusBadRequest {
+			t.Errorf("FrontChannelLogout() naming the other registration's issuer status = %d, want 400", rr.Code)
+		}
+	})
+
 	t.Run("the Azure front-channel logout ends the sessions under the sid it names, without a session of its own", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 
-		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "sid-1").Return(nil)
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://issuer", "sid-1").Return(nil)
 		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss=https://issuer", nil, nil); rr.Code != http.StatusOK {
 			t.Errorf("FrontChannelLogout() status = %d, want 200: %s", rr.Code, rr.Body.String())
 		}
@@ -915,7 +935,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"}}
-					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" {
+					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != "https://issuer" {
 						t.Errorf("SignIn() request = %+v, mismatch (-want +got):\n%s", req, diff)
 					}
 					resolved(req)
@@ -999,7 +1019,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 
 				return signin.Link(userID, false), nil
 			}
-			entra := azure.SignIn(f.auth, "azure", resolve, &azure.Config{RoleSync: signin.RoleSync(roles), Authenticator: authn})
+			entra := azure.SignIn(f.auth, "azure", resolve, &azure.Config{RoleSync: signin.RoleSync(roles), IssuerURL: "https://issuer", Authenticator: authn})
 			// A second Entra tenant on the same Auth: the callback under test must hand
 			// the store its own registration's resolver, never this one.
 			otherTenant := false
@@ -1583,7 +1603,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			prepare: func(f *authFixture, pendingID ccc.UUID) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}, {Method: "email-otp", IDPAMR: []string{"otp"}}}
-					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonStepUp || req.UserID != userID || !cmp.Equal(req.Identity, password) || req.ProviderSessionID != "sid-1" {
+					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonStepUp || req.UserID != userID || !cmp.Equal(req.Identity, password) || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != "https://issuer" {
 						t.Errorf("SignIn() request = %+v, events mismatch (-want +got):\n%s", req, diff)
 					}
 				}, nil)
@@ -1643,7 +1663,7 @@ func TestAuthAPI_CompletePending(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			cookies, pendingID := f.hold(t, &signInAttempt{identity: password, reason: sessioninfo.ReasonLogin, userID: userID, providerSessionID: "sid-1"}, tt.wait)
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: password, reason: sessioninfo.ReasonLogin, userID: userID, providerSessionID: "sid-1", providerSessionIssuer: "https://issuer"}, tt.wait)
 			if tt.prepare != nil {
 				tt.prepare(f, pendingID)
 			}
@@ -1789,7 +1809,7 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	bobID := ccc.Must(ccc.NewUUID())
 	sourceID := ccc.Must(ccc.NewUUID())
 	source := func() *sessioninfo.SessionData {
-		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: "alice", UpdatedAt: time.Now()}, ProviderSessionID: "sid-1"}
+		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: "alice", UpdatedAt: time.Now()}, ProviderSessionID: "sid-1", ProviderSessionIssuer: "https://issuer"}
 	}
 	tests := []struct {
 		name            string
@@ -1839,8 +1859,12 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			tt.prepare(f.store)
 			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, req *sessioninfo.NewSessionRequest, _ *sessioninfo.Impersonation) (ccc.UUID, error) {
-					if req.UserID != tt.wantUserID || req.Reason != sessioninfo.ReasonImpersonation || req.ProviderSessionID != tt.wantProviderSID {
-						t.Errorf("CreateImpersonatedSession() request = %+v, want UserID %s and ProviderSessionID %q", req, tt.wantUserID, tt.wantProviderSID)
+					wantIssuer := ""
+					if tt.wantProviderSID != "" {
+						wantIssuer = "https://issuer"
+					}
+					if req.UserID != tt.wantUserID || req.Reason != sessioninfo.ReasonImpersonation || req.ProviderSessionID != tt.wantProviderSID || req.ProviderSessionIssuer != wantIssuer {
+						t.Errorf("CreateImpersonatedSession() request = %+v, want UserID %s and provider session (%q, %q)", req, tt.wantUserID, tt.wantProviderSID, wantIssuer)
 					}
 
 					return ccc.Must(ccc.NewUUID()), nil
