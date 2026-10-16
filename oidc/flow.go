@@ -23,15 +23,15 @@ import (
 // carries the login URL refused sign-ins are sent to.
 type Flow struct {
 	Loader
-	cookies    signin.StateCookies
-	cookieName string
+	cookies signin.StateCookies
 }
 
-// NewFlow returns the flow over loader, keeping its state in the cookie named
-// cookieName through cookies. Each method names its own cookie, so logins with
-// different providers in one browser never read each other's state.
-func NewFlow(cookies signin.StateCookies, cookieName string, loader Loader) *Flow {
-	return &Flow{Loader: loader, cookies: cookies, cookieName: cookieName}
+// NewFlow returns the flow over loader, keeping its state in cookies, the registration's
+// state cookie the core hands the method: named for the registration, so two
+// registrations of one method, and logins with different providers in one browser,
+// never read each other's state.
+func NewFlow(cookies signin.StateCookies, loader Loader) *Flow {
+	return &Flow{Loader: loader, cookies: cookies}
 }
 
 // Begin writes the state cookie and returns the provider's authorization URL. params
@@ -55,7 +55,7 @@ func (f *Flow) Begin(ctx context.Context, w http.ResponseWriter, returnURL strin
 		SetString(internalcookie.OIDCState, state.String()).
 		SetString(internalcookie.OIDCPkceVerifier, pkceVerifier).
 		SetString(internalcookie.ReturnURL, returnURL)
-	f.cookies.WriteStateCookie(w, f.cookieName, cval)
+	f.cookies.WriteStateCookie(w, cval)
 
 	opts := append([]oauth2.AuthCodeOption{oauth2.S256ChallengeOption(pkceVerifier)}, params...)
 
@@ -93,7 +93,7 @@ func (f *Flow) Complete(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, errors.Wrap(err, "oidc.Loader.Provider()")
 	}
 
-	cval, cookieName, err := f.cookies.ReadStateCookie(r, f.cookieName)
+	cval, cookieName, err := f.cookies.ReadStateCookie(r)
 	if err != nil {
 		return nil, errors.Wrap(err, "signin.StateCookies.ReadStateCookie()")
 	}

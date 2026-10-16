@@ -100,7 +100,7 @@ func NewOIDCAzure[SessionData, UserData any](
 		return nil, err
 	}
 
-	authn := azure.NewOIDC(cookieClient, issuerURL, clientID, clientSecret, redirectURL)
+	authn := azure.NewOIDC(cookieClient.ForLegacy("azure"), issuerURL, clientID, clientSecret, redirectURL)
 	for _, opt := range options {
 		if o, ok := any(opt).(OIDCOption); ok {
 			o(authn)

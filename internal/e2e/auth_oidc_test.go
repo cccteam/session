@@ -36,6 +36,8 @@ const (
 type oidcApp[Tx any] struct {
 	*authApp[Tx]
 	azure, google *oidctest.FakeIDP
+	// riverside is a second Entra tenant: a second registration of the Azure method.
+	riverside *oidctest.FakeIDP
 }
 
 func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidcApp[Tx] {
@@ -44,6 +46,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
 	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
+	riversideIDP := oidctest.NewFakeIDP(t, "riverside-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
@@ -53,6 +56,10 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	azureMethod := azure.SignIn(auth, "azure", h.azureResolver, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
 		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",
+	})
+	riversideMethod := azure.SignIn(auth, "riverside", h.azureResolver, &azure.Config{
+		RoleSync: signin.DisableRoleSync(), IssuerURL: riversideIDP.Server.URL,
+		ClientID: "riverside-client", ClientSecret: "secret", RedirectURL: "https://app.example/riverside/callback",
 	})
 	googleIssuerMu.Lock()
 	issuer := google.IssuerURL
@@ -69,13 +76,15 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 		r.Get("/azure/login", azureMethod.Login())
 		r.Get("/azure/callback", azureMethod.Callback())
 		r.Get("/azure/logout", azureMethod.FrontChannelLogout())
+		r.Get("/riverside/login", riversideMethod.Login())
+		r.Get("/riverside/callback", riversideMethod.Callback())
 		r.Get("/google/login", googleMethod.Login())
 		r.Get("/google/callback", googleMethod.Callback())
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &oidcApp[Tx]{authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP}
+	return &oidcApp[Tx]{authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP, riverside: riversideIDP}
 }
 
 // oidcSignIn runs a login round trip through provider at prefix (/azure or /google)
@@ -138,6 +147,42 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 		name string
 		run  func(ctx context.Context, t *testing.T, a *oidcApp[Tx])
 	}{
+		{
+			name: "two registrations of the Azure method keep separate state: logins begun in turn complete under their own cookies, and a callback carrying the other registration's state is refused before its provider is asked",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
+						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
+					}
+				})
+				a.azure.TokenClaims = func() map[string]any { return azureClaims(azureTenant, "oid-lake", "lake@lakeside.edu") }
+				a.riverside.TokenClaims = func() map[string]any {
+					return azureClaims("22222222-2222-2222-2222-222222222222", "oid-river", "river@riverside.edu")
+				}
+
+				b := a.browser(t)
+				lake := b.location(ctx, "/azure/login?returnUrl="+url.QueryEscape("/home"))
+				river := b.location(ctx, "/riverside/login?returnUrl="+url.QueryEscape("/home"))
+				names := map[string]bool{}
+				for _, c := range b.client.Jar.Cookies(b.base) {
+					names[c.Name] = true
+				}
+				if !names["OIDC-azure"] || !names["OIDC-riverside"] {
+					t.Fatalf("state cookies after both logins began = %v, want OIDC-azure and OIDC-riverside", names)
+				}
+				assertRedirect(t, b.location(ctx, "/azure/callback?code=c&state="+url.QueryEscape(lake.Query().Get("state"))), "/home", url.Values{})
+				assertRedirect(t, b.location(ctx, "/riverside/callback?code=c&state="+url.QueryEscape(river.Query().Get("state"))), "/home", url.Values{})
+
+				a.riverside.TokenClaims = func() map[string]any {
+					t.Error("riverside's token endpoint was called for a callback carrying lakeside's state")
+
+					return nil
+				}
+				g := a.browser(t)
+				lake = g.location(ctx, "/azure/login?returnUrl="+url.QueryEscape("/home"))
+				assertRedirect(t, g.location(ctx, "/riverside/callback?code=c&state="+url.QueryEscape(lake.Query().Get("state"))), "/login", url.Values{"code": {"no_oidc_cookie"}})
+			},
+		},
 		{
 			name: "Azure and Google identities reach one user by their own keys, (tid, oid) and sub, never by email",
 			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {

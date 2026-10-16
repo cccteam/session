@@ -108,7 +108,7 @@ func (c *Client) LoginURL() string {
 }
 
 // AuthorizationURL returns the URL that starts SSO for the given WorkOS organization ID,
-// after writing the state cookie (OIDC-workos) that binds the callback to this browser.
+// after writing the registration's state cookie that binds the callback to this browser.
 func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, organization, returnURL string) (string, error) {
 	if strings.TrimSpace(organization) == "" {
 		return "", httpio.NewBadRequestMessage("organization is required")
@@ -124,7 +124,7 @@ func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, orga
 		SetString(internalcookie.OIDCState, state.String()).
 		SetString(internalcookie.ReturnURL, returnURL)
 
-	c.cookies.WriteStateCookie(w, internalcookie.WorkOSStateCookieName, cval)
+	c.cookies.WriteStateCookie(w, cval)
 
 	q := url.Values{}
 	q.Set("client_id", c.clientID)
@@ -141,7 +141,7 @@ func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, orga
 // send the browser to after sign-in, the decoded profile, and the raw profile JSON
 // exactly as WorkOS returned it (including raw_attributes).
 func (c *Client) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, profile *Profile, rawProfile json.RawMessage, err error) {
-	cval, cookieName, err := c.cookies.ReadStateCookie(r, internalcookie.WorkOSStateCookieName)
+	cval, cookieName, err := c.cookies.ReadStateCookie(r)
 	if err != nil {
 		return "", nil, nil, errors.Wrap(err, "cookie.Client.ReadStateCookie()")
 	}

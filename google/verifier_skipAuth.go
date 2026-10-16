@@ -59,7 +59,7 @@ func (o *OIDC) LoginURL() string {
 func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
 	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
 
-	o.cookies.WriteStateCookie(w, internalcookie.GoogleStateCookieName, cval)
+	o.cookies.WriteStateCookie(w, cval)
 
 	return o.redirectURL, nil
 }
@@ -91,7 +91,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		return "", "", errors.Wrap(err, "json.Unmarshal()")
 	}
 
-	cval, cookieName, err := o.cookies.ReadStateCookie(r, internalcookie.GoogleStateCookieName)
+	cval, cookieName, err := o.cookies.ReadStateCookie(r)
 	if err != nil {
 		return "", "", errors.Wrap(err, "cookie.Client.ReadStateCookie()")
 	}

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/cccteam/httpio"
-	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
@@ -48,7 +47,7 @@ func NewOIDC(cookies signin.StateCookies, clientID, clientSecret, redirectURL, h
 func newWithIssuer(cookies signin.StateCookies, issuer, clientID, clientSecret, redirectURL, hostedDomain string, scopes ...string) *OIDC {
 	loader := oidc.New(issuer, clientID, clientSecret, redirectURL, append([]string{gooidc.ScopeOpenID, "email", "profile"}, scopes...))
 
-	return &OIDC{Flow: oidc.NewFlow(cookies, internalcookie.GoogleStateCookieName, loader), hostedDomain: hostedDomain}
+	return &OIDC{Flow: oidc.NewFlow(cookies, loader), hostedDomain: hostedDomain}
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process

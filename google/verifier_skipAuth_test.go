@@ -66,7 +66,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("APP_USERNAME", tt.username)
 
-			o := NewOIDC(oidctest.NewCookieClient(t), "", "", "/auth/callback", tt.hostedDomain)
+			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("google"), "", "", "/auth/callback", tt.hostedDomain)
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 func TestOIDC_Verify_requiresTheOIDCCookie(t *testing.T) {
 	t.Setenv("APP_USERNAME", "dev@example.com")
 
-	o := NewOIDC(oidctest.NewCookieClient(t), "", "", "/auth/callback", "example.com")
+	o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("google"), "", "", "/auth/callback", "example.com")
 	callback := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/auth/callback", http.NoBody)
 
 	var got map[string]any

@@ -538,6 +538,13 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			before: sso, register: sso, wantHas: "workos sign-in method is registered twice",
 		},
 		{
+			name: "a registration whose name cannot name its state cookie",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "lake side", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: `registered under the name "lake side", which cannot name its state cookie`,
+		},
+		{
 			name:   "the Azure method registered twice",
 			before: entra, register: entra, wantHas: "azure sign-in method is registered twice",
 		},

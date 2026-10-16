@@ -51,8 +51,9 @@ type Registration[Tx any] struct {
 	// is required: the method builds it over the resolver the application gave its
 	// registration, typed to the method's identity.
 	Resolve UserResolver[Tx]
-	// Build builds the method over the core's state cookies, which carry the browser's
-	// half of a round trip to the provider.
+	// Build builds the method over the registration's state cookie, which carries the
+	// browser's half of a round trip to the provider; the core names it for the
+	// registration.
 	Build func(cookies StateCookies) (*Method, error)
 	// FrontChannelLogout asks for the provider-initiated logout handler.
 	FrontChannelLogout bool
@@ -64,13 +65,16 @@ type Registration[Tx any] struct {
 	Err error
 }
 
-// StateCookies writes and reads a method's state cookie: the state and PKCE verifier
-// of a round trip to the provider, and the return URL the browser goes to afterwards.
-// Each method names its own cookie, so logins with different providers in one browser
-// never read each other's state.
+// StateCookies writes and reads a registration's state cookie: the state and PKCE
+// verifier of a round trip to the provider, and the return URL the browser goes to
+// afterwards. The core names the cookie for the registration (OIDC-<name>) and binds it
+// to the registration, so two registrations of one method, and logins with different
+// providers in one browser, never read each other's state. ReadStateCookie's readName
+// is the cookie's name, or "" when the browser carries none for this registration;
+// a state cookie is single-use, so the method passes readName to DeleteStateCookie.
 type StateCookies interface {
-	WriteStateCookie(w http.ResponseWriter, name string, values *cookie.Values)
-	ReadStateCookie(r *http.Request, name string) (values *cookie.Values, readName string, err error)
+	WriteStateCookie(w http.ResponseWriter, values *cookie.Values)
+	ReadStateCookie(r *http.Request) (values *cookie.Values, readName string, err error)
 	DeleteStateCookie(w http.ResponseWriter, name string)
 }
 

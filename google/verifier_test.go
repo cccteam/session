@@ -54,7 +54,7 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
 	idp := newFakeIDP(t)
-	o := newWithIssuer(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 	authURL, _ := startLogin(t, o)
 
@@ -201,7 +201,7 @@ func TestOIDC_Verify(t *testing.T) {
 			idp.TokenClaims = tt.tokenClaims
 			idp.TokenStatus = tt.tokenStatus
 
-			o := newWithIssuer(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 			_, callback := startLogin(t, o)
 			if tt.dropCookie {

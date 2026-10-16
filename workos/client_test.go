@@ -55,7 +55,7 @@ const profileJSON = `{"id":"prof_1","idp_id":"pat@idp","connection_id":"conn_1",
 func started(t *testing.T, f *fakeWorkOS, returnURL string) (c *Client, callback func(query string) *http.Request, state string) {
 	t.Helper()
 
-	c = NewClient(oidctest.NewCookieClient(t), "sk_test", "client_1", "https://app.example/sso/callback")
+	c = NewClient(oidctest.NewCookieClient(t).ForRegistration("workos"), "sk_test", "client_1", "https://app.example/sso/callback")
 	c.SetBaseURL(f.server.URL + "/")
 
 	rr := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func started(t *testing.T, f *fakeWorkOS, returnURL string) (c *Client, callback
 func TestClient_AuthorizationURL(t *testing.T) {
 	t.Parallel()
 
-	c := NewClient(oidctest.NewCookieClient(t), "sk_test", "client_1", "https://app.example/sso/callback")
+	c := NewClient(oidctest.NewCookieClient(t).ForRegistration("workos"), "sk_test", "client_1", "https://app.example/sso/callback")
 
 	if _, err := c.AuthorizationURL(context.Background(), httptest.NewRecorder(), " ", "/"); !httpio.HasBadRequest(err) {
 		t.Errorf("AuthorizationURL() without an organization error = %v, want BadRequest", err)
@@ -108,10 +108,10 @@ func TestClient_AuthorizationURL(t *testing.T) {
 
 		var stateCookie bool
 		for _, ck := range rr.Result().Cookies() {
-			stateCookie = stateCookie || ck.Name == internalcookie.WorkOSStateCookieName
+			stateCookie = stateCookie || ck.Name == internalcookie.StateCookieName("workos")
 		}
 		if !stateCookie {
-			t.Errorf("no %s state cookie written", internalcookie.WorkOSStateCookieName)
+			t.Errorf("no %s state cookie written", internalcookie.StateCookieName("workos"))
 		}
 	}
 	if len(states) != 2 || states[""] {
@@ -236,7 +236,7 @@ func TestClient_Verify(t *testing.T) {
 			}
 			var deleted bool
 			for _, ck := range rr.Result().Cookies() {
-				deleted = deleted || (ck.Name == internalcookie.WorkOSStateCookieName && ck.Value == "" && ck.Expires.Before(time.Now()))
+				deleted = deleted || (ck.Name == internalcookie.StateCookieName("workos") && ck.Value == "" && ck.Expires.Before(time.Now()))
 			}
 			if !deleted {
 				t.Error("the state cookie was not deleted: it must be single-use")

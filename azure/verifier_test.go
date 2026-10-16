@@ -50,7 +50,7 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
 	idp := oidctest.NewFakeIDP(t, testClientID)
-	o := NewOIDC(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+	o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
 
 	authURL, _ := startLogin(t, o)
 
@@ -166,7 +166,7 @@ func TestOIDC_Verify(t *testing.T) {
 			idp.TokenClaims = tt.tokenClaims
 			idp.TokenStatus = tt.tokenStatus
 
-			o := NewOIDC(oidctest.NewCookieClient(t), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
 
 			_, callback := startLogin(t, o)
 			if tt.dropCookie {
@@ -217,7 +217,7 @@ func TestOIDC_Verify(t *testing.T) {
 			// The single-use state cookie is cleared on the response: emptied and expired.
 			cleared := false
 			for _, c := range rec.Result().Cookies() {
-				if c.Name == internalcookie.AzureStateCookieName && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
+				if c.Name == internalcookie.StateCookieName("azure") && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
 					cleared = true
 				}
 			}

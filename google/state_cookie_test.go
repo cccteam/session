@@ -4,16 +4,17 @@ package google
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/cccteam/session/azure"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // jar is a browser's cookie store: a cookie written later replaces one of the same name.
@@ -53,8 +54,8 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	googleIDP := newFakeIDP(t)
 	googleIDP.TokenClaims = workspaceClaims
 
-	entra := azure.NewOIDC(cookies, azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
-	google := newWithIssuer(cookies, googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", testHostedDomain)
+	entra := azure.NewOIDC(cookies.ForRegistration("azure"), azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
+	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", testHostedDomain)
 
 	browser := jar{}
 	start := func(authCodeURL func(rec *httptest.ResponseRecorder) (string, error)) string {
@@ -76,11 +77,11 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	azureState := start(func(rec *httptest.ResponseRecorder) (string, error) { return entra.AuthCodeURL(ctx, rec, "/azure") })
 	googleState := start(func(rec *httptest.ResponseRecorder) (string, error) { return google.AuthCodeURL(ctx, rec, "/google") })
 
-	if _, ok := browser[internalcookie.AzureStateCookieName]; !ok {
-		t.Fatalf("browser cookies = %v, want the Azure state cookie %q", browser, internalcookie.AzureStateCookieName)
+	if _, ok := browser[internalcookie.StateCookieName("azure")]; !ok {
+		t.Fatalf("browser cookies = %v, want the Azure state cookie %q", browser, internalcookie.StateCookieName("azure"))
 	}
-	if _, ok := browser[internalcookie.GoogleStateCookieName]; !ok {
-		t.Fatalf("browser cookies = %v, want the Google state cookie %q", browser, internalcookie.GoogleStateCookieName)
+	if _, ok := browser[internalcookie.StateCookieName("google")]; !ok {
+		t.Fatalf("browser cookies = %v, want the Google state cookie %q", browser, internalcookie.StateCookieName("google"))
 	}
 
 	var azureClaims json.RawMessage
@@ -102,40 +103,41 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	}
 }
 
-// TestOIDC_Verify_LegacyStateCookie proves a login started before the upgrade, whose
-// browser carries the shared "OIDC" state cookie, completes after it, and that the
-// legacy cookie is cleared.
-func TestOIDC_Verify_LegacyStateCookie(t *testing.T) {
+// TestOIDC_Verify_RefusesLegacyStateCookie proves a registration's callback never
+// completes a login from the shared "OIDC" state cookie of v0.12: the registration's
+// cookie is the only one it reads, so the callback is refused (no_oidc_cookie) and the
+// shared cookie is left alone. (The legacy Azure session, which has v0.12 logins to
+// complete, reads it through its own cookies; see azure.)
+func TestOIDC_Verify_RefusesLegacyStateCookie(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
 	idp := newFakeIDP(t)
-	idp.TokenClaims = workspaceClaims
+	idp.TokenClaims = func() map[string]any {
+		t.Error("the token endpoint was called for a login the callback should have refused")
+
+		return workspaceClaims()
+	}
 	cookies := oidctest.NewCookieClient(t)
-	o := newWithIssuer(cookies, idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
 
 	_, callback := startLogin(t, o)
-	legacy := legacyStateCallback(t, cookies, callback, internalcookie.GoogleStateCookieName)
+	legacy := legacyStateCallback(t, cookies, callback, internalcookie.StateCookieName("google"))
 
 	rec := httptest.NewRecorder()
 	var claims json.RawMessage
-	if _, _, err := o.Verify(ctx, rec, legacy, &claims); err != nil {
-		t.Fatalf("OIDC.Verify() with the legacy state cookie error = %v, want the login to complete", err)
+	_, _, err := o.Verify(ctx, rec, legacy, &claims)
+	var refusal *sessioninfo.LoginRefusal
+	if !errors.As(err, &refusal) || refusal.Code() != sessioninfo.RefusedNoOIDCCookie {
+		t.Fatalf("OIDC.Verify() with the legacy state cookie error = %v, want the login refused with %s", err, sessioninfo.RefusedNoOIDCCookie)
 	}
-
-	cleared := false
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == internalcookie.OIDCCookieName && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
-			cleared = true
+		if c.Name == internalcookie.OIDCCookieName {
+			t.Errorf("the callback touched the shared %s cookie: %v", internalcookie.OIDCCookieName, c)
 		}
-	}
-	if !cleared {
-		t.Error("the legacy state cookie was not deleted by the callback")
 	}
 }
 
-// legacyStateCallback rewrites callback as a pre-upgrade browser would send it: the
-// login's state values under the shared legacy cookie name instead of name.
 func legacyStateCallback(t *testing.T, cookies *internalcookie.Client, callback *http.Request, name string) *http.Request {
 	t.Helper()
 

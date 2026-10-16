@@ -21,6 +21,10 @@ const (
 
 	// OIDCState is the key used to store the state
 	OIDCState cookie.Key = "state"
+	// Registration is the key under which a registration's state cookie names the
+	// registration that wrote it, so a callback completes only the login its own
+	// registration began.
+	Registration cookie.Key = "registration"
 
 	// OIDCPkceVerifier is the key used to store the PKCE verifier
 	OIDCPkceVerifier cookie.Key = "pkceVerifier"
@@ -41,14 +45,12 @@ const (
 	// started before an upgrade can complete.
 	OIDCCookieName = "OIDC"
 
-	// AzureStateCookieName is the state cookie of the Azure (Entra ID) OIDC login.
-	AzureStateCookieName = "OIDC-azure"
-
-	// GoogleStateCookieName is the state cookie of the Google Workspace OIDC login.
-	GoogleStateCookieName = "OIDC-google"
-
-	// WorkOSStateCookieName is the state cookie of the WorkOS SSO login.
-	WorkOSStateCookieName = "OIDC-workos"
+	// StateCookiePrefix begins the name of a registration's state cookie: the core names
+	// the cookie OIDC-<registration> (StateCookieName), so two registrations of one
+	// method, and logins with different providers in one browser, never read each
+	// other's state. The legacy Azure session keeps OIDC-azure, the name every v0.12
+	// Azure login used.
+	StateCookiePrefix = "OIDC-"
 
 	// XSRFHeaderName is the header name of the XSRF Token Cookie
 	XSRFHeaderName = "X-XSRF-TOKEN"

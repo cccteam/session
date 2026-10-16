@@ -9,6 +9,7 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
+	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
@@ -104,6 +105,13 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	if name == "" {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered without a name: name each registration (two Entra tenants are two registrations)", method))
 	}
+	// The registration's state cookie is named for it; a name no cookie can carry is
+	// refused here rather than at the first login.
+	probe := &http.Cookie{Name: internalcookie.StateCookieName(name), Value: "x", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+	if err := probe.Valid(); err != nil {
+		panic(fmt.Sprintf("session: the %s sign-in method is registered under the name %q, which cannot name its state cookie (%v): "+
+			"use letters, digits and hyphens, such as \"lakeside-entra\"", method, name, err))
+	}
 	if a.methods.registered[name] {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered twice on one Auth under the name %q: give each registration its own name", method, name))
 	}
@@ -145,7 +153,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	if reg.Resolve == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method links external identities and needs a user resolver: pass one to its registration", reg.Method))
 	}
-	m, err := reg.Build(a.cookies)
+	m, err := reg.Build(a.cookies.ForRegistration(reg.Name))
 	if err != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
 	}

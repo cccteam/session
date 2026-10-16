@@ -57,7 +57,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 			t.Setenv("APP_USERNAME", tt.username)
 			t.Setenv("APP_ROLES", tt.roles)
 
-			o := NewOIDC(oidctest.NewCookieClient(t), "", "", "", "/auth/callback")
+			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("azure"), "", "", "", "/auth/callback")
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()

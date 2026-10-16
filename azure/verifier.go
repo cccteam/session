@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 
-	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/signin"
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -28,7 +27,7 @@ type OIDC struct {
 func NewOIDC(cookies signin.StateCookies, issuerURL, clientID, clientSecret, redirectURL string) *OIDC {
 	loader := oidc.New(issuerURL, clientID, clientSecret, redirectURL, []string{gooidc.ScopeOpenID, "profile"})
 
-	return &OIDC{Flow: oidc.NewFlow(cookies, internalcookie.AzureStateCookieName, loader)}
+	return &OIDC{Flow: oidc.NewFlow(cookies, loader)}
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
