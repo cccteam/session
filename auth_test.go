@@ -941,8 +941,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 					resolved(req)
 				}, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
-				roles.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("Editor")).Return(false, nil)
-				roles.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("Editor")).Return(true, nil)
+				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil)
+				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil)
 				roles.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("pat"), []accesstypes.Role{"Editor"}).Return(nil)
 			},
 			wantLocation: "/next",
@@ -954,7 +954,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, resolved, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
-				roles.EXPECT().RoleExists(gomock.Any(), gomock.Any(), accesstypes.Role("Editor")).Return(false, nil).Times(2)
+				roles.EXPECT().ResolveRole(gomock.Any(), gomock.Any(), "Editor").Return(accesstypes.Role(""), false, nil).Times(2)
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},
 			wantLocation: "/login?code=no_roles",

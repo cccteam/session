@@ -66,7 +66,7 @@ func (r *RoleReconciler) RequireRoles(ctx context.Context, username accesstypes.
 
 // writeScopes returns the places the sync writes a membership: the global
 // partition, where a global role is held, and every tenant domain, where a
-// domain role is held. The sync asks RoleExists in these two places only and
+// domain role is held. The sync asks ResolveRole in these two places only and
 // keeps no list of tenants, since a membership held in every domain reaches
 // each tenant on its own, the ones created later included.
 func writeScopes() []accesstypes.PolicyScope {
@@ -80,7 +80,7 @@ func writeScopes() []accesstypes.PolicyScope {
 // tenant domain included, since the directory is the authority and a membership
 // it does not name does not survive a login. It returns true if the user holds
 // at least one recognized role once the operation is complete.
-// A RoleExists error aborts the sync: flattening it to false would land an existing
+// A ResolveRole error aborts the sync: flattening it to "not found" would land an existing
 // valid role in removeRoles and delete the user's membership on a transient store blip.
 func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.User, roleNames []string) (hasRole bool, err error) {
 	ctx, span := tracer.Start(ctx)
@@ -121,22 +121,24 @@ func (r *RoleReconciler) reconcile(ctx context.Context, username accesstypes.Use
 	return hasRole, nil
 }
 
-// wantedRoles maps each place the sync writes to the candidate names that are
-// roles there, in candidate order: a name that exists in the global partition
-// is wanted there, a name that exists in every tenant domain is wanted there,
-// a name that exists in both is wanted in both, and a name that exists in
-// neither is ignored. A RoleExists error is returned as is, never read as
-// "missing".
+// wantedRoles maps each place the sync writes to the roles the candidate names
+// resolve to there, in candidate order and in the store's spelling: a name that
+// resolves in the global partition is wanted there, a name that resolves in
+// every tenant domain is wanted there, a name that resolves in both is wanted
+// in both, and a name that resolves in neither is ignored. The directory's name
+// is matched without regard to case, so pilot, Pilot and PILOT are one role,
+// held and written as the store spells it. A ResolveRole error is returned as
+// is, never read as "missing".
 func (r *RoleReconciler) wantedRoles(ctx context.Context, roleNames []string) (map[accesstypes.PolicyScope][]accesstypes.Role, error) {
 	wanted := make(map[accesstypes.PolicyScope][]accesstypes.Role)
 	for _, name := range roleNames {
 		for _, scope := range writeScopes() {
-			exists, err := r.manager.RoleExists(ctx, scope, accesstypes.Role(name))
+			role, found, err := r.manager.ResolveRole(ctx, scope, name)
 			if err != nil {
-				return nil, errors.Wrap(err, "UserRoleManager.RoleExists()")
+				return nil, errors.Wrap(err, "UserRoleManager.ResolveRole()")
 			}
-			if exists {
-				wanted[scope] = append(wanted[scope], accesstypes.Role(name))
+			if found {
+				wanted[scope] = append(wanted[scope], role)
 			}
 		}
 	}

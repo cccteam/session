@@ -27,6 +27,12 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// resolveAsNamed answers a ResolveRole call with the name as given: every name is a role
+// held in the place, spelled as the directory named it.
+func resolveAsNamed(_ context.Context, _ accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
+	return accesstypes.Role(name), true, nil
+}
+
 func TestOIDCAzureSessionLogin(t *testing.T) {
 	t.Parallel()
 
@@ -150,8 +156,8 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole1").Return(accesstypes.Role(""), false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole1").Return(accesstypes.Role("testRole1"), true, nil).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).Return(ccc.NilUUID, errors.New("failed to create new session")).Times(1)
 			},
@@ -164,8 +170,8 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole1").Return(accesstypes.Role(""), false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole1").Return(accesstypes.Role("testRole1"), true, nil).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				// No cookie-handler expectations: a resolver abort must not write cookies.
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
@@ -180,8 +186,8 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole1").Return(accesstypes.Role(""), false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole1").Return(accesstypes.Role("testRole1"), true, nil).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				// No cookie-handler expectations: a resolver abort must not write cookies.
 				s.EXPECT().NewSession(gomock.Any(), "test username", "a test SID value", gomock.Any()).
@@ -202,14 +208,14 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 			wantErr:         true,
 		},
 		{
-			name: "aborts the sync when RoleExists returns an error",
+			name: "aborts the sync when ResolveRole returns an error",
 			prepare: func(_ *mock_cookie.MockHandler, w http.ResponseWriter, r *http.Request, oidc *mock_azure.MockAuthenticator, u *mock_signin.MockUserRoleManager, _ *mock_sessionstorage.MockOIDCStore) {
 				oidc.EXPECT().LoginURL().Return("/login").Times(1)
 				oidc.EXPECT().Verify(gomock.Any(), w, r, gomock.Any()).DoAndReturn(verifyWithClaims(t, `{"preferred_username": "test username", "roles": ["testRole1"]}`)).Times(1)
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{every: {"testRole0"}}, nil).Times(1)
 				// A store error must abort the sync: no AddUserRoles/DeleteUserRoles
 				// expectations — flattening the error to false would remove testRole0.
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(false, errors.New("store blip")).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole1").Return(accesstypes.Role(""), false, errors.New("store blip")).Times(1)
 			},
 			wantRedirectURL: "/login?code=internal_error",
 			wantErr:         true,
@@ -222,8 +228,8 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
 					every: {"testRole0", "testRole1", "testRole2"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, gomock.Any()).Return(false, nil).Times(4)
-				u.EXPECT().RoleExists(gomock.Any(), every, gomock.Any()).Return(true, nil).Times(4)
+				u.EXPECT().ResolveRole(gomock.Any(), global, gomock.Any()).Return(accesstypes.Role(""), false, nil).Times(4)
+				u.EXPECT().ResolveRole(gomock.Any(), every, gomock.Any()).DoAndReturn(resolveAsNamed).Times(4)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(errors.New("failed to add user roles")).Times(1)
 			},
 			wantRedirectURL: "/login?code=internal_error",
@@ -237,8 +243,8 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				u.EXPECT().UserRoles(gomock.Any(), accesstypes.User("test username")).Return(accesstypes.RoleCollection{
 					every: {"testRole0", "testRole1", "testRole2"},
 				}, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, gomock.Any()).Return(false, nil).Times(4)
-				u.EXPECT().RoleExists(gomock.Any(), every, gomock.Any()).Return(true, nil).Times(4)
+				u.EXPECT().ResolveRole(gomock.Any(), global, gomock.Any()).Return(accesstypes.Role(""), false, nil).Times(4)
+				u.EXPECT().ResolveRole(gomock.Any(), every, gomock.Any()).DoAndReturn(resolveAsNamed).Times(4)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole3"), accesstypes.Role("testRole5")).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), every, accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(errors.New("failed to delete user roles")).Times(1)
 			},
@@ -256,7 +262,7 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 				}, nil).Times(1)
 				// Nothing the token names is a role in either place, so every membership
 				// goes, the one held in a single tenant domain too, and the login is refused.
-				u.EXPECT().RoleExists(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).Times(8)
+				u.EXPECT().ResolveRole(gomock.Any(), gomock.Any(), gomock.Any()).Return(accesstypes.Role(""), false, nil).Times(8)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), every, accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), tenant, accesstypes.User("test username"), gomock.Any()).Return(nil).Times(1)
 			},
@@ -306,22 +312,22 @@ func TestOIDCAzure_CallbackOIDC(t *testing.T) {
 
 				// The global partition: testRole1 is a global role and is added there;
 				// testRole0 is not in the token and goes.
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole2")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole3")).Return(false, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), global, accesstypes.Role("testRole5")).Return(false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole1").Return(accesstypes.Role("testRole1"), true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole2").Return(accesstypes.Role(""), false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole3").Return(accesstypes.Role(""), false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), global, "testRole5").Return(accesstypes.Role(""), false, nil).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), global, accesstypes.User("test username"), []accesstypes.Role{"testRole1"}).Return(nil).Times(1)
 				u.EXPECT().DeleteUserRoles(gomock.Any(), global, accesstypes.User("test username"), accesstypes.Role("testRole0")).Return(nil).Times(1)
 
 				// Every tenant domain: testRole1 is a domain role as well and lands in both
 				// places; testRole2 is already held; testRole3 is added; testRole5 is no role.
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole1")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole2")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole3")).Return(true, nil).Times(1)
-				u.EXPECT().RoleExists(gomock.Any(), every, accesstypes.Role("testRole5")).Return(false, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole1").Return(accesstypes.Role("testRole1"), true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole2").Return(accesstypes.Role("testRole2"), true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole3").Return(accesstypes.Role("testRole3"), true, nil).Times(1)
+				u.EXPECT().ResolveRole(gomock.Any(), every, "testRole5").Return(accesstypes.Role(""), false, nil).Times(1)
 				u.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("test username"), []accesstypes.Role{"testRole3"}).Return(nil).Times(1)
 
-				// One tenant domain: the sync never asks RoleExists there, and the
+				// One tenant domain: the sync never asks ResolveRole there, and the
 				// memberships held there are not the directory's, so both go.
 				u.EXPECT().DeleteUserRoles(gomock.Any(), tenant, accesstypes.User("test username"), []accesstypes.Role{"testRole2", "testRole4"}).Return(nil).Times(1)
 			},

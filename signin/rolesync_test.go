@@ -3,6 +3,7 @@ package signin
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cccteam/ccc/accesstypes"
@@ -22,16 +23,16 @@ type roleWrite struct {
 // fakeRoleManager stands in for the role store: roles names the roles that exist in
 // each place, held the memberships the user holds, and writes records every
 // AddUserRoles and DeleteUserRoles in the order they arrive, so a test can see what
-// the sync wrote, where, and in what order. heldErr fails UserRoles, existsErr fails
-// RoleExists, addErr fails AddUserRoles and removeErr fails DeleteUserRoles.
+// the sync wrote, where, and in what order. heldErr fails UserRoles, resolveErr fails
+// ResolveRole, addErr fails AddUserRoles and removeErr fails DeleteUserRoles.
 type fakeRoleManager struct {
-	roles     map[accesstypes.PolicyScope][]accesstypes.Role
-	held      accesstypes.RoleCollection
-	heldErr   error
-	existsErr error
-	addErr    error
-	removeErr error
-	writes    []roleWrite
+	roles      map[accesstypes.PolicyScope][]accesstypes.Role
+	held       accesstypes.RoleCollection
+	heldErr    error
+	resolveErr error
+	addErr     error
+	removeErr  error
+	writes     []roleWrite
 }
 
 func (f *fakeRoleManager) UserRoles(_ context.Context, _ accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
@@ -42,12 +43,22 @@ func (f *fakeRoleManager) UserRoles(_ context.Context, _ accesstypes.User, scope
 	return f.held, f.heldErr
 }
 
-func (f *fakeRoleManager) RoleExists(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
-	if f.existsErr != nil {
-		return false, f.existsErr
+// ResolveRole answers as the access library does: the exact spelling, else the one
+// role matching without regard to case, in the spelling the store holds.
+func (f *fakeRoleManager) ResolveRole(_ context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
+	if f.resolveErr != nil {
+		return "", false, f.resolveErr
+	}
+	if slices.Contains(f.roles[scope], accesstypes.Role(name)) {
+		return accesstypes.Role(name), true, nil
+	}
+	for _, role := range f.roles[scope] {
+		if strings.EqualFold(string(role), name) {
+			return role, true, nil
+		}
 	}
 
-	return slices.Contains(f.roles[scope], role), nil
+	return "", false, nil
 }
 
 func (f *fakeRoleManager) AddUserRoles(_ context.Context, scope accesstypes.PolicyScope, _ accesstypes.User, roles ...accesstypes.Role) error {
@@ -158,6 +169,26 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			wantHasRole: false,
 		},
 		{
+			name:      "a name in the directory's case resolves to the store's spelling, which is what is written",
+			manager:   &fakeRoleManager{roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"CrewCommon"}, every: {"Pilot"}}},
+			roleNames: []string{"pilot", "crewcommon"},
+			wantWrites: []roleWrite{
+				{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{"CrewCommon"}},
+				{call: "AddUserRoles", scope: every, roles: []accesstypes.Role{"Pilot"}},
+			},
+			wantHasRole: true,
+		},
+		{
+			name: "a membership held under the store's spelling is left alone whatever case the directory names, and a stale one goes",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{every: {"Pilot", "Cadet"}},
+				held:  accesstypes.RoleCollection{every: {"Pilot", "Cadet"}},
+			},
+			roleNames:   []string{"PiLot"},
+			wantWrites:  []roleWrite{{call: "DeleteUserRoles", scope: every, roles: []accesstypes.Role{"Cadet"}}},
+			wantHasRole: true,
+		},
+		{
 			name: "a UserRoles error aborts the sync",
 			manager: &fakeRoleManager{
 				roles:   map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin"}},
@@ -167,11 +198,11 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			wantErr:   true,
 		},
 		{
-			name: "a RoleExists error aborts the sync before any write",
+			name: "a ResolveRole error aborts the sync before any write",
 			manager: &fakeRoleManager{
-				roles:     map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin"}},
-				held:      accesstypes.RoleCollection{global: {"stale"}},
-				existsErr: errors.New("store blip"),
+				roles:      map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin"}},
+				held:       accesstypes.RoleCollection{global: {"stale"}},
+				resolveErr: errors.New("store blip"),
 			},
 			roleNames: []string{"admin"},
 			wantErr:   true,
