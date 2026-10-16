@@ -15,7 +15,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
   - Google Workspace OIDC (`session/google`), restricted to one hosted domain, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
-  - WorkOS SSO (`session/workos`)
+  - WorkOS SSO (built and proven, held under `internal/workos` in v0.13.0 until its review; it returns as `session/workos` in a later minor)
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -96,9 +96,11 @@ transaction type (`pgx.Tx` or `*spanner.ReadWriteTransaction`); `NewAuth` infers
 the store, and the rules the application gives the `Auth` and its methods are typed to it.
 
 Each redirect-based method is its own package (`session/azure`, `session/google`,
-`session/workos`), built on the `session/signin` contract and the shared `session/oidc`
+`internal/workos`, which an application cannot import until it returns as `session/workos`), built on the `session/signin` contract and the shared `session/oidc`
 machinery; an application imports the packages of the methods it offers and registers
 each with its `SignIn` function and `Config`.
+
+> **WorkOS in v0.13.0.** The WorkOS method is built, tested and documented here, but the package lives under `internal/workos` in this release, awaiting its review, so an application cannot import it yet. A later minor moves it back to `session/workos` unchanged; the examples that use `workos.SignIn` read the same then.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |

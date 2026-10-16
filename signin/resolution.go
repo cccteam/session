@@ -12,8 +12,8 @@ import (
 
 // UserResolver decides an external identity that is not linked to any user yet: the
 // application's answer to who the person is. Every external method takes one at its
-// registration, typed to the method's identity (azure.UserResolver, google.UserResolver,
-// workos.UserResolver), and hands the core this form over the sign-in request. It runs
+// registration, typed to the method's identity (azure.UserResolver, google.UserResolver),
+// and hands the core this form over the sign-in request. It runs
 // in the first of a sign-in's two transactions, which commits unless an error is
 // returned, so a rejection keeps the resolver's own writes; see "Storage and schema" in
 // the README. Tx is the storage's transaction type: pgx.Tx on PostgreSQL,

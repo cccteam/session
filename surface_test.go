@@ -15,9 +15,9 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/workos"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
-	"github.com/cccteam/session/workos"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )

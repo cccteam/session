@@ -131,8 +131,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 // sessions, cookies, XSRF, custom data, impersonation and the middleware work the same
 // for every method.
 //
-// Register sign-in methods with PasswordSignIn, azure.SignIn, google.SignIn and
-// workos.SignIn after NewAuth and before serving the first request. Each returns the
+// Register sign-in methods with PasswordSignIn, azure.SignIn and google.SignIn (and
+// workos.SignIn once it is public) after NewAuth and before serving the first request. Each returns the
 // method's handlers.
 //
 // Every session belongs to a user (SessionUsers). A sign-in either establishes a

@@ -3,8 +3,8 @@
 // Auth is the session: one cookie, one session table and one middleware chain that
 // any registered sign-in method can establish. The password method lives here
 // (PasswordSignIn); the redirect-based methods are their own packages, built on the
-// signin contract: azure (Microsoft Entra ID), google (Google Workspace) and workos
-// (WorkOS SSO). Preauth lets an application bring its own authentication and still use
+// signin contract: azure (Microsoft Entra ID) and google (Google Workspace); workos (WorkOS
+// SSO) is held under internal until its review. Preauth lets an application bring its own authentication and still use
 // the session handlers.
 //
 // OIDCAzure and PasswordAuth are the legacy single-method session types, kept for the

@@ -185,7 +185,7 @@ linters:
       # The WorkOS API's wire format is snake_case.
       - linters:
           - tagliatelle
-        path: workos/|internal/e2e/auth_test\.go
+        path: internal/workos/|internal/e2e/auth_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
@@ -204,7 +204,7 @@ linters:
       # POST /sso/token, so the secret is marshaled on purpose, to WorkOS only.
       - linters:
           - gosec
-        path: workos/client\.go
+        path: internal/workos/client\.go
         text: G117
       # The legacy package is the deprecated surface itself: it is built from the storage
       # pieces that leave with it.

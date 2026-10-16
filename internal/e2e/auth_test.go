@@ -17,10 +17,10 @@ import (
 	"github.com/cccteam/session"
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
+	"github.com/cccteam/session/internal/workos"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
-	"github.com/cccteam/session/workos"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/go-cmp/cmp"
 )
