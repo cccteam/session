@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
@@ -20,9 +21,23 @@ type Config struct {
 	ClientSecret string
 	// RedirectURL is where Google sends the browser back: the Callback route.
 	RedirectURL string
-	// HostedDomain is required: the Google Workspace domain sign-in is restricted to,
-	// checked against the verified hd claim.
-	HostedDomain string
+	// Connection is required: the application's own name for this Google Workspace
+	// organization. It is written into every Google identity link as the identity's
+	// connection (Method google, Connection, Subject sub) and onto the sign-in events,
+	// so a policy tells Workspaces apart by it. Google puts no stable organization id
+	// in the ID token, and one Workspace answers for every domain it owns, so the
+	// application names the Workspace rather than the library keying on a domain.
+	//
+	// It is a key. Changing it makes every Google sign-in arrive as an unknown
+	// identity until the links are re-keyed:
+	//
+	//	UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
+	Connection string
+	// HostedDomains is required: the Google Workspace domains sign-in is restricted
+	// to, one or more, checked against the verified hd claim. With one domain the
+	// login hints it to Google's account chooser; with several it hints any Workspace
+	// account, and a login hint (see Method.Login) picks the account outright.
+	HostedDomains []string
 	// RoleSync is required: RoleSync(manager, groupPrefix, lookup) reconciles the
 	// user's roles to the person's groups whenever a Google sign-in establishes a
 	// session, and refuses the sign-in (no_roles) when no recognized role results;
@@ -41,7 +56,8 @@ type Identity struct {
 	Subject string
 	// Email is the email claim; the sign-in refused it unless Google verified it.
 	Email string
-	// HostedDomain is the hd claim: the Workspace domain the sign-in is restricted to.
+	// HostedDomain is the hd claim: the Workspace domain the person's account is on,
+	// one of the registration's HostedDomains.
 	HostedDomain string
 	// Name is the name claim.
 	Name string
@@ -65,10 +81,11 @@ type Method struct {
 
 // SignIn registers Google Workspace OpenID Connect sign-in on auth under name and
 // returns its handlers. name identifies the registration on auth. The identity key is
-// sub; resolve decides an identity that is not linked yet.
+// (cfg.Connection, sub); resolve decides an identity that is not linked yet.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, when resolve is nil, or when cfg.RoleSync or cfg.HostedDomain is missing.
+// request, when resolve is nil, or when cfg.RoleSync, cfg.Connection or
+// cfg.HostedDomains is missing.
 func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
@@ -78,7 +95,10 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 		Method:  sessioninfo.MethodGoogle,
 		Resolve: resolver(resolve),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
-			groups, err := groupSyncOf(cfg.RoleSync, cfg.HostedDomain)
+			if strings.TrimSpace(cfg.Connection) == "" {
+				return nil, errors.New("connection is required: the application's name for the Workspace, which keys every Google identity link; see google.Config.Connection")
+			}
+			groups, err := groupSyncOf(cfg.RoleSync, cfg.HostedDomains)
 			if err != nil {
 				return nil, err
 			}
@@ -89,14 +109,14 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 				if groups != nil {
 					scopes = []string{cloudIdentityScope}
 				}
-				o := NewOIDC(cookies, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL, cfg.HostedDomain, scopes...)
+				o := NewOIDC(cookies, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL, cfg.HostedDomains, scopes...)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}
 				authn = o
 			}
 
-			return method(authn, groups), nil
+			return method(authn, groups, cfg.Connection), nil
 		},
 	}
 	if resolve == nil {
@@ -108,7 +128,14 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 }
 
 // Login redirects to Google. It accepts ?returnUrl=, which must be a path in this
-// application; any other value is refused with 400.
+// application; any other value is refused with 400. It also accepts ?login_hint=, the
+// person's email address (or Google account id), passed to Google as its login_hint so
+// Google picks that account when it is signed in and skips its account chooser, or
+// pre-fills the sign-in form otherwise: an identifier-first login page, where the
+// person types their email before choosing how to sign in, skips the chooser whatever
+// the registration's domain count. It is a hint and is never read back; the identity
+// comes from the verified ID token. A hint longer than an email address can be (254
+// characters), or carrying spaces or control characters, is refused with 400.
 func (m *Method) Login() http.HandlerFunc { return m.login }
 
 // Callback completes the provider round trip and redirects as the Azure method's
@@ -155,16 +182,22 @@ func resolver[Tx any](resolve UserResolver[Tx]) signin.UserResolver[Tx] {
 	}
 }
 
-// method is the Google Workspace method over authn. The identity is sub. The
-// authenticator checks the hosted domain and the verified email. When groups is set,
-// the callback maps the person's directory groups to role names using the access
-// token, which is used once and never stored.
-func method(authn Authenticator, groups *groupSync) *signin.Method {
+// method is the Google Workspace method over authn. The identity is (connection, sub),
+// connection being the registration's name for the Workspace. The authenticator checks
+// the hosted domains and the verified email. When groups is set, the callback maps the
+// person's directory groups to role names using the access token, which is used once
+// and never stored.
+func method(authn Authenticator, groups *groupSync, connection string) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
 		LoginURL: authn.LoginURL,
-		Begin: func(ctx context.Context, w http.ResponseWriter, _ *http.Request, returnURL string) (string, error) {
-			return authn.AuthCodeURL(ctx, w, returnURL)
+		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
+			hint, err := loginHint(r)
+			if err != nil {
+				return "", err
+			}
+
+			return authn.AuthCodeURL(ctx, w, returnURL, hint)
 		},
 		Complete: func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*signin.Verified, error) {
 			var rawClaims json.RawMessage
@@ -179,7 +212,7 @@ func method(authn Authenticator, groups *groupSync) *signin.Method {
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodGoogle, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Claims: rawClaims, IDPAMR: id.AMR,
+					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Claims: rawClaims, IDPAMR: id.AMR,
 				},
 				ReturnURL: returnURL,
 			}
@@ -201,4 +234,19 @@ func method(authn Authenticator, groups *groupSync) *signin.Method {
 	}
 
 	return m
+}
+
+// maxLoginHint bounds ?login_hint=: an email address is at most 254 characters.
+const maxLoginHint = 254
+
+// loginHint reads ?login_hint=, the account Google is asked to pick, or "" when the
+// login page gave none. A hint longer than an email address can be, or carrying spaces
+// or control characters, is a login page's mistake and is refused.
+func loginHint(r *http.Request) (string, error) {
+	hint := r.URL.Query().Get("login_hint")
+	if len(hint) > maxLoginHint || strings.ContainsFunc(hint, func(c rune) bool { return c <= ' ' || c == 0x7f }) {
+		return "", httpio.NewBadRequestMessage("login_hint must be an email address or account id without spaces")
+	}
+
+	return hint, nil
 }

@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/cccteam/session/signin"
@@ -155,10 +156,10 @@ func DisableRoleSync() RoleSyncConfig {
 	return disabledRoleSync{}
 }
 
-// groupSyncOf validates the Google sign-in's required role sync slot and hosted domain
+// groupSyncOf validates the Google sign-in's required role sync slot and hosted domains
 // at registration, and gives the enabled configuration its reconciler. It returns nil
 // when role sync is disabled.
-func groupSyncOf(roleSync RoleSyncConfig, hostedDomain string) (*groupSync, error) {
+func groupSyncOf(roleSync RoleSyncConfig, hostedDomains []string) (*groupSync, error) {
 	if roleSync == nil {
 		return nil, errors.New("roleSync is required: pass google.RoleSync(manager, groupPrefix, lookup) or google.DisableRoleSync()")
 	}
@@ -179,8 +180,8 @@ func groupSyncOf(roleSync RoleSyncConfig, hostedDomain string) (*groupSync, erro
 		}
 		cfg.roles = roles
 	}
-	if hostedDomain == "" {
-		return nil, errors.New("hostedDomain is required: it is enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
+	if len(hostedDomains) == 0 || slices.Contains(hostedDomains, "") {
+		return nil, errors.New("hostedDomains is required: one or more Workspace domains, enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
 	}
 
 	return cfg, nil

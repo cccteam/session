@@ -7,8 +7,10 @@ import (
 
 // Authenticator defines the interface for authenticating users via OpenID Connect.
 type Authenticator interface {
-	// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error)
+	// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
+	// authentication process. loginHint is the account Google is asked to pick (the
+	// login_hint parameter), or "" for none.
+	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL, loginHint string) (string, error)
 
 	// Verify performs the necessary verification and processing of the OIDC callback
 	// request, including the hosted-domain (hd claim) and verified-email checks.

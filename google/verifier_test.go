@@ -33,7 +33,7 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 
 	ctx := t.Context()
 	rec := httptest.NewRecorder()
-	rawURL, err := o.AuthCodeURL(ctx, rec, "/app")
+	rawURL, err := o.AuthCodeURL(ctx, rec, "/app", "")
 	if err != nil {
 		t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
 	idp := newFakeIDP(t)
-	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", []string{testHostedDomain})
 
 	authURL, _ := startLogin(t, o)
 
@@ -79,6 +79,49 @@ func TestOIDC_AuthCodeURL(t *testing.T) {
 	}
 }
 
+// TestOIDC_AuthCodeURL_Hints proves the hints the authorization request carries: the
+// hosted domain when the registration has one, any Workspace account when it has
+// several, and the login hint as given.
+func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		hostedDomains []string
+		loginHint     string
+		wantHd        string
+		wantLoginHint string
+	}{
+		{name: "one hosted domain is the hd hint", hostedDomains: []string{testHostedDomain}, wantHd: testHostedDomain},
+		{name: "several hosted domains hint any Workspace account", hostedDomains: []string{testHostedDomain, "example.org"}, wantHd: "*"},
+		{name: "a login hint rides as given", hostedDomains: []string{testHostedDomain}, loginHint: "Pat@Example.com", wantHd: testHostedDomain, wantLoginHint: "Pat@Example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := newFakeIDP(t)
+			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", tt.hostedDomains)
+
+			rawURL, err := o.AuthCodeURL(t.Context(), httptest.NewRecorder(), "/app", tt.loginHint)
+			if err != nil {
+				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+			}
+			authURL, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatalf("url.Parse() error = %v", err)
+			}
+			q := authURL.Query()
+			if got := q.Get("hd"); got != tt.wantHd {
+				t.Errorf("hd parameter = %q, want %q", got, tt.wantHd)
+			}
+			if got, has := q["login_hint"]; has != (tt.wantLoginHint != "") || (has && got[0] != tt.wantLoginHint) {
+				t.Errorf("login_hint parameter = %v, want %q (present %v)", got, tt.wantLoginHint, tt.wantLoginHint != "")
+			}
+		})
+	}
+}
+
 // workspaceClaims are the ID token claims of a verified user of the test Workspace.
 func workspaceClaims() map[string]any {
 	return map[string]any{
@@ -93,14 +136,16 @@ func TestOIDC_Verify(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		tokenClaims func() map[string]any
-		tokenStatus int
-		mutateReq   func(r *http.Request)
-		dropCookie  bool
-		wantErr     bool
-		wantErrPart string
-		wantCode    sessioninfo.LoginRefusalCode
+		name string
+		// hostedDomains the registration accepts; nil means the test Workspace's one.
+		hostedDomains []string
+		tokenClaims   func() map[string]any
+		tokenStatus   int
+		mutateReq     func(r *http.Request)
+		dropCookie    bool
+		wantErr       bool
+		wantErrPart   string
+		wantCode      sessioninfo.LoginRefusalCode
 	}{
 		{
 			name:        "happy path",
@@ -180,6 +225,29 @@ func TestOIDC_Verify(t *testing.T) {
 			},
 		},
 		{
+			name:          "a token from the second of two hosted domains is accepted",
+			hostedDomains: []string{testHostedDomain, "example.org"},
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.org"
+
+				return c
+			},
+		},
+		{
+			name:          "a token from a domain outside the two is refused",
+			hostedDomains: []string{testHostedDomain, "example.org"},
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.net"
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not a member of the required Google Workspace domain",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
 			name: "unverified email is rejected",
 			tokenClaims: func() map[string]any {
 				c := workspaceClaims()
@@ -201,7 +269,11 @@ func TestOIDC_Verify(t *testing.T) {
 			idp.TokenClaims = tt.tokenClaims
 			idp.TokenStatus = tt.tokenStatus
 
-			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+			domains := tt.hostedDomains
+			if domains == nil {
+				domains = []string{testHostedDomain}
+			}
+			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", domains)
 
 			_, callback := startLogin(t, o)
 			if tt.dropCookie {

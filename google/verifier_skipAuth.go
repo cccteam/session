@@ -24,20 +24,20 @@ const defaultLoginURL = "/login"
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	redirectURL  string
-	hostedDomain string
-	cookies      signin.StateCookies
-	loginURL     string
+	redirectURL   string
+	hostedDomains []string
+	cookies       signin.StateCookies
+	loginURL      string
 }
 
 // NewOIDC returns a new OIDC Authenticator. The scopes are accepted and unused: the
 // simulated Verify hands back no access token, and the simulated group lookup reads
 // APP_ROLES instead.
-func NewOIDC(cookies signin.StateCookies, _, _, redirectURL, hostedDomain string, _ ...string) *OIDC {
+func NewOIDC(cookies signin.StateCookies, _, _, redirectURL string, hostedDomains []string, _ ...string) *OIDC {
 	return &OIDC{
-		redirectURL:  redirectURL,
-		hostedDomain: hostedDomain,
-		cookies:      cookies,
+		redirectURL:   redirectURL,
+		hostedDomains: hostedDomains,
+		cookies:       cookies,
 	}
 }
 
@@ -55,8 +55,9 @@ func (o *OIDC) LoginURL() string {
 	return o.loginURL
 }
 
-// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
+// authentication process. The login hint is accepted and unused: nothing is chosen.
+func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL, _ string) (string, error) {
 	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
 
 	o.cookies.WriteStateCookie(w, cval)
@@ -78,7 +79,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 	c := claimsSimulated{
 		Email:         os.Getenv("APP_USERNAME"),
 		EmailVerified: true,
-		Hd:            o.hostedDomain,
+		Hd:            primaryHostedDomain(o.hostedDomains),
 		Sub:           "skipauth-" + os.Getenv("APP_USERNAME"),
 	}
 

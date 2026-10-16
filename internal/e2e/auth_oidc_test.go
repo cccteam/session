@@ -29,6 +29,11 @@ var googleIssuerMu sync.Mutex
 const (
 	azureTenant  = "11111111-1111-1111-1111-111111111111"
 	hostedDomain = "lakeside.edu"
+	// lakesideSecondDomain is the Lakeside Workspace's second domain: the same
+	// organization, so the same connection.
+	lakesideSecondDomain = "lakeside.org"
+	// riversideDomain is another Workspace's domain, behind a second Google registration.
+	riversideDomain = "riverside.edu"
 )
 
 // oidcApp is an application with Azure and Google sign-in on one Auth, each against its
@@ -38,6 +43,9 @@ type oidcApp[Tx any] struct {
 	azure, google *oidctest.FakeIDP
 	// riverside is a second Entra tenant: a second registration of the Azure method.
 	riverside *oidctest.FakeIDP
+	// googleRiverside is another Workspace: a second registration of the Google method,
+	// under its own connection name.
+	googleRiverside *oidctest.FakeIDP
 }
 
 func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidcApp[Tx] {
@@ -48,6 +56,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
 	riversideIDP := oidctest.NewFakeIDP(t, "riverside-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
+	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
 
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
@@ -65,8 +74,13 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
 	googleMethod := google.SignIn(auth, "google", h.googleResolver, &google.Config{
-		RoleSync: google.DisableRoleSync(), HostedDomain: hostedDomain,
+		RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{hostedDomain, lakesideSecondDomain},
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
+	})
+	google.IssuerURL = googleRiversideIDP.Server.URL
+	googleRiversideMethod := google.SignIn(auth, "google-riverside", h.googleResolver, &google.Config{
+		RoleSync: google.DisableRoleSync(), Connection: "riverside", HostedDomains: []string{riversideDomain},
+		ClientID: "google-riverside-client", ClientSecret: "secret", RedirectURL: "https://app.example/google-riverside/callback",
 	})
 	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
@@ -80,11 +94,16 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 		r.Get("/riverside/callback", riversideMethod.Callback())
 		r.Get("/google/login", googleMethod.Login())
 		r.Get("/google/callback", googleMethod.Callback())
+		r.Get("/google-riverside/login", googleRiversideMethod.Login())
+		r.Get("/google-riverside/callback", googleRiversideMethod.Callback())
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &oidcApp[Tx]{authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}, azure: azureIDP, google: googleIDP, riverside: riversideIDP}
+	return &oidcApp[Tx]{
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
+		azure:   azureIDP, google: googleIDP, riverside: riversideIDP, googleRiverside: googleRiversideIDP,
+	}
 }
 
 // oidcSignIn runs a login round trip through provider at prefix (/azure or /google)
@@ -125,7 +144,12 @@ func withSID(claims map[string]any, sid string) map[string]any {
 }
 
 func googleClaims(sub, email string) map[string]any {
-	return map[string]any{"sub": sub, "email": email, "email_verified": true, "hd": hostedDomain}
+	return googleClaimsAt(hostedDomain, sub, email)
+}
+
+// googleClaimsAt are the ID token claims of a verified Workspace user on domain.
+func googleClaimsAt(domain, sub, email string) map[string]any {
+	return map[string]any{"sub": sub, "email": email, "email_verified": true, "hd": domain}
 }
 
 // TestAuthSeams_AzureAndGoogle runs the Azure and Google scenarios on each backend.
@@ -220,7 +244,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				if gv.UserID != v.UserID {
 					t.Errorf("Google sign-in user = %s, want the Azure-provisioned %s", gv.UserID, v.UserID)
 				}
-				assertEventsSeen(t, gv, "google")
+				assertEventsSeen(t, gv, "google:lakeside")
 
 				// The same oid in another tenant is another identity, whatever its email.
 				other := a.browser(t)
@@ -236,6 +260,59 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				if after, linked := a.hooks.counts(); after != before || len(linked) != 2 {
 					t.Errorf("resolver runs = %d (was %d), IdentityLinked reports = %d; want no new run and two reports", after, before, len(linked))
+				}
+			},
+		},
+		{
+			name: "two Google registrations are two connections: an untrusted link of a riverside identity to a password-less lakeside user is refused, a trusted one links, and an identity on the Workspace's second domain links without a check",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				var (
+					user    ccc.UUID
+					trusted bool
+				)
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveGoogle = func(identity *google.Identity) *signin.Resolution {
+						if user.IsNil() {
+							return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
+						}
+
+						return signin.Link(user, trusted)
+					}
+				})
+
+				b := a.browser(t)
+				assertRedirect(t, b.oidcSignIn(ctx, a.google, "/google", googleClaims("google-sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
+				v := b.view(ctx)
+				assertEventsSeen(t, v, "google:lakeside")
+				a.hooks.set(func(*hooks[Tx]) { user = ccc.Must(ccc.UUIDFromString(v.UserID)) })
+
+				// Riverside is another Workspace, so another connection: sam has no
+				// password, and an untrusted link of a riverside identity is refused.
+				other := a.browser(t)
+				assertRedirect(t, other.oidcSignIn(ctx, a.googleRiverside, "/google-riverside", googleClaimsAt(riversideDomain, "google-sub-mallory", "sam@riverside.edu")), "/login",
+					url.Values{"code": {"identity_rejected"}})
+				if links, err := a.api.Identities(ctx, user); err != nil || len(links) != 1 {
+					t.Fatalf("Identities() = %d links, %v; want the lakeside one only", len(links), err)
+				}
+
+				a.hooks.set(func(*hooks[Tx]) { trusted = true })
+				assertRedirect(t, other.oidcSignIn(ctx, a.googleRiverside, "/google-riverside", googleClaimsAt(riversideDomain, "google-sub-mallory", "sam@riverside.edu")), "/home", url.Values{})
+				ov := other.view(ctx)
+				if ov.UserID != v.UserID {
+					t.Errorf("trusted riverside sign-in user = %s, want sam %s", ov.UserID, v.UserID)
+				}
+				assertEventsSeen(t, ov, "google:riverside")
+
+				// Lakeside's second domain is the same Workspace, so the same connection:
+				// an untrusted link of an identity there needs no check.
+				a.hooks.set(func(*hooks[Tx]) { trusted = false })
+				second := a.browser(t)
+				assertRedirect(t, second.oidcSignIn(ctx, a.google, "/google", googleClaimsAt(lakesideSecondDomain, "google-sub-sam-org", "sam@lakeside.org")), "/home", url.Values{})
+				if sv := second.view(ctx); sv.UserID != v.UserID {
+					t.Errorf("second-domain sign-in user = %s, want sam %s", sv.UserID, v.UserID)
+				}
+				if links, err := a.api.Identities(ctx, user); err != nil || len(links) != 3 {
+					t.Errorf("Identities() = %d links, %v; want lakeside, riverside and the second-domain link", len(links), err)
 				}
 			},
 		},

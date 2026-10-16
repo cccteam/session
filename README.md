@@ -14,7 +14,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Sign-in methods` of the Auth session, each in its own package:
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
-  - Google Workspace OIDC (`session/google`), restricted to one hosted domain, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
+  - Google Workspace OIDC (`session/google`), restricted to a Workspace's hosted domains, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO (`session/workos`)
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
@@ -528,8 +528,19 @@ about what they may do. Authorization signals therefore come from the directory 
 
 There is no `IssuerURL` setting — Google operates a single issuer for all orgs;
 tenancy is the `hd` claim, not the issuer. The identity is linked to its user by the
-`sub` claim alone, which is globally unique among all Google identities and never
-reused; the username is the verified `email` claim (`email_verified` is enforced).
+registration's `Connection` and the `sub` claim: `sub` is globally unique among all
+Google identities and never reused, and `Connection` is the application's own name for
+the Workspace organization (`"lakeside"`), since Google puts no stable organization id
+in the token and one Workspace answers for every domain it owns. The sign-in events
+carry it too, so a policy tells Workspaces apart by connection and, within one, domains
+apart by the identity's `HostedDomain`. **`Connection` is a key.** Changing it makes
+every Google sign-in arrive as an unknown identity until the links are re-keyed:
+
+```sql
+UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
+```
+
+The username is the verified `email` claim (`email_verified` is enforced).
 Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
@@ -543,11 +554,24 @@ Two layers, one enforced by Google and one by this library:
    Cloud project that belongs to your Workspace org and set the consent screen's user
    type to *Internal*. Google then refuses users outside the org (`org_internal`
    error) before they ever reach your callback.
-2. **`HostedDomain`** (library-side, required): sent as the `hd` hint on the
-   authorization request (pre-selects org users in the user chooser — UX only),
-   and enforced against the verified ID token's `hd` claim. A consumer user carries
+2. **`HostedDomains`** (library-side, required): the Workspace's domains, one or
+   more. The authorization request hints them to Google's account chooser (the domain
+   when there is one, `*` for any Workspace account when there are several — UX only),
+   and the verified ID token's `hd` claim must be one of them. A consumer user carries
    no `hd` claim at all, so the check fails closed. This is the trusted backstop even
    with an Internal consent screen in place.
+
+### Skipping Google's account chooser
+
+With one hosted domain, Google skips its account chooser when exactly one signed-in
+account is in that domain; with several, the chooser appears whenever more than one
+Workspace account is signed in. `Login` accepts `?login_hint=<email>` beside
+`returnUrl` and passes it to Google as `login_hint`: Google picks that account when it
+is signed in and pre-fills the sign-in form otherwise, so an identifier-first login
+page (the person types their email, the page picks the registration) skips the chooser
+whatever the registration's domain count. It is a hint and is never read back; the
+identity comes from the verified token. A hint longer than 254 characters, or carrying
+spaces or control characters, is refused with 400.
 
 ### The group naming convention
 

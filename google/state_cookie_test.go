@@ -55,7 +55,7 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	googleIDP.TokenClaims = workspaceClaims
 
 	entra := azure.NewOIDC(cookies.ForRegistration("azure"), azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
-	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", testHostedDomain)
+	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", []string{testHostedDomain})
 
 	browser := jar{}
 	start := func(authCodeURL func(rec *httptest.ResponseRecorder) (string, error)) string {
@@ -75,7 +75,9 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 
 	// Azure first, then Google: the Google login's state cookie is written last.
 	azureState := start(func(rec *httptest.ResponseRecorder) (string, error) { return entra.AuthCodeURL(ctx, rec, "/azure") })
-	googleState := start(func(rec *httptest.ResponseRecorder) (string, error) { return google.AuthCodeURL(ctx, rec, "/google") })
+	googleState := start(func(rec *httptest.ResponseRecorder) (string, error) {
+		return google.AuthCodeURL(ctx, rec, "/google", "")
+	})
 
 	if _, ok := browser[internalcookie.StateCookieName("azure")]; !ok {
 		t.Fatalf("browser cookies = %v, want the Azure state cookie %q", browser, internalcookie.StateCookieName("azure"))
@@ -119,7 +121,7 @@ func TestOIDC_Verify_RefusesLegacyStateCookie(t *testing.T) {
 		return workspaceClaims()
 	}
 	cookies := oidctest.NewCookieClient(t)
-	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", testHostedDomain)
+	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", []string{testHostedDomain})
 
 	_, callback := startLogin(t, o)
 	legacy := legacyStateCallback(t, cookies, callback, internalcookie.StateCookieName("google"))

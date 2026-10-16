@@ -379,20 +379,25 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 	return sessioninfo.NewLoginRefusal(code, httpio.NewUnauthorizedMessageWithError(cause, message))
 }
 
-// linksAnotherConnection reports whether userID already signs in through a connection
-// other than identity's. A user without a password cannot confirm a link, so an
-// untrusted link across connections is refused: the resolver's evidence is the only
-// check, and it must say so with trusted.
+// linksAnotherConnection reports whether identity would attach a new connection to
+// userID: the user has links, and none of them is on identity's (Method, Connection).
+// A user without a password cannot confirm a link, so an untrusted link of a connection
+// the user does not sign in through yet is refused: the resolver's evidence is the only
+// check, and it must say so with trusted. A connection the user already signs in
+// through, however many others they have, adds nothing and is not checked.
 func linksAnotherConnection[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID ccc.UUID, identity *sessioninfo.Identity) (bool, error) {
 	links, err := d.IdentitiesByUserIn(ctx, tx, userID)
 	if err != nil {
 		return false, errors.Wrap(err, "Driver.IdentitiesByUserIn()")
 	}
+	if len(links) == 0 {
+		return false, nil
+	}
 	for _, link := range links {
-		if link.Method != identity.Method || link.Connection != identity.Connection {
-			return true, nil
+		if link.Method == identity.Method && link.Connection == identity.Connection {
+			return false, nil
 		}
 	}
 
-	return false, nil
+	return true, nil
 }

@@ -35,9 +35,10 @@ const (
 type Identity struct {
 	// Method is the sign-in method that verified this identity.
 	Method AuthMethod
-	// Connection scopes the Subject. It is the WorkOS connection ID for MethodWorkOS
-	// and the tenant ID (tid) for MethodAzure. It is empty for MethodGoogle and
-	// MethodPassword.
+	// Connection scopes the Subject. It is the WorkOS connection ID for MethodWorkOS,
+	// the tenant ID (tid) for MethodAzure, and the registration's configured
+	// Connection, the application's own name for the Workspace organization, for
+	// MethodGoogle. It is empty for MethodPassword.
 	Connection string
 	// Subject is the upstream subject. It is the WorkOS profile idp_id, the Azure oid,
 	// the Google sub, or the user ID (as a string) for MethodPassword.

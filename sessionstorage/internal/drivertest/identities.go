@@ -359,12 +359,21 @@ func testLinkAcrossConnections(ctx context.Context, t *testing.T, h *AuthHarness
 		t.Errorf("trusted cross-connection sign-in = (%v, %v), want the user %v linked", req.UserID, err, user.ID)
 	}
 
+	// With links on two connections now, an untrusted identity on either of them still
+	// links: the connection adds nothing the user does not sign in through already.
+	mu.Lock()
+	trusted = false
+	mu.Unlock()
+	if _, req, err := signIn(ctx, in, lakeside("idp_cross_third"), sessioninfo.ReasonLogin); err != nil || req.UserID != user.ID {
+		t.Errorf("same-connection sign-in with two connections linked = (%v, %v), want the user %v linked", req.UserID, err, user.ID)
+	}
+
 	links, err := in.Driver.IdentitiesByUser(ctx, user.ID)
 	if err != nil {
 		t.Fatalf("IdentitiesByUser() error = %v", err)
 	}
-	if len(links) != 3 {
-		t.Errorf("IdentitiesByUser() = %d links, want 3: the seeded one, the same-connection one and the trusted one", len(links))
+	if len(links) != 4 {
+		t.Errorf("IdentitiesByUser() = %d links, want 4: the seeded one, two on the same connection and the trusted one", len(links))
 	}
 }
 

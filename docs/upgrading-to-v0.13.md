@@ -223,9 +223,10 @@ Register the method on an `Auth`:
 ```go
 workspace := google.SignIn(auth, "google", resolveWorkspaceUser, &google.Config{
     ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
-    HostedDomain: "example.com",
-    RoleSync:     google.RoleSync(userRoleManager, "app-myapp-", google.DirectGroups()),
-    LoginURL:     "/login",
+    Connection:    "example", // the application's name for the Workspace: a key, see the README
+    HostedDomains: []string{"example.com"},
+    RoleSync:      google.RoleSync(userRoleManager, "app-myapp-", google.DirectGroups()),
+    LoginURL:      "/login",
 })
 ```
 
@@ -235,10 +236,8 @@ workspace := google.SignIn(auth, "google", resolveWorkspaceUser, &google.Config{
 
 For the schema, start the group on the base and auth sets, under the group's table
 names or after dropping the v0.12 tables: the sessions end, and the resolver provisions
-each person at their first sign-in. To keep the `GoogleOIDCUsers` rows, backfill them
-the way the `auth-from-oidc` set's step 4 does for Azure: the same ids into
-`SessionUsers`, and one identity per row with `Method` `google`, an empty `Connection`
-and the `Sub` column as `Subject`.
+each person at their first sign-in. There is no upgrade set and no backfill for the
+v0.12 Google tables.
 
 ### Table names
 

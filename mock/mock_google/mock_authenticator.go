@@ -42,18 +42,18 @@ func (m *MockAuthenticator) EXPECT() *MockAuthenticatorMockRecorder {
 }
 
 // AuthCodeURL mocks base method.
-func (m *MockAuthenticator) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+func (m *MockAuthenticator) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL, loginHint string) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthCodeURL", ctx, w, returnURL)
+	ret := m.ctrl.Call(m, "AuthCodeURL", ctx, w, returnURL, loginHint)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // AuthCodeURL indicates an expected call of AuthCodeURL.
-func (mr *MockAuthenticatorMockRecorder) AuthCodeURL(ctx, w, returnURL any) *gomock.Call {
+func (mr *MockAuthenticatorMockRecorder) AuthCodeURL(ctx, w, returnURL, loginHint any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthCodeURL", reflect.TypeOf((*MockAuthenticator)(nil).AuthCodeURL), ctx, w, returnURL)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthCodeURL", reflect.TypeOf((*MockAuthenticator)(nil).AuthCodeURL), ctx, w, returnURL, loginHint)
 }
 
 // LoginURL mocks base method.
