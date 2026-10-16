@@ -526,9 +526,15 @@ an `accesstypes.PolicyScope`: `accesstypes.GlobalPolicyScope()` is the global pa
 and `accesstypes.EveryDomainPolicyScope()` is every tenant domain, the two places the
 sync writes. `UserRoles` called with no scopes lists every membership the user holds,
 keyed by where each is held, which is how the sync finds a stale membership in one
-tenant domain. `RoleExists` errors must be returned, never flattened to "role missing":
-the sync removes what the directory does not name, so a swallowed store error would
-delete a valid membership on a transient fault.
+tenant domain. `ResolveRole` finds the role a place holds under a name, matched without
+regard to case, and answers it in the spelling the store holds: a Google group is an
+email address and the groups lookup lowercases what it reads, so the directory names
+`pilot` where the role file spelled `Pilot`, and the sync compares, adds and removes in
+the store's spelling. A store that holds two roles differing only in case cannot answer
+such a name, and the access library refuses to create the pair. `ResolveRole` errors must
+be returned, never flattened to "role missing": the sync removes what the directory does
+not name, so a swallowed store error would delete a valid membership on a transient
+fault.
 
 Migrating from the shape that took a domains provider (`session.RoleSync(manager,
 domainsFn)` and `session.GoogleRoleSync(manager, domainsFn, ...)`): drop the provider,
