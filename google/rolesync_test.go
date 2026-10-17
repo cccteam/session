@@ -120,62 +120,47 @@ func Test_groupSyncOf_validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		roleSync      func(manager signin.UserRoleManager) RoleSyncConfig
-		hostedDomains []string
-		wantErr       bool
+		name     string
+		roleSync func(manager signin.UserRoleManager) RoleSyncConfig
+		wantErr  bool
 	}{
 		{
-			name:          "nil role sync slot is a construction error",
-			roleSync:      func(signin.UserRoleManager) RoleSyncConfig { return nil },
-			hostedDomains: []string{"example.com"},
-			wantErr:       true,
+			name:     "nil role sync slot is a construction error",
+			roleSync: func(signin.UserRoleManager) RoleSyncConfig { return nil },
+			wantErr:  true,
 		},
 		{
 			name: "RoleSync with a nil manager is a construction error",
 			roleSync: func(signin.UserRoleManager) RoleSyncConfig {
 				return RoleSync(nil, "app-myapp-", DirectGroups())
 			},
-			hostedDomains: []string{"example.com"},
-			wantErr:       true,
+			wantErr: true,
 		},
 		{
 			name: "RoleSync with an empty group prefix is a construction error",
 			roleSync: func(manager signin.UserRoleManager) RoleSyncConfig {
 				return RoleSync(manager, "", DirectGroups())
 			},
-			hostedDomains: []string{"example.com"},
-			wantErr:       true,
+			wantErr: true,
 		},
 		{
 			name: "RoleSync with no group lookup is a construction error",
 			roleSync: func(manager signin.UserRoleManager) RoleSyncConfig {
 				return RoleSync(manager, "app-myapp-", nil)
 			},
-			hostedDomains: []string{"example.com"},
-			wantErr:       true,
-		},
-		{
-			name: "no hostedDomains is a construction error",
-			roleSync: func(manager signin.UserRoleManager) RoleSyncConfig {
-				return RoleSync(manager, "app-myapp-", DirectGroups())
-			},
-			hostedDomains: nil,
-			wantErr:       true,
+			wantErr: true,
 		},
 		{
 			name: "RoleSync with manager, prefix and lookup constructs",
 			roleSync: func(manager signin.UserRoleManager) RoleSyncConfig {
 				return RoleSync(manager, "app-myapp-", NestedGroups())
 			},
-			hostedDomains: []string{"example.com"},
 		},
 		{
 			name: "DisableRoleSync constructs",
 			roleSync: func(signin.UserRoleManager) RoleSyncConfig {
 				return DisableRoleSync()
 			},
-			hostedDomains: []string{"example.com"},
 		},
 	}
 	for _, tt := range tests {
@@ -183,7 +168,7 @@ func Test_groupSyncOf_validation(t *testing.T) {
 			t.Parallel()
 			manager := mock_signin.NewMockUserRoleManager(gomock.NewController(t))
 
-			_, err := groupSyncOf(tt.roleSync(manager), tt.hostedDomains)
+			_, err := groupSyncOf(tt.roleSync(manager))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("groupSyncOf() error = %v, wantErr %v", err, tt.wantErr)
 			}

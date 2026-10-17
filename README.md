@@ -14,7 +14,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Sign-in methods` of the Auth session, each in its own package:
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
-  - Google Workspace OIDC (`session/google`), restricted to a Workspace's hosted domains, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
+  - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
@@ -104,7 +104,7 @@ each with its `SignIn` function and `Config`.
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
-| `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`Connection`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
 | `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
@@ -328,10 +328,13 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 - **A registration without an account rule**: a WorkOS registration with a nil `rule`
   (WorkOS has no standard rule), or a registration naming a standard rule that does not
   exist.
-- **A misconfigured method**: Azure or Google without its role sync slot, Google without
-  its hosted domain or connection, open sign-up (`signin.OpenSignUp`) on a registration
-  that serves one organization, cookie or session options passed to `PasswordSignIn`
-  instead of `NewAuth`.
+- **A misconfigured method**: Azure or Google without its role sync slot; a Google
+  registration without its `Workspaces`, a Workspace without a name or a domain, a value
+  that is not a domain name, a name used twice or a domain in two Workspaces; role
+  synchronization with other than one Workspace; open sign-up (`signin.OpenSignUp`) on
+  a registration that serves one or several named organizations; members of the
+  directory with any Workspace or any Google account and no rule of the application's
+  own; cookie or session options passed to `PasswordSignIn` instead of `NewAuth`.
 
 ### Routes
 
@@ -608,18 +611,12 @@ about what they may do. Authorization signals therefore come from the directory 
 (Google Groups), fetched at login.
 
 There is no `IssuerURL` setting — Google operates a single issuer for all orgs;
-tenancy is the `hd` claim, not the issuer. The identity is linked to its user by the
-registration's `Connection` and the `sub` claim: `sub` is globally unique among all
-Google identities and never reused, and `Connection` is the application's own name for
-the Workspace organization (`"lakeside"`), since Google puts no stable organization id
-in the token and one Workspace answers for every domain it owns. The sign-in events
-carry it too, so a policy tells Workspaces apart by connection and, within one, domains
-apart by the identity's `HostedDomain`. **`Connection` is a key.** Changing it makes
-every Google sign-in arrive as an unknown identity until the links are re-keyed:
-
-```sql
-UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
-```
+tenancy is the `hd` claim, not the issuer. The identity is linked to its user by its
+connection and the `sub` claim: `sub` is globally unique among all Google identities
+and never reused, and the connection is what the registration's `Workspaces` slot
+selects for the account (below). The sign-in events carry it too, so a policy tells
+Workspaces apart by connection and, within one, domains apart by the identity's
+`HostedDomain`.
 
 The identity's sign-in name is the verified `email` claim (`email_verified` is
 enforced), so the standard account rules (`Config.Accounts`) provision and match users
@@ -628,30 +625,64 @@ Google-initiated logout: `Logout` destroys the local session only. The `RoleSync
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
 "The group naming convention").
 
-### Restricting login to your organization
+### Which accounts may sign in
 
-Two layers, one enforced by Google and one by this library:
+`Config.Workspaces` is required and says which Google accounts a registration admits.
+The verified ID token's `hd` claim, the domain of the account's Workspace, selects the
+entry at the callback, before the account rules run, so an account the slot does not
+admit never reaches a row (`not_workspace_member`). The entry also decides the
+connection written on the identity link:
 
-1. **Internal OAuth consent screen** (Google-side): create the OAuth client in a Google
-   Cloud project that belongs to your Workspace org and set the consent screen's user
-   type to *Internal*. Google then refuses users outside the org (`org_internal`
-   error) before they ever reach your callback.
-2. **`HostedDomains`** (library-side, required): the Workspace's domains, one or
-   more. The authorization request hints them to Google's account chooser (the domain
-   when there is one, `*` for any Workspace account when there are several — UX only),
-   and the verified ID token's `hd` claim must be one of them. A consumer user carries
-   no `hd` claim at all, so the check fails closed. This is the trusted backstop even
-   with an Internal consent screen in place.
+- **One Workspace**, `google.Workspace("lakeside", "lakeside.edu", "lakeside.org")`:
+  the application that belongs to one organization. The name is the application's own
+  name for the Workspace, written as the connection of every link made through it,
+  since Google puts no stable organization id in the token and one Workspace answers
+  for every domain it owns; the domains are checked against the `hd` claim. This is
+  the only shape role synchronization runs with, since the group lookup reads one
+  Workspace's directory.
+- **Listed Workspaces**, `google.Workspaces(google.Workspace(...), google.Workspace(...))`:
+  the `hd` claim selects the Workspace whose domains contain it, and that Workspace's
+  name is the connection. A domain belongs to one Workspace, and a name is used once.
+- **Any Workspace**, `google.AnyWorkspace()`: any `hd` claim is admitted and none is
+  refused. The connection is the account's domain, lowercased, since the registration
+  names no Workspace; name the Workspaces you know beside it
+  (`google.Workspaces(google.Workspace(...), google.AnyWorkspace())`) and their members
+  share one connection across their domains.
+- **Any Google account**, `google.AnyGoogleAccount()`: a token with or without an `hd`
+  claim. An account outside the named Workspaces carries the connection
+  `google.AnyAccountConnection`. The OAuth client's consent screen must be *External*
+  and published for accounts outside your own Workspace to reach the callback;
+  *Internal* restricts it to your Workspace.
+
+A first sign-in through an open entry (any Workspace, any Google account) cannot take
+members of the directory, which would sign up the world: the registration takes
+`signin.InvitedUsersOnly`, `signin.OpenSignUp` or a rule of the application's own.
+Open sign-up, in turn, is refused on a registration that names its Workspaces only.
+
+**The connection is a key.** Renaming a Workspace, or moving from any Workspace (where
+the domain is the connection) to a named one, makes every sign-in from it arrive as an
+unknown identity until the links are re-keyed:
+
+```sql
+UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
+```
+
+Two layers restrict an application to your own organization: the OAuth client's
+*Internal* consent screen (Google refuses users outside the org with an `org_internal`
+error before they reach the callback) and the one-Workspace slot, the trusted backstop
+even with the consent screen in place.
 
 ### Skipping Google's account chooser
 
-With one hosted domain, Google skips its account chooser when exactly one signed-in
-account is in that domain; with several, the chooser appears whenever more than one
-Workspace account is signed in. `Login` accepts `?login_hint=<email>` beside
+With one Workspace on one domain the authorization request hints that domain, and
+Google skips its account chooser when exactly one signed-in account is in it; with
+several domains, several Workspaces or any Workspace it hints any Workspace account,
+and the chooser appears whenever more than one Workspace account is signed in; with any
+Google account it hints nothing. `Login` accepts `?login_hint=<email>` beside
 `returnUrl` and passes it to Google as `login_hint`: Google picks that account when it
 is signed in and pre-fills the sign-in form otherwise, so an identifier-first login
 page (the person types their email, the page picks the registration) skips the chooser
-whatever the registration's domain count. It is a hint and is never read back; the
+whatever the registration's shape. It is a hint and is never read back; the
 identity comes from the verified token. A hint longer than 254 characters, or carrying
 spaces or control characters, is refused with 400.
 

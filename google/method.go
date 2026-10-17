@@ -21,35 +21,32 @@ type Config struct {
 	ClientSecret string
 	// RedirectURL is where Google sends the browser back: the Callback route.
 	RedirectURL string
-	// Connection is required: the application's own name for this Google Workspace
-	// organization. It is written into every Google identity link as the identity's
-	// connection (Method google, Connection, Subject sub) and onto the sign-in events,
-	// so a policy tells Workspaces apart by it. Google puts no stable organization id
-	// in the ID token, and one Workspace answers for every domain it owns, so the
-	// application names the Workspace rather than the library keying on a domain.
-	//
-	// It is a key. Changing it makes every Google sign-in arrive as an unknown
-	// identity until the links are re-keyed:
-	//
-	//	UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
-	Connection string
-	// HostedDomains is required: the Google Workspace domains sign-in is restricted
-	// to, one or more, checked against the verified hd claim. With one domain the
-	// login hints it to Google's account chooser; with several it hints any Workspace
-	// account, and a login hint (see Method.Login) picks the account outright.
-	HostedDomains []string
+	// Workspaces is required: which Google accounts may sign in, and the connection
+	// each identity link carries (Method google, Connection, Subject sub). One
+	// Workspace, Workspace(name, domains...), is the application that belongs to one
+	// organization; Workspaces(...) names several; AnyWorkspace() admits any Workspace
+	// account and AnyGoogleAccount() any Google account. The verified hd claim selects
+	// the entry at the callback, before the account rules run, so an account the slot
+	// does not admit never reaches a row (not_workspace_member). With one domain the
+	// login hints it to Google's account chooser; with several or any Workspace it
+	// hints any Workspace account; with any Google account it hints nothing, and a
+	// login hint (see Method.Login) picks the account outright.
+	Workspaces WorkspaceSet
 	// RoleSync is required: RoleSync(manager, groupPrefix, lookup) reconciles the
 	// user's roles to the person's groups whenever a Google sign-in establishes a
 	// session, and refuses the sign-in (no_roles) when no recognized role results;
-	// DisableRoleSync() leaves roles to the application.
+	// DisableRoleSync() leaves roles to the application. Role synchronization reads
+	// the groups of one Workspace: it is refused with several Workspaces, any
+	// Workspace or any Google account.
 	RoleSync RoleSyncConfig
-	// Accounts is the standard account rule for a member of the Workspace who signs
-	// in for the first time: signin.MembersOfDirectory (the default) provisions an
-	// account under the verified email, signin.InvitedUsersOnly links only a
-	// pre-created user under that email and refuses anyone else. signin.OpenSignUp is
-	// refused at registration: this registration serves one Workspace. A rule given
-	// to SignIn runs first and may leave the decision to this one with
-	// signin.Standard.
+	// Accounts is the standard account rule for an account that signs in for the first
+	// time: signin.MembersOfDirectory (the default) provisions an account under the
+	// verified email, signin.InvitedUsersOnly links only a pre-created user under that
+	// email and refuses anyone else, signin.OpenSignUp provisions anyone. With one or
+	// several named Workspaces open sign-up is refused at registration; with any
+	// Workspace or any Google account members of the directory is refused unless a
+	// rule is given to SignIn, since it would sign up the world. A rule given to
+	// SignIn runs first and may leave the decision to this one with signin.Standard.
 	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
@@ -65,9 +62,13 @@ type Identity struct {
 	// Email is the email claim; the sign-in refused it unless Google verified it. The
 	// standard account rules use it as the username.
 	Email string
-	// HostedDomain is the hd claim: the Workspace domain the person's account is on,
-	// one of the registration's HostedDomains.
+	// HostedDomain is the hd claim: the domain of the Workspace the account is on, ""
+	// for a Google account outside a Workspace, which only AnyGoogleAccount admits.
 	HostedDomain string
+	// Workspace is the connection the identity's link carries, as Config.Workspaces
+	// selected it: the application's name for a named Workspace, the account's domain
+	// under AnyWorkspace, AnyAccountConnection under AnyGoogleAccount.
+	Workspace string
 	// Name is the name claim.
 	Name string
 	// AMR are the authentication methods the token asserts (the amr claim).
@@ -91,13 +92,16 @@ type Method struct {
 
 // SignIn registers Google Workspace OpenID Connect sign-in on auth under name and
 // returns its handlers. name identifies the registration on auth. The identity key is
-// (cfg.Connection, sub). An identity that is not linked yet is decided by rule when
-// one is given and by the standard rule in cfg.Accounts otherwise, or when rule
-// answers signin.Standard; nil is the usual value.
+// (connection, sub), the connection being what cfg.Workspaces selects for the account.
+// An identity that is not linked yet is decided by rule when one is given and by the
+// standard rule in cfg.Accounts otherwise, or when rule answers signin.Standard; nil is
+// the usual value.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, when cfg.RoleSync, cfg.Connection or cfg.HostedDomains is missing, or when
-// cfg.Accounts is open sign-up or no standard rule.
+// request, when cfg.RoleSync or cfg.Workspaces is missing or malformed, when role
+// synchronization is asked for with other than one Workspace, and when cfg.Accounts
+// does not fit the slot: open sign-up with named Workspaces only, members of the
+// directory with any Workspace or any Google account and no rule, or no standard rule.
 func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
@@ -112,11 +116,9 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 		StandardRule: accounts,
 		AccountRule:  accountRule(rule),
 		Issuers:      signin.IssuerList(IssuerURL),
+		Err:          refuseShape(cfg.Workspaces, cfg.RoleSync, accounts, rule == nil),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
-			if strings.TrimSpace(cfg.Connection) == "" {
-				return nil, errors.New("connection is required: the application's name for the Workspace, which keys every Google identity link; see google.Config.Connection")
-			}
-			groups, err := groupSyncOf(cfg.RoleSync, cfg.HostedDomains)
+			groups, err := groupSyncOf(cfg.RoleSync)
 			if err != nil {
 				return nil, err
 			}
@@ -127,22 +129,42 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 				if groups != nil {
 					scopes = []string{cloudIdentityScope}
 				}
-				o := NewOIDC(cookies, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL, cfg.HostedDomains, scopes...)
+				o := NewOIDC(cookies, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL, cfg.Workspaces, scopes...)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}
 				authn = o
 			}
 
-			return method(authn, groups, cfg.Connection), nil
+			return method(authn, groups, cfg.Workspaces), nil
 		},
-	}
-	if accounts == signin.OpenSignUp {
-		reg.Err = errors.New("Accounts: open sign-up is for any Workspace or any Google account; this registration serves one Workspace, which takes members of the directory or invited users only")
 	}
 	h := signin.Register(auth, reg)
 
 	return &Method{login: h.Login, callback: h.Callback}
+}
+
+// refuseShape is the registration's startup check of the organization slot against the
+// role sync slot and the account rules, each refusal naming its field: the slot's own
+// rules (validate), role synchronization with other than one Workspace, open sign-up
+// with named Workspaces only, and members of the directory with an open slot and no
+// rule of the application's own.
+func refuseShape(workspaces WorkspaceSet, roleSync RoleSyncConfig, accounts signin.StandardAccountRule, noRule bool) error {
+	if err := workspaces.validate(); err != nil {
+		return err
+	}
+	if _, one := workspaces.one(); !one && roleSync != nil && roleSync.groupSync() != nil {
+		return errors.New("RoleSync: role synchronization reads the groups of one Workspace; a registration serving several Workspaces, any Workspace or any Google account takes google.DisableRoleSync()")
+	}
+	switch {
+	case accounts == signin.OpenSignUp && !workspaces.open():
+		return errors.New("Accounts: open sign-up is for any Workspace or any Google account; a registration naming its Workspaces takes members of the directory or invited users only")
+	case accounts == signin.MembersOfDirectory && workspaces.open() && noRule:
+		return errors.New("Accounts: members of the directory with any Workspace or any Google account would sign up the world; " +
+			"use signin.InvitedUsersOnly, signin.OpenSignUp, or give SignIn a rule of the application's own")
+	}
+
+	return nil
 }
 
 // Login redirects to Google. It accepts ?returnUrl=, which must be a path in this
@@ -200,18 +222,19 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 		if err != nil {
 			return nil, errors.Wrap(err, "google.identityOf()")
 		}
+		identity.Workspace = req.Identity.Connection
 
 		return rule(ctx, tx, identity)
 	}
 }
 
-// method is the Google Workspace method over authn. The identity is (connection, sub),
-// connection being the registration's name for the Workspace, and its sign-in name the
-// verified email. The authenticator checks
-// the hosted domains and the verified email. When groups is set, the callback maps the
-// person's directory groups to role names using the access token, which is used once
-// and never stored.
-func method(authn Authenticator, groups *groupSync, connection string) *signin.Method {
+// method is the Google method over authn. The identity is (connection, sub), the
+// connection being what workspaces selects for the account's hd claim, and its sign-in
+// name the verified email. The authenticator checks the slot and the verified email;
+// the slot is checked here again, so an authenticator that did not cannot admit an
+// account outside it. When groups is set, the callback maps the person's directory
+// groups to role names using the access token, which is used once and never stored.
+func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
 		LoginURL: authn.LoginURL,
@@ -236,6 +259,10 @@ func method(authn Authenticator, groups *groupSync, connection string) *signin.M
 			iss, err := oidc.Issuer(rawClaims)
 			if err != nil {
 				return nil, errors.Wrap(err, "oidc.Issuer()")
+			}
+			connection, ok := workspaces.connectionFor(id.HostedDomain)
+			if !ok {
+				return nil, errNotWorkspaceMember()
 			}
 
 			v := &signin.Verified{
@@ -266,6 +293,13 @@ func method(authn Authenticator, groups *groupSync, connection string) *signin.M
 	}
 
 	return m
+}
+
+// errNotWorkspaceMember is the refusal of an account the registration's Workspaces do
+// not admit: a Workspace outside the named ones without AnyWorkspace, or an account
+// outside any Workspace without AnyGoogleAccount.
+func errNotWorkspaceMember() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("User is not in a Google Workspace this sign-in admits"))
 }
 
 // maxLoginHint bounds ?login_hint=: an email address is at most 254 characters.

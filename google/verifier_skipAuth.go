@@ -24,20 +24,20 @@ const defaultLoginURL = "/login"
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	redirectURL   string
-	hostedDomains []string
-	cookies       signin.StateCookies
-	loginURL      string
+	redirectURL string
+	workspaces  WorkspaceSet
+	cookies     signin.StateCookies
+	loginURL    string
 }
 
 // NewOIDC returns a new OIDC Authenticator. The scopes are accepted and unused: the
 // simulated Verify hands back no access token, and the simulated group lookup reads
 // APP_ROLES instead.
-func NewOIDC(cookies signin.StateCookies, _, _, redirectURL string, hostedDomains []string, _ ...string) *OIDC {
+func NewOIDC(cookies signin.StateCookies, _, _, redirectURL string, workspaces WorkspaceSet, _ ...string) *OIDC {
 	return &OIDC{
-		redirectURL:   redirectURL,
-		hostedDomains: hostedDomains,
-		cookies:       cookies,
+		redirectURL: redirectURL,
+		workspaces:  workspaces,
+		cookies:     cookies,
 	}
 }
 
@@ -81,7 +81,7 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		Iss:           IssuerURL,
 		Email:         os.Getenv("APP_USERNAME"),
 		EmailVerified: true,
-		Hd:            primaryHostedDomain(o.hostedDomains),
+		Hd:            o.workspaces.simulatedHostedDomain(),
 		Sub:           "skipauth-" + os.Getenv("APP_USERNAME"),
 	}
 

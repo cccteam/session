@@ -2,7 +2,6 @@ package google
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/cccteam/session/signin"
@@ -150,16 +149,17 @@ func RoleSync(manager signin.UserRoleManager, groupPrefix string, lookup GroupLo
 
 // DisableRoleSync disables role synchronization for the Google Workspace sign-in
 // method: no groups are read and no roles are written or removed at sign-in, and the
-// at-least-one-role gate does not apply; every user the hosted domain admits may sign
-// in. Use it when the application manages roles itself (or uses no roles at all).
+// at-least-one-role gate does not apply; every user the Workspaces slot admits may sign
+// in. Use it when the application manages roles itself (or uses no roles at all), and
+// for a registration serving several Workspaces, any Workspace or any Google account.
 func DisableRoleSync() RoleSyncConfig {
 	return disabledRoleSync{}
 }
 
-// groupSyncOf validates the Google sign-in's required role sync slot and hosted domains
-// at registration, and gives the enabled configuration its reconciler. It returns nil
-// when role sync is disabled.
-func groupSyncOf(roleSync RoleSyncConfig, hostedDomains []string) (*groupSync, error) {
+// groupSyncOf validates the Google sign-in's required role sync slot at registration,
+// and gives the enabled configuration its reconciler. It returns nil when role sync is
+// disabled.
+func groupSyncOf(roleSync RoleSyncConfig) (*groupSync, error) {
 	if roleSync == nil {
 		return nil, errors.New("roleSync is required: pass google.RoleSync(manager, groupPrefix, lookup) or google.DisableRoleSync()")
 	}
@@ -179,9 +179,6 @@ func groupSyncOf(roleSync RoleSyncConfig, hostedDomains []string) (*groupSync, e
 			return nil, errors.Wrap(err, "signin.ReconcilerOf()")
 		}
 		cfg.roles = roles
-	}
-	if len(hostedDomains) == 0 || slices.Contains(hostedDomains, "") {
-		return nil, errors.New("hostedDomains is required: one or more Workspace domains, enforced against the verified ID token's hd claim to restrict logins to the Workspace organization")
 	}
 
 	return cfg, nil

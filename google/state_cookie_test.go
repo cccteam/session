@@ -55,7 +55,7 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	googleIDP.TokenClaims = workspaceClaims
 
 	entra := azure.NewOIDC(cookies.ForRegistration("azure"), azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
-	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", []string{testHostedDomain})
+	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", Workspace("test", testHostedDomain))
 
 	browser := jar{}
 	start := func(authCodeURL func(rec *httptest.ResponseRecorder) (string, error)) string {
@@ -121,7 +121,7 @@ func TestOIDC_Verify_RefusesLegacyStateCookie(t *testing.T) {
 		return workspaceClaims()
 	}
 	cookies := oidctest.NewCookieClient(t)
-	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", []string{testHostedDomain})
+	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", Workspace("test", testHostedDomain))
 
 	_, callback := startLogin(t, o)
 	legacy := legacyStateCallback(t, cookies, callback, internalcookie.StateCookieName("google"))

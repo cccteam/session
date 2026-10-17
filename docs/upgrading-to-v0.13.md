@@ -243,12 +243,18 @@ Register the method on an `Auth`:
 ```go
 workspace := google.SignIn(auth, "google", nil, &google.Config{ // nil: the standard account rule decides first sign-ins
     ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
-    Connection:    "example", // the application's name for the Workspace: a key, see the README
-    HostedDomains: []string{"example.com"},
-    RoleSync:      google.RoleSync(userRoleManager, "app-myapp-", google.DirectGroups()),
-    LoginURL:      "/login",
+    Workspaces: google.Workspace("example", "example.com"), // the application's name for the Workspace (a key) and its domains
+    RoleSync:   google.RoleSync(userRoleManager, "app-myapp-", google.DirectGroups()),
+    LoginURL:   "/login",
 })
 ```
+
+`Workspaces` is the organization slot: one Workspace as above, several
+(`google.Workspaces(...)`), any Workspace (`google.AnyWorkspace()`) or any Google
+account (`google.AnyGoogleAccount()`); the README's "Which accounts may sign in" has the
+shapes and what each writes as the link's connection. The v0.12 type's hosted domain
+is the Workspace's domain here, and the Workspace's name is the connection every link
+carries.
 
 `session.GoogleRoleSync`, `DirectGroups`, `NestedGroups`, `ParseGroupLookup` and
 `GroupLookup` are `google.RoleSync`, `google.DirectGroups`, `google.NestedGroups`,

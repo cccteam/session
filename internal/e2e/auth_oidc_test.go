@@ -75,12 +75,12 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	issuer := google.IssuerURL
 	google.IssuerURL = googleIDP.Server.URL
 	googleMethod := google.SignIn(auth, "google", h.googleResolver, &google.Config{
-		RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{hostedDomain, lakesideSecondDomain},
+		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", hostedDomain, lakesideSecondDomain),
 		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 	})
 	google.IssuerURL = googleRiversideIDP.Server.URL
 	googleRiversideMethod := google.SignIn(auth, "google-riverside", h.googleResolver, &google.Config{
-		RoleSync: google.DisableRoleSync(), Connection: "riverside", HostedDomains: []string{riversideDomain},
+		RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("riverside", riversideDomain),
 		ClientID: "google-riverside-client", ClientSecret: "secret", RedirectURL: "https://app.example/google-riverside/callback",
 	})
 	google.IssuerURL = issuer

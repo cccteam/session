@@ -432,7 +432,7 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		password := PasswordSignIn(a, AutoUpgradeHashes(false))
 		sso := workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback", BaseURL: "https://workos.test", LoginURL: "/signin"})
 		entra := azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
-		workspace := google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}})
+		workspace := google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
 
 		for name, h := range map[string]http.HandlerFunc{
 			"PasswordMethod.Login":              password.Login(),
@@ -549,7 +549,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 	}
 	workspace := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-		google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}})
+		google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
 	}
 	password := func(a *Auth[NoCustomData, NoCustomData, mockTx]) { PasswordSignIn(a) }
 
@@ -682,9 +682,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "the Google method with open sign-up, which one Workspace cannot take",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}, Accounts: signin.OpenSignUp})
+				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com"), Accounts: signin.OpenSignUp})
 			},
-			wantHas: "Accounts: open sign-up is for any Workspace or any Google account",
+			wantHas: "Accounts: open sign-up is for any Workspace or any Google account; a registration naming its Workspaces",
 		},
 		{
 			name:   "a registration name used twice, by the same method",
@@ -713,7 +713,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a registration without a name",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}})
+				google.SignIn(a, "", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
 			},
 			wantHas: "the google sign-in method is registered without a name",
 		},
@@ -730,18 +730,46 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			wantHas: "roleSync is required",
 		},
 		{
-			name: "a Google method without its hosted domain",
+			name: "a Google method without its Workspaces",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside"})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback"})
 			},
-			wantHas: "hostedDomains is required",
+			wantHas: "Workspaces is required",
 		},
 		{
-			name: "a Google method without its connection",
+			name: "a Google Workspace without a domain",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", HostedDomains: []string{"example.com"}})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside")})
 			},
-			wantHas: "connection is required",
+			wantHas: `Workspaces: Workspace "lakeside" needs at least one domain`,
+		},
+		{
+			name: "a Google Workspace without a name",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("", "example.com")})
+			},
+			wantHas: "Workspaces: a Workspace needs a name",
+		},
+		{
+			name: "a domain in two Google Workspaces",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.com"))})
+			},
+			wantHas: `Workspaces: the domain "example.com" belongs to two Workspaces`,
+		},
+		{
+			name: "a Google method synchronizing roles across any Workspace",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace(), Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
+		},
+		{
+			name: "a Google method admitting any Google account as members of the directory, with no rule of the application's own",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
+			},
+			wantHas: "would sign up the world",
 		},
 		{
 			name:     "a method registered on a nil Auth",
@@ -1209,7 +1237,7 @@ func TestAuth_GoogleLogin(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			authn := mock_google.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
-			workspace := google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{"example.com"}, Authenticator: authn})
+			workspace := google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", "example.com"), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(authn)
 			}
@@ -1228,31 +1256,73 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 	sessionID := ccc.Must(ccc.NewUUID())
 
+	// expectIdentity expects the store's SignIn with an identity under connection and
+	// signs the request in.
+	expectIdentity := func(connection, hd string) func(f *authFixture) {
+		return func(f *authFixture) {
+			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com"}
+				if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
+					t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
+				}
+				if hd != "" && !strings.Contains(string(req.Claims), `"hd":"`+hd+`"`) {
+					t.Errorf("SignIn() claims = %s, want the hd claim %q", req.Claims, hd)
+				}
+			}, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
+
+				return nil
+			})
+		}
+	}
+
 	tests := []struct {
-		name    string
-		claims  string
-		prepare func(f *authFixture)
-		// wantIdentity is the identity the method's resolver decodes from the claims,
-		// when the sign-in reached the store.
+		name   string
+		claims string
+		// workspaces is the registration's slot; nil is the Workspace lakeside at example.com.
+		workspaces func() google.WorkspaceSet
+		prepare    func(f *authFixture)
+		// wantIdentity is the identity the method's rule decodes from the claims, when
+		// the sign-in reached the store.
 		wantIdentity *google.Identity
 		wantLocation string
 	}{
 		{
-			name:         "a Google identity is keyed by the registration's connection and sub",
+			name:         "a Google identity is keyed by the registration's name for its Workspace and sub",
 			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
-			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com"},
-			prepare: func(f *authFixture) {
-				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "lakeside", Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com"}
-					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
-						t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
-					}
-				}, func(req *sessioninfo.NewSessionRequest) error {
-					req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "pat"
-
-					return nil
-				})
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com", Workspace: "lakeside"},
+			prepare:      expectIdentity("lakeside", "example.com"),
+			wantLocation: "/home",
+		},
+		{
+			name:   "listed Workspaces: the hd claim selects the Workspace whose domains contain it, and its name is the connection",
+			claims: `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Example.ORG"}`,
+			workspaces: func() google.WorkspaceSet {
+				return google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))
 			},
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Example.ORG", Workspace: "riverside"},
+			prepare:      expectIdentity("riverside", "Example.ORG"),
+			wantLocation: "/home",
+		},
+		{
+			name:         "a Workspace the slot does not admit is refused before any user is resolved",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"elsewhere.example"}`,
+			wantLocation: "/login?code=not_workspace_member",
+		},
+		{
+			name:         "any Workspace: the account's domain is the connection, lowercased",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"Elsewhere.Example"}`,
+			workspaces:   google.AnyWorkspace,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "Elsewhere.Example", Workspace: "elsewhere.example"},
+			prepare:      expectIdentity("elsewhere.example", "Elsewhere.Example"),
+			wantLocation: "/home",
+		},
+		{
+			name:         "any Google account: an account outside every Workspace carries the fixed connection",
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`,
+			workspaces:   google.AnyGoogleAccount,
+			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", Workspace: google.AnyAccountConnection},
+			prepare:      expectIdentity(google.AnyAccountConnection, ""),
 			wantLocation: "/home",
 		},
 		{
@@ -1282,7 +1352,11 @@ func TestAuth_GoogleCallback(t *testing.T) {
 
 				return signin.Provision(&signin.NewUser{Username: identity.Email}, nil), nil
 			}
-			workspace := google.SignIn(f.auth, "google", resolve, &google.Config{RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{"example.com"}, Authenticator: authn})
+			workspaces := google.Workspace("lakeside", "example.com")
+			if tt.workspaces != nil {
+				workspaces = tt.workspaces()
+			}
+			workspace := google.SignIn(f.auth, "google", resolve, &google.Config{RoleSync: google.DisableRoleSync(), Workspaces: workspaces, Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(f)
 			}
@@ -1433,9 +1507,9 @@ func TestAuth_PendingHook(t *testing.T) {
 				authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 				authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
-						return "/home", "access-token", json.Unmarshal([]byte(`{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
+						return "/home", "access-token", json.Unmarshal([]byte(`{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`), claims)
 					})
-				workspace := google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{"example.com"}, Authenticator: authn})
+				workspace := google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), Workspaces: google.Workspace("lakeside", "example.com"), Authenticator: authn})
 				rr = f.serve(workspace.Callback(), http.MethodGet, "/google/callback", nil, nil)
 			}
 
