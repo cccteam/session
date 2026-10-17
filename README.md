@@ -203,8 +203,10 @@ DML what a later rule must read.
   refused with `guest_account`: a guest's preferred username is an address the
   directory did not verify), for a token asserting no application role when the method
   synchronizes roles (`no_roles`), or for an identity without a sign-in name
-  (`no_email`). The tenant key on the link is the identity's connection: the Entra
-  tenant id, the application's name for the Workspace.
+  (`no_email`). The tenant key on the link is the organization the registration names
+  for the account (`Identity.Organization`): on Entra the tenant id, or the name
+  `azure.NamedTenant` gives it; on Google the Workspace's name, the account's domain
+  under any Workspace, `google.AnyAccountConnection` under any Google account.
 - A registration's own **rule** (`azure.AccountRule`, `google.AccountRule`; required
   on WorkOS, which has no standard rule) is given to its `SignIn` function and runs
   first, for what the standard rule cannot know: it receives the method's own identity

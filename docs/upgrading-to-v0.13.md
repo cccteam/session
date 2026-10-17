@@ -214,6 +214,15 @@ ALTER TABLE OIDCUserData ADD CONSTRAINT FK_OIDCUserData_SessionUsers FOREIGN KEY
 | The custom session data resolver over `req.Claims` | The same resolver, through `NewCustomSessionData`. `req.Claims` is still the raw verified claims; `req.Identity` is the decoded identity and `req.UserID` the user |
 | `API().OIDCUser(ctx, id)`, `API().OIDCUserByKey(ctx, tid, oid)` | `API().Identities(ctx, userID)` lists a user's identity links; the `(tid, oid)` pair is the Azure identity's `(Connection, Subject)` |
 
+`Tenants` is the organization slot: one tenant as above, several
+(`azure.Tenants(azure.Tenant(id), azure.NamedTenant(id, name))`), any tenant
+(`azure.AnyTenant()`) or Microsoft personal accounts (`azure.PersonalAccounts()`). The
+README's "Which accounts may sign in" under "Microsoft Entra ID OIDC" has the shapes, what
+each stores as the link's tenant key and which account rules each takes. Several
+tenants, any tenant and personal accounts need an app registration that admits accounts
+in any organizational directory (and personal accounts when the slot does), and role
+synchronization stays with one tenant.
+
 A custom rule is needed only when a first sign-in must write the application's own
 rows, as the custom user data login hook did; it stands in for the anchor and the hook:
 
