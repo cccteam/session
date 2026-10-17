@@ -359,8 +359,11 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   `409` when the pending identity waits for MFA instead.
 - **MFA** (`reason` `mfa`): the application runs its own step and calls
   `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "email-otp"})`, which
-  starts the session (the policy is not asked again; the user is resolved afresh and
-  must be the one it waited on) and records the sign-in's events followed by the step's.
+  starts the session (the user is resolved afresh and must be the one it waited on, and
+  the policy decides again with the step's events on the request, so a tenant disabled
+  or switched to require SSO during the wait is honored: a `RequireMFA` the events
+  satisfy proceeds, a `Deny` refuses, a `RequireMFA` for another factor holds again)
+  and records the sign-in's events followed by the step's.
   The pending identity always names its user (`UserID`, `Username`), including one the
   sign-in has just provisioned, which exists by then.
 - `Pending().Cancel()` discards the pending identity.

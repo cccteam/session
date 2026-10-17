@@ -39,7 +39,15 @@ func riverside(subject string) *sessioninfo.Identity {
 // signIn establishes a session for identity with reason through the instance's sign-in
 // flow, as a sign-in method would.
 func signIn(ctx context.Context, in *AuthInstance, identity *sessioninfo.Identity, reason sessioninfo.NewSessionReason) (ccc.UUID, *sessioninfo.NewSessionRequest, error) {
-	req := &sessioninfo.NewSessionRequest{Reason: reason, Username: identity.Email, Identity: identity}
+	return signInWithEvents(ctx, in, identity, reason, nil)
+}
+
+// signInWithEvents is signIn with the auth events the session records: a step-up
+// completion's, for the policy to decide against.
+func signInWithEvents(
+	ctx context.Context, in *AuthInstance, identity *sessioninfo.Identity, reason sessioninfo.NewSessionReason, events []sessioninfo.AuthEvent,
+) (ccc.UUID, *sessioninfo.NewSessionRequest, error) {
+	req := &sessioninfo.NewSessionRequest{Reason: reason, Username: identity.Email, Identity: identity, AuthEvents: events}
 
 	id, err := in.SignIn(ctx, newInsertSession(identity.Email), req)
 	if err != nil {
@@ -445,7 +453,9 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 		password bool
 		// provision makes the identity unlinked and provisioned by the resolver.
 		provision bool
-		check     func(t *testing.T, d AuthDriver, err error, user *dbtype.SessionUser)
+		// events are the auth events the request carries: a step-up completion's.
+		events []sessioninfo.AuthEvent
+		check  func(t *testing.T, d AuthDriver, err error, user *dbtype.SessionUser)
 	}{
 		{
 			name:     "AllowSignIn signs in",
@@ -540,14 +550,54 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 		{
-			name:     "a step-up completion is not decided again",
+			name:     "a step-up completion is decided again: a RequireMFA naming no factor is satisfied by the completion",
 			decision: signin.RequireMFA(),
 			reason:   sessioninfo.ReasonStepUp,
+			events:   []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}, {Method: "email-otp"}},
 			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
 				t.Helper()
 				if err != nil {
 					t.Errorf("step-up sign-in error = %v, want the session", err)
 				}
+			},
+		},
+		{
+			name:     "a step-up completion is decided again: a RequireMFA naming the factor the person gave proceeds",
+			decision: signin.RequireMFA("totp", "email-otp"),
+			reason:   sessioninfo.ReasonStepUp,
+			events:   []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}, {Method: "email-otp"}},
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
+				t.Helper()
+				if err != nil {
+					t.Errorf("step-up sign-in error = %v, want the session", err)
+				}
+			},
+		},
+		{
+			name:     "a step-up completion is decided again: a RequireMFA for a factor the person did not give holds the sign-in again",
+			decision: signin.RequireMFA("totp"),
+			reason:   sessioninfo.ReasonStepUp,
+			events:   []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}, {Method: "email-otp"}},
+			check: func(t *testing.T, _ AuthDriver, err error, user *dbtype.SessionUser) {
+				t.Helper()
+				var pending *signin.PendingSignInError
+				if !errors.As(err, &pending) {
+					t.Fatalf("step-up sign-in error = %v, want a PendingSignInError for the other factor", err)
+				}
+				want := signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(user.ID), Username: user.Username, Factors: []sessioninfo.AuthMethod{"totp"}}
+				if diff := cmp.Diff(want, *pending, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("PendingSignInError mismatch (-want +got):\n%s", diff)
+				}
+			},
+		},
+		{
+			name:     "a step-up completion is decided again: a Deny refuses it with no session",
+			decision: signin.Deny("tenant_disabled"),
+			reason:   sessioninfo.ReasonStepUp,
+			events:   []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn_lakeside"}, {Method: "email-otp"}},
+			check: func(t *testing.T, _ AuthDriver, err error, _ *dbtype.SessionUser) {
+				t.Helper()
+				assertRefused(t, err, "tenant_disabled", signin.ErrSignInDenied)
 			},
 		},
 	}
@@ -579,7 +629,7 @@ func testSignInPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 				_, err = passwordSignIn(ctx, in, user, tt.reason)
 			default:
 				mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_jane"))
-				_, _, err = signIn(ctx, in, lakeside("idp_jane"), tt.reason)
+				_, _, err = signInWithEvents(ctx, in, lakeside("idp_jane"), tt.reason, tt.events)
 			}
 
 			tt.check(t, in.Driver, err, user)

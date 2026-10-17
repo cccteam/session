@@ -6,6 +6,7 @@ package signinflow
 
 import (
 	"context"
+	"slices"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
@@ -350,6 +351,9 @@ func decideSignIn(
 	case signin.AllowSignIn:
 		return verdict{}, nil
 	case signin.HoldForMFA:
+		if req.Reason == sessioninfo.ReasonStepUp && completionSatisfies(decision.Factors(), req.AuthEvents) {
+			return verdict{}, nil
+		}
 		pending := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username, Factors: decision.Factors()}
 		if req.User != nil {
 			pending.Tenant = req.User.Tenant
@@ -362,11 +366,36 @@ func decideSignIn(
 }
 
 // policyApplies reports whether the sign-in policy decides a session created for
-// reason. It decides ReasonLogin, ReasonIdentityLinked and ReasonExternalAuth (a
-// session the application starts for a user it authenticated itself). Every other
-// session was already decided.
+// reason. It decides ReasonLogin, ReasonIdentityLinked, ReasonExternalAuth (a session
+// the application starts for a user it authenticated itself) and ReasonStepUp (an MFA
+// completion, decided again with the completion's events on the request, so a tenant
+// disabled or switched to require sign-on through SSO during the wait is honored).
+// Every other session was decided when the session it continues was established.
 func policyApplies(reason sessioninfo.NewSessionReason) bool {
-	return reason == sessioninfo.ReasonLogin || reason == sessioninfo.ReasonIdentityLinked || reason == sessioninfo.ReasonExternalAuth
+	switch reason {
+	case sessioninfo.ReasonLogin, sessioninfo.ReasonIdentityLinked, sessioninfo.ReasonExternalAuth, sessioninfo.ReasonStepUp:
+		return true
+	default:
+		return false
+	}
+}
+
+// completionSatisfies reports whether an MFA completion's events satisfy a RequireMFA
+// answer the policy gives at the completion: any completion when the answer names no
+// factor, otherwise an event by one of the factors it names. A rule that still asks
+// for the factor the person just gave proceeds; one that asks for another holds the
+// sign-in again.
+func completionSatisfies(factors []sessioninfo.AuthMethod, events []sessioninfo.AuthEvent) bool {
+	if len(factors) == 0 {
+		return true
+	}
+	for _, e := range events {
+		if slices.Contains(factors, e.Method) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Refusal returns a refused sign-in's error. It carries code (or fallback when code is

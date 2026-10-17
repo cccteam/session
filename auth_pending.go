@@ -285,7 +285,8 @@ func (a *Auth[S, U, Tx]) consumePending(ctx context.Context, p *pendingState) er
 
 // completePending establishes the session of a consumed pending identity. The session
 // records the pending identity's events followed by more. The user is resolved again
-// and must be the one the identity waited on.
+// and must be the one the identity waited on, and the sign-in policy decides again
+// with those events on the request.
 func (a *Auth[S, U, Tx]) completePending(
 	ctx context.Context, w http.ResponseWriter, p *pendingState, reason sessioninfo.NewSessionReason, more ...sessioninfo.AuthEvent,
 ) (*signInOutcome, error) {
@@ -367,10 +368,14 @@ func (p *AuthAPI[S, U, Tx]) PendingIdentity(ctx context.Context) (*sessioninfo.P
 //
 // The pending identity must wait for MFA (Conflict otherwise). It is consumed first, so
 // it completes once: a second completion finds it expired. The user is resolved again
-// and must be the one the identity waited on. The sign-in policy is not asked again.
-// The session records the sign-in's events followed by stepUp. If the sign-in must wait
-// again (the resolver now asks for a confirmation), the error is a
-// *signin.PendingSignInError and the pending identity is replaced.
+// and must be the one the identity waited on, and the sign-in policy is asked again
+// with the sign-in's events and stepUp on the request: a RequireMFA those events
+// satisfy proceeds, a Deny refuses the completion (no session; the pending identity is
+// consumed), and a RequireMFA for a factor the person did not give holds the sign-in
+// again. The session records the sign-in's events followed by stepUp. If the sign-in
+// must wait again (the resolver now asks for a confirmation, or the policy for another
+// factor), the error is a *signin.PendingSignInError and the pending identity is
+// replaced.
 func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.ResponseWriter, stepUp ...sessioninfo.AuthEvent) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
