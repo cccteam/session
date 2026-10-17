@@ -27,9 +27,9 @@ type Config struct {
 	Authenticator Authenticator
 }
 
-// Identity is a verified WorkOS SSO identity as the user resolver receives it: the
+// Identity is a verified WorkOS SSO identity as the account rule receives it: the
 // profile WorkOS returned, keyed by its connection and the upstream IdP's identifier
-// (ConnectionID, IDPID). WorkOS only relays the upstream IdP's email, so the resolver
+// (ConnectionID, IDPID). WorkOS only relays the upstream IdP's email, so the rule
 // decides what it is worth.
 type Identity struct {
 	Profile
@@ -38,10 +38,12 @@ type Identity struct {
 	Raw json.RawMessage
 }
 
-// UserResolver decides a WorkOS identity that is not linked to any user yet. It is the
-// application's rule, given to SignIn; see signin.UserResolver for when it runs and
-// what it may do. Tx is the Auth's storage transaction type.
-type UserResolver[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
+// AccountRule is the application's rule for a WorkOS identity that is not linked to
+// any user yet, given to SignIn. It is required: WorkOS has no standard rule, since
+// which organization maps to which partner is the application's data. See
+// signin.AccountRule for when it runs and what it may do; signin.Standard fails the
+// sign-in here. Tx is the Auth's storage transaction type.
+type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
 // Method holds the handlers of the WorkOS SSO sign-in method.
 type Method struct {
@@ -51,19 +53,19 @@ type Method struct {
 
 // SignIn registers WorkOS SSO sign-in on auth under name and returns its handlers.
 // name identifies the registration on auth. The login handler reads the "organization"
-// query parameter. The identity key is (connection_id, idp_id); resolve decides an
+// query parameter. The identity key is (connection_id, idp_id); rule decides an
 // identity that is not linked yet. Roles are never synchronized from WorkOS.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, or when resolve is nil.
-func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx], cfg *Config) *Method {
+// request, or when rule is nil.
+func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
 	reg := &signin.Registration[Tx]{
-		Name:    name,
-		Method:  sessioninfo.MethodWorkOS,
-		Resolve: resolver(resolve),
+		Name:        name,
+		Method:      sessioninfo.MethodWorkOS,
+		AccountRule: accountRule(rule),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			authn := cfg.Authenticator
 			if authn == nil {
@@ -80,8 +82,8 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 			return method(authn), nil
 		},
 	}
-	if resolve == nil {
-		reg.Err = errors.New("resolve is required: it decides every WorkOS identity that is not linked yet")
+	if rule == nil {
+		reg.Err = errors.New("rule is required: it decides every WorkOS identity that is not linked yet, since WorkOS has no standard account rule")
 	}
 	h := signin.Register(auth, reg)
 
@@ -98,22 +100,27 @@ func (m *Method) Login() http.HandlerFunc { return m.login }
 // Callback does.
 func (m *Method) Callback() http.HandlerFunc { return m.callback }
 
-// resolver adapts the application's resolver to the contract: the identity the core
-// resolves is decoded from the profile the sign-in verified.
-func resolver[Tx any](resolve UserResolver[Tx]) signin.UserResolver[Tx] {
+// accountRule adapts the application's rule to the contract: the identity the core
+// decides is decoded from the profile the sign-in verified. A nil rule stays nil; the
+// registration refuses it.
+func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
+	if rule == nil {
+		return nil
+	}
+
 	return func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 		identity := &Identity{Raw: req.Identity.Claims}
 		if err := json.Unmarshal(req.Identity.Claims, &identity.Profile); err != nil {
 			return nil, errors.Wrap(err, "json.Unmarshal()")
 		}
 
-		return resolve(ctx, tx, identity)
+		return rule(ctx, tx, identity)
 	}
 }
 
 // method is the WorkOS SSO method over authn. The identity is (connection_id, idp_id),
 // and the full profile is its claims. WorkOS only relays the upstream IdP's email, so
-// EmailVerified is false and the user resolver decides what the email is worth. Roles
+// EmailVerified is false and the account rule decides what the email is worth. Roles
 // are never synchronized.
 func method(authn Authenticator) *signin.Method {
 	return &signin.Method{

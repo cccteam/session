@@ -66,6 +66,12 @@ type NewSessionRequest struct {
 	// to, set with it or not at all. The session row records both.
 	ProviderSessionID     string
 	ProviderSessionIssuer string
+	// RoleNames are the role names the sign-in method asserted for the person, which
+	// the method reconciles once the session exists. They are nil when the method
+	// synchronizes no roles, and never nil when it does: "no roles asserted" is an
+	// empty list, which a standard account rule refuses (no_roles) before it writes a
+	// row.
+	RoleNames []string
 	// AuthEvents are the auth events the new session records, in order, with the
 	// session row. An impersonated session records its impersonation event first. When
 	// AuthEvents is empty, a session that is not impersonated records one event for
@@ -75,6 +81,6 @@ type NewSessionRequest struct {
 	// User is the user an Auth sign-in resolved to and how. The storage sets it
 	// once the user is known, before the sign-in policy and the custom session data
 	// resolver run, and leaves it set after the insert returns. It is nil while the
-	// user resolver runs and for the legacy session types.
+	// account rules run and for the legacy session types.
 	User *SignInUser
 }

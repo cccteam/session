@@ -11,8 +11,8 @@
 // returns the handlers to the method.
 //
 // The package also holds the vocabulary of a sign-in's outcomes, which the application's
-// hooks speak: the user resolver's Resolution, the sign-in policy's Decision and the
-// causes of a refusal.
+// hooks speak: the account rules (the standard ones and a custom AccountRule's
+// Resolution), the sign-in policy's Decision and the causes of a refusal.
 //
 // A method package imports this package and never the core.
 package signin
@@ -28,12 +28,13 @@ import (
 
 // Core is what a method registers on: the Auth that session.NewAuth returned.
 // *session.Auth implements it. Tx is the Auth's storage transaction type, which the
-// method's user resolver receives.
+// method's account rule receives.
 type Core[Tx any] interface {
 	// RegisterExternal registers a redirect-based method and returns its handlers. It
 	// panics on a registration rule, because that is a wiring mistake found at startup:
 	// the registration has no name or its name is already used, the core has served a
-	// request, the registration has no user resolver, or reg.Err carries a misuse the
+	// request, the registration has neither a standard account rule nor a custom one
+	// or names a standard rule that does not exist, or reg.Err carries a misuse the
 	// registration function found in its arguments.
 	RegisterExternal(reg *Registration[Tx]) Handlers
 }
@@ -47,10 +48,15 @@ type Registration[Tx any] struct {
 	// Method names the method; it is the identity's method and the session's auth
 	// event's.
 	Method sessioninfo.AuthMethod
-	// Resolve decides an identity of the method that is not linked to any user yet. It
-	// is required: the method builds it over the resolver the application gave its
-	// registration, typed to the method's identity.
-	Resolve UserResolver[Tx]
+	// StandardRule is the standard account rule the core applies to an identity of
+	// the method that is not linked to any user yet, when AccountRule is nil or answers
+	// Standard. It is empty for a method that has no standard rule, whose AccountRule
+	// is then required. The method sets it from its configuration, with its default.
+	StandardRule StandardAccountRule
+	// AccountRule is the application's own rule for such an identity, nil for none:
+	// the method builds it over the rule the application gave its registration, typed
+	// to the method's identity.
+	AccountRule AccountRule[Tx]
 	// Build builds the method over the registration's state cookie, which carries the
 	// browser's half of a round trip to the provider; the core names it for the
 	// registration.
@@ -106,7 +112,8 @@ type Method struct {
 // Verified is the result of a method's completed round trip.
 type Verified struct {
 	// Identity is who the provider says signed in, keyed by the method, its connection
-	// and the provider's immutable subject.
+	// and the provider's immutable subject, with the sign-in name the standard account
+	// rules use and whether the account is a guest of its directory.
 	Identity *sessioninfo.Identity
 	// ReturnURL is the sanitized path in the application the browser goes to afterwards.
 	ReturnURL string

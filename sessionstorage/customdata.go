@@ -117,7 +117,7 @@ type customSessionData[Tx any] struct {
 // rows are U, keyed by the user. Custom user data is durable: it lives and dies with the
 // user record, untouched by logout, expiry and regeneration, and is read on demand,
 // never joined into the per-request session read. It is written per call on
-// CreateSessionUser and by UpdateCustomUserData, or by the user resolver's
+// CreateSessionUser and by UpdateCustomUserData, or by a custom account rule's
 // signin.Provision hook; there is no login hook. Build it with NewCustomUserData and
 // attach it with Auth.WithCustomUserData. It fits either driver: columns derive from
 // U's `db:` tags on PostgreSQL and its `spanner:` tags on Spanner.

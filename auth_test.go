@@ -53,7 +53,7 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockAuthStor
 	return storage
 }
 
-// resolveAll is a user resolver of a method's identity type I that provisions the user
+// resolveAll is an account rule of a method's identity type I that provisions the user
 // pat for every identity. It fills a registration's resolver slot in tests whose mocked
 // store never runs it.
 func resolveAll[I any]() func(context.Context, mockTx, *I) (*signin.Resolution, error) {
@@ -81,12 +81,13 @@ type authFixture struct {
 	held map[ccc.UUID]*sessionstorage.PendingSignIn
 }
 
-// storeSignIn is one call of the mocked store's SignIn: the request, the resolver of the
-// identity's method and the Auth's policy, as the store received them.
+// storeSignIn is one call of the mocked store's SignIn: the request, the account rules
+// of the identity's registration and the Auth's policy, as the store received them.
 type storeSignIn struct {
-	req     *sessioninfo.NewSessionRequest
-	resolve signin.UserResolver[mockTx]
-	policy  signin.Policy[mockTx]
+	req      *sessioninfo.NewSessionRequest
+	rule     signin.AccountRule[mockTx]
+	standard signin.StandardAccountRule
+	policy   signin.Policy[mockTx]
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -275,11 +276,11 @@ func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id ccc.UUID
 // resolution by setting its user. stop then answers as the driver would, with the error
 // that stops the sign-in; nil answers id.
 func (f *authFixture) expectSignIn(id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
-	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[mockTx], policy signin.Policy[mockTx]) (ccc.UUID, error) {
-			f.signedIn = &storeSignIn{req: req, resolve: resolve, policy: policy}
-			if external := !namesItsUser(req.Identity); (resolve != nil) != external {
-				f.t.Errorf("SignIn() given a resolver = %v, want %v for a %s identity", resolve != nil, external, req.Identity.Method)
+	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[mockTx], standard signin.StandardAccountRule, policy signin.Policy[mockTx]) (ccc.UUID, error) {
+			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy}
+			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
+				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
 			}
 			if policy == nil {
 				f.t.Error("SignIn() given no policy, want the Auth's")
@@ -459,7 +460,7 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
 			Name: "any-entra", Method: sessioninfo.MethodAzure, FrontChannelLogout: true,
 			Issuers: signin.IssuersMatching(func(iss string) bool { return strings.HasPrefix(iss, "https://login/") }),
-			Resolve: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+			AccountRule: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 				return signin.Reject(""), nil
 			},
 			Build: func(signin.StateCookies) (*signin.Method, error) {
@@ -493,8 +494,9 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 			t.Fatal("a registration returned no callback handler")
 		}
 		external := a.registered().external
-		if len(external) != 2 || external["lakeside"] == nil || external["riverside"] == nil || external["lakeside"].resolve == nil || external["riverside"].resolve == nil {
-			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its resolver", slices.Sorted(maps.Keys(external)))
+		if len(external) != 2 || external["lakeside"] == nil || external["riverside"] == nil || external["lakeside"].rule == nil || external["riverside"].rule == nil ||
+			external["lakeside"].standard != signin.MembersOfDirectory || external["riverside"].standard != signin.MembersOfDirectory {
+			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its rule and the standard rule", slices.Sorted(maps.Keys(external)))
 		}
 	})
 
@@ -635,7 +637,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 				a.RegisterExternal(&signin.Registration[mockTx]{
 					Name: "bare", Method: sessioninfo.AuthMethod("bare"), FrontChannelLogout: true,
-					Resolve: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+					AccountRule: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 						return signin.Reject(""), nil
 					},
 					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
@@ -644,25 +646,45 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			wantHas: "declaring its issuers",
 		},
 		{
-			name: "the WorkOS method without a user resolver",
+			name: "the WorkOS method without an account rule, since it has no standard rule",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 				workos.SignIn(a, "workos", nil, &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 			},
-			wantHas: "resolve is required",
+			wantHas: "rule is required",
 		},
 		{
-			name: "the Azure method without a user resolver",
+			name: "a registration with neither a standard account rule nor a custom one",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+				a.RegisterExternal(&signin.Registration[mockTx]{
+					Name: "bare", Method: sessioninfo.AuthMethod("bare"),
+					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
+				})
 			},
-			wantHas: "resolve is required",
+			wantHas: "needs an account rule: it has no standard rule",
 		},
 		{
-			name: "the Google method without a user resolver",
+			name: "a registration naming a standard account rule that does not exist",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}})
+				a.RegisterExternal(&signin.Registration[mockTx]{
+					Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: "everyone-welcome",
+					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
+				})
 			},
-			wantHas: "resolve is required",
+			wantHas: `"everyone-welcome" is not a standard account rule: use signin.MembersOfDirectory`,
+		},
+		{
+			name: "the Azure method with open sign-up, which one tenant cannot take",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
+			},
+			wantHas: "Accounts: open sign-up is for any organization or personal accounts",
+		},
+		{
+			name: "the Google method with open sign-up, which one Workspace cannot take",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Connection: "lakeside", HostedDomains: []string{"example.com"}, Accounts: signin.OpenSignUp})
+			},
+			wantHas: "Accounts: open sign-up is for any Workspace or any Google account",
 		},
 		{
 			name:   "a registration name used twice, by the same method",
@@ -981,9 +1003,15 @@ func TestAuth_AzureCallback(t *testing.T) {
 			},
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-					want := &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"}}
+					want := &sessioninfo.Identity{
+						Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"},
+						SignInName: "p.lee@lakeside.edu",
+					}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != "https://issuer" {
 						t.Errorf("SignIn() request = %+v, mismatch (-want +got):\n%s", req, diff)
+					}
+					if diff := cmp.Diff([]string{"Editor"}, req.RoleNames); diff != "" {
+						t.Errorf("SignIn() request RoleNames mismatch (-want +got):\n%s", diff)
 					}
 					resolved(req)
 				}, nil)
@@ -1005,6 +1033,23 @@ func TestAuth_AzureCallback(t *testing.T) {
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},
 			wantLocation: "/login?code=no_roles",
+		},
+		{
+			name:   "a guest of the tenant is marked on the identity, and a refusal by the standard rule sends its code to the login page",
+			claims: `{"iss":"https://issuer","idp":"https://login/other-tenant","tid":"tenant-1","oid":"oid-9","preferred_username":"visitor_gmail.com#EXT#@lakeside.onmicrosoft.com","roles":["Editor"]}`,
+			wantIdentity: &azure.Identity{
+				TenantID: "tenant-1", ObjectID: "oid-9", PreferredUsername: "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com", Guest: true, Roles: []string{"Editor"},
+			},
+			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+					if !req.Identity.Guest || req.Identity.SignInName != "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com" {
+						t.Errorf("SignIn() identity = %+v, want a guest under its preferred username", req.Identity)
+					}
+				}, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedGuestAccount, signin.ErrGuestAccount, "guest accounts are not members of the directory")
+				})
+			},
+			wantLocation: "/login?code=guest_account",
 		},
 		{
 			name:         "an ID token without tid and oid is refused before any user is resolved",
@@ -1092,7 +1137,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 			if tt.wantIdentity != nil {
 				// The store was given the method's resolver: running it decodes the claims
 				// the callback verified into the identity the application's rule sees.
-				if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+				if _, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req); err != nil {
 					t.Fatalf("the resolver the store was given error = %v", err)
 				}
 				if diff := cmp.Diff(tt.wantIdentity, decoded, cmpopts.IgnoreFields(azure.Identity{}, "Claims")); diff != "" {
@@ -1198,7 +1243,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com"},
 			prepare: func(f *authFixture) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "lakeside", Subject: "sub-1", Email: "pat@example.com", EmailVerified: true}
+					want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: "lakeside", Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com"}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
 						t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 					}
@@ -1248,7 +1293,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 				t.Errorf("response = %d %q, want 302 %q", rr.Code, rr.Header().Get("Location"), tt.wantLocation)
 			}
 			if tt.wantIdentity != nil {
-				if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+				if _, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req); err != nil {
 					t.Fatalf("the resolver the store was given error = %v", err)
 				}
 				if diff := cmp.Diff(tt.wantIdentity, decoded, cmpopts.IgnoreFields(google.Identity{}, "Claims")); diff != "" {
@@ -1276,7 +1321,7 @@ func TestAuth_WorkOSCallback(t *testing.T) {
 		if rr := f.callback(t, "/"); rr.Code != http.StatusFound {
 			t.Fatalf("Callback() = %d, want 302: %s", rr.Code, rr.Body.String())
 		}
-		if _, err := f.signedIn.resolve(context.Background(), mockTx{}, f.signedIn.req); err != nil {
+		if _, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req); err != nil {
 			t.Fatalf("the resolver the store was given error = %v", err)
 		}
 		want := &workos.Identity{Profile: workos.Profile{ID: "prof_1", IDPID: "idp_1", ConnectionID: "conn_1", OrganizationID: "org_1", Email: "pat@lakeside.edu"}}
@@ -1906,6 +1951,66 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 	}
 }
 
+// TestAuth_AccountRulesGivenToTheStore proves a registration hands the store the account
+// rules it was configured with: the standard rule, members of the directory unless
+// Accounts says otherwise, and the application's own rule only when one was given.
+func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
+	t.Parallel()
+
+	sessionID := ccc.Must(ccc.NewUUID())
+	custom := func(context.Context, mockTx, *azure.Identity) (*signin.Resolution, error) {
+		return signin.Standard(), nil
+	}
+
+	tests := []struct {
+		name         string
+		rule         azure.AccountRule[mockTx]
+		accounts     signin.StandardAccountRule
+		wantStandard signin.StandardAccountRule
+		wantRule     bool
+	}{
+		{name: "no rule and no Accounts: members of the directory, by the library", wantStandard: signin.MembersOfDirectory},
+		{name: "no rule, invited users only", accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly},
+		{name: "a custom rule beside the standard one", rule: custom, accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly, wantRule: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			authn := mock_azure.NewMockAuthenticator(ctrl)
+			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
+			authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
+					if err := json.Unmarshal([]byte(`{"iss":"https://issuer","tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu"}`), claims); err != nil {
+						t.Fatal(err)
+					}
+
+					return "/next", "", nil
+				})
+			entra := azure.SignIn(f.auth, "azure", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", Accounts: tt.accounts, Authenticator: authn})
+			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+				req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "p.lee@lakeside.edu"
+			}, nil)
+
+			rr := f.serve(entra.Callback(), http.MethodGet, "/azure/callback?code=c&state=s", nil, nil)
+
+			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
+				t.Fatalf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
+			}
+			if f.signedIn.standard != tt.wantStandard || (f.signedIn.rule != nil) != tt.wantRule {
+				t.Errorf("SignIn() given standard rule %q and a custom rule = %v, want %q and %v", f.signedIn.standard, f.signedIn.rule != nil, tt.wantStandard, tt.wantRule)
+			}
+			if tt.wantRule {
+				res, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req)
+				if err != nil || res.Outcome() != signin.ApplyStandardRule {
+					t.Errorf("the custom rule the store was given = %v, %v; want the Standard answer", res, err)
+				}
+			}
+		})
+	}
+}
+
 // TestAuth_WithoutPolicy proves an Auth with no sign-in policy signs in on the library's
 // checks alone: the store is asked with no policy, and the session is established.
 func TestAuth_WithoutPolicy(t *testing.T) {
@@ -1920,7 +2025,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), gomock.Nil()).Return(sessionID, nil)
+	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), signin.StandardAccountRule(""), gomock.Nil()).Return(sessionID, nil)
 
 	rr := httptest.NewRecorder()
 	got, err := a.API().StartAuthenticatedSession(context.Background(), rr, userID, []sessioninfo.AuthEvent{{Method: "api-key"}})

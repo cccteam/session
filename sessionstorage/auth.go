@@ -78,13 +78,15 @@ type AuthStore[Tx any] interface {
 	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// SignIn establishes the session of a sign-in that carries a verified identity
 	// (req.Identity) and returns its ID. An external identity resolves to its user by its
-	// link, or by resolve when it has none; a password identity names its user in
-	// req.UserID. policy then decides, and the session is inserted with its auth events
-	// and custom session data. The sign-in runs in two transactions that each commit
-	// unless a hook or the storage fails: a refusal (a *sessioninfo.LoginRefusal) or a
-	// wait (a *signin.PendingSignInError) keeps the hooks' own writes and writes no
-	// session. See the README's "Storage and schema".
-	SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx], policy signin.Policy[Tx]) (ccc.UUID, error)
+	// link, or by the account rules when it has none: rule, the registration's own,
+	// when it is set, and standard, the registration's standard rule, when rule is nil
+	// or answers signin.Standard; a password identity names its user in req.UserID.
+	// policy then decides, and the session is inserted with its auth events and custom
+	// session data. The sign-in runs in two transactions that each commit unless a hook
+	// or the storage fails: a refusal (a *sessioninfo.LoginRefusal) or a wait (a
+	// *signin.PendingSignInError) keeps the hooks' own writes and writes no session. See
+	// the README's "Storage and schema".
+	SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx]) (ccc.UUID, error)
 	// Identity returns the link for (method, connection, subject), or a NotFound error.
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
@@ -169,7 +171,9 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 }
 
 // SignIn implements AuthStore.
-func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx], policy signin.Policy[Tx]) (ccc.UUID, error) {
+func (a *Auth[Tx]) SignIn(
+	ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx],
+) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -179,7 +183,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	}
 	session := &dbtype.InsertSession{Username: req.Username}
 
-	if err := signinflow.SignIn(ctx, a.flow, id, session, req, resolve, policy); err != nil {
+	if err := signinflow.SignIn(ctx, a.flow, id, session, req, rule, standard, policy); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 	}
 

@@ -22,7 +22,7 @@ type signInAttempt struct {
 	identity *sessioninfo.Identity
 	reason   sessioninfo.NewSessionReason
 	// registration names the external registration the identity came through, whose
-	// resolver resolves it and whose method reconciles its roles. It is empty for a
+	// account rules decide it and whose method reconciles its roles. It is empty for a
 	// password identity.
 	registration string
 	// userID and username name a password identity's user. The drivers take it
@@ -78,17 +78,21 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		AuthEvents:            at.events,
 		ProviderSessionID:     at.providerSessionID,
 		ProviderSessionIssuer: at.providerSessionIssuer,
+		RoleNames:             at.roleNames,
 		CustomData:            at.customData,
 	}
 
-	// An external identity is resolved by its registration's user resolver; a password
+	// An external identity is decided by its registration's account rules; a password
 	// identity, or the application's own, names its user and needs none.
-	var resolve signin.UserResolver[Tx]
+	var (
+		rule     signin.AccountRule[Tx]
+		standard signin.StandardAccountRule
+	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		resolve = m.resolve
+		rule, standard = m.rule, m.standard
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
-		id, err := a.storage.SignIn(ctx, req, resolve, a.policy)
+		id, err := a.storage.SignIn(ctx, req, rule, standard, a.policy)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}

@@ -165,12 +165,29 @@ func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx pgx.Tx, userID
 
 // userIn reads the user with the row lock clause lock.
 func (s *SessionStorageDriver) userIn(ctx context.Context, tx pgx.Tx, userID ccc.UUID, lock string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 %s`, s.userTable(), lock)
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "Id" = $1 %s`, s.userTable(), lock)
 
 	var u dbtype.User
-	if err := tx.QueryRow(ctx, query, userID).Scan(&u.Username, &u.HasPassword, &u.Disabled); err != nil {
+	if err := tx.QueryRow(ctx, query, userID).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	return &u, nil
+}
+
+// UserByUsernameIn reads the user named username inside tx, matched on the normalized
+// username as UserByUserName matches it, or nil when there is none.
+func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx pgx.Tx, username string) (*dbtype.User, error) {
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedUsername" = casefold(normalize($1))`, s.userTable())
+
+	var u dbtype.User
+	if err := tx.QueryRow(ctx, query, username).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
 		}
 
 		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")

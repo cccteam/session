@@ -18,6 +18,8 @@ CREATE TABLE "SessionPendingSignIns"
     "EmailVerified" boolean NOT NULL,
     "IdpAmr" character varying[],
     "Claims" bytea,
+    "SignInName" character varying NOT NULL,
+    "Guest" boolean NOT NULL,
     "UserId" UUID,
     "Username" character varying NOT NULL,
     "Tenant" character varying NOT NULL,

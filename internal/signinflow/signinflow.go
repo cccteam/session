@@ -39,9 +39,13 @@ type Driver[Tx any] interface {
 	UserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
 	// LockUserIn reads the user as UserIn does and holds the user against another link
 	// decision until tx ends, so the check of the user's links and the new link are
-	// not raced; a session insert for the user, and a resolver's own reads of the user,
-	// are not held. A missing user is NotFound.
+	// not raced; a session insert for the user, and an account rule's own reads of the
+	// user, are not held. A missing user is NotFound.
 	LockUserIn(ctx context.Context, tx Tx, userID ccc.UUID) (*dbtype.User, error)
+	// UserByUsernameIn reads the user whose username is username, matched without
+	// regard to case as the users table's normalized username is, or nil when there is
+	// none.
+	UserByUsernameIn(ctx context.Context, tx Tx, username string) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.
 	InsertUserIn(ctx context.Context, tx Tx, user *dbtype.InsertSessionUser) (ccc.UUID, error)
@@ -54,13 +58,14 @@ type Driver[Tx any] interface {
 
 // SignIn establishes session id for a request that carries a verified identity, in two
 // transactions (see the README's "Storage and schema"). The first resolves an external
-// identity's user: a linked identity is its user's, and an unlinked one goes to
-// resolve. The second reads the user, asks policy and inserts the session. Each
-// transaction commits unless a hook or the driver fails, so a refusal or a pending
-// outcome keeps the hooks' own writes and writes no session. The resolution commits
-// first because Spanner hides buffered writes from reads in the same transaction: the
-// policy and the custom session data resolver must see a provisioned user and the rows
-// OnProvisioned wrote.
+// identity's user: a linked identity is its user's, and an unlinked one goes to the
+// account rules: the registration's custom rule when it has one, and the standard rule
+// when it has none or the custom rule answers signin.Standard. The second reads the
+// user, asks policy and inserts the session. Each transaction commits unless a hook or
+// the driver fails, so a refusal or a pending outcome keeps the hooks' own writes and
+// writes no session. The resolution commits first because Spanner hides buffered
+// writes from reads in the same transaction: the policy and the custom session data
+// resolver must see a provisioned user and the rows OnProvisioned wrote.
 //
 // A password identity names its user in req.UserID and skips the resolution. Once the
 // user is known, req.UserID, req.Username and req.User are set to it, whatever the
@@ -68,7 +73,7 @@ type Driver[Tx any] interface {
 // *signin.PendingSignInError.
 func SignIn[Tx any](
 	ctx context.Context, d Driver[Tx], id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	resolve signin.UserResolver[Tx], policy signin.Policy[Tx],
+	rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx],
 ) error {
 	if req.Identity == nil {
 		return errors.New("a sign-in carries its verified identity in req.Identity")
@@ -81,14 +86,14 @@ func SignIn[Tx any](
 	source, tenant := sessioninfo.UserNamed, ""
 	switch {
 	case dbtype.IsExternal(req.Identity):
-		if resolve == nil {
-			return errors.Newf("the %s sign-in method has no user resolver", req.Identity.Method)
+		if rule == nil && standard == "" {
+			return errors.Newf("the %s sign-in method has neither a standard account rule nor a custom one", req.Identity.Method)
 		}
 		var (
 			stop error
 			err  error
 		)
-		source, tenant, stop, err = resolveIdentity(ctx, d, &resolved, resolve)
+		source, tenant, stop, err = resolveIdentity(ctx, d, &resolved, rule, standard)
 		if err != nil {
 			return err
 		}
@@ -113,7 +118,7 @@ func SignIn[Tx any](
 // finds the winner's link. A transaction the database ends to break a deadlock or a
 // serialization failure between racing sign-ins runs once more too.
 func resolveIdentity[Tx any](
-	ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx],
+	ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule,
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
 	base := *req
 	for attempt := 1; ; attempt++ {
@@ -121,7 +126,7 @@ func resolveIdentity[Tx any](
 			// Each run starts from the caller's request.
 			*req = base
 			var err error
-			source, tenant, stop, err = resolveIn(ctx, d, tx, req, resolve)
+			source, tenant, stop, err = resolveIn(ctx, d, tx, req, rule, standard)
 
 			return err
 		})
@@ -145,7 +150,7 @@ func resolveIdentity[Tx any](
 				continue
 			}
 		case dbtype.LockConflict:
-			// The database broke a deadlock (a resolver that shared the user row's lock
+			// The database broke a deadlock (a rule that shared the user row's lock
 			// before the link decision locked it) or a serialization failure between
 			// racing sign-ins: the loser runs once more and sees what the winner wrote.
 			if attempt == 1 {
@@ -159,10 +164,10 @@ func resolveIdentity[Tx any](
 }
 
 // resolveIn is one run of the resolution inside tx. A linked identity resolves to its
-// user and its LastUsedAt is touched. An unlinked one goes to resolve, and its answer is
-// applied.
+// user and its LastUsedAt is touched. An unlinked one goes to the account rules, and
+// their answer is applied.
 func resolveIn[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx],
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule,
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
 	link, err := d.IdentityIn(ctx, tx, req.Identity.Method, req.Identity.Connection, req.Identity.Subject)
 	if err != nil {
@@ -180,15 +185,83 @@ func resolveIn[Tx any](
 		return sessioninfo.UserExistingLink, tenant, nil, nil
 	}
 
-	res, err := resolve(ctx, tx, req)
-	if err != nil {
-		return "", "", nil, errors.Wrap(err, "signin.UserResolver()")
+	res, stop, err := decideAccount(ctx, d, tx, req, rule, standard)
+	if err != nil || stop != nil {
+		return "", "", stop, err
 	}
 
 	return applyResolution(ctx, d, tx, req, res)
 }
 
-// applyResolution acts on the user resolver's answer for an unlinked identity. A link
+// decideAccount asks the account rules what to do with an unlinked identity: the
+// custom rule when the registration has one, and the standard rule when it has none or
+// the custom rule answers signin.Standard. A refusal the standard rule makes before any
+// row is written is returned as stop.
+func decideAccount[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule,
+) (res *signin.Resolution, stop, err error) {
+	tenant := req.Identity.Connection
+	if rule != nil {
+		res, err = rule(ctx, tx, req)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "signin.AccountRule()")
+		}
+		if res == nil || res.Outcome() != signin.ApplyStandardRule {
+			return res, nil, nil
+		}
+		if res.Tenant() != "" {
+			tenant = res.Tenant()
+		}
+	}
+	if standard == "" {
+		return nil, nil, errors.Newf("the %s sign-in method has no standard account rule: its account rule must decide the identity itself", req.Identity.Method)
+	}
+
+	return standardRule(ctx, d, tx, req, standard, tenant)
+}
+
+// standardRule applies the standard account rule to an unlinked identity, inside tx.
+// Every standard rule refuses a guest of the directory, a token asserting no
+// application role when the method synchronizes roles, and an identity without a
+// sign-in name, before any row is written. A pre-created user under the sign-in name,
+// matched without regard to case, is confirmed with its password when it has one and
+// linked when it has none (applyResolution refuses the link when such a user already
+// signs in through another connection). A person no user was created for is
+// provisioned under the sign-in name, or refused by the invited-users-only rule.
+func standardRule[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.StandardAccountRule, tenant string,
+) (res *signin.Resolution, stop, err error) {
+	switch {
+	case req.Identity.Guest:
+		return nil, Refusal("", sessioninfo.RefusedGuestAccount, signin.ErrGuestAccount, "guest accounts are not members of the directory"), nil
+	case req.RoleNames != nil && len(req.RoleNames) == 0:
+		return nil, Refusal("", sessioninfo.RefusedNoRoles, signin.ErrNoRoles, "Unauthorized: user has no roles"), nil
+	case req.Identity.SignInName == "":
+		return nil, Refusal("", sessioninfo.RefusedNoEmail, signin.ErrNoSignInName, "the identity carries no sign-in name"), nil
+	}
+
+	user, err := d.UserByUsernameIn(ctx, tx, req.Identity.SignInName)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "Driver.UserByUsernameIn()")
+	}
+	switch {
+	case user != nil && user.HasPassword:
+		return signin.Confirm(user.ID, signin.Tenant(tenant)), nil, nil
+	case user != nil:
+		return signin.Link(user.ID, false, signin.Tenant(tenant)), nil, nil
+	}
+
+	switch rule {
+	case signin.MembersOfDirectory, signin.OpenSignUp:
+		return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), nil, nil
+	case signin.InvitedUsersOnly:
+		return nil, Refusal("", sessioninfo.RefusedNotInvited, signin.ErrNotInvited, "no account was created for this person"), nil
+	default:
+		return nil, nil, errors.Newf("unknown standard account rule %q", string(rule))
+	}
+}
+
+// applyResolution acts on the account rules' answer for an unlinked identity. A link
 // or a new user sets req.UserID (and req.Username for a new user) and reports how
 // the user was found and its tenant. A pending confirmation or a refusal is returned
 // as stop.
@@ -230,7 +303,7 @@ func applyResolution[Tx any](
 	case signin.ProvisionUser:
 		newUser := res.NewUser()
 		if newUser == nil {
-			return "", "", nil, errors.New("the user resolver provisioned no user: signin.Provision was given nil")
+			return "", "", nil, errors.New("the account rule provisioned no user: signin.Provision was given nil")
 		}
 		req.Username = newUser.Username
 		id, err := d.InsertUserIn(ctx, tx, &dbtype.InsertSessionUser{
@@ -259,8 +332,10 @@ func applyResolution[Tx any](
 		return "", "", &signin.PendingSignInError{
 			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID()), Username: user.Username, Tenant: res.Tenant(),
 		}, nil
+	case signin.ApplyStandardRule:
+		return "", "", nil, errors.New("the standard account rule answered signin.Standard: a standard rule decides the identity itself")
 	default:
-		return "", "", nil, errors.Newf("unknown user resolver outcome %d", res.Outcome())
+		return "", "", nil, errors.Newf("unknown account rule outcome %d", res.Outcome())
 	}
 }
 
@@ -411,8 +486,8 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 // linksAnotherConnection reports whether identity would attach a new connection to
 // userID: the user has links, and none of them is on identity's (Method, Connection).
 // A user without a password cannot confirm a link, so an untrusted link of a connection
-// the user does not sign in through yet is refused: the resolver's evidence is the only
-// check, and it must say so with trusted. A connection the user already signs in
+// the user does not sign in through yet is refused: the rule's evidence is the only
+// check, and a custom rule must say so with trusted. A connection the user already signs in
 // through, however many others they have, adds nothing and is not checked.
 func linksAnotherConnection[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID ccc.UUID, identity *sessioninfo.Identity) (bool, error) {
 	links, err := d.IdentitiesByUserIn(ctx, tx, userID)

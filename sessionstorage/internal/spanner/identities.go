@@ -183,7 +183,7 @@ func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessio
 // UserIn reads the part of userID's user the sign-in decides on, inside tx. A missing
 // user is NotFound.
 func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWriteTransaction, userID ccc.UUID) (*dbtype.User, error) {
-	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn, "PasswordHash", "Disabled"})
+	row, err := tx.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{idColumn, usernameColumn, "PasswordHash", "Disabled"})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
 			return nil, httpio.NewNotFoundMessagef("user id %q does not exist", userID)
@@ -192,14 +192,48 @@ func (s *SessionStorageDriver) UserIn(ctx context.Context, tx *spanner.ReadWrite
 		return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 	}
 
+	return userOf(row)
+}
+
+// UserByUsernameIn reads the user named username inside tx, matched on the normalized
+// username as UserByUserName matches it, or nil when there is none.
+func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner.ReadWriteTransaction, username string) (*dbtype.User, error) {
+	stmt := spanner.NewStatement(fmt.Sprintf(`SELECT Id, Username, PasswordHash, Disabled FROM %s WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)`, s.userTableName))
+	stmt.Params["username"] = username
+
+	var user *dbtype.User
+	err := tx.Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		u, err := userOf(row)
+		if err != nil {
+			return err
+		}
+		user = u
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return user, nil
+}
+
+// userOf reads the part of a user row the flow decides on from row's columns Id,
+// Username, PasswordHash, Disabled.
+func userOf(row *spanner.Row) (*dbtype.User, error) {
 	var (
+		id   string
 		u    dbtype.User
 		hash spanner.NullString
 	)
-	if err := row.Columns(&u.Username, &hash, &u.Disabled); err != nil {
+	if err := row.Columns(&id, &u.Username, &hash, &u.Disabled); err != nil {
 		return nil, errors.Wrap(err, "spanner.Row.Columns()")
 	}
-	u.HasPassword = hash.Valid
+	userID, err := ccc.UUIDFromString(id)
+	if err != nil {
+		return nil, errors.Wrap(err, "ccc.UUIDFromString()")
+	}
+	u.ID, u.HasPassword = userID, hash.Valid
 
 	return &u, nil
 }

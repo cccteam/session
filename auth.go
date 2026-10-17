@@ -50,7 +50,7 @@ const (
 type IdentityLinkedHook = func(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity) error
 
 // WithIdentityLinked sets the hook called after every identity link, whether made by a
-// pending identity's password confirmation or by the user resolver during a sign-in
+// pending identity's password confirmation or by the account rules during a sign-in
 // (LinkIdentity or ProvisionUser). A resolver's link is committed before the sign-in
 // policy runs, so it is reported even when the policy then denies the sign-in or holds
 // it for MFA. An error from the hook is logged. The link and the sign-in stand.
@@ -183,7 +183,7 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, err
 	}
 	if storage.UserDataLoginHookConfigured() {
-		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in the user resolver (signin.Provision's onProvisioned) or per call on CreateSessionUser")
+		return nil, errors.New("the custom user data login hook is OIDC-only: provision custom user data in a custom account rule (signin.Provision's onProvisioned) or per call on CreateSessionUser")
 	}
 	if storage.OIDCUsersEnabled() {
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")

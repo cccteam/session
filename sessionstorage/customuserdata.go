@@ -24,7 +24,7 @@ import (
 // initial data is per-call on CreateSessionUser).
 //
 // Deprecated: the login hook runs for the legacy OIDCAzure session type only and leaves
-// with it; an Auth session provisions custom user data in its user resolver
+// with it; an Auth session provisions custom user data in a custom account rule
 // (signin.Provision's onProvisioned) or per call on CreateSessionUser. Pass nil.
 type SpannerOIDCUserDataHook[U any] func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction, req *sessioninfo.NewSessionRequest, current *U) (*U, error)
 
@@ -39,7 +39,7 @@ type SpannerOIDCUserDataHook[U any] func(ctx context.Context, txn *cloudspanner.
 // has no claims; its initial data is per-call on CreateSessionUser).
 //
 // Deprecated: the login hook runs for the legacy OIDCAzure session type only and leaves
-// with it; an Auth session provisions custom user data in its user resolver
+// with it; an Auth session provisions custom user data in a custom account rule
 // (signin.Provision's onProvisioned) or per call on CreateSessionUser. Pass nil.
 type PostgresOIDCUserDataHook[U any] func(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest, current *U) (*U, error)
 

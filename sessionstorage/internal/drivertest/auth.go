@@ -91,9 +91,13 @@ type AuthConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
-	// Resolve is the user resolver the instance's SignIn runs with, which the harness
-	// adapts to the driver's transaction; nil rejects every unlinked identity.
+	// Resolve is the custom account rule the instance's SignIn runs with, which the
+	// harness adapts to the driver's transaction. Nil with no Accounts rejects every
+	// unlinked identity.
 	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
+	// Accounts is the standard account rule the instance's SignIn runs with, applied
+	// when Resolve is nil or answers signin.Standard; "" for none.
+	Accounts signin.StandardAccountRule
 	// Policy is the sign-in policy the instance's SignIn runs with; nil allows.
 	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error)
 	// CustomData, when set, attaches the AuthWithAppTables schema's
@@ -112,17 +116,20 @@ type AuthInstance struct {
 	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 }
 
-// NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's resolver
-// and policy, each given the driver's transaction through adapt.
+// NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's account
+// rules and policy, each given the driver's transaction through adapt.
 func NewSignIn[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
-	resolve := func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
-		if cfg.Resolve == nil {
-			return nil, nil
+	var rule signin.AccountRule[Tx]
+	switch {
+	case cfg.Resolve != nil:
+		rule = func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+			return cfg.Resolve(ctx, adapt(tx), req)
 		}
-
-		return cfg.Resolve(ctx, adapt(tx), req)
+	case cfg.Accounts == "":
+		// No rule at all rejects every unlinked identity, as a nil resolution does.
+		rule = func(context.Context, Tx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) { return nil, nil }
 	}
 	var policy signin.Policy[Tx]
 	if cfg.Policy != nil {
@@ -136,7 +143,7 @@ func NewSignIn[Tx any](
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 		}
-		if err := signinflow.SignIn(ctx, d, id, insert, req, resolve, policy); err != nil {
+		if err := signinflow.SignIn(ctx, d, id, insert, req, rule, cfg.Accounts, policy); err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
 
@@ -179,6 +186,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
+		{name: "the standard account rules decide an unlinked identity by its sign-in name", run: testStandardAccountRules},
+		{name: "a custom account rule runs first and may leave the identity to the standard rule", run: testCustomRuleBeforeStandardRule},
+		{name: "the standard rule runs once: a linked identity signs in by its link, and the username is not renamed", run: testStandardRuleRunsOnce},
 		{name: "an untrusted link from another connection to a password-less user is refused; the same connection or a trusted link links", run: testLinkAcrossConnections},
 		{name: "concurrent untrusted links from two connections to a password-less user link exactly one", run: testConcurrentCrossConnectionLinks},
 		{name: "the sign-in policy decides after the user is known", run: testSignInPolicy},

@@ -59,6 +59,17 @@ type Identity struct {
 	// values or SAML AuthnContextClassRef), when the method provides it. The library
 	// does not interpret it.
 	IDPAMR []string
+	// SignInName is the name the person signs in with at the directory the identity
+	// came from: the user principal name on Entra, the verified email on Google; ""
+	// when the method has none. The standard account rules (signin.StandardAccountRule)
+	// use it as the username of the account they provision or match. It is an
+	// attribute, never a key.
+	SignInName string
+	// Guest reports that the account is a guest of its directory, not a member: an
+	// Entra B2B guest, whose preferred username is an address the directory did not
+	// verify. The standard account rules refuse a guest; a custom rule decides for
+	// itself.
+	Guest bool
 }
 
 // AuthEvent records one step that authenticated a session, such as the sign-in, a
@@ -170,6 +181,13 @@ const (
 	// after its pending identity expired.
 	RefusedPendingExpired LoginRefusalCode = "pending_expired"
 	// RefusedNoEmail is the code for an external identity with no email address where
-	// the application requires one.
+	// the application requires one, and for one with no sign-in name where a standard
+	// account rule needs it as the username.
 	RefusedNoEmail LoginRefusalCode = "no_email"
+	// RefusedNotInvited is the code for an identity that is not linked yet and matches
+	// no pre-created user, under the invited-users-only account rule.
+	RefusedNotInvited LoginRefusalCode = "not_invited"
+	// RefusedGuestAccount is the code for an identity that is a guest of its directory
+	// (Identity.Guest), which the standard account rules refuse.
+	RefusedGuestAccount LoginRefusalCode = "guest_account"
 )

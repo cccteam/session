@@ -520,18 +520,18 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetUserUsername(ctx, id, newUsername an
 }
 
 // SignIn mocks base method.
-func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[Tx], policy signin.Policy[Tx]) (ccc.UUID, error) {
+func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx]) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SignIn", ctx, req, resolve, policy)
+	ret := m.ctrl.Call(m, "SignIn", ctx, req, rule, standard, policy)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SignIn indicates an expected call of SignIn.
-func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, resolve, policy any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, resolve, policy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy)
 }
 
 // UnlinkIdentity mocks base method.

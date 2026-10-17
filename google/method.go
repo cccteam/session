@@ -43,6 +43,14 @@ type Config struct {
 	// session, and refuses the sign-in (no_roles) when no recognized role results;
 	// DisableRoleSync() leaves roles to the application.
 	RoleSync RoleSyncConfig
+	// Accounts is the standard account rule for a member of the Workspace who signs
+	// in for the first time: signin.MembersOfDirectory (the default) provisions an
+	// account under the verified email, signin.InvitedUsersOnly links only a
+	// pre-created user under that email and refuses anyone else. signin.OpenSignUp is
+	// refused at registration: this registration serves one Workspace. A rule given
+	// to SignIn runs first and may leave the decision to this one with
+	// signin.Standard.
+	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
@@ -50,11 +58,12 @@ type Config struct {
 	Authenticator Authenticator
 }
 
-// Identity is a verified Google Workspace identity as the user resolver receives it.
+// Identity is a verified Google Workspace identity as the account rule receives it.
 type Identity struct {
 	// Subject keys the identity: the sub claim, unique among all Google identities.
 	Subject string
-	// Email is the email claim; the sign-in refused it unless Google verified it.
+	// Email is the email claim; the sign-in refused it unless Google verified it. The
+	// standard account rules use it as the username.
 	Email string
 	// HostedDomain is the hd claim: the Workspace domain the person's account is on,
 	// one of the registration's HostedDomains.
@@ -68,10 +77,11 @@ type Identity struct {
 	Claims json.RawMessage
 }
 
-// UserResolver decides a Google identity that is not linked to any user yet. It is the
-// application's rule, given to SignIn; see signin.UserResolver for when it runs and
-// what it may do. Tx is the Auth's storage transaction type.
-type UserResolver[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
+// AccountRule is the application's own rule for a Google identity that is not linked
+// to any user yet, given to SignIn; nil leaves every such identity to the standard rule
+// in Config.Accounts. See signin.AccountRule for when it runs and what it may do. Tx is
+// the Auth's storage transaction type.
+type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
 // Method holds the handlers of the Google Workspace sign-in method.
 type Method struct {
@@ -81,20 +91,27 @@ type Method struct {
 
 // SignIn registers Google Workspace OpenID Connect sign-in on auth under name and
 // returns its handlers. name identifies the registration on auth. The identity key is
-// (cfg.Connection, sub); resolve decides an identity that is not linked yet.
+// (cfg.Connection, sub). An identity that is not linked yet is decided by rule when
+// one is given and by the standard rule in cfg.Accounts otherwise, or when rule
+// answers signin.Standard; nil is the usual value.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, when resolve is nil, or when cfg.RoleSync, cfg.Connection or
-// cfg.HostedDomains is missing.
-func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx], cfg *Config) *Method {
+// request, when cfg.RoleSync, cfg.Connection or cfg.HostedDomains is missing, or when
+// cfg.Accounts is open sign-up or no standard rule.
+func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
+	accounts := cfg.Accounts
+	if accounts == "" {
+		accounts = signin.MembersOfDirectory
+	}
 	reg := &signin.Registration[Tx]{
-		Name:    name,
-		Method:  sessioninfo.MethodGoogle,
-		Resolve: resolver(resolve),
-		Issuers: signin.IssuerList(IssuerURL),
+		Name:         name,
+		Method:       sessioninfo.MethodGoogle,
+		StandardRule: accounts,
+		AccountRule:  accountRule(rule),
+		Issuers:      signin.IssuerList(IssuerURL),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			if strings.TrimSpace(cfg.Connection) == "" {
 				return nil, errors.New("connection is required: the application's name for the Workspace, which keys every Google identity link; see google.Config.Connection")
@@ -120,8 +137,8 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 			return method(authn, groups, cfg.Connection), nil
 		},
 	}
-	if resolve == nil {
-		reg.Err = errors.New("resolve is required: it decides every Google identity that is not linked yet")
+	if accounts == signin.OpenSignUp {
+		reg.Err = errors.New("Accounts: open sign-up is for any Workspace or any Google account; this registration serves one Workspace, which takes members of the directory or invited users only")
 	}
 	h := signin.Register(auth, reg)
 
@@ -170,21 +187,27 @@ func identityOf(rawClaims json.RawMessage) (*Identity, bool, error) {
 	return &Identity{Subject: c.Sub, Email: c.Email, HostedDomain: c.Hd, Name: c.Name, AMR: c.Amr, Claims: rawClaims}, c.EmailVerified, nil
 }
 
-// resolver adapts the application's resolver to the contract: the identity the core
-// resolves is decoded from the claims the sign-in verified.
-func resolver[Tx any](resolve UserResolver[Tx]) signin.UserResolver[Tx] {
+// accountRule adapts the application's rule to the contract: the identity the core
+// decides is decoded from the claims the sign-in verified. A nil rule stays nil, so the
+// standard rule applies.
+func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
+	if rule == nil {
+		return nil
+	}
+
 	return func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 		identity, _, err := identityOf(req.Identity.Claims)
 		if err != nil {
 			return nil, errors.Wrap(err, "google.identityOf()")
 		}
 
-		return resolve(ctx, tx, identity)
+		return rule(ctx, tx, identity)
 	}
 }
 
 // method is the Google Workspace method over authn. The identity is (connection, sub),
-// connection being the registration's name for the Workspace. The authenticator checks
+// connection being the registration's name for the Workspace, and its sign-in name the
+// verified email. The authenticator checks
 // the hosted domains and the verified email. When groups is set, the callback maps the
 // person's directory groups to role names using the access token, which is used once
 // and never stored.
@@ -221,6 +244,9 @@ func method(authn Authenticator, groups *groupSync, connection string) *signin.M
 				},
 				ReturnURL: returnURL,
 				Issuer:    iss,
+			}
+			if emailVerified {
+				v.Identity.SignInName = id.Email
 			}
 			if groups != nil {
 				roleNames, err := groups.roleNames(ctx, id.Email, accessToken)

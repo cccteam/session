@@ -17,7 +17,7 @@ import (
 )
 
 // pendingColumns are the pending sign-ins table's columns, in pendingRow's order.
-const pendingColumns = `"Id", "TokenHash", "Step", "Registration", "Method", "Connection", "Subject", "Email", "EmailVerified", "IdpAmr", "Claims", ` +
+const pendingColumns = `"Id", "TokenHash", "Step", "Registration", "Method", "Connection", "Subject", "Email", "EmailVerified", "IdpAmr", "Claims", "SignInName", "Guest", ` +
 	`"UserId", "Username", "Tenant", "Events", "RoleNames", "Factors", "ReturnUrl", "ProviderSessionId", "ProviderSessionIssuer", "CreatedAt", "ExpiresAt", "ConsumedAt"`
 
 // pendingRow is a pending sign-in as the table holds it.
@@ -33,6 +33,8 @@ type pendingRow struct {
 	EmailVerified         bool       `db:"EmailVerified"`
 	IdpAmr                []string   `db:"IdpAmr"`
 	Claims                []byte     `db:"Claims"`
+	SignInName            string     `db:"SignInName"`
+	Guest                 bool       `db:"Guest"`
 	UserID                *ccc.UUID  `db:"UserId"`
 	Username              string     `db:"Username"`
 	Tenant                string     `db:"Tenant"`
@@ -56,7 +58,7 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 		ID: r.ID, TokenHash: r.TokenHash, Step: sessioninfo.PendingReason(r.Step), Registration: r.Registration,
 		Identity: sessioninfo.Identity{
 			Method: sessioninfo.AuthMethod(r.Method), Connection: r.Connection, Subject: r.Subject, Email: r.Email, EmailVerified: r.EmailVerified,
-			Claims: r.Claims, IDPAMR: r.IdpAmr,
+			Claims: r.Claims, IDPAMR: r.IdpAmr, SignInName: r.SignInName, Guest: r.Guest,
 		},
 		Username: r.Username, Tenant: r.Tenant, Events: events, RoleNames: r.RoleNames, Factors: dbtype.AuthMethods(r.Factors),
 		ReturnURL: r.ReturnURL, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
@@ -93,11 +95,11 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 		userID = &p.UserID.UUID
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21, NULL)`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now(), $23, NULL)`,
 		s.pendingTable(), pendingColumns)
 	if _, err := s.conn.Exec(ctx, query,
 		p.ID, p.TokenHash, string(p.Step), p.Registration, string(p.Identity.Method), p.Identity.Connection, p.Identity.Subject,
-		p.Identity.Email, p.Identity.EmailVerified, p.Identity.IDPAMR, []byte(p.Identity.Claims), userID, p.Username, p.Tenant,
+		p.Identity.Email, p.Identity.EmailVerified, p.Identity.IDPAMR, []byte(p.Identity.Claims), p.Identity.SignInName, p.Identity.Guest, userID, p.Username, p.Tenant,
 		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), dbtype.OptionalString(p.ProviderSessionIssuer), p.ExpiresAt,
 	); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")

@@ -36,6 +36,7 @@ var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's
 
 // User is the part of a user row the sign-in flow decides on.
 type User struct {
+	ID          ccc.UUID
 	Username    string
 	HasPassword bool
 	Disabled    bool

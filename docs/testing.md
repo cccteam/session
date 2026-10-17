@@ -16,7 +16,7 @@ Azure and Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoog
 production verifiers only, so not under `skipAuth`), each on both backends
 (`backends_test.go`: a `backend[Tx]` prepares the database, builds the store and reaches
 the application's own tables), so the rules an application gives the `Auth` are exercised
-typed to each backend's transaction. Their user resolver and sign-in policy can take the
+typed to each backend's transaction. Their account rules and sign-in policy can take the
 transaction (`hooks.resolveTx`, `hooks.policyTx`) to write and read the application's own
 tables (`PartnerMembers`, `SignInAttempts`, from `testdata/<backend>` over the shipped
 schema), which is how the scenarios prove a hook's write survives a refusal and a policy
@@ -43,7 +43,7 @@ A sign-in is one `SignIn` call on the store (`expectSignIn`), which asserts that
 carries the `Auth`'s policy and, for an external identity, its method's resolver; the
 callback tests run that resolver to prove it decodes the verified claims into the method's
 identity type. The registration rules themselves (a registration name twice or missing, a
-method once the Auth is in use, an external registration without a user resolver) are a
+method once the Auth is in use, an external registration without an account rule) are a
 table of panics in `TestAuth_RegistrationRefused`; the handler sets of the method types
 are asserted at compile time in `auth_methods_test.go`.
 

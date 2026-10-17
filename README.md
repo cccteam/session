@@ -103,16 +103,17 @@ each with its `SignIn` function and `Config`.
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
-| `azure` | `azure.SignIn(auth, name, resolve, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
-| `google` | `google.SignIn(auth, name, resolve, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
-| `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`Connection`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
 may be registered several times under different names, so one `Auth` offers two Entra
-tenants as two registrations, each with its own configuration and resolver. The password
-registration is named `password`. `resolve` is the registration's **user resolver**, the
-application's rule for an identity that is not linked to any user yet (see "Storage and
-schema").
+tenants as two registrations, each with its own configuration and rules. The password
+registration is named `password`. `rule` is the application's own **account rule** for
+an identity that is not linked to any user yet, and `nil` is the usual value: the
+Entra and Google methods apply a **standard account rule** (`Config.Accounts`) to a
+first sign-in (see "Storage and schema").
 
 ### Storage and schema
 
@@ -136,7 +137,7 @@ where the group starts:
   key points at the users table; live sessions take their user by username and lose
   their provider session id, so a later Entra logout cannot reach them. A group
   that never enabled the anchor skips the backfill statements and provisions each person
-  at their first sign-in through its user resolver. The anchor table is dropped in the
+  at their first sign-in through its account rules. The anchor table is dropped in the
   release after the cutover, never in the same one, so a rollback to the legacy type
   stays possible until then.
 
@@ -181,28 +182,53 @@ DML what a later rule must read.
   step may record when it completes the sign-in (`"email-otp"`, `"totp"`): the pending
   status and the `PendingHook` report them, and `CompletePending` refuses any other;
   none accepts any.
-- Each external registration's **user resolver** is given to its `SignIn` function and
-  decides an identity that is not linked to any user yet, with `signin.Reject(code)`,
-  `signin.Link(userID, trusted)`, `signin.Provision(newUser, onProvisioned)` or
-  `signin.Confirm(userID)`; `signin.Tenant(key)` on any of the last three stores the
-  application's tenant key on the link. It receives the method's own identity type
-  (`*azure.Identity`, `*google.Identity`; `*workos.Identity` once WorkOS returns in
-  v0.13.1), decoded from the verified
-  claims, with the raw claims on it for anything the fields do not carry. A `Link` is
-  the resolver's own evidence, and the library asks for more when it can: a user who
-  has a password must confirm with it (`Confirm`) unless the link is `trusted`; a user
-  without a password cannot confirm, so an identity from another connection than the
-  ones that user already signs in through is refused unless the link is `trusted`. Never
-  choose the user by an email or another claim the provider does not verify.
+- The **account rules** decide an identity's first sign-in: an identity that is not
+  linked to any user yet. A linked identity signs in by its link and never consults
+  them. Each Entra and Google registration declares a **standard rule** in
+  `Config.Accounts`, which the library applies inside the sign-in's first transaction:
+  - `signin.MembersOfDirectory` (the default): every member of the directory gets an
+    account under their **sign-in name**, the user principal name on Entra and the
+    verified email on Google. A user the application pre-created under that name,
+    matched without regard to case, is linked instead: after a password confirmation
+    when the user has a password, outright when the user has none and signs in through
+    no other connection yet.
+  - `signin.InvitedUsersOnly`: the same matching, and no provisioning; a person no user
+    was created for is refused (`not_invited`). The application creates the users
+    under their sign-in names, with or without a password, before they sign in.
+  - `signin.OpenSignUp`: anyone who signs in gets an account under their sign-in name.
+    It is for public applications and refused on a registration that serves one
+    organization.
+
+  Every standard rule writes nothing for a guest of the directory (an Entra B2B guest,
+  refused with `guest_account`: a guest's preferred username is an address the
+  directory did not verify), for a token asserting no application role when the method
+  synchronizes roles (`no_roles`), or for an identity without a sign-in name
+  (`no_email`). The tenant key on the link is the identity's connection: the Entra
+  tenant id, the application's name for the Workspace.
+- A registration's own **rule** (`azure.AccountRule`, `google.AccountRule`; required
+  on WorkOS, which has no standard rule) is given to its `SignIn` function and runs
+  first, for what the standard rule cannot know: it receives the method's own identity
+  type (`*azure.Identity`, `*google.Identity`), decoded from the verified claims with
+  the raw claims on it, and answers `signin.Reject(code)`, `signin.Link(userID,
+  trusted)`, `signin.Provision(newUser, onProvisioned)`, `signin.Confirm(userID)` or
+  `signin.Standard()`, which leaves the identity to the standard rule once the rule's
+  own checks have passed; `signin.Tenant(key)` on any of the last four stores the
+  application's tenant key on the link. A `Link` is the rule's own evidence, and the
+  library asks for more when it can: a user who has a password must confirm with it
+  (`Confirm`) unless the link is `trusted`; a user without a password cannot confirm,
+  so an identity from another connection than the ones that user already signs in
+  through is refused unless the link is `trusted`. Never choose the user by an email or
+  another claim the provider does not verify.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
 
 1. **User resolution** (external methods): a linked identity is its user's;
-   otherwise the user resolver runs and its outcome is applied: the link, or the new
-   user, its link and the rows `Provision`'s `onProvisioned` writes. A link decision
+   otherwise the account rules run, the registration's own first and then the standard
+   one, and the outcome is applied: the link, or the new user, its link and the rows
+   `Provision`'s `onProvisioned` writes. A link decision
    holds the user against another link decision until the transaction ends
    (PostgreSQL: a transaction-scoped advisory lock keyed by the user, which holds
-   neither session inserts nor a resolver's own reads of the user; Spanner: the
+   neither session inserts nor a rule's own reads of the user; Spanner: the
    transaction is serializable), so two racing sign-ins from two connections cannot
    both link a password-less user. A transaction the database ends to break a deadlock
    or a serialization failure runs once more.
@@ -220,9 +246,9 @@ resolution has committed by the time the policy runs:
 - `req.User` (`*sessioninfo.SignInUser`) tells them which user was resolved and
   how: `Source` is `UserNamed` (password), `UserExistingLink`, `UserNewLink` or
   `UserProvisioned` (`req.User.Provisioned()`), with the link's `Tenant`;
-- **a user the resolver provisioned stays, linked, when the policy then denies the
+- **a user a rule provisioned stays, linked, when the policy then denies the
   sign-in or holds it for MFA**; the next sign-in goes through the link and the policy
-  decides again. Return `signin.Reject` from the resolver when the user must not be
+  decides again. Return `signin.Reject` from a custom rule when the user must not be
   created at all. A hook error rolls back its own transaction only: an `onProvisioned`
   failure leaves no user, while a policy error leaves a provisioned user in place.
 
@@ -236,16 +262,19 @@ func signInPolicy(ctx context.Context, tx *spanner.ReadWriteTransaction, req *se
     return signin.Allow(), nil
 }
 
-func resolveEntraUser(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *azure.Identity) (*signin.Resolution, error) {
+// Optional: the application's own rule for an Entra identity's first sign-in. The
+// standard rule in Config.Accounts handles the usual case; this one refuses what the
+// standard rule cannot know and leaves the rest to it.
+func entraAccountRule(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *azure.Identity) (*signin.Resolution, error) {
     partner, ok, err := partnerOfTenant(ctx, tx, identity.TenantID) // the application's own rows
     if err != nil {
         return nil, err
     }
     if !ok {
-        return signin.Reject("not_invited"), nil
+        return signin.Reject("not_a_partner"), nil
     }
 
-    return signin.Provision(&signin.NewUser{Username: identity.PreferredUsername}, nil, signin.Tenant(partner)), nil
+    return signin.Standard(signin.Tenant(partner)), nil
 }
 
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
@@ -262,9 +291,10 @@ auth.SetSignInPolicy(signInPolicy) // optional: without it the library's checks 
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-sso := azure.SignIn(auth, "entra", resolveEntraUser, &azure.Config{ // *azure.Method
+sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Method; nil leaves first sign-ins to Accounts alone
     IssuerURL: cfg.EntraIssuerURL, ClientID: cfg.EntraClientID, ClientSecret: cfg.EntraClientSecret,
-    RedirectURL: cfg.SSORedirectURL, RoleSync: session.DisableRoleSync(), LoginURL: "/login",
+    RedirectURL: cfg.SSORedirectURL, RoleSync: signin.DisableRoleSync(), LoginURL: "/login",
+    Accounts: signin.InvitedUsersOnly, // the standard rule: pre-created users only
 })
 ```
 
@@ -295,10 +325,13 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,
   HashAlgorithm(...))` would have hashed with the default). Register every method, then
   build the router and serve.
-- **An external registration without a user resolver** (`resolve` is nil).
+- **A registration without an account rule**: a WorkOS registration with a nil `rule`
+  (WorkOS has no standard rule), or a registration naming a standard rule that does not
+  exist.
 - **A misconfigured method**: Azure or Google without its role sync slot, Google without
-  its hosted domain, cookie or session options passed to `PasswordSignIn` instead of
-  `NewAuth`.
+  its hosted domain or connection, open sign-up (`signin.OpenSignUp`) on a registration
+  that serves one organization, cookie or session options passed to `PasswordSignIn`
+  instead of `NewAuth`.
 
 ### Routes
 
@@ -511,7 +544,7 @@ package's name. A registration without its slot is refused (see "Registering sig
 methods").
 
 ```go
-entra := azure.SignIn(auth, "azure", resolveEntraUser, &azure.Config{
+entra := azure.SignIn(auth, "azure", nil, &azure.Config{
     IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
     RoleSync:  signin.RoleSync(userRoleManager), // or signin.DisableRoleSync()
 })
@@ -563,7 +596,7 @@ disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
 ## Google Workspace OIDC
 
 Google Workspace sign-in is a method of the `Auth` session, registered with
-`google.SignIn(auth, name, resolve, &google.Config{...})` from the `session/google`
+`google.SignIn(auth, name, rule, &google.Config{...})` from the `session/google`
 package (see "Registering sign-in methods" above). It is the counterpart of the Azure method: the
 same session machinery, custom data axes and role-reconciliation semantics, built on
 Google's identity model instead of Entra's. The mental-model difference that drives
@@ -588,8 +621,9 @@ every Google sign-in arrive as an unknown identity until the links are re-keyed:
 UPDATE SessionIdentities SET "Connection" = 'new' WHERE "Method" = 'google' AND "Connection" = 'old'
 ```
 
-The username is the verified `email` claim (`email_verified` is enforced).
-Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
+The identity's sign-in name is the verified `email` claim (`email_verified` is
+enforced), so the standard account rules (`Config.Accounts`) provision and match users
+under it. Google has no `end_session_endpoint` and issues no `sid` claim, so there is no
 Google-initiated logout: `Logout` destroys the local session only. The `RoleSync` slot
 is `google.RoleSync(manager, groupPrefix, lookup)` or `google.DisableRoleSync()` (see
 "The group naming convention").
@@ -706,13 +740,15 @@ table is the wire contract:
 | `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the user is outside the Workspace domain logins are restricted to. |
 | `email_not_verified` | `RefusedEmailNotVerified` | Google: the user's email address is not verified. |
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
-| `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role. |
+| `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role, or a standard account rule saw a token asserting no application role and wrote nothing. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the user resolver rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, or the identity resolved to another user than it waited on. |
+| `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
+| `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
-| `no_email` | `RefusedNoEmail` | For an application's resolver: the external identity carries no email address where one is required. |
+| `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or a standard account rule found no sign-in name to use as the username. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers
@@ -1142,9 +1178,9 @@ differences that follow from durability:
 - **The write path depends on the auth mode**, because the modes learn about users
   differently:
   - **Auth**: initial data is **per-call on `CreateSessionUser`**, written atomically
-    with the user insert, or written by the user resolver's `signin.Provision` hook in
-    the sign-in's transaction for a user it provisions. There is no login hook: an
-    identity's claims reach the resolver, which decides what to keep.
+    with the user insert, or written by a custom account rule's `signin.Provision` hook
+    in the sign-in's transaction for a user it provisions. There is no login hook: an
+    identity's claims reach the rule, which decides what to keep.
   - **Legacy password auth**: users are created explicitly, so initial data is **per-call on
     `CreateSessionUser`**, written atomically with the user insert. There is no
     login-time hook — password logins carry no claims.

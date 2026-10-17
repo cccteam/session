@@ -80,7 +80,7 @@ auth, err := session.NewAuth[MyData, UserData](store, cookieKey,
     session.WithCookieName("app_auth"), session.WithSessionTimeout(8*time.Hour))
 
 password := session.PasswordSignIn(auth, session.HashAlgorithm(alg))
-entra := azure.SignIn(auth, "azure", resolveEntraUser, &azure.Config{
+entra := azure.SignIn(auth, "azure", nil, &azure.Config{ // nil: the standard account rule decides first sign-ins
     IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
     RoleSync:  signin.RoleSync(userRoleManager), LoginURL: "/login",
 })
@@ -101,7 +101,7 @@ r.Group(func(r chi.Router) {
 })
 ```
 
-Two things every move shares:
+Three things every move shares:
 
 - **Users are managed by ID through `auth.API()`**: `CreateSessionUser`,
   `ChangeSessionUserUsername`, `SetSessionUserPassword`, `DeactivateSessionUser`,
@@ -109,6 +109,12 @@ Two things every move shares:
   `UnlinkIdentity`. The `Auth` has no user-management handlers of its own: the
   application writes them over the API and guards them, as it guarded the callers of
   the legacy handlers.
+- **An account rule of the application's own is optional.** The Entra and Google
+  methods apply a standard rule to an identity's first sign-in (`Config.Accounts`):
+  members of the directory get an account under their sign-in name by default, or only
+  pre-created users are linked with `signin.InvitedUsersOnly`. A rule given to `SignIn`
+  (`azure.AccountRule`, `google.AccountRule`) is for what the standard rule cannot know,
+  and may hand over to it with `signin.Standard()`.
 - **A sign-in policy is optional.** Without one, a valid credential or a resolved
   identity signs in on the library's checks, which is v0.12's behaviour. An
   application's own rule (`auth.SetSignInPolicy(rule)`) can deny a sign-in or hold it
@@ -200,19 +206,24 @@ ALTER TABLE OIDCUserData ADD CONSTRAINT FK_OIDCUserData_SessionUsers FOREIGN KEY
 
 | Legacy Azure type | Auth |
 | --- | --- |
-| `legacy.NewOIDCAzure[S, U](sessionstorage.NewSpannerOIDC(client, sessionstorage.WithOIDCUsers(), storeOptions...), session.RoleSync(m), cookieKey, issuerURL, clientID, clientSecret, redirectURL, legacy.WithLoginURL(url))` | `session.NewAuth[S, U](sessionstorage.NewSpannerAuth(client, storeOptions...), cookieKey, policy)`, then `entra := azure.SignIn(auth, "azure", resolve, &azure.Config{IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, RoleSync: signin.RoleSync(m), LoginURL: url})` |
+| `legacy.NewOIDCAzure[S, U](sessionstorage.NewSpannerOIDC(client, sessionstorage.WithOIDCUsers(), storeOptions...), session.RoleSync(m), cookieKey, issuerURL, clientID, clientSecret, redirectURL, legacy.WithLoginURL(url))` | `session.NewAuth[S, U](sessionstorage.NewSpannerAuth(client, storeOptions...), cookieKey, policy)`, then `entra := azure.SignIn(auth, "azure", nil, &azure.Config{IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, RoleSync: signin.RoleSync(m), LoginURL: url})` |
 | `oidc.Login()`, `oidc.CallbackOIDC()`, `oidc.FrontChannelLogout()` | `entra.Login()`, `entra.Callback()`, `entra.FrontChannelLogout()` |
-| The anchor's just-in-time provisioning (`WithOIDCUsers`) | The registration's user resolver. After the backfill every person the anchor knew is linked, so it runs for new people only; `signin.Provision(&signin.NewUser{Username: identity.PreferredUsername}, onProvisioned)` provisions them as the anchor did |
-| The custom user data login hook (`NewSpannerCustomUserData(table, hook)`) | `sessionstorage.NewCustomUserData[U](table)` has no hook. A new person's row is written in `onProvisioned`, in the sign-in's transaction (capture the transaction in the resolver's closure). A refresh from the claims on every sign-in moves to the sign-in policy, which runs on every sign-in with the transaction, `req.Identity` and `req.Claims` |
+| The anchor's just-in-time provisioning (`WithOIDCUsers`) | The registration's standard account rule, members of the directory: after the backfill every person the anchor knew is linked, so it provisions new people only, under `preferred_username` as the anchor did. A guest of the tenant is refused (`guest_account`), where the anchor provisioned them |
+| The custom user data login hook (`NewSpannerCustomUserData(table, hook)`) | `sessionstorage.NewCustomUserData[U](table)` has no hook. A new person's row is written by a custom rule's `signin.Provision` in `onProvisioned`, in the sign-in's transaction (capture the transaction in the rule's closure), as below. A refresh from the claims on every sign-in moves to the sign-in policy, which runs on every sign-in with the transaction, `req.Identity` and `req.Claims` |
 | The custom session data resolver over `req.Claims` | The same resolver, through `NewCustomSessionData`. `req.Claims` is still the raw verified claims; `req.Identity` is the decoded identity and `req.UserID` the user |
 | `API().OIDCUser(ctx, id)`, `API().OIDCUserByKey(ctx, tid, oid)` | `API().Identities(ctx, userID)` lists a user's identity links; the `(tid, oid)` pair is the Azure identity's `(Connection, Subject)` |
 
-The resolver that stands in for the anchor:
+A custom rule is needed only when a first sign-in must write the application's own
+rows, as the custom user data login hook did; it stands in for the anchor and the hook:
 
 ```go
-func resolveEntraUser(ctx context.Context, tx *spanner.ReadWriteTransaction, id *azure.Identity) (*signin.Resolution, error) {
+func entraAccountRule(ctx context.Context, tx *spanner.ReadWriteTransaction, id *azure.Identity) (*signin.Resolution, error) {
     // Every person the anchor knew was linked by the backfill, so this runs for a
     // first sign-in only. The anchor provisioned them under preferred_username.
+    if id.Guest {
+        return signin.Reject(sessioninfo.RefusedGuestAccount), nil
+    }
+
     return signin.Provision(&signin.NewUser{Username: id.PreferredUsername},
         func(ctx context.Context, userID ccc.UUID) error {
             // What the custom user data login hook wrote on a first login, in the
@@ -230,7 +241,7 @@ func resolveEntraUser(ctx context.Context, tx *spanner.ReadWriteTransaction, id 
 Register the method on an `Auth`:
 
 ```go
-workspace := google.SignIn(auth, "google", resolveWorkspaceUser, &google.Config{
+workspace := google.SignIn(auth, "google", nil, &google.Config{ // nil: the standard account rule decides first sign-ins
     ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
     Connection:    "example", // the application's name for the Workspace: a key, see the README
     HostedDomains: []string{"example.com"},
@@ -244,8 +255,8 @@ workspace := google.SignIn(auth, "google", resolveWorkspaceUser, &google.Config{
 `google.ParseGroupLookup` and `google.GroupLookup`.
 
 For the schema, start the group on the base and auth sets, under the group's table
-names or after dropping the v0.12 tables: the sessions end, and the resolver provisions
-each person at their first sign-in. There is no upgrade set and no backfill for the
+names or after dropping the v0.12 tables: the sessions end, and the standard account
+rule provisions each person at their first sign-in. There is no upgrade set and no backfill for the
 v0.12 Google tables.
 
 ### Table names
@@ -268,17 +279,19 @@ conflict by that name.
   included; a request naming another issuer in `iss` is refused. The legacy type ended
   every session carrying the username.
 - **Refusal codes.** The login page needs a sentence for the codes `Auth` adds:
-  `identity_rejected`, `policy_denied`, `user_disabled`, `pending_expired` and
-  `no_email`.
+  `identity_rejected`, `policy_denied`, `user_disabled`, `pending_expired`,
+  `no_email`, `not_invited` and `guest_account`.
 - **The pending flow** (`?pending=confirmation` or `?pending=mfa` on the login page)
-  exists only when the resolver or the policy asks for it. Without a policy that
-  answers `signin.RequireMFA`, and with a resolver that never answers `signin.Confirm`,
-  no page is needed for it.
-- **Linking across connections.** A resolver's `signin.Link(userID, false)` is refused
-  for a user who has a password (confirm with `signin.Confirm`) and for a user without
-  one when the identity comes through another connection than the ones that user
-  already signs in through; `trusted` links in both cases. The v0.12 types never
-  linked, so this only reaches resolvers written for `Auth`.
+  exists only when an account rule or the policy asks for it. The standard rules ask
+  for a confirmation when a pre-created user under the sign-in name has a password;
+  without such users, without a policy that answers `signin.RequireMFA`, and with a
+  custom rule that never answers `signin.Confirm`, no page is needed for it.
+- **Linking across connections.** A custom rule's `signin.Link(userID, false)` is
+  refused for a user who has a password (confirm with `signin.Confirm`) and for a user
+  without one when the identity comes through another connection than the ones that
+  user already signs in through; `trusted` links in both cases. A standard rule's match
+  of a pre-created user is such an untrusted link. The v0.12 types never linked, so
+  this only reaches rules written for `Auth`.
 - **Role synchronization** is unchanged.
 
 ### Rolling back

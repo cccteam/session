@@ -142,7 +142,7 @@ func testLinkedIdentitySignsIn(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 
 	if resolverCalls.Load() != 0 {
-		t.Errorf("the user resolver ran %d times for a linked identity, want 0", resolverCalls.Load())
+		t.Errorf("the account rule ran %d times for a linked identity, want 0", resolverCalls.Load())
 	}
 	if req.UserID != user.ID {
 		t.Errorf("req.UserID = %v, want the linked user %v", req.UserID, user.ID)

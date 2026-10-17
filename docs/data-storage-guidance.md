@@ -36,7 +36,7 @@ data have different *destinations*.
 | Stable identity anchor | `SessionUsers.Id` (UUID), whatever method signed the person in; every session carries it as `SessionData.UserID` | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
 | Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
 | Custom session data | resolver typed to the store's transaction (`NewCustomSessionData`), fed `req.UserID`, `req.User`, `req.Identity` and `req.Claims`; per-call on `StartAuthenticatedSession` | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
-| Custom user data | per-call on `CreateSessionUser`, or written by the user resolver's `signin.Provision` hook for a user it provisions; RMW `UpdateCustomUserData`; FK → `SessionUsers.Id` | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
+| Custom user data | per-call on `CreateSessionUser`, or written by a custom account rule's `signin.Provision` hook for a user it provisions; RMW `UpdateCustomUserData`; FK → `SessionUsers.Id` | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
 | Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
 
 **Auth sessions** (`NewAuth`, see the README's "Auth sessions" section) use the
@@ -51,7 +51,7 @@ off an identity's subject or email. Custom session data is resolved with `Reason
 a preauth stepping-stone row, which belongs to no user. A pending identity (a sign-in
 waiting for its confirmation or MFA) is a row of `SessionPendingSignIns`, not a
 session, and resolves no custom data until it completes. Custom user data works as for
-username/password; provision it in the user resolver's
+username/password; provision it in a custom account rule's
 `signin.Provision` hook, inside the session transaction.
 
 ## Patterns
@@ -111,11 +111,12 @@ must be the composite `(tid, oid)`. Two reasons:
    a user-linking feature the app builds on top, not something any claim
    gives you.
 
-### P-2: JIT-provision user data inside the resolver transaction
+### P-2: JIT-provision user data inside the account rule's transaction
 
 **Library-managed:** on `Auth`, a linked identity reaches its user with no lookup
-by the application, and an unlinked one goes through the registration's user resolver,
-whose `signin.Provision` creates the user and runs `onProvisioned` in the same
+by the application, and an unlinked one goes through the registration's account rules:
+the standard rule provisions the user alone, and a custom rule's
+`signin.Provision` creates the user and runs `onProvisioned` in the same
 transaction, where the application writes its own rows for it. On the legacy Azure
 type, with `WithOIDCUsers()` the pattern ships in the
 box — every OIDC login upserts the `OIDCUsers` anchor inside the session-insert

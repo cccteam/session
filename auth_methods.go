@@ -46,12 +46,14 @@ type methodHandlers struct {
 	changeUserPassword http.HandlerFunc
 }
 
-// externalMethod is a registered redirect-based method with the user resolver its
-// registration gave it.
+// externalMethod is a registered redirect-based method with the account rules its
+// registration gave it: the standard rule the core applies and the application's own,
+// either of which may be absent.
 type externalMethod[Tx any] struct {
 	*signin.Method
-	name    string
-	resolve signin.UserResolver[Tx]
+	name     string
+	standard signin.StandardAccountRule
+	rule     signin.AccountRule[Tx]
 }
 
 // signInMethods are an Auth's registered sign-in methods. Registration writes them
@@ -139,8 +141,9 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 // RegisterExternal registers a redirect-based sign-in method under its registration's
 // name and returns its handlers. It implements signin.Core: the method packages (azure,
 // google; workos under internal until v0.13.1) reach it through signin.Register, so an application never calls it
-// directly. It panics on a registration rule, as refuseRegistration documents, and when
-// the registration has no user resolver.
+// directly. It panics on a registration rule, as refuseRegistration documents, when
+// the registration has neither a standard account rule nor a custom one, and when it
+// names a standard rule that does not exist.
 func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.Handlers {
 	if a == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil *Auth: pass the Auth NewAuth returned", reg.Method))
@@ -150,8 +153,13 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	defer a.methods.mu.Unlock()
 
 	a.refuseRegistration(reg.Name, reg.Method, reg.Err)
-	if reg.Resolve == nil {
-		panic(fmt.Sprintf("session: the %s sign-in method links external identities and needs a user resolver: pass one to its registration", reg.Method))
+	switch {
+	case reg.StandardRule == "" && reg.AccountRule == nil:
+		panic(fmt.Sprintf("session: the %s sign-in method links external identities and needs an account rule: it has no standard rule, so pass one to its registration", reg.Method))
+	case reg.StandardRule != "":
+		if err := reg.StandardRule.Validate(); err != nil {
+			panic(fmt.Errorf("session: the %s sign-in method: Accounts: %w", reg.Method, err))
+		}
 	}
 	if reg.FrontChannelLogout && reg.Issuers == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method asks for a front-channel logout handler without declaring its issuers: set Registration.Issuers", reg.Method))
@@ -161,7 +169,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
 	}
 	a.methods.registered[reg.Name] = true
-	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, resolve: reg.Resolve}
+	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, standard: reg.StandardRule, rule: reg.AccountRule}
 
 	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(reg.Name, reg.Issuers, m))}
 	if reg.FrontChannelLogout {

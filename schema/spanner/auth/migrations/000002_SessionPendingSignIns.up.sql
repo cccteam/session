@@ -14,6 +14,8 @@ CREATE TABLE SessionPendingSignIns (
     EmailVerified BOOL NOT NULL,
     IdpAmr        ARRAY<STRING(MAX)>,
     Claims        BYTES(MAX),
+    SignInName    STRING(MAX) NOT NULL,
+    Guest         BOOL NOT NULL,
     UserId        STRING(36),
     Username      STRING(MAX) NOT NULL,
     Tenant        STRING(MAX) NOT NULL,
