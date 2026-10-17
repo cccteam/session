@@ -772,6 +772,62 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
+			name: "an Azure tenant list with no tenant",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "Tenants is required",
+		},
+		{
+			name: "an Azure tenant listed twice",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantLake)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "Tenants: the tenant \"" + tenantLake + "\" is listed twice",
+		},
+		{
+			name: "an Azure tenant name used twice",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(azure.NamedTenant(tenantLake, "lakeside"), azure.NamedTenant(tenantRiver, "lakeside")), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: `Tenants: the name "lakeside" is used twice`,
+		},
+		{
+			name: "an Azure method synchronizing roles across listed tenants",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
+		},
+		{
+			name: "an Azure method synchronizing roles for personal accounts",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
+		},
+		{
+			name: "the Azure method with open sign-up on listed tenants",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
+			},
+			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
+		},
+		{
+			name: "an Azure method admitting personal accounts as members of the directory with no rule of its own",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
+		},
+		{
+			name: "an Azure role sync slot without a manager",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(nil), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "signin.RoleSync() requires a non-nil UserRoleManager",
+		},
+		{
 			name: "a Google method without its Workspaces",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback"})
@@ -812,6 +868,76 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
 			},
 			wantHas: "would sign up the world",
+		},
+		{
+			name: "a Google Workspace list with no Workspace",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces()})
+			},
+			wantHas: "Workspaces is required",
+		},
+		{
+			name: "a Google Workspace name used twice",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("lakeside", "example.org"))})
+			},
+			wantHas: `Workspaces: the name "lakeside" is used twice`,
+		},
+		{
+			name: "a value that is not a Google domain name",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "not a domain")})
+			},
+			wantHas: `Workspaces: "not a domain" is not a domain name`,
+		},
+		{
+			name: "a Google method synchronizing roles across listed Workspaces",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
+		},
+		{
+			name: "a Google method synchronizing roles for any Google account",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount(), Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
+		},
+		{
+			name: "the Google method with open sign-up on listed Workspaces",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.OpenSignUp})
+			},
+			wantHas: "Accounts: open sign-up is for any Workspace or any Google account",
+		},
+		{
+			name: "a Google method admitting any Workspace as members of the directory with no rule of its own",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace()})
+			},
+			wantHas: "Accounts: members of the directory with any Workspace or any Google account would sign up the world",
+		},
+		{
+			name: "a Google method without its role sync slot",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
+			},
+			wantHas: "roleSync is required: pass google.RoleSync(manager, groupPrefix, lookup) or google.DisableRoleSync()",
+		},
+		{
+			name: "a Google role sync slot without a manager",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(nil, "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
+			},
+			wantHas: "google.RoleSync() requires a non-nil UserRoleManager",
+		},
+		{
+			name: "a Google role sync slot without a group prefix",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
+			},
+			wantHas: "google.RoleSync() requires a non-empty groupPrefix",
 		},
 		{
 			name:     "a method registered on a nil Auth",

@@ -328,7 +328,8 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 - **A registration without an account rule**: a WorkOS registration with a nil `rule`
   (WorkOS has no standard rule), or a registration naming a standard rule that does not
   exist.
-- **A misconfigured method**: Azure or Google without its role sync slot; an Azure
+- **A misconfigured method**: Azure or Google without its role sync slot, or with a slot
+  missing its manager (or, for Google, its group prefix or lookup); an Azure
   registration without its `Tenants`, a tenant id that is not a GUID, Microsoft's
   consumer tenant listed as a tenant, a tenant listed twice or a name used twice, or an
   `Authority` that is not a base URL; a Google registration without its `Workspaces`, a
