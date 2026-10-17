@@ -28,6 +28,9 @@ func (o spannerCustomSessionDataOption) applySpanner(driver *spanner.SessionStor
 // resolver runs inside the session-insert transaction once per session creation, and
 // a resolver error aborts the session creation; rows are scanned into T on every
 // authenticated request (a session with no custom data row yields a zero-value T).
+//
+// Deprecated: it attaches the legacy stores' custom session data and leaves with them;
+// an Auth store attaches its one configuration with Auth.WithCustomSessionData.
 func WithSpannerCustomSessionData[T any](config *SpannerCustomSessionData[T]) SpannerOption {
 	return spannerCustomSessionDataOption{config: config.driverConfig()}
 }
@@ -45,6 +48,9 @@ func (o postgresCustomSessionDataOption) applyPostgres(driver *postgres.SessionS
 // resolver runs inside the session-insert transaction once per session creation, and
 // a resolver error aborts the session creation; rows are scanned into T on every
 // authenticated request (a session with no custom data row yields a zero-value T).
+//
+// Deprecated: it attaches the legacy stores' custom session data and leaves with them;
+// an Auth store attaches its one configuration with Auth.WithCustomSessionData.
 func WithPostgresCustomSessionData[T any](config *PostgresCustomSessionData[T]) PostgresOption {
 	return postgresCustomSessionDataOption{config: config.driverConfig()}
 }
@@ -61,6 +67,9 @@ func (o spannerCustomUserDataOption) applySpanner(driver *spanner.SessionStorage
 // NewSpannerCustomUserData) to Spanner-backed storage. Custom user data lives and dies
 // with the user record and is read on demand — it never enters the per-request session
 // read. For OIDC storage it requires the OIDC user anchor (WithOIDCUsers).
+//
+// Deprecated: it attaches the legacy stores' custom user data and leaves with them; an
+// Auth store attaches its one configuration with Auth.WithCustomUserData.
 func WithSpannerCustomUserData[U any](config *SpannerCustomUserData[U]) SpannerOption {
 	return spannerCustomUserDataOption{config: config.driverConfig()}
 }
@@ -77,6 +86,9 @@ func (o postgresCustomUserDataOption) applyPostgres(driver *postgres.SessionStor
 // NewPostgresCustomUserData) to PostgreSQL-backed storage. Custom user data lives and
 // dies with the user record and is read on demand — it never enters the per-request
 // session read. For OIDC storage it requires the OIDC user anchor (WithOIDCUsers).
+//
+// Deprecated: it attaches the legacy stores' custom user data and leaves with them; an
+// Auth store attaches its one configuration with Auth.WithCustomUserData.
 func WithPostgresCustomUserData[U any](config *PostgresCustomUserData[U]) PostgresOption {
 	return postgresCustomUserDataOption{config: config.driverConfig()}
 }
@@ -100,6 +112,8 @@ func (oidcUsersOption) applyPostgres(driver *postgres.SessionStorageDriver) { dr
 // NewSessionRequest.UserID carries the anchor record's ID into custom session data
 // resolvers and custom user data hooks. It is required for custom user data on OIDC
 // storage, and is OIDC-only. See the "OIDC user anchor" section of the README.
+//
+// Deprecated: the OIDC user anchor serves the legacy OIDCAzure session type only (package legacy) and leaves with it; Auth users are SessionUsers records that external identities link to.
 func WithOIDCUsers() Option {
 	return oidcUsersOption{}
 }

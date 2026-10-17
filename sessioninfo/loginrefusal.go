@@ -45,12 +45,15 @@ const (
 	// RefusedClaimsParse is the code for a verified ID token whose claims would not
 	// decode.
 	RefusedClaimsParse LoginRefusalCode = "parse_claims_failed"
-	// RefusedNotWorkspaceMember is the code for a Google account outside the Workspace
+	// RefusedNotWorkspaceMember is the code for a Google user outside the Workspace
 	// domain the application restricts logins to.
 	RefusedNotWorkspaceMember LoginRefusalCode = "not_workspace_member"
-	// RefusedEmailNotVerified is the code for a Google account whose email address is
+	// RefusedEmailNotVerified is the code for a Google user whose email address is
 	// not verified.
 	RefusedEmailNotVerified LoginRefusalCode = "email_not_verified"
+	// RefusedOrganizationMismatch is the code for a WorkOS profile that belongs to
+	// another organization than the login requested.
+	RefusedOrganizationMismatch LoginRefusalCode = "organization_mismatch"
 	// RefusedNoRoles is the code for a login that role synchronization left with no
 	// recognized role.
 	RefusedNoRoles LoginRefusalCode = "no_roles"

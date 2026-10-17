@@ -26,9 +26,9 @@ type testBadIdentifierData struct {
 	Role string `spanner:"bad name" db:"bad name"`
 }
 
+// testNoFieldsData has no persistable field: its only field is skipped by both tags.
 type testNoFieldsData struct {
-	//nolint:unused // exercises the no-persistable-fields error
-	role string
+	Role string `spanner:"-" db:"-"`
 }
 
 // customSessionDataView is the common read surface of the generic Spanner/Postgres
@@ -175,7 +175,7 @@ func TestCustomSessionData_DriverConfig(t *testing.T) {
 
 				cfg, err := NewSpannerCustomSessionData("SessionCustomData",
 					func(_ context.Context, _ *cloudspanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest) (*testTypedData, error) {
-						return nil, nil //nolint:nilnil // typed-nil crossing is the behavior under test
+						return nil, nil
 					})
 				if err != nil {
 					t.Fatalf("NewSpannerCustomSessionData() error = %v", err)

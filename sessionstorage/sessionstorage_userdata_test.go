@@ -44,7 +44,7 @@ func TestSessionStorage_CustomUserData(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
 			tt.prepare(mockDB)
-			storage := &PasswordAuth{sessionStorage: sessionStorage{db: mockDB}}
+			storage := &PasswordAuth{userStorage: userStorage{sessionStorage: sessionStorage{db: mockDB}}}
 
 			got, err := storage.CustomUserData(context.Background(), userID)
 			if (err != nil) != tt.wantErr {
@@ -121,13 +121,13 @@ func TestSessionStorage_UserDataProbesDelegate(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := NewMockdb(ctrl)
-	storage := &PasswordAuth{sessionStorage: sessionStorage{db: mockDB}}
+	storage := &PasswordAuth{userStorage: userStorage{sessionStorage: sessionStorage{db: mockDB}}}
 
 	uType := reflect.TypeFor[testUserData]()
 	mockDB.EXPECT().CustomUserDataType().Return(uType)
 	mockDB.EXPECT().UserDataLoginHookConfigured().Return(true)
 	mockDB.EXPECT().OIDCUsersEnabled().Return(true)
-	mockDB.EXPECT().SetOIDCUserTableName("MyOIDCUsers")
+	mockDB.EXPECT().SetOIDCUserTableName("MyOIDCUsers").Return(nil)
 
 	if got := storage.CustomUserDataType(); got != uType {
 		t.Errorf("CustomUserDataType() = %v, want %v", got, uType)
@@ -138,7 +138,9 @@ func TestSessionStorage_UserDataProbesDelegate(t *testing.T) {
 	if !storage.OIDCUsersEnabled() {
 		t.Error("OIDCUsersEnabled() = false, want true")
 	}
-	storage.SetOIDCUserTableName("MyOIDCUsers")
+	if err := storage.SetOIDCUserTableName("MyOIDCUsers"); err != nil {
+		t.Errorf("SetOIDCUserTableName() error = %v", err)
+	}
 }
 
 func TestOIDC_OIDCUserReadsDelegate(t *testing.T) {
@@ -181,7 +183,7 @@ func TestPasswordAuth_CreateUser_CustomDataPassthrough(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	mockDB := NewMockdb(ctrl)
-	storage := &PasswordAuth{sessionStorage: sessionStorage{db: mockDB}}
+	storage := &PasswordAuth{userStorage: userStorage{sessionStorage: sessionStorage{db: mockDB}}}
 
 	mockDB.EXPECT().
 		CreateUser(gomock.Any(), &dbtype.InsertSessionUser{Username: "user"}, data).

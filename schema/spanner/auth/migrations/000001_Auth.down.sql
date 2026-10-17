@@ -1,0 +1,11 @@
+DROP TABLE SessionAuthEvents;
+DROP INDEX SessionIdentitiesByUserId;
+DROP INDEX SessionIdentitiesByKey;
+DROP TABLE SessionIdentities;
+DROP INDEX SessionsByProviderSessionId;
+DROP INDEX SessionsByUserId;
+ALTER TABLE Sessions DROP CONSTRAINT FK_Sessions_SessionUsers;
+ALTER TABLE Sessions DROP COLUMN ProviderSessionIssuer;
+ALTER TABLE Sessions DROP COLUMN ProviderSessionId;
+ALTER TABLE Sessions DROP COLUMN AuthenticatedAt;
+ALTER TABLE Sessions DROP COLUMN UserId;

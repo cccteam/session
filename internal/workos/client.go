@@ -1,0 +1,249 @@
+// Package workos is the WorkOS SSO sign-in method: a client for the Standalone SSO authorization code
+// flow.
+//
+// WorkOS brokers the upstream identity provider (SAML or OIDC) and returns a normalized
+// profile from a server-to-server code exchange. There is no ID token to verify locally.
+// The exchange, made over TLS with the secret API key, is what vouches for the profile.
+//
+// The package is internal in v0.13.0, until its review; it returns to the public API
+// unchanged in v0.13.1.
+package workos
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
+	"github.com/go-playground/errors/v5"
+	"github.com/gofrs/uuid"
+)
+
+var _ Authenticator = &Client{}
+
+const (
+	// DefaultBaseURL is the WorkOS API.
+	DefaultBaseURL  = "https://api.workos.com"
+	defaultLoginURL = "/login"
+	// maxProfileBytes bounds the token response read from WorkOS.
+	maxProfileBytes = 1 << 20
+)
+
+// Authenticator is the WorkOS SSO flow the session layer drives.
+type Authenticator interface {
+	// AuthorizationURL writes the state cookie and returns the URL that starts SSO for
+	// the WorkOS organization.
+	AuthorizationURL(ctx context.Context, w http.ResponseWriter, organization, returnURL string) (string, error)
+	// Verify checks the callback against the state cookie, exchanges its code for the
+	// profile, refuses a profile from another organization than the login requested,
+	// and returns the sanitized return URL, the decoded profile and the raw profile
+	// JSON exactly as WorkOS returned it.
+	Verify(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, profile *Profile, rawProfile json.RawMessage, err error)
+	// LoginURL is where a refused or pending login is sent.
+	LoginURL() string
+}
+
+// Profile is the normalized user profile WorkOS returns from the code exchange.
+type Profile struct {
+	// ID is the WorkOS profile ID.
+	ID string `json:"id"`
+	// IDPID is the user's identifier asserted by the upstream IdP. For SAML it is the
+	// NameID unless WorkOS maps idp_id to another attribute. It is unique only within
+	// the connection.
+	IDPID          string `json:"idp_id"`
+	ConnectionID   string `json:"connection_id"`
+	ConnectionType string `json:"connection_type"`
+	OrganizationID string `json:"organization_id"`
+	Email          string `json:"email"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+}
+
+// Client implements Authenticator for WorkOS Standalone SSO.
+type Client struct {
+	cookies     signin.StateCookies
+	httpClient  *http.Client
+	baseURL     string
+	apiKey      string
+	clientID    string
+	redirectURL string
+	loginURL    string
+}
+
+// NewClient returns a WorkOS SSO Authenticator. apiKey is the secret API key, used only for
+// the code exchange.
+func NewClient(cookies signin.StateCookies, apiKey, clientID, redirectURL string) *Client {
+	return &Client{
+		cookies:     cookies,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		baseURL:     DefaultBaseURL,
+		apiKey:      apiKey,
+		clientID:    clientID,
+		redirectURL: redirectURL,
+	}
+}
+
+// SetBaseURL sets the WorkOS API base URL. (default: https://api.workos.com)
+func (c *Client) SetBaseURL(u string) {
+	c.baseURL = strings.TrimSuffix(u, "/")
+}
+
+// SetLoginURL sets the URL a refused or pending login is sent to.
+func (c *Client) SetLoginURL(u string) {
+	c.loginURL = u
+}
+
+// LoginURL returns the URL a refused or pending login is sent to. (default: /login)
+func (c *Client) LoginURL() string {
+	if c.loginURL == "" {
+		return defaultLoginURL
+	}
+
+	return c.loginURL
+}
+
+// AuthorizationURL returns the URL that starts SSO for the given WorkOS organization ID,
+// after writing the registration's state cookie that binds the callback to this browser
+// and carries the organization, so Verify refuses a profile from another.
+func (c *Client) AuthorizationURL(_ context.Context, w http.ResponseWriter, organization, returnURL string) (string, error) {
+	if strings.TrimSpace(organization) == "" {
+		return "", httpio.NewBadRequestMessage("organization is required")
+	}
+
+	// A random state protects the callback against CSRF.
+	state, err := uuid.NewV4()
+	if err != nil {
+		return "", errors.Wrap(err, "uuid.NewV4()")
+	}
+
+	cval := cookie.NewValues().
+		SetString(internalcookie.OIDCState, state.String()).
+		SetString(internalcookie.WorkOSOrganization, organization).
+		SetString(internalcookie.ReturnURL, returnURL)
+
+	c.cookies.WriteStateCookie(w, cval)
+
+	q := url.Values{}
+	q.Set("client_id", c.clientID)
+	q.Set("redirect_uri", c.redirectURL)
+	q.Set("response_type", "code")
+	q.Set("organization", organization)
+	q.Set("state", state.String())
+
+	return c.baseURL + "/sso/authorize?" + q.Encode(), nil
+}
+
+// Verify validates the SSO callback request and exchanges its code for the user's
+// profile, which must belong to the organization the login requested
+// (organization_mismatch otherwise). Every failure is a sessioninfo.LoginRefusal. It
+// returns the sanitized URL to send the browser to after sign-in, the decoded profile,
+// and the raw profile JSON exactly as WorkOS returned it (including raw_attributes).
+func (c *Client) Verify(ctx context.Context, w http.ResponseWriter, r *http.Request) (returnURL string, profile *Profile, rawProfile json.RawMessage, err error) {
+	cval, cookieName, err := c.cookies.ReadStateCookie(r)
+	if err != nil {
+		return "", nil, nil, errors.Wrap(err, "cookie.Client.ReadStateCookie()")
+	}
+	if cookieName == "" {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No SSO cookie"))
+	}
+	c.cookies.DeleteStateCookie(w, cookieName)
+
+	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
+
+	state, err := cval.GetString(internalcookie.OIDCState)
+	if err != nil || state == "" || r.URL.Query().Get("state") != state {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
+	}
+
+	// WorkOS reports a failed or canceled upstream sign-in on the callback itself.
+	if e := r.URL.Query().Get("error"); e != "" {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange,
+			httpio.NewUnauthorizedMessageWithError(errors.Newf("%s: %s", e, r.URL.Query().Get("error_description")), "SSO failed"))
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange, httpio.NewBadRequestMessage("Missing 'code' parameter"))
+	}
+
+	rawProfile, err = c.exchange(ctx, code)
+	if err != nil {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange, err)
+	}
+
+	profile = &Profile{}
+	if err := json.Unmarshal(rawProfile, profile); err != nil {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse SSO profile"))
+	}
+	if profile.ConnectionID == "" || profile.IDPID == "" {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedClaimsParse, httpio.NewInternalServerErrorMessage("SSO profile is missing connection_id or idp_id"))
+	}
+	// The profile must belong to the organization the login asked for, as WorkOS's own
+	// guidance requires: it is what lets an application tie a tenant to its login URL.
+	if organization, _ := cval.GetString(internalcookie.WorkOSOrganization); organization == "" || profile.OrganizationID != organization {
+		return "", nil, nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationMismatch, httpio.NewForbiddenMessage("SSO profile does not belong to the requested organization"))
+	}
+
+	return returnURL, profile, rawProfile, nil
+}
+
+// tokenRequest is the body of POST /sso/token.
+type tokenRequest struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	GrantType    string `json:"grant_type"`
+	Code         string `json:"code"`
+}
+
+// exchange trades the authorization code for the profile, returning the raw profile JSON.
+func (c *Client) exchange(ctx context.Context, code string) (json.RawMessage, error) {
+	// WorkOS authenticates the exchange by the API key in the JSON body.
+	request := tokenRequest{ClientID: c.clientID, ClientSecret: c.apiKey, GrantType: "authorization_code", Code: code}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, errors.Wrap(err, "json.Marshal()")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/sso/token", bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.Wrap(err, "http.NewRequestWithContext()")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, httpio.NewInternalServerErrorMessageWithError(err, "Failed to exchange code")
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxProfileBytes))
+	if err != nil {
+		return nil, httpio.NewInternalServerErrorMessageWithError(err, "Failed to read token response")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, httpio.NewInternalServerErrorMessageWithError(errors.Newf("status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody)), "Failed to exchange code")
+	}
+
+	var tokenResp struct {
+		Profile json.RawMessage `json:"profile"`
+	}
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return nil, httpio.NewInternalServerErrorMessageWithError(err, "Failed to parse token response")
+	}
+	if len(tokenResp.Profile) == 0 || string(tokenResp.Profile) == "null" {
+		return nil, httpio.NewInternalServerErrorMessage("No profile in token response")
+	}
+
+	return tokenResp.Profile, nil
+}

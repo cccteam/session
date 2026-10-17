@@ -1,0 +1,3 @@
+DROP INDEX SessionPendingSignInsByExpiresAt;
+DROP INDEX SessionPendingSignInsByTokenHash;
+DROP TABLE SessionPendingSignIns;

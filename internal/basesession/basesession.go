@@ -44,6 +44,18 @@ type BaseSession struct {
 	Handle            LogHandler
 	Storage           sessionstorage.BaseStore
 	CookieHandler     internalcookie.Handler
+	// TableNames are the table names the session options set, in order. The
+	// constructor hands each to its store setter, which validates it, and reports a
+	// refusal under the option's name.
+	TableNames []TableName
+}
+
+// TableName is a table name a session option set: the option's name for the error, the
+// name, and the store setter that takes and validates it.
+type TableName struct {
+	Option string
+	Name   string
+	Set    func(name string) error
 }
 
 // StartSession initializes a session by restoring it from a cookie, or if
@@ -310,12 +322,9 @@ func (s *BaseSession) SetXSRFToken(next http.Handler) http.Handler {
 		if set && !internalcookie.SafeMethods.Contain(r.Method) {
 			// Cookie was not present and request requires XSRF Token, so
 			// redirect request to try again now that the XSRF Token Cookie is set.
-			// Sanitized because a crafted "//host/path" request URI would otherwise
-			// become a scheme-relative redirect off-site: SanitizeReturnURL keeps only a
-			// path on this site and answers "/" for anything else, so the target cannot
-			// leave the site.
-			// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
-			http.Redirect(w, r, internalcookie.SanitizeReturnURL(r.RequestURI), http.StatusTemporaryRedirect)
+			// The request URI is sanitized so a crafted "//host/path" cannot redirect
+			// off-site.
+			internalcookie.RedirectToReturnURL(w, r.RequestURI, http.StatusTemporaryRedirect)
 
 			return nil
 		}

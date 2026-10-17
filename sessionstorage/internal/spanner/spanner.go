@@ -26,15 +26,20 @@ type SessionStorageDriver struct {
 	spanner          *spanner.Client
 	sessionTableName string
 	userTableName    string
-	// oidcUserTableName names the OIDC user anchor table for the driver's provider:
-	// OIDCUsers (Azure) or GoogleOIDCUsers (Google). A driver serves exactly one
-	// provider, fixed at construction.
+	// oidcUserTableName names the OIDC user anchor table: OIDCUsers unless
+	// SetOIDCUserTableName renames it.
 	oidcUserTableName string
 	oidcUsersEnabled  bool
-	googleOIDC        bool
 	customData        *CustomSessionDataConfig
 	customUserData    *CustomUserDataConfig
 	impersonation     *ImpersonationConfig
+	// users enables the auth schema's session columns (UserId, AuthenticatedAt).
+	users      bool
+	authEvents *AuthEventsConfig
+	// identitiesTableName names the auth schema's identities table.
+	identitiesTableName string
+	// pendingTableName names the auth schema's pending sign-ins table.
+	pendingTableName string
 }
 
 // expiredColumnName is the session table's Expired column.
@@ -43,34 +48,65 @@ const expiredColumnName = "Expired"
 // NewSessionStorageDriver creates a new SessionStorageDriver
 func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	return &SessionStorageDriver{
-		spanner:           client,
-		sessionTableName:  "Sessions",
-		userTableName:     "SessionUsers",
-		oidcUserTableName: "OIDCUsers",
+		spanner:             client,
+		sessionTableName:    "Sessions",
+		userTableName:       "SessionUsers",
+		oidcUserTableName:   "OIDCUsers",
+		identitiesTableName: "SessionIdentities",
+		pendingTableName:    "SessionPendingSignIns",
 	}
 }
 
-// NewGoogleSessionStorageDriver creates a SessionStorageDriver whose OIDC provider is
-// Google: the user anchor is the Sub-keyed GoogleOIDCUsers table and sessions are
-// inserted without an OidcSid (Google issues no sid claim).
-func NewGoogleSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
-	return &SessionStorageDriver{
-		spanner:           client,
-		sessionTableName:  "Sessions",
-		userTableName:     "SessionUsers",
-		oidcUserTableName: "GoogleOIDCUsers",
-		googleOIDC:        true,
+// SetSessionTableName sets the name of the session table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetSessionTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
 	}
-}
-
-// SetSessionTableName sets the name of the session table.
-func (s *SessionStorageDriver) SetSessionTableName(name string) {
 	s.sessionTableName = name
+
+	return nil
 }
 
-// SetUserTableName sets the name of the user table.
-func (s *SessionStorageDriver) SetUserTableName(name string) {
+// SetUserTableName sets the name of the user table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetUserTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.userTableName = name
+
+	return nil
+}
+
+// usernameIndex is the unique index on the user table's normalized username, named
+// after the table as the shipped DDL names it (<UserTable>ByNormalizedUsername). A group under
+// its own table names keeps the pattern, so a conflict on it still reads as a username
+// conflict.
+func (s *SessionStorageDriver) usernameIndex() string {
+	return s.userTableName + "ByNormalizedUsername"
+}
+
+// SetIdentitiesTableName sets the name of the identities table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetIdentitiesTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.identitiesTableName = name
+
+	return nil
+}
+
+// SetPendingSignInsTableName sets the name of the pending sign-ins table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetPendingSignInsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.pendingTableName = name
+
+	return nil
 }
 
 // Session returns the session information from the database for given sessionID
@@ -78,8 +114,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// With auth events the session row and its events are read at one timestamp.
+	txn := s.spanner.Single()
+	if s.authEvents != nil {
+		txn = s.spanner.ReadOnlyTransaction()
+		defer txn.Close()
+	}
+
 	qryStmt := s.sessionQuery(sessionID)
-	iter := s.spanner.Single().Query(ctx, qryStmt)
+	iter := txn.Query(ctx, qryStmt)
 	defer iter.Stop()
 
 	row, err := iter.Next()
@@ -114,6 +157,14 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 
 	sessData := &dbtype.SessionData{Session: session}
 
+	if s.users {
+		next, err := readUser(row, idx, sessData)
+		if err != nil {
+			return nil, err
+		}
+		idx = next
+	}
+
 	if s.customData != nil {
 		data, next, err := s.readCustomData(row, idx)
 		if err != nil {
@@ -129,6 +180,15 @@ func (s *SessionStorageDriver) Session(ctx context.Context, sessionID ccc.UUID) 
 			return nil, err
 		}
 		sessData.Impersonation = imp
+	}
+
+	if s.authEvents != nil {
+		iter.Stop()
+		events, err := s.readAuthEvents(ctx, txn, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		sessData.AuthEvents = events
 	}
 
 	return sessData, nil
@@ -178,7 +238,7 @@ func (s *SessionStorageDriver) readCustomData(row *spanner.Row, idx int) (data a
 	return data, idx, nil
 }
 
-// UpdateSessionActivity updates the session activity column with the current time
+// UpdateSessionActivity moves the session's UpdatedAt to the database's time at commit.
 func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -188,7 +248,7 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:        sessionID,
-		UpdatedAt: time.Now(),
+		UpdatedAt: spanner.CommitTimestamp,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.sessionTableName, sessionUpdate)
@@ -221,20 +281,13 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
-	}
-
-	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+		return ccc.NilUUID, err
 	}
+	mutations := append([]*spanner.Mutation{sessionMutation}, s.initialAuthEventMutations(id, req, nil)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -336,30 +389,26 @@ func (s *SessionStorageDriver) DestroySession(ctx context.Context, sessionID ccc
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
-
 	// A session that does not exist updates no row and is not an error: a browser can
 	// return with old state, and refusing it would be noise.
 	expireSession := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE Id = @id
 	`, s.sessionTableName))
 	expireSession.Params["id"] = sessionID
-	expireSession.Params["now"] = now
 	statements := []spanner.Statement{expireSession}
 
-	// The row and its impersonation record, if any, end together: a live record on
-	// an expired row would misreport the end, and an ended record on a live row must
-	// never exist.
+	// The row and its impersonation record, if any, end together, at the one commit
+	// time: a live record on an expired row would misreport the end, and an ended
+	// record on a live row must never exist.
 	if s.impersonation != nil {
 		endRecord := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET EndedAt = @now, EndReason = @reason
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 			WHERE SessionId = @id AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 		endRecord.Params["id"] = sessionID
-		endRecord.Params["now"] = now
 		endRecord.Params["reason"] = string(sessioninfo.ImpersonationEndedByLogout)
 		statements = append(statements, endRecord)
 	}
@@ -441,22 +490,11 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	id, err := ccc.NewUUID()
+	user, mutation, err := newUserMutation(s.userTableName, insertUser)
 	if err != nil {
-		return nil, errors.Wrap(err, "ccc.NewUUID()")
+		return nil, err
 	}
-
-	user := &dbtype.SessionUser{
-		ID:           id,
-		Username:     insertUser.Username,
-		PasswordHash: insertUser.PasswordHash,
-		Disabled:     insertUser.Disabled,
-	}
-
-	mutation, err := spanner.InsertStruct(s.userTableName, user)
-	if err != nil {
-		return nil, errors.Wrap(err, "spanner.InsertStruct()")
-	}
+	id := user.ID
 
 	mutations := []*spanner.Mutation{mutation}
 	if customData != nil {
@@ -472,7 +510,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 
@@ -519,21 +557,20 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 		}
 
 		// A live role-principal impersonation by a foreign actor carrying this name belongs
-		// to that actor, not to the renamed account, and keeps the name its record names.
+		// to that actor, not to the renamed user, and keeps the name its record names.
 		sessionsStmt := spanner.NewStatement(fmt.Sprintf(`
 				UPDATE %s s
-				SET Username = @newUsername, UpdatedAt = @updatedAt
+				SET Username = @newUsername, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 				WHERE s.Username = @oldUsername AND s.Expired = FALSE AND NOT %s
 		`, s.sessionTableName, s.foreignRolePrincipalRecord()))
 		sessionsStmt.Params["oldUsername"] = oldUsername
 		sessionsStmt.Params["newUsername"] = newUsername
-		sessionsStmt.Params["updatedAt"] = time.Now()
 
 		if _, err := txn.Update(ctx, sessionsStmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 
-		// The live impersonations this account holds as a local actor follow the rename, so
+		// The live impersonations this user holds as a local actor follow the rename, so
 		// they stay reachable by the new name; ended records keep the name of their time.
 		if s.impersonation != nil {
 			recordsStmt := spanner.NewStatement(fmt.Sprintf(`
@@ -556,7 +593,7 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), "SessionUsersByNormalizedUsername") {
+		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 
@@ -566,17 +603,37 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID ccc.U
 	return nil
 }
 
-// SetUserPasswordHash updates the user password hash
+// passwordHashValue renders a password hash column value: NULL for a password-less
+// user. securehash.Hash encodes itself with a value receiver, which panics on the nil
+// pointer a password-less user carries, so the driver encodes it here.
+func passwordHashValue(hash *securehash.Hash) (spanner.NullString, error) {
+	if hash == nil {
+		return spanner.NullString{}, nil
+	}
+
+	b, err := hash.MarshalText()
+	if err != nil {
+		return spanner.NullString{}, errors.Wrap(err, "securehash.Hash.MarshalText()")
+	}
+
+	return spanner.NullString{StringVal: string(b), Valid: true}, nil
+}
+
+// SetUserPasswordHash updates the user password hash; a nil hash removes the password.
 func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID ccc.UUID, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	passwordHash, err := passwordHashValue(hash)
+	if err != nil {
+		return err
+	}
 	passwordUpdate := struct {
-		ID           ccc.UUID         `spanner:"Id"`
-		PasswordHash *securehash.Hash `spanner:"PasswordHash"`
+		ID           ccc.UUID           `spanner:"Id"`
+		PasswordHash spanner.NullString `spanner:"PasswordHash"`
 	}{
 		ID:           userID,
-		PasswordHash: hash,
+		PasswordHash: passwordHash,
 	}
 
 	mutation, err := spanner.UpdateStruct(s.userTableName, passwordUpdate)
@@ -624,7 +681,8 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id ccc.UUID) 
 	return nil
 }
 
-// DeleteUser deletes a user
+// DeleteUser deletes a user. On the auth schema, the user's identity links are
+// deleted with it, in the same transaction.
 func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -635,6 +693,14 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id ccc.UUID) erro
 	stmt.Params["id"] = id
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if s.users {
+			links := spanner.NewStatement(fmt.Sprintf(`DELETE FROM %s WHERE UserId = @userId`, s.identitiesTableName))
+			links.Params["userId"] = id.String()
+			if _, err := txn.Update(ctx, links); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+		}
+
 		if deleteCount, err := txn.Update(ctx, stmt); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		} else if deleteCount == 0 {
@@ -684,38 +750,39 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	now := time.Now()
-
 	// Every session under the name is this user's — their own, a user-principal
 	// impersonation of them, a role-principal session they hold as a local actor — except
 	// a foreign actor's role-principal session, which only borrows the name. The sessions
 	// this user holds as a local actor under other names go too.
-	stmt := spanner.NewStatement(fmt.Sprintf(`
-			UPDATE %s s
-			SET Expired = TRUE, UpdatedAt = @updatedAt
+	//
+	// The sessions are selected first and expired by id: the selection reads the records
+	// while they are still live, and once a statement has written the commit timestamp
+	// to a table, nothing later in the transaction may read that table.
+	selectSessions := spanner.NewStatement(fmt.Sprintf(`
+			SELECT s.Id, s.Expired
+			FROM %s s
 			WHERE (s.Username = @username AND NOT %s) OR %s
 	`, s.sessionTableName, s.foreignRolePrincipalRecord(), s.heldByLocalActor()))
-	stmt.Params["username"] = username
-	stmt.Params["updatedAt"] = now
+	selectSessions.Params["username"] = username
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		// Sessions first: the expiry predicate reads the records while they are still live.
-		if _, err := txn.Update(ctx, stmt); err != nil {
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		ids, _, err := selectSessionIDs(ctx, txn, selectSessions)
+		if err != nil {
+			return err
+		}
+		if err := s.expireSessions(ctx, txn, ids); err != nil {
+			return err
 		}
 
 		if s.impersonation != nil {
 			// The live impersonation records of those sessions end with them, as Revoked.
 			endRecords := spanner.NewStatement(fmt.Sprintf(`
 					UPDATE %s
-					SET EndedAt = @now, EndReason = @reason
-					WHERE EndedAt IS NULL AND (
-						(SessionId IN (SELECT Id FROM %s WHERE Username = @username)
-							AND NOT (PrincipalKind = '%s' AND ActorRealm IS NOT NULL))
-						OR (ActorUsername = @username AND ActorRealm IS NULL))
-			`, s.impersonation.TableName, s.sessionTableName, dbtype.PrincipalKindRole))
+					SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
+					WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))
+			`, s.impersonation.TableName))
+			endRecords.Params["ids"] = ids
 			endRecords.Params["username"] = username
-			endRecords.Params["now"] = now
 			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 			if _, err := txn.Update(ctx, endRecords); err != nil {
 				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
@@ -726,6 +793,46 @@ func (s *SessionStorageDriver) DestroyAllUserSessions(ctx context.Context, usern
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
+// selectSessionIDs runs stmt, which selects a session's Id and Expired, inside txn and
+// returns the ids it matched: all of them, and those not yet expired. Neither slice is
+// nil, so each binds to an ARRAY<STRING> parameter.
+func selectSessionIDs(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) (all, live []string, err error) {
+	all, live = []string{}, []string{}
+	err = txn.Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			id      string
+			expired bool
+		)
+		if err := row.Columns(&id, &expired); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		all = append(all, id)
+		if !expired {
+			live = append(live, id)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return all, live, nil
+}
+
+// expireSessions expires the sessions ids inside txn, with UpdatedAt at the commit
+// timestamp. Nothing later in txn may read the session table. The statement runs even
+// for no ids, so a session table the statement does not fit is reported.
+func (s *SessionStorageDriver) expireSessions(ctx context.Context, txn *spanner.ReadWriteTransaction, ids []string) error {
+	stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id IN UNNEST(@ids)`, s.sessionTableName))
+	stmt.Params["ids"] = ids
+	if _, err := txn.Update(ctx, stmt); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 	}
 
 	return nil
@@ -800,6 +907,7 @@ func (s *SessionStorageDriver) UpdateCustomSessionData(ctx context.Context, sess
 func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statement {
 	var columns strings.Builder
 	columns.WriteString("s.Id, s.Username, s.CreatedAt, s.UpdatedAt, s.Expired")
+	columns.WriteString(s.userColumns())
 
 	joinClause := ""
 	if s.customData != nil {

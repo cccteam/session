@@ -6,15 +6,27 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/basesession"
 	"github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/sessioncore"
 )
 
-// CookieOption defines a function signature for setting cookie client options.
-type CookieOption cookie.Option
+// The option interfaces of the session types. Each is sealed: only the option types
+// below, and a session type's own options, satisfy it.
+type (
+	// AuthOption configures an Auth session: the cookie options, the session options and
+	// the Auth settings (WithIdentityLinked, WithPendingHook, WithPendingTimeout,
+	// WithPendingCookieName).
+	AuthOption = sessioncore.AuthOption
+	// PreauthOption configures a Preauth session: the cookie options and the session
+	// options.
+	PreauthOption = sessioncore.PreauthOption
+	// PasswordOption configures the password method (PasswordSignIn): AutoUpgradeHashes
+	// and HashAlgorithm.
+	PasswordOption = sessioncore.PasswordOption
+)
 
-func (CookieOption) isOIDCAzureOption()  {}
-func (CookieOption) isOIDCGoogleOption() {}
-func (CookieOption) isPasswordOption()   {}
-func (CookieOption) isPreauthOption()    {}
+// CookieOption configures the session cookie client. It is an option of every session
+// type.
+type CookieOption = sessioncore.CookieOption
 
 // WithCookieName sets the cookie name for the session cookie.
 func WithCookieName(name string) CookieOption {
@@ -36,13 +48,9 @@ func WithXSRFHeaderName(name string) CookieOption {
 	return CookieOption(cookie.WithXSRFHeaderName(name))
 }
 
-// BaseSessionOption defines a function signature for setting session options.
-type BaseSessionOption func(*basesession.BaseSession)
-
-func (BaseSessionOption) isOIDCAzureOption()  {}
-func (BaseSessionOption) isOIDCGoogleOption() {}
-func (BaseSessionOption) isPasswordOption()   {}
-func (BaseSessionOption) isPreauthOption()    {}
+// BaseSessionOption configures the session itself. It is an option of every session
+// type.
+type BaseSessionOption = sessioncore.BaseSessionOption
 
 // WithLogHandler sets the LogHandler. (default: httpio.Log)
 func WithLogHandler(l LogHandler) BaseSessionOption {
@@ -51,29 +59,36 @@ func WithLogHandler(l LogHandler) BaseSessionOption {
 	})
 }
 
-// WithSessionTableName sets the name of the session table. (default: Sessions)
+// WithSessionTableName sets the name of the session table. (default: Sessions) A
+// name that is not a plain identifier (a letter or underscore, then up to 127 letters,
+// digits or underscores) is refused by the session type's constructor, as every
+// table-name option's is.
 func WithSessionTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetSessionTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithSessionTableName", Name: name, Set: b.Storage.SetSessionTableName})
 	})
 }
 
 // WithUserTableName sets the name of the user table. (default: SessionUsers)
 func WithUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetUserTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithUserTableName", Name: name, Set: b.Storage.SetUserTableName})
 	})
 }
 
 // WithOIDCUserTableName sets the name of the OIDC user anchor table.
-// (default: OIDCUsers on Azure OIDC storage, GoogleOIDCUsers on Google OIDC storage)
+// (default: OIDCUsers)
+//
+// Deprecated: the OIDC user anchor serves the legacy OIDCAzure session type only
+// (package legacy); Auth users are SessionUsers records. It is removed with the legacy
+// types.
 func WithOIDCUserTableName(name string) BaseSessionOption {
 	return BaseSessionOption(func(b *basesession.BaseSession) {
-		b.Storage.SetOIDCUserTableName(name)
+		b.TableNames = append(b.TableNames, basesession.TableName{Option: "WithOIDCUserTableName", Name: name, Set: b.Storage.SetOIDCUserTableName})
 	})
 }
 
-var defaultSessionTimeout = time.Minute * 10
+var defaultSessionTimeout = sessioncore.DefaultSessionTimeout
 
 // WithSessionTimeout sets the session timeout. (default: 10m)
 func WithSessionTimeout(d time.Duration) BaseSessionOption {
@@ -82,43 +97,12 @@ func WithSessionTimeout(d time.Duration) BaseSessionOption {
 	})
 }
 
-// loginURLSetter is the surface OIDCOption operates on; every provider's
-// authenticator implements it.
-type loginURLSetter interface {
-	SetLoginURL(string)
-}
-
-// OIDCOption defines a function signature for setting OIDC options shared by
-// every OIDC provider.
-type OIDCOption func(loginURLSetter)
-
-func (OIDCOption) isOIDCAzureOption()  {}
-func (OIDCOption) isOIDCGoogleOption() {}
-
-// WithLoginURL sets the LoginURL for the SPA. (default: /login)
-func WithLoginURL(l string) OIDCOption {
-	return OIDCOption(func(b loginURLSetter) {
-		b.SetLoginURL(l)
-	})
-}
-
-// passwordOption defines a function signature for setting Password options. It operates
-// on the non-generic settings struct so one option applies to every PasswordAuth
-// instantiation.
-type passwordOption func(*passwordAuthSettings)
-
-func (passwordOption) isPasswordOption() {}
-
 // AutoUpgradeHashes controls if password hashes will be auto upgraded (default: true)
 func AutoUpgradeHashes(a bool) PasswordOption {
-	return passwordOption(func(s *passwordAuthSettings) {
-		s.autoUpgrade = a
-	})
+	return sessioncore.AutoUpgradeHashes(a)
 }
 
 // HashAlgorithm controls hashing algrorithm (default: securehash.Argon2())
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
-	return passwordOption(func(s *passwordAuthSettings) {
-		s.hasher = securehash.New(hasher)
-	})
+	return sessioncore.HashAlgorithm(hasher)
 }

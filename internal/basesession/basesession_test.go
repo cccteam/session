@@ -756,6 +756,51 @@ func TestBaseSessionSetXSRFToken(t *testing.T) {
 	}
 }
 
+// TestBaseSessionSetXSRFToken_RedirectStaysLocal: the retry redirect of a request that
+// had no XSRF cookie goes back to the request URI only when it is a path in the
+// application, and the raw Location header is exactly that value: http.Redirect would
+// clean "/./\evil.com" into the scheme-relative "/\evil.com".
+func TestBaseSessionSetXSRFToken_RedirectStaysLocal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		requestURI   string
+		wantLocation string
+	}{
+		{name: "a path with a query is retried as is", requestURI: "/api/items?filter=a%20b&page=2", wantLocation: "/api/items?filter=a%20b&page=2"},
+		{name: "a scheme-relative request URI is retried at the root", requestURI: "//evil.com/x", wantLocation: "/"},
+		{name: "a dot segment before a backslash is retried at the root", requestURI: `/./\evil.com`, wantLocation: "/"},
+		{name: "a dot-dot segment before a double slash is retried at the root", requestURI: "/..//evil.com", wantLocation: "/"},
+		{name: "an encoded backslash is retried at the root", requestURI: "/%5Cevil.com", wantLocation: "/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cookieClient, err := internalcookie.NewCookieClient(cookieKey)
+			if err != nil {
+				t.Fatalf("NewCookieClient() = %v", err)
+			}
+			a := &BaseSession{
+				CookieHandler: cookieClient,
+				Handle: func(handler func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+					return func(w http.ResponseWriter, r *http.Request) { _ = handler(w, r) }
+				},
+			}
+			ctx := context.WithValue(context.Background(), sessioninfo.CTXSessionID, ccc.Must(ccc.NewUUID()))
+			r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/", http.NoBody)
+			r.RequestURI = tt.requestURI
+			w := httptest.NewRecorder()
+
+			a.SetXSRFToken(http.NotFoundHandler()).ServeHTTP(w, r)
+
+			if loc := w.Header().Values("Location"); w.Code != http.StatusTemporaryRedirect || len(loc) != 1 || loc[0] != tt.wantLocation {
+				t.Errorf("SetXSRFToken() = %d %q, want 307 exactly %q", w.Code, loc, tt.wantLocation)
+			}
+		})
+	}
+}
+
 func TestBaseSessionValidateXSRFToken(t *testing.T) {
 	t.Parallel()
 

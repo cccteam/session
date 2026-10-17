@@ -554,3 +554,129 @@ func Test_validate_TokenHeader_to_TokenCookie(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_WriteStateCookie(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cookieName string
+	}{
+		{name: "Azure", cookieName: StateCookieName("azure")},
+		{name: "Google", cookieName: StateCookieName("google")},
+		{name: "WorkOS", cookieName: StateCookieName("workos")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, err := NewCookieClient(cookieKey)
+			if err != nil {
+				t.Fatalf("NewCookieClient() error = %v", err)
+			}
+			w := httptest.NewRecorder()
+			c.WriteStateCookie(w, tt.cookieName, cookie.NewValues().SetString("state", "s"))
+
+			cookies := w.Result().Cookies()
+			if len(cookies) != 1 {
+				t.Fatalf("WriteStateCookie() wrote %d cookies, want 1", len(cookies))
+			}
+			got := cookies[0]
+			if got.Name != tt.cookieName {
+				t.Errorf("WriteStateCookie() cookie name = %q, want %q", got.Name, tt.cookieName)
+			}
+			if !got.HttpOnly {
+				t.Error("WriteStateCookie() cookie is not HttpOnly; the state cookie must not be readable by scripts")
+			}
+			// The default mode writes no SameSite attribute, which a parsed cookie reports as 0.
+			if got.SameSite != 0 {
+				t.Errorf("WriteStateCookie() SameSite = %v, want none so the provider's redirect carries it back", got.SameSite)
+			}
+		})
+	}
+}
+
+func TestClient_ForRegistration(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewCookieClient(cookieKey)
+	if err != nil {
+		t.Fatalf("NewCookieClient() error = %v", err)
+	}
+	lakeside := c.ForRegistration("lakeside")
+	if lakeside.Name() != "OIDC-lakeside" {
+		t.Fatalf("ForRegistration(lakeside).Name() = %q, want OIDC-lakeside", lakeside.Name())
+	}
+
+	w := httptest.NewRecorder()
+	lakeside.WriteStateCookie(w, cookie.NewValues().SetString(OIDCState, "s"))
+	written := w.Result().Cookies()
+	if len(written) != 1 || written[0].Name != "OIDC-lakeside" {
+		t.Fatalf("WriteStateCookie() wrote %v, want one OIDC-lakeside cookie", written)
+	}
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
+	r.AddCookie(written[0])
+	values, name, err := lakeside.ReadStateCookie(r)
+	if err != nil || name != "OIDC-lakeside" || values == nil {
+		t.Fatalf("ReadStateCookie() = %v, %q, %v; want the cookie back", values, name, err)
+	}
+	if registration, _ := values.GetString(Registration); registration != "lakeside" {
+		t.Errorf("the state cookie names the registration %q, want lakeside", registration)
+	}
+	if state, _ := values.GetString(OIDCState); state != "s" {
+		t.Errorf("the state cookie's state = %q, want s", state)
+	}
+
+	// A cookie under this registration's name that another registration wrote reads as
+	// absent, and so does the shared OIDC cookie of v0.12, which names no registration.
+	other := httptest.NewRecorder()
+	c.WriteStateCookie(other, "OIDC-lakeside", cookie.NewValues().SetString(OIDCState, "s").SetString(Registration, "riverside"))
+	shared := httptest.NewRecorder()
+	c.WriteStateCookie(shared, OIDCCookieName, cookie.NewValues().SetString(OIDCState, "s"))
+	for _, tt := range []struct {
+		name string
+		rec  *httptest.ResponseRecorder
+	}{{name: "another registration's cookie under this name", rec: other}, {name: "the shared OIDC cookie", rec: shared}} {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
+		for _, ck := range tt.rec.Result().Cookies() {
+			r.AddCookie(ck)
+		}
+		if values, name, err := lakeside.ReadStateCookie(r); err != nil || name != "" || values != nil {
+			t.Errorf("ReadStateCookie() with %s = %v, %q, %v; want it read as absent", tt.name, values, name, err)
+		}
+	}
+}
+
+func TestClient_ForLegacy(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewCookieClient(cookieKey)
+	if err != nil {
+		t.Fatalf("NewCookieClient() error = %v", err)
+	}
+	legacy := c.ForLegacy("azure")
+
+	w := httptest.NewRecorder()
+	legacy.WriteStateCookie(w, cookie.NewValues().SetString(OIDCState, "s"))
+	written := w.Result().Cookies()
+	if len(written) != 1 || written[0].Name != "OIDC-azure" {
+		t.Fatalf("WriteStateCookie() wrote %v, want one OIDC-azure cookie", written)
+	}
+	own := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
+	own.AddCookie(written[0])
+	if _, name, err := legacy.ReadStateCookie(own); err != nil || name != "OIDC-azure" {
+		t.Errorf("ReadStateCookie() with the provider's cookie = %q, %v; want OIDC-azure", name, err)
+	}
+
+	// The shared OIDC cookie of earlier releases is read when the provider's is absent, so
+	// a login started before an upgrade completes.
+	shared := httptest.NewRecorder()
+	c.WriteStateCookie(shared, OIDCCookieName, cookie.NewValues().SetString(OIDCState, "s"))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
+	for _, ck := range shared.Result().Cookies() {
+		r.AddCookie(ck)
+	}
+	if _, name, err := legacy.ReadStateCookie(r); err != nil || name != OIDCCookieName {
+		t.Errorf("ReadStateCookie() with the shared cookie = %q, %v; want %s", name, err, OIDCCookieName)
+	}
+}

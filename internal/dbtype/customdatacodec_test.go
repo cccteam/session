@@ -18,8 +18,26 @@ type codecTestData struct {
 	CommaOptions int64  `spanner:"WithOptions,omitempty" db:"with_options,omitempty"`
 	Untagged     bool
 	Skipped      string `spanner:"-" db:"-"`
-	//nolint:unused // exercises the unexported-field skip
-	unexported string
+	unexported   string // skipped: unexported
+}
+
+func TestCustomDataCodec_Values_SkipsUnmappedFields(t *testing.T) {
+	t.Parallel()
+
+	codec, err := NewCustomDataCodec(reflect.TypeFor[codecTestData](), SpannerTagKey)
+	if err != nil {
+		t.Fatalf("NewCustomDataCodec() error = %v", err)
+	}
+
+	data := &codecTestData{codecEmbedded: codecEmbedded{Inner: "in"}, TaggedBoth: "both", CommaOptions: 7, Untagged: true, Skipped: "skipped", unexported: "hidden"}
+	got, err := codec.Values(data)
+	if err != nil {
+		t.Fatalf("CustomDataCodec.Values() error = %v", err)
+	}
+	want := []any{"in", "both", int64(7), true}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("CustomDataCodec.Values() mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func TestNewCustomDataCodec_Mapping(t *testing.T) {

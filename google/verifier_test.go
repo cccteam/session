@@ -1,0 +1,485 @@
+//go:build !skipAuth
+
+package google
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/sessioninfo"
+)
+
+const (
+	testClientID     = "test-client-id"
+	testHostedDomain = "example.com"
+)
+
+func newFakeIDP(t *testing.T) *oidctest.FakeIDP {
+	t.Helper()
+
+	return oidctest.NewFakeIDP(t, testClientID)
+}
+
+// startLogin runs AuthCodeURL and returns the parsed redirect URL plus a callback
+// request pre-loaded with the OIDC cookie and the redirect's state value.
+func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request) {
+	t.Helper()
+
+	ctx := t.Context()
+	rec := httptest.NewRecorder()
+	rawURL, err := o.AuthCodeURL(ctx, rec, "/app", "")
+	if err != nil {
+		t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+	}
+	authURL, err = url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+
+	callback = httptest.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/callback?code=test-code&state=%s", url.QueryEscape(authURL.Query().Get("state"))), http.NoBody)
+	for _, c := range rec.Result().Cookies() {
+		callback.AddCookie(c)
+	}
+
+	return authURL, callback
+}
+
+func TestOIDC_AuthCodeURL(t *testing.T) {
+	t.Parallel()
+
+	idp := newFakeIDP(t)
+	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", Workspace("test", testHostedDomain))
+
+	authURL, _ := startLogin(t, o)
+
+	q := authURL.Query()
+	if got := q.Get("hd"); got != testHostedDomain {
+		t.Errorf("hd parameter = %q, want %q", got, testHostedDomain)
+	}
+	if q.Get("state") == "" {
+		t.Error("state parameter is empty")
+	}
+	if q.Get("code_challenge") == "" || q.Get("code_challenge_method") != "S256" {
+		t.Errorf("PKCE challenge missing or not S256: method = %q", q.Get("code_challenge_method"))
+	}
+
+	// A second login must use fresh state and PKCE values.
+	authURL2, _ := startLogin(t, o)
+	if authURL2.Query().Get("state") == q.Get("state") {
+		t.Error("state parameter reused across logins")
+	}
+	if authURL2.Query().Get("code_challenge") == q.Get("code_challenge") {
+		t.Error("PKCE challenge reused across logins")
+	}
+}
+
+// TestOIDC_AuthCodeURL_Hints proves the hints the authorization request carries: the
+// domain when the registration is one Workspace with one domain, any Workspace account
+// when it admits several domains or any Workspace, none when it admits any Google
+// account, and the login hint as given.
+func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		workspaces    WorkspaceSet
+		loginHint     string
+		wantHd        string
+		wantNoHd      bool
+		wantLoginHint string
+	}{
+		{name: "one Workspace with one domain hints the domain", workspaces: Workspace("test", testHostedDomain), wantHd: testHostedDomain},
+		{name: "one Workspace with several domains hints any Workspace account", workspaces: Workspace("test", testHostedDomain, "example.org"), wantHd: "*"},
+		{name: "listed Workspaces hint any Workspace account", workspaces: Workspaces(Workspace("test", testHostedDomain), Workspace("other", "example.org")), wantHd: "*"},
+		{name: "any Workspace hints any Workspace account", workspaces: AnyWorkspace(), wantHd: "*"},
+		{name: "any Google account hints no domain", workspaces: AnyGoogleAccount(), wantNoHd: true},
+		{name: "named Workspaces beside any Google account hint no domain", workspaces: Workspaces(Workspace("test", testHostedDomain), AnyGoogleAccount()), wantNoHd: true},
+		{name: "a login hint rides as given", workspaces: Workspace("test", testHostedDomain), loginHint: "Pat@Example.com", wantHd: testHostedDomain, wantLoginHint: "Pat@Example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := newFakeIDP(t)
+			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", tt.workspaces)
+
+			rawURL, err := o.AuthCodeURL(t.Context(), httptest.NewRecorder(), "/app", tt.loginHint)
+			if err != nil {
+				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+			}
+			authURL, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatalf("url.Parse() error = %v", err)
+			}
+			q := authURL.Query()
+			if got, has := q["hd"]; has == tt.wantNoHd || (has && got[0] != tt.wantHd) {
+				t.Errorf("hd parameter = %v, want %q (present %v)", got, tt.wantHd, !tt.wantNoHd)
+			}
+			if got, has := q["login_hint"]; has != (tt.wantLoginHint != "") || (has && got[0] != tt.wantLoginHint) {
+				t.Errorf("login_hint parameter = %v, want %q (present %v)", got, tt.wantLoginHint, tt.wantLoginHint != "")
+			}
+		})
+	}
+}
+
+// workspaceClaims are the ID token claims of a verified user of the test Workspace.
+func workspaceClaims() map[string]any {
+	return map[string]any{
+		"sub":            "google-sub-1",
+		"email":          "user@example.com",
+		"email_verified": true,
+		"hd":             testHostedDomain,
+	}
+}
+
+func TestOIDC_Verify(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// workspaces is the registration's slot; nil means the test Workspace alone.
+		workspaces  func() WorkspaceSet
+		tokenClaims func() map[string]any
+		tokenStatus int
+		// mint, when set, serializes the token in place of the provider's signing.
+		mint        func(claims map[string]any) string
+		mutateReq   func(r *http.Request)
+		dropCookie  bool
+		wantErr     bool
+		wantErrPart string
+		wantCode    sessioninfo.LoginRefusalCode
+	}{
+		{
+			name:        "happy path",
+			tokenClaims: workspaceClaims,
+		},
+		{
+			name:        "missing OIDC cookie",
+			tokenClaims: workspaceClaims,
+			dropCookie:  true,
+			wantErr:     true,
+			wantErrPart: "No OIDC cookie",
+			wantCode:    sessioninfo.RefusedNoOIDCCookie,
+		},
+		{
+			name:        "state mismatch",
+			tokenClaims: workspaceClaims,
+			mutateReq: func(r *http.Request) {
+				q := r.URL.Query()
+				q.Set("state", "tampered-state")
+				r.URL.RawQuery = q.Encode()
+			},
+			wantErr:     true,
+			wantErrPart: "Invalid 'state' parameter value",
+			wantCode:    sessioninfo.RefusedInvalidState,
+		},
+		{
+			name:        "token exchange failure",
+			tokenClaims: workspaceClaims,
+			tokenStatus: http.StatusInternalServerError,
+			wantErr:     true,
+			wantErrPart: "Failed to exchange token",
+			wantCode:    sessioninfo.RefusedTokenExchange,
+		},
+		{
+			name: "an expired token fails verification",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["exp"] = time.Now().Add(-time.Minute).Unix()
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token signed with a key the provider never published fails verification",
+			tokenClaims: workspaceClaims,
+			mint:        func(c map[string]any) string { return oidctest.SignedBy(oidctest.NewKey(t), "rogue-key", c) },
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "an unsigned token fails verification",
+			tokenClaims: workspaceClaims,
+			mint:        oidctest.Unsigned,
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token under another algorithm than the provider's fails verification",
+			tokenClaims: workspaceClaims,
+			mint: func(c map[string]any) string {
+				return oidctest.SignedHS256([]byte("a shared secret the provider never had"), c)
+			},
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name: "wrong audience fails verification",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["aud"] = "other-client"
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name: "hd claim absent (consumer user) fails closed",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				delete(c, "hd")
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not in a Google Workspace this sign-in admits",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
+			name: "hd claim for another domain is rejected",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "attacker.example.net"
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not in a Google Workspace this sign-in admits",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
+			name: "hd claim comparison is case-insensitive",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "Example.COM"
+
+				return c
+			},
+		},
+		{
+			name:       "a token from the second of a Workspace's two domains is accepted",
+			workspaces: func() WorkspaceSet { return Workspace("test", testHostedDomain, "example.org") },
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.org"
+
+				return c
+			},
+		},
+		{
+			name:       "a token from a domain outside the two is refused",
+			workspaces: func() WorkspaceSet { return Workspace("test", testHostedDomain, "example.org") },
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.net"
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not in a Google Workspace this sign-in admits",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
+			name: "listed Workspaces: a token from the second Workspace's domain is accepted",
+			workspaces: func() WorkspaceSet {
+				return Workspaces(Workspace("test", testHostedDomain), Workspace("other", "example.org"))
+			},
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.org"
+
+				return c
+			},
+		},
+		{
+			name: "listed Workspaces: a token from an unlisted domain is refused",
+			workspaces: func() WorkspaceSet {
+				return Workspaces(Workspace("test", testHostedDomain), Workspace("other", "example.org"))
+			},
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "example.net"
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not in a Google Workspace this sign-in admits",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
+			name:       "any Workspace: a token from any domain is accepted",
+			workspaces: AnyWorkspace,
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["hd"] = "somewhere.example.net"
+
+				return c
+			},
+		},
+		{
+			name:       "any Workspace: a token without an hd claim is refused",
+			workspaces: AnyWorkspace,
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				delete(c, "hd")
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "not in a Google Workspace this sign-in admits",
+			wantCode:    sessioninfo.RefusedNotWorkspaceMember,
+		},
+		{
+			name:       "any Google account: a token without an hd claim is accepted",
+			workspaces: AnyGoogleAccount,
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				delete(c, "hd")
+
+				return c
+			},
+		},
+		{
+			name:       "any Google account: an unverified email is still refused",
+			workspaces: AnyGoogleAccount,
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				delete(c, "hd")
+				c["email_verified"] = false
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "email is not verified",
+			wantCode:    sessioninfo.RefusedEmailNotVerified,
+		},
+		{
+			name: "unverified email is rejected",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["email_verified"] = false
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "email is not verified",
+			wantCode:    sessioninfo.RefusedEmailNotVerified,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			idp := newFakeIDP(t)
+			idp.TokenClaims = tt.tokenClaims
+			idp.TokenStatus = tt.tokenStatus
+			idp.Mint = tt.mint
+
+			workspaces := Workspace("test", testHostedDomain)
+			if tt.workspaces != nil {
+				workspaces = tt.workspaces()
+			}
+			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", workspaces)
+
+			_, callback := startLogin(t, o)
+			if tt.dropCookie {
+				callback.Header.Del("Cookie")
+			}
+			if tt.mutateReq != nil {
+				tt.mutateReq(callback)
+			}
+
+			var claims json.RawMessage
+			returnURL, _, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("OIDC.Verify() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
+					t.Errorf("OIDC.Verify() error = %q, want it to contain %q", err.Error(), tt.wantErrPart)
+				}
+				if got := sessioninfo.LoginRefusalCodeOf(err); got != tt.wantCode {
+					t.Errorf("OIDC.Verify() refusal code = %q, want %q: %v", got, tt.wantCode, err)
+				}
+
+				return
+			}
+
+			if returnURL != "/app" {
+				t.Errorf("OIDC.Verify() returnURL = %q, want %q", returnURL, "/app")
+			}
+			var decoded struct {
+				Sub   string `json:"sub"`
+				Email string `json:"email"`
+			}
+			if err := json.Unmarshal(claims, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal(claims) error = %v", err)
+			}
+			if decoded.Sub != "google-sub-1" || decoded.Email != "user@example.com" {
+				t.Errorf("verified claims = %+v", decoded)
+			}
+		})
+	}
+}
+
+// TestOIDC_Verify_KeyRotation proves the key set is read once and cached, a token under
+// a key the provider rotated to is accepted after one refresh, and a token under a key
+// the provider never published is refused after one refresh.
+func TestOIDC_Verify_KeyRotation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	idp := newFakeIDP(t)
+	idp.TokenClaims = workspaceClaims
+	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", Workspace("test", testHostedDomain))
+	verify := func() error {
+		_, callback := startLogin(t, o)
+		var claims json.RawMessage
+		_, _, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
+
+		return err
+	}
+	fetches := func(want int, when string) {
+		t.Helper()
+		if got := idp.KeyFetches(); got != want {
+			t.Errorf("key set fetches %s = %d, want %d", when, got, want)
+		}
+	}
+
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the first token accepted", err)
+	}
+	fetches(1, "after the first token")
+	idp.Rotate(t)
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() under the rotated key error = %v, want it accepted after one refresh of the key set", err)
+	}
+	fetches(2, "after the rotation: one refresh")
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the next token under the rotated key accepted", err)
+	}
+	fetches(2, "after another token under the rotated key: the refreshed set is cached")
+
+	rogue := oidctest.NewKey(t)
+	idp.Mint = func(claims map[string]any) string { return oidctest.SignedBy(rogue, "rogue-key", claims) }
+	if err := verify(); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedIDTokenVerification {
+		t.Fatalf("Verify() under a key the provider never published error = %v, want %s", err, sessioninfo.RefusedIDTokenVerification)
+	}
+	fetches(3, "after a token under an unknown key id: one refresh, then refused")
+}

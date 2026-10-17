@@ -6,6 +6,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/securehash"
+	"github.com/cccteam/session/sessioninfo"
 )
 
 // Session defines the structure for storing session data in the database.
@@ -18,19 +19,27 @@ type Session struct {
 }
 
 // SessionData pairs a Session with optional custom session data and, for an
-// impersonated session, its impersonation record (nil otherwise).
+// impersonated session, its impersonation record (nil otherwise). UserID and
+// AuthenticatedAt are set only when the user columns are enabled, and AuthEvents
+// only when there is an auth events table.
 type SessionData struct {
 	*Session
-	CustomData    any
-	Impersonation *Impersonation
+	CustomData      any
+	Impersonation   *Impersonation
+	UserID          ccc.NullUUID
+	AuthenticatedAt *time.Time
+	// ProviderSessionID is the provider's session id the sign-in carried, "" when none,
+	// and ProviderSessionIssuer the issuer it belongs to.
+	ProviderSessionID     string
+	ProviderSessionIssuer string
+	AuthEvents            []sessioninfo.AuthEvent
 }
 
-// InsertSession defines the structure for inserting new session data into the database.
+// InsertSession is the caller-supplied part of a new session row. The driver writes
+// CreatedAt and UpdatedAt with the database's time at commit, never the application's.
 type InsertSession struct {
-	Username  string    `spanner:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt"`
-	Expired   bool      `spanner:"Expired"`
+	Username string `spanner:"Username"`
+	Expired  bool   `spanner:"Expired"`
 }
 
 // InsertOIDCSession defines the structure for inserting new OIDC session data into the database.
@@ -61,19 +70,6 @@ type OIDCUser struct {
 	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
 	Tid       string    `spanner:"Tid"       db:"Tid"`
 	Oid       string    `spanner:"Oid"       db:"Oid"`
-	Username  string    `spanner:"Username"  db:"Username"`
-	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
-	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`
-}
-
-// GoogleOIDCUser is a library-managed durable user record for Google OIDC logins, keyed
-// by the immutable, globally unique Sub claim with a surrogate UUID primary key. Hd and
-// Username are mutable attributes, updated in place at login when the IdP reports new
-// values.
-type GoogleOIDCUser struct {
-	ID        ccc.UUID  `spanner:"Id"        db:"Id"`
-	Sub       string    `spanner:"Sub"       db:"Sub"`
-	Hd        string    `spanner:"Hd"        db:"Hd"`
 	Username  string    `spanner:"Username"  db:"Username"`
 	CreatedAt time.Time `spanner:"CreatedAt" db:"CreatedAt"`
 	UpdatedAt time.Time `spanner:"UpdatedAt" db:"UpdatedAt"`

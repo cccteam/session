@@ -76,11 +76,11 @@ type BaseStore interface {
 	// when no impersonation table is configured.
 	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error
 	// SetSessionTableName sets the name of the session table.
-	SetSessionTableName(name string)
+	SetSessionTableName(name string) error
 	// SetUserTableName sets the name of the user table.
-	SetUserTableName(name string)
+	SetUserTableName(name string) error
 	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-	SetOIDCUserTableName(name string)
+	SetOIDCUserTableName(name string) error
 }
 
 var _ PreauthStore = (*Preauth)(nil)
@@ -107,13 +107,9 @@ type SessionUser = dbtype.SessionUser
 // InsertSessionUser defines the structure for inserting a new SessionUser.
 type InsertSessionUser = dbtype.InsertSessionUser
 
-// PasswordAuthStore defines an interface for managing password sessions.
-type PasswordAuthStore interface {
-	// CreateSession creates a new session for the request and returns its ID. When a
-	// custom session data configuration with a resolver is attached to the storage, the
-	// resolver runs inside the session-insert transaction; a resolver error aborts
-	// session creation. With no resolver it is a plain insert.
-	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+// UserStore is the user management of a store that has users: Auth storage and the
+// legacy password storage.
+type UserStore interface {
 	// User returns a session user for give user id
 	User(ctx context.Context, id ccc.UUID) (*SessionUser, error)
 	// UserByUsername returns a session user for give username
@@ -133,8 +129,6 @@ type PasswordAuthStore interface {
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id ccc.UUID) error
-	// DestroyAllUserSessions destroys all sessions for a given user
-	DestroyAllUserSessions(ctx context.Context, username string) error
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
 	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
@@ -143,6 +137,19 @@ type PasswordAuthStore interface {
 	// when no row exists) and the full row is written back; a mutate error aborts with
 	// nothing written.
 	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
+}
+
+// PasswordAuthStore defines an interface for managing password sessions.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
+type PasswordAuthStore interface {
+	// CreateSession creates a new session for the request and returns its ID. When a
+	// custom session data configuration with a resolver is attached to the storage, the
+	// resolver runs inside the session-insert transaction; a resolver error aborts
+	// session creation. With no resolver it is a plain insert.
+	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+
+	UserStore
 
 	// shared storage methods
 	PreauthStore
@@ -152,9 +159,13 @@ var _ OIDCStore = (*OIDC)(nil)
 
 // OIDCUser is a library-managed durable user record for OIDC logins, keyed by the
 // immutable (Tid, Oid) claim pair with a surrogate UUID primary key.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDCUser = dbtype.OIDCUser
 
 // OIDCStore defines an interface for managing OIDC session storage.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDCStore interface {
 	DestroySessionOIDC(ctx context.Context, oidcSID string) error
 	// NewSession creates a new OIDC session. claims carries the raw verified ID-token
@@ -167,36 +178,6 @@ type OIDCStore interface {
 	OIDCUser(ctx context.Context, id ccc.UUID) (*OIDCUser, error)
 	// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
 	OIDCUserByKey(ctx context.Context, tid, oid string) (*OIDCUser, error)
-	// CustomUserData returns the custom user data row for the given user ID as *U for
-	// the configured struct type. A user with no custom data row yields a zero-value *U.
-	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
-	// UpdateCustomUserData updates the custom user data for an existing user via a
-	// transactional read-modify-write: mutate receives the current row as *U (zero-value
-	// when no row exists) and the full row is written back; a mutate error aborts with
-	// nothing written.
-	UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(data any) error) error
-
-	// shared storage methods
-	BaseStore
-}
-
-// GoogleOIDCUser is a library-managed durable user record for Google OIDC logins, keyed
-// by the immutable, globally unique Sub claim with a surrogate UUID primary key.
-type GoogleOIDCUser = dbtype.GoogleOIDCUser
-
-// GoogleOIDCStore defines an interface for managing Google OIDC session storage.
-type GoogleOIDCStore interface {
-	// NewSession creates a new Google OIDC session. claims carries the raw verified
-	// ID-token claims into any configured custom session data resolver, which runs
-	// inside the session-insert transaction; a resolver error aborts session creation.
-	// When the OIDC user anchor is enabled the same transaction upserts the
-	// GoogleOIDCUsers record for the claims' sub and runs any configured custom user
-	// data hook.
-	NewSession(ctx context.Context, username string, claims json.RawMessage) (ccc.UUID, error)
-	// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
-	GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*GoogleOIDCUser, error)
-	// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
-	GoogleOIDCUserBySub(ctx context.Context, sub string) (*GoogleOIDCUser, error)
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
 	CustomUserData(ctx context.Context, userID ccc.UUID) (any, error)
@@ -244,6 +225,20 @@ type db interface {
 	UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error
 	// DestroySession marks the session as expired, ending an impersonated session's record with reason Logout.
 	DestroySession(ctx context.Context, sessionID ccc.UUID) error
+	// DestroySessionsByProviderSessionID expires every live session whose sign-in carried
+	// the provider's session id under issuer: both columns match, a session without an
+	// issuer never does.
+	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
+	// SetIdentitiesTableName sets the name of the identities table.
+	SetIdentitiesTableName(name string) error
+	// SetPendingSignInsTableName sets the name of the pending sign-ins table.
+	SetPendingSignInsTableName(name string) error
+	// InsertPendingSignIn inserts a pending sign-in.
+	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
+	// PendingSignInByToken returns the pending sign-in holding tokenHash that is live at now, or NotFound.
+	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
+	// ConsumePendingSignIn marks the live pending sign-in holding tokenHash consumed at now by a conditional update; NotFound when it is not live.
+	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
 	// ImpersonationEnabled reports whether an impersonation record table is configured.
 	ImpersonationEnabled() bool
 	// InsertImpersonatedSession inserts a session row and its impersonation record atomically,
@@ -263,11 +258,11 @@ type db interface {
 	// reason, in one transaction; a no-op for sessions without a live record.
 	DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason string) error
 	// SetSessionTableName sets the name of the session table.
-	SetSessionTableName(name string)
+	SetSessionTableName(name string) error
 	// SetUserTableName sets the name of the user table.
-	SetUserTableName(name string)
+	SetUserTableName(name string) error
 	// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-	SetOIDCUserTableName(name string)
+	SetOIDCUserTableName(name string) error
 
 	//
 	// Password specific methods
@@ -294,6 +289,23 @@ type db interface {
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
 	//
+	// User specific methods
+	//
+
+	// Identity returns the link for (method, connection, subject), or a NotFound error.
+	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
+	// IdentitiesByUser lists a user's links, oldest first.
+	IdentitiesByUser(ctx context.Context, userID ccc.UUID) ([]*dbtype.SessionIdentity, error)
+	// LinkIdentity links an identity to a user outside the sign-in flow.
+	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
+	// UnlinkIdentity removes a link, refusing to remove a user's last means of sign-in.
+	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
+	// DestroyUserSessions expires every session of a user, by UserId.
+	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	// AppendAuthEvent records an auth event on a live session.
+	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
+
+	//
 	// OIDC specific methods
 	//
 
@@ -311,17 +323,4 @@ type db interface {
 	OIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.OIDCUser, error)
 	// OIDCUserByKey returns the OIDC user anchor record for the given (tid, oid) claim pair.
 	OIDCUserByKey(ctx context.Context, tid, oid string) (*dbtype.OIDCUser, error)
-
-	//
-	// Google OIDC specific methods
-	//
-
-	// InsertSessionGoogleOIDC creates a new Google OIDC session in the database and returns its session ID.
-	// Google issues no sid claim, so the session row carries no OidcSid; the custom data semantics match InsertSessionOIDC.
-	// When the OIDC user anchor is enabled the same transaction upserts the Sub-keyed anchor row and runs any configured custom user data hook.
-	InsertSessionGoogleOIDC(ctx context.Context, session *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
-	// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
-	GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.GoogleOIDCUser, error)
-	// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
-	GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.GoogleOIDCUser, error)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/dbtype"
+	"github.com/cccteam/session/internal/workos"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -37,7 +38,7 @@ type storeRecorder interface {
 	DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call
 }
 
-// sessionAPI is the impersonation surface of the four API types that this file
+// sessionAPI is the impersonation surface of the five API types that this file
 // exercises directly.
 type sessionAPI interface {
 	EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error)
@@ -52,6 +53,9 @@ type surface struct {
 	// validating adds the store expectations the type makes, beyond Session(), when it
 	// validates a session for username.
 	validating func(username string)
+	// live is an ordinary, just-active session row for username as the type stores it:
+	// an Auth session belongs to a user.
+	live func(id ccc.UUID, username string) *sessioninfo.SessionData
 	// startImpersonated calls the type's StartImpersonatedSession without custom data.
 	startImpersonated func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error
 }
@@ -68,31 +72,6 @@ func surfaceBuilders() []struct {
 		name  string
 		build surfaceBuilder
 	}{
-		{
-			name: "PasswordAuth",
-			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newPasswordStoreMock(ctrl)
-				p, err := NewPasswordAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
-				if err != nil {
-					t.Fatalf("NewPasswordAuth() error = %v", err)
-				}
-
-				return &surface{
-					handlers: p,
-					api:      p.API(),
-					base:     p.baseSession,
-					store:    storage.EXPECT(),
-					validating: func(username string) {
-						storage.EXPECT().UserByUserName(gomock.Any(), username).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil).AnyTimes()
-					},
-					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
-						_, err := p.API().StartImpersonatedSession(ctx, w, req)
-
-						return err
-					},
-				}
-			},
-		},
 		{
 			name: "Preauth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
@@ -117,45 +96,32 @@ func surfaceBuilders() []struct {
 			},
 		},
 		{
-			name: "OIDCAzure",
+			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newOIDCStoreMock(ctrl)
-				a, err := NewOIDCAzure[NoCustomData, NoCustomData](storage, DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL", WithImpersonationAudit(hook))
+				storage := newAuthStoreMock(ctrl)
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
 				if err != nil {
-					t.Fatalf("NewOIDCAzure() error = %v", err)
+					t.Fatalf("NewAuth() error = %v", err)
 				}
+				PasswordSignIn(a)
+				workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk_test", ClientID: "client", RedirectURL: "https://app.example/sso/callback"})
 
 				return &surface{
-					handlers:   a,
-					api:        a.API(),
-					base:       a.baseSession,
-					store:      storage.EXPECT(),
-					validating: func(string) {},
+					handlers: a,
+					api:      a.API(),
+					base:     a.baseSession,
+					store:    storage.EXPECT(),
+					validating: func(username string) {
+						storage.EXPECT().User(gomock.Any(), userID).Return(&dbtype.SessionUser{ID: userID, Username: username}, nil).AnyTimes()
+					},
+					live: func(id ccc.UUID, username string) *sessioninfo.SessionData {
+						data := liveSession(id, username)
+						data.UserID = ccc.NullUUIDFromUUID(userID)
+
+						return data
+					},
 					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
 						_, err := a.API().StartImpersonatedSession(ctx, w, req)
-
-						return err
-					},
-				}
-			},
-		},
-		{
-			name: "OIDCGoogle",
-			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
-				storage := newGoogleOIDCStoreMock(ctrl)
-				g, err := NewOIDCGoogle[NoCustomData, NoCustomData](storage, DisableRoleSync(), cookieKey, "clientID", "clientSecret", "redirectURL", "example.com", WithImpersonationAudit(hook))
-				if err != nil {
-					t.Fatalf("NewOIDCGoogle() error = %v", err)
-				}
-
-				return &surface{
-					handlers:   g,
-					api:        g.API(),
-					base:       g.baseSession,
-					store:      storage.EXPECT(),
-					validating: func(string) {},
-					startImpersonated: func(ctx context.Context, w http.ResponseWriter, req *ImpersonationRequest) error {
-						_, err := g.API().StartImpersonatedSession(ctx, w, req)
 
 						return err
 					},
@@ -199,6 +165,16 @@ func liveImpersonation() *sessioninfo.Impersonation {
 // localActorImpersonation is a role-principal impersonation by a local actor with a source session.
 func localActorImpersonation() *sessioninfo.Impersonation {
 	return &sessioninfo.Impersonation{SessionID: surfaceSessionID, Actor: "alice", SourceSessionID: ccc.NullUUID{UUID: surfaceSourceID, Valid: true}, Principal: accesstypes.RolePrincipal("Editor"), ExpiresAt: time.Now().Add(time.Hour)}
+}
+
+// liveSession is an ordinary, just-active session row for username as the surface's
+// type stores it.
+func (s *surface) liveSession(id ccc.UUID, username string) *sessioninfo.SessionData {
+	if s.live != nil {
+		return s.live(id, username)
+	}
+
+	return liveSession(id, username)
 }
 
 // nextRecorder is a terminal handler that records whether it ran and the context it saw.
@@ -259,7 +235,7 @@ func sessionScenarios() []surfaceScenario {
 		{
 			name: "ValidateSession admits a live session and exposes it to the handler",
 			run: func(t *testing.T, s *surface, _ *[]sessioninfo.ImpersonationEventKind) {
-				s.store.Session(gomock.Any(), sessionID).Return(liveSession(sessionID, "alice"), nil)
+				s.store.Session(gomock.Any(), sessionID).Return(s.liveSession(sessionID, "alice"), nil)
 				s.validating("alice")
 
 				rec := &nextRecorder{}
@@ -295,7 +271,7 @@ func sessionScenarios() []surfaceScenario {
 		{
 			name: "Authenticated reports the validated session",
 			run: func(t *testing.T, s *surface, _ *[]sessioninfo.ImpersonationEventKind) {
-				s.store.Session(gomock.Any(), sessionID).Return(liveSession(sessionID, "alice"), nil)
+				s.store.Session(gomock.Any(), sessionID).Return(s.liveSession(sessionID, "alice"), nil)
 				s.validating("alice")
 
 				rr := httptest.NewRecorder()

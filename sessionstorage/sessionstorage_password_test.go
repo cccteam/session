@@ -44,11 +44,11 @@ func TestPasswordAuth_User(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
@@ -96,11 +96,11 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
@@ -155,11 +155,11 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
@@ -209,11 +209,11 @@ func TestPasswordAuth_SetUserUsername(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
@@ -261,11 +261,11 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}
@@ -332,11 +332,11 @@ func TestPassword_DeactivateUser(t *testing.T) {
 			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &PasswordAuth{
+			p := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
-			}
+			}}
 
 			if err := p.DeactivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
@@ -385,11 +385,11 @@ func TestPassword_DeleteUser(t *testing.T) {
 			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &PasswordAuth{
+			p := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
-			}
+			}}
 
 			if err := p.DeleteUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
@@ -438,11 +438,11 @@ func TestPassword_ActivateUser(t *testing.T) {
 			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &PasswordAuth{
+			p := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
-			}
+			}}
 
 			if err := p.ActivateUser(context.Background(), tt.id); (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
@@ -485,11 +485,11 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 			mockdb := NewMockdb(ctrl)
 			tt.mock(mockdb)
 
-			p := &PasswordAuth{
+			p := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockdb,
 				},
-			}
+			}}
 
 			if err := p.DestroyAllUserSessions(context.Background(), username); (err != nil) != tt.wantErr {
 				t.Errorf("PasswordAuth.DestroyAllUserSessions() error = %v, wantErr %v", err, tt.wantErr)
@@ -541,11 +541,11 @@ func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			mockDB := NewMockdb(ctrl)
-			storage := &PasswordAuth{
+			storage := &PasswordAuth{userStorage: userStorage{
 				sessionStorage: sessionStorage{
 					db: mockDB,
 				},
-			}
+			}}
 			if tt.prepare != nil {
 				tt.prepare(mockDB)
 			}

@@ -132,22 +132,15 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 	}
 
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
-	}
-
-	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
+	sessionMutation, err := s.sessionInsertMutation(id, insertSession, req)
 	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
+		return ccc.NilUUID, err
 	}
 
 	impMutation := spanner.InsertMap(s.impersonation.TableName, impersonationRow(id, imp))
+	mutations := append([]*spanner.Mutation{sessionMutation, impMutation}, s.initialAuthEventMutations(id, req, imp)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation, impMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
@@ -164,9 +157,6 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.googleOIDC {
-		return ccc.NilUUID, errors.New("InsertImpersonatedSessionOIDC called on a Google OIDC storage driver")
-	}
 	if s.impersonation == nil {
 		return ccc.NilUUID, errors.New("impersonation is not configured on the storage")
 	}
@@ -179,9 +169,13 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertOIDCSession
+		CreatedAt time.Time `spanner:"CreatedAt"`
+		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:                id,
 		InsertOIDCSession: insertSession,
+		CreatedAt:         spanner.CommitTimestamp,
+		UpdatedAt:         spanner.CommitTimestamp,
 	}
 
 	sessionMutation, err := spanner.InsertStruct(s.sessionTableName, session)
@@ -190,15 +184,17 @@ func (s *SessionStorageDriver) InsertImpersonatedSessionOIDC(
 	}
 
 	impMutation := spanner.InsertMap(s.impersonation.TableName, impersonationRow(id, imp))
+	mutations := append([]*spanner.Mutation{sessionMutation, impMutation}, s.initialAuthEventMutations(id, req, imp)...)
 
-	if err := s.applySessionInsert(ctx, id, []*spanner.Mutation{sessionMutation, impMutation}, req); err != nil {
+	if err := s.applySessionInsert(ctx, id, mutations, req); err != nil {
 		return ccc.NilUUID, err
 	}
 
 	return id, nil
 }
 
-// impersonationRow renders the full impersonation record row for a new session.
+// impersonationRow renders the full impersonation record row for a new session,
+// started at the commit time.
 func impersonationRow(id ccc.UUID, imp *dbtype.InsertImpersonation) map[string]any {
 	var sourceSessionID spanner.NullString
 	if imp.SourceSessionID != nil {
@@ -215,7 +211,7 @@ func impersonationRow(id ccc.UUID, imp *dbtype.InsertImpersonation) map[string]a
 		"PrincipalRole":        nullString(imp.PrincipalRole),
 		"Mask":                 nullString(imp.Mask),
 		"Reason":               nullString(imp.Reason),
-		"StartedAt":            imp.StartedAt,
+		"StartedAt":            spanner.CommitTimestamp,
 		"ExpiresAt":            imp.ExpiresAt,
 		endedAtColumn:          spanner.NullTime{},
 		endReasonColumn:        spanner.NullString{},
@@ -234,11 +230,10 @@ func (s *SessionStorageDriver) EndImpersonation(ctx context.Context, sessionID c
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET EndedAt = @endedAt, EndReason = @reason
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 			WHERE SessionId = @id AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 	stmt.Params["id"] = sessionID
-	stmt.Params["endedAt"] = time.Now()
 	stmt.Params["reason"] = reason
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -266,25 +261,23 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		return errors.New("impersonation is not configured on the storage")
 	}
 
-	now := time.Now()
-
+	// The sessions expire first: their statement reads the records, which the second
+	// then writes with the commit timestamp.
 	expireSessions := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE Id IN (
 				SELECT SessionId FROM %s WHERE ActorUsername = @actor AND EndedAt IS NULL
 			)
 	`, s.sessionTableName, s.impersonation.TableName))
 	expireSessions.Params["actor"] = actor
-	expireSessions.Params["now"] = now
 
 	endRecords := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET EndedAt = @now, EndReason = @reason
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 			WHERE ActorUsername = @actor AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 	endRecords.Params["actor"] = actor
-	endRecords.Params["now"] = now
 	endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -312,25 +305,23 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		return errors.New("impersonation is not configured on the storage")
 	}
 
-	now := time.Now()
-
+	// The session expires first: its statement reads the record, which the second then
+	// writes with the commit timestamp.
 	expireSession := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET Expired = TRUE, UpdatedAt = @now
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE Id = @id AND Id IN (
 				SELECT SessionId FROM %s WHERE SessionId = @id AND EndedAt IS NULL
 			)
 	`, s.sessionTableName, s.impersonation.TableName))
 	expireSession.Params["id"] = sessionID
-	expireSession.Params["now"] = now
 
 	endRecord := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %s
-			SET EndedAt = @now, EndReason = @reason
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
 			WHERE SessionId = @id AND EndedAt IS NULL
 	`, s.impersonation.TableName))
 	endRecord.Params["id"] = sessionID
-	endRecord.Params["now"] = now
 	endRecord.Params["reason"] = reason
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -438,7 +429,7 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 // unconditionally.
 // foreignRolePrincipalRecord is a predicate over session alias s: the session carries a
 // live role-principal record whose actor was authenticated by another application. Its
-// username is that actor's, borrowed, not an account of this application's.
+// username is that actor's, borrowed, not a user of this application's.
 func (s *SessionStorageDriver) foreignRolePrincipalRecord() string {
 	if s.impersonation == nil {
 		return "FALSE"
