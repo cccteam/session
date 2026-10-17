@@ -15,7 +15,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
   - Google Workspace OIDC (`session/google`), restricted to a Workspace's hosted domains, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
-  - WorkOS SSO (`session/workos`)
+  - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -95,9 +95,9 @@ method checks the user's password; an external method produces a verified
 transaction type (`pgx.Tx` or `*spanner.ReadWriteTransaction`); `NewAuth` infers it from
 the store, and the rules the application gives the `Auth` and its methods are typed to it.
 
-Each redirect-based method is its own package (`session/azure`, `session/google`,
-`session/workos`), built on the `session/signin` contract and the shared `session/oidc`
-machinery; an application imports the packages of the methods it offers and registers
+Each redirect-based method is its own package (`session/azure`, `session/google`;
+`session/workos` waits under `internal` until v0.13.1), built on the `session/signin`
+contract and the shared `session/oidc` machinery; an application imports the packages of the methods it offers and registers
 each with its `SignIn` function and `Config`.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
@@ -105,7 +105,7 @@ each with its `SignIn` function and `Config`.
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `azure.SignIn(auth, name, resolve, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
 | `google` | `google.SignIn(auth, name, resolve, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (`""`, `sub`) | `?returnUrl=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
-| `workos` | `workos.SignIn(auth, name, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, resolve, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
 may be registered several times under different names, so one `Auth` offers two Entra
@@ -182,7 +182,8 @@ DML what a later rule must read.
   `signin.Link(userID, trusted)`, `signin.Provision(newUser, onProvisioned)` or
   `signin.Confirm(userID)`; `signin.Tenant(key)` on any of the last three stores the
   application's tenant key on the link. It receives the method's own identity type
-  (`*azure.Identity`, `*google.Identity`, `*workos.Identity`), decoded from the verified
+  (`*azure.Identity`, `*google.Identity`; `*workos.Identity` once WorkOS returns in
+  v0.13.1), decoded from the verified
   claims, with the raw claims on it for anything the fields do not carry. A `Link` is
   the resolver's own evidence, and the library asks for more when it can: a user who
   has a password must confirm with it (`Confirm`) unless the link is `trusted`; a user
@@ -231,8 +232,8 @@ func signInPolicy(ctx context.Context, tx *spanner.ReadWriteTransaction, req *se
     return signin.Allow(), nil
 }
 
-func resolveWorkOSUser(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *workos.Identity) (*signin.Resolution, error) {
-    partner, ok, err := partnerOfConnection(ctx, tx, identity.ConnectionID) // the application's own rows
+func resolveEntraUser(ctx context.Context, tx *spanner.ReadWriteTransaction, identity *azure.Identity) (*signin.Resolution, error) {
+    partner, ok, err := partnerOfTenant(ctx, tx, identity.TenantID) // the application's own rows
     if err != nil {
         return nil, err
     }
@@ -240,7 +241,7 @@ func resolveWorkOSUser(ctx context.Context, tx *spanner.ReadWriteTransaction, id
         return signin.Reject("not_invited"), nil
     }
 
-    return signin.Provision(&signin.NewUser{Username: identity.Email}, nil, signin.Tenant(partner)), nil
+    return signin.Provision(&signin.NewUser{Username: identity.PreferredUsername}, nil, signin.Tenant(partner)), nil
 }
 
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
@@ -256,9 +257,9 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, sig
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
-sso := workos.SignIn(auth, "workos", resolveWorkOSUser, &workos.Config{ // *workos.Method
-    APIKey: cfg.WorkOSAPIKey, ClientID: cfg.WorkOSClientID, RedirectURL: cfg.SSORedirectURL,
-    LoginURL: "/login",
+sso := azure.SignIn(auth, "entra", resolveEntraUser, &azure.Config{ // *azure.Method
+    IssuerURL: cfg.EntraIssuerURL, ClientID: cfg.EntraClientID, ClientSecret: cfg.EntraClientSecret,
+    RedirectURL: cfg.SSORedirectURL, RoleSync: session.DisableRoleSync(), LoginURL: "/login",
 })
 ```
 

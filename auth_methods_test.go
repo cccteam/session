@@ -6,7 +6,7 @@ import (
 
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
-	"github.com/cccteam/session/workos"
+	"github.com/cccteam/session/internal/workos"
 )
 
 // The handler sets of the sign-in method types. Each method type carries only its own

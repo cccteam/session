@@ -4,8 +4,9 @@ v0.13.0 makes `Auth` the session type for every sign-in method. The single-metho
 that predate it, `PasswordAuth` and `OIDCAzure`, move to the `legacy` package unchanged
 and deprecated. The Google single-method type of v0.12 (`OIDCGoogle`) is removed: Google
 Workspace sign-in is a method of `Auth`. Each redirect-based method is its own package,
-`session/azure`, `session/google` and `session/workos`, over the `session/signin`
-contract and the shared `session/oidc` machinery.
+`session/azure` and `session/google`, over the `session/signin` contract and the shared
+`session/oidc` machinery; the WorkOS method is built but waits under `internal` until its
+review lands in v0.13.1.
 
 An application takes this in two steps, and only the first has to happen at the
 upgrade:

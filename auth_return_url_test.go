@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/session/internal/workos"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
-	"github.com/cccteam/session/workos"
 	gomock "go.uber.org/mock/gomock"
 )
 
