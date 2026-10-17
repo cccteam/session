@@ -22,19 +22,16 @@ import (
 // resolver must not have side effects outside it.
 type UserResolver[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
-// Policy decides a sign-in once its user is known and before any session exists, for
-// every sign-in method. session.NewAuth requires one: AllowAll, or the application's
-// rule. It runs in the transaction that inserts the session; the user resolution has
+// Policy is the application's sign-in rule, asked once a sign-in's user is known and
+// before any session exists, for every sign-in method and for a session the application
+// starts for a user it authenticated itself. It is optional: an Auth without one
+// decides a sign-in on the library's own checks (the user exists and is enabled, the
+// identity is linked or resolved, roles reconcile); session.Auth.SetSignInPolicy sets
+// one. It runs in the transaction that inserts the session; the user resolution has
 // committed by then, so the policy can read the user and the rows the resolver wrote,
 // and req.User says how the user was found. The transaction commits unless an error is
 // returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
-
-// AllowAll is the sign-in policy that allows every sign-in. Pass it to session.NewAuth
-// as it is; its transaction type is inferred from the storage.
-func AllowAll[Tx any](context.Context, Tx, *sessioninfo.NewSessionRequest) (*Decision, error) {
-	return Allow(), nil
-}
 
 // NewUser is the user a resolver provisions. It has no password unless PasswordHash is
 // set.

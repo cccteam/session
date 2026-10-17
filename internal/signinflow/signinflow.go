@@ -362,10 +362,11 @@ func decideSignIn(
 }
 
 // policyApplies reports whether the sign-in policy decides a session created for
-// reason. It decides ReasonLogin and ReasonIdentityLinked. Every other session was
-// already decided or is started by the application itself.
+// reason. It decides ReasonLogin, ReasonIdentityLinked and ReasonExternalAuth (a
+// session the application starts for a user it authenticated itself). Every other
+// session was already decided.
 func policyApplies(reason sessioninfo.NewSessionReason) bool {
-	return reason == sessioninfo.ReasonLogin || reason == sessioninfo.ReasonIdentityLinked
+	return reason == sessioninfo.ReasonLogin || reason == sessioninfo.ReasonIdentityLinked || reason == sessioninfo.ReasonExternalAuth
 }
 
 // Refusal returns a refused sign-in's error. It carries code (or fallback when code is

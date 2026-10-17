@@ -104,10 +104,11 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, policy, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
+	a.SetSignInPolicy(policy)
 	f.auth = a
 	f.password = PasswordSignIn(a)
 
@@ -277,7 +278,7 @@ func (f *authFixture) expectSignIn(id ccc.UUID, prepare func(req *sessioninfo.Ne
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, resolve signin.UserResolver[mockTx], policy signin.Policy[mockTx]) (ccc.UUID, error) {
 			f.signedIn = &storeSignIn{req: req, resolve: resolve, policy: policy}
-			if external := req.Identity.Method != sessioninfo.MethodPassword; (resolve != nil) != external {
+			if external := !namesItsUser(req.Identity); (resolve != nil) != external {
 				f.t.Errorf("SignIn() given a resolver = %v, want %v for a %s identity", resolve != nil, external, req.Identity.Method)
 			}
 			if policy == nil {
@@ -305,7 +306,6 @@ func TestNewAuth(t *testing.T) {
 		name       string
 		storage    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx]
 		options    []AuthOption
-		noPolicy   bool
 		wantErrHas string
 	}{
 		{
@@ -321,12 +321,6 @@ func TestNewAuth(t *testing.T) {
 			name:       "no storage",
 			storage:    func(*gomock.Controller) sessionstorage.AuthStore[mockTx] { return nil },
 			wantErrHas: "storage is required",
-		},
-		{
-			name:       "no sign-in policy",
-			storage:    func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] { return newAuthStoreMock(ctrl) },
-			noPolicy:   true,
-			wantErrHas: "a sign-in policy is required",
 		},
 		{
 			name:       "a pending cookie named like the session cookie",
@@ -391,11 +385,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			policy := signin.Policy[mockTx](signin.AllowAll[mockTx])
-			if tt.noPolicy {
-				policy = nil
-			}
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, policy, tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -414,7 +404,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, signin.AllowAll)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -567,6 +557,11 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		a.StartSession(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), r)
 	}
 
+	allow := func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+		return signin.Allow(), nil
+	}
+	setPolicy := func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSignInPolicy(allow) }
+
 	tests := []struct {
 		name string
 		// before runs on the Auth first, and must not panic.
@@ -621,6 +616,19 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 				}
 			},
 			register: password, wantHas: "after the Auth is in use",
+		},
+		{
+			name:   "the sign-in policy set twice",
+			before: setPolicy, register: setPolicy, wantHas: "set twice",
+		},
+		{
+			name:   "the sign-in policy set after the Auth is in use",
+			before: served, register: setPolicy, wantHas: "after the Auth served a request",
+		},
+		{
+			name:     "a nil sign-in policy",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) { a.SetSignInPolicy(nil) },
+			wantHas:  "given nil",
 		},
 		{
 			name: "a method asking for the front-channel logout handler without declaring its issuers",
@@ -1804,38 +1812,89 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	events := []sessioninfo.AuthEvent{{Method: "magic-link"}, {Method: "email-otp"}}
+	user := &sessionstorage.SessionUser{ID: userID, Username: "pat"}
 
 	tests := []struct {
-		name    string
-		events  []sessioninfo.AuthEvent
-		user    *sessionstorage.SessionUser
-		wantErr func(error) bool
+		name        string
+		events      []sessioninfo.AuthEvent
+		user        *sessionstorage.SessionUser
+		prepare     func(f *authFixture)
+		wantErr     func(error) bool
+		wantPending bool
 	}{
-		{name: "the application's own steps are recorded and no sign-in policy is asked", events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}},
-		{name: "a disabled user is refused", events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantErr: httpio.HasUnauthorized},
+		{
+			name:   "the application's own steps are recorded, and the sign-in policy decides the start like a login",
+			events: events, user: user,
+			prepare: func(f *authFixture) {
+				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
+					want := &sessioninfo.Identity{Method: sessioninfo.MethodApplication, Subject: userID.String()}
+					if req.Reason != sessioninfo.ReasonExternalAuth || req.UserID != userID || req.Username != "pat" || !cmp.Equal(want, req.Identity) || !cmp.Equal(events, req.AuthEvents) || req.CustomData != nil {
+						f.t.Errorf("SignIn() request = %+v, want the application identity of %s with the events", req, userID)
+					}
+				}, nil)
+			},
+		},
+		{
+			name:   "a policy that denies refuses the start with its code, and no session is written",
+			events: events, user: user,
+			prepare: func(f *authFixture) {
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("sso_required", sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied")
+				})
+			},
+			wantErr: func(err error) bool { return sessioninfo.LoginRefusalCodeOf(err) == "sso_required" },
+		},
+		{
+			name:   "a policy that requires MFA holds the start as the browser's pending identity",
+			events: events, user: user,
+			prepare: func(f *authFixture) {
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return errors.Wrap(&signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat", Factors: []sessioninfo.AuthMethod{"email-otp"}}, "db.InsertSession()")
+				})
+				f.expectHold("pat")
+			},
+			wantErr: func(err error) bool {
+				var wait *signin.PendingSignInError
+
+				return errors.As(err, &wait) && wait.Reason == sessioninfo.PendingMFA
+			},
+			wantPending: true,
+		},
+		{
+			name:   "a disabled user is refused by the library before any policy",
+			events: events, user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true},
+			prepare: func(f *authFixture) {
+				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+					return signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
+				})
+			},
+			wantErr: httpio.HasUnauthorized,
+		},
+		{name: "no events is refused: the application says how the user authenticated", wantErr: httpio.HasBadRequest},
 		{name: "an event without a method is refused", events: []sessioninfo.AuthEvent{{}}, wantErr: httpio.HasBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctrl := gomock.NewController(t)
-			f := newAuthFixture(t, ctrl)
+			f := newAuthFixture(t, gomock.NewController(t))
 			if tt.user != nil {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(tt.user, nil)
 			}
-			if tt.wantErr == nil {
-				createSession(f.store, sessionID, func(req *sessioninfo.NewSessionRequest) {
-					if req.Reason != sessioninfo.ReasonExternalAuth || req.Identity != nil || req.UserID != userID || !cmp.Equal(req.AuthEvents, events) {
-						t.Errorf("CreateSession() request = %+v", req)
-					}
-				})
+			if tt.prepare != nil {
+				tt.prepare(f)
 			}
 
 			rr := httptest.NewRecorder()
 			got, err := f.auth.API().StartAuthenticatedSession(context.Background(), rr, userID, tt.events)
+			if gotPending := cookieNamed(rr, defaultPendingCookieName) != nil; gotPending != tt.wantPending {
+				t.Errorf("pending cookie written = %v, want %v", gotPending, tt.wantPending)
+			}
 			if tt.wantErr != nil {
 				if !tt.wantErr(err) {
 					t.Errorf("StartAuthenticatedSession() error = %v", err)
+				}
+				if cookieNamed(rr, internalcookie.AuthCookieName) != nil {
+					t.Error("a session cookie was written for a refused or held start")
 				}
 
 				return
@@ -1844,6 +1903,29 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 				t.Errorf("StartAuthenticatedSession() = %s, %v; want %s with its cookies", got, err, sessionID)
 			}
 		})
+	}
+}
+
+// TestAuth_WithoutPolicy proves an Auth with no sign-in policy signs in on the library's
+// checks alone: the store is asked with no policy, and the session is established.
+func TestAuth_WithoutPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	store := newAuthStoreMock(ctrl)
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+	if err != nil {
+		t.Fatalf("NewAuth() error = %v", err)
+	}
+	userID := ccc.Must(ccc.NewUUID())
+	sessionID := ccc.Must(ccc.NewUUID())
+	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), gomock.Nil()).Return(sessionID, nil)
+
+	rr := httptest.NewRecorder()
+	got, err := a.API().StartAuthenticatedSession(context.Background(), rr, userID, []sessioninfo.AuthEvent{{Method: "api-key"}})
+	if err != nil || got != sessionID || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
+		t.Errorf("StartAuthenticatedSession() = %s, %v; want %s with its cookies", got, err, sessionID)
 	}
 }
 

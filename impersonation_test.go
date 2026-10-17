@@ -14,7 +14,6 @@ import (
 	"github.com/cccteam/session/mock/mock_cookie"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
-	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -288,7 +287,7 @@ func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreauth() error = %v", err)
 	}
-	auth, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, signin.AllowAll, opt)
+	auth, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, opt)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -380,7 +379,7 @@ func TestSessionAPIs_Logout_AnnouncesImpersonationEnd(t *testing.T) {
 			build: func(t *testing.T, ctrl *gomock.Controller, sessionID ccc.UUID, hook ImpersonationAuditHook) logoutAPI {
 				storage := newAuthStoreMock(ctrl)
 				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, signin.AllowAll, WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}

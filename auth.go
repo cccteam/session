@@ -148,7 +148,8 @@ type Auth[SessionData, UserData, Tx any] struct {
 	baseSession *basesession.BaseSession
 	storage     sessionstorage.AuthStore[Tx]
 	settings    authSettings
-	// policy decides every sign-in once its user is known.
+	// policy is the application's sign-in rule, nil when it set none: the library's
+	// own checks then decide. Set by SetSignInPolicy before the Auth is in use.
 	policy signin.Policy[Tx]
 
 	// cookies is the session cookie client. It also writes the external methods' state
@@ -164,21 +165,19 @@ type Auth[SessionData, UserData, Tx any] struct {
 // and user data configurations must be built for SessionData and UserData. The
 // OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
 // are refused. Tx is inferred from the storage: an application writes
-// NewAuth[SessionData, UserData](store, cookieKey, policy).
+// NewAuth[SessionData, UserData](store, cookieKey, options...).
 //
-// policy decides every sign-in once its user is known: signin.AllowAll, or the
-// application's rule; it is required. Each external method's user resolver is given to
-// that method's registration.
+// A sign-in is decided by the library's own checks: the user exists and is enabled,
+// the identity is linked or resolved, roles reconcile. An application with rules of
+// its own sets a sign-in policy with SetSignInPolicy. Each external method's first
+// sign-in rule is given to that method's registration.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewAuth[SessionData, UserData, Tx any](
-	storage sessionstorage.AuthStore[Tx], cookieKey string, policy signin.Policy[Tx], options ...AuthOption,
+	storage sessionstorage.AuthStore[Tx], cookieKey string, options ...AuthOption,
 ) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
-	}
-	if policy == nil {
-		return nil, errors.New("a sign-in policy is required: pass signin.AllowAll to allow every sign-in, or the application's rule")
 	}
 	if err := sessioncore.VerifyCustomDataTypes[SessionData, UserData](storage); err != nil {
 		return nil, err
@@ -223,7 +222,6 @@ func NewAuth[SessionData, UserData, Tx any](
 		baseSession:    baseSession,
 		storage:        storage,
 		settings:       settings,
-		policy:         policy,
 		cookies:        cookieClient,
 		pendingCookies: pendingCookies,
 		methods: signInMethods[Tx]{
@@ -233,6 +231,29 @@ func NewAuth[SessionData, UserData, Tx any](
 			external:    make(map[string]*externalMethod[Tx]),
 		},
 	}, nil
+}
+
+// SetSignInPolicy sets the application's sign-in rule: asked once a sign-in's user is
+// known and before any session exists, for every sign-in method and for a session the
+// application starts for a user it authenticated itself (AuthAPI.StartAuthenticatedSession),
+// with signin.Allow, signin.Deny or signin.RequireMFA. Without a policy the library's
+// own checks decide. Set it after NewAuth and before serving the first request; a nil
+// policy, a second policy, or a policy set once the Auth is in use is a wiring
+// mistake and panics, as a misregistered sign-in method does.
+func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[Tx]) {
+	if policy == nil {
+		panic("session: SetSignInPolicy was given nil: pass the application's rule, or set no policy and the library's checks decide")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the sign-in policy was set after the Auth served a request: set it before serving")
+	}
+	if a.policy != nil {
+		panic("session: the sign-in policy was set twice: one Auth has one rule")
+	}
+	a.policy = policy
 }
 
 // Authenticated answers {"authenticated", "username", "impersonation"}. A session whose

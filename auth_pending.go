@@ -157,7 +157,7 @@ func (a *Auth[S, U, Tx]) holdPending(ctx context.Context, w http.ResponseWriter,
 		ProviderSessionIssuer: at.providerSessionIssuer,
 		ExpiresAt:             time.Now().Add(a.settings.pendingTimeout),
 	}
-	if at.identity.Method == sessioninfo.MethodPassword {
+	if namesItsUser(at.identity) {
 		p.UserID = ccc.NullUUIDFromUUID(at.userID)
 	}
 
@@ -304,9 +304,9 @@ func (a *Auth[S, U, Tx]) completePending(
 		sameSite:              sessioncore.SameSiteStrict,
 		fromPending:           true,
 	}
-	if identity.Method == sessioninfo.MethodPassword {
+	if namesItsUser(&identity) {
 		if !p.UserID.Valid {
-			return nil, errors.New("a pending password sign-in names no user")
+			return nil, errors.New("a pending sign-in that names its user names none")
 		}
 		at.userID = p.UserID.UUID
 	}

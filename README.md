@@ -29,7 +29,7 @@ inferred from the store), the legacy `PasswordAuth[SessionData, UserData]` and
 `OIDCAzure[SessionData, UserData]`, and `Preauth[SessionData]` (Preauth has no user
 record, so no user-data axis). An application that uses neither axis instantiates with
 the `NoCustomData` sentinel:
-`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, signin.AllowAll)`.
+`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey)`.
 
 ## Schema
 
@@ -170,9 +170,13 @@ so it must not have side effects outside it, and a row it writes with a mutation
 buffered until the commit, invisible to a later read in the same transaction: write with
 DML what a later rule must read.
 
-- The **sign-in policy** (`signin.Policy[Tx]`) is `NewAuth`'s third argument, required:
-  `signin.AllowAll` allows every sign-in, or the application's rule answers for every
-  method once the user is known, with `signin.Allow()`, `signin.Deny(code)` or
+- The **sign-in policy** (`signin.Policy[Tx]`) is optional. Without one, a sign-in is
+  decided by the library's own checks: the user exists and is enabled, the identity is
+  linked or resolved, roles reconcile. An application with rules of its own sets them
+  with `auth.SetSignInPolicy(rule)` after `NewAuth` and before serving; the rule
+  answers for every method, and for a session the application starts for a user it
+  authenticated itself (`StartAuthenticatedSession`), once the user is known, with
+  `signin.Allow()`, `signin.Deny(code)` or
   `signin.RequireMFA(factors...)`. The factors are the methods the application's MFA
   step may record when it completes the sign-in (`"email-otp"`, `"totp"`): the pending
   status and the `PendingHook` report them, and `CompletePending` refuses any other;
@@ -247,13 +251,14 @@ func resolveEntraUser(ctx context.Context, tx *spanner.ReadWriteTransaction, ide
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
 store := sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(events))
 
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, signInPolicy,
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
     session.WithPendingHook(onPending),       // called when a sign-in becomes pending
     session.WithPendingTimeout(10*time.Minute),
     session.WithPendingCookieName("auth-pending"),
 )
+auth.SetSignInPolicy(signInPolicy) // optional: without it the library's checks decide
 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
@@ -263,7 +268,7 @@ sso := azure.SignIn(auth, "entra", resolveEntraUser, &azure.Config{ // *azure.Me
 })
 ```
 
-`NewAuth` refuses a missing sign-in policy and the OIDC-only storage features
+`NewAuth` refuses the OIDC-only storage features
 (`WithOIDCUsers`, the custom user data login hook).
 
 ### Registering sign-in methods
@@ -422,7 +427,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
   method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
   steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
-  application authenticated itself, recording its events; the policy is not consulted.
+  application authenticated itself, recording its events; it is decided like a login:
+  the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
+  identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the
   identity resolved to, from the roles the provider asserted at sign-in, whenever such a
   sign-in establishes a session (including after a confirmation or MFA). A sign-in left
@@ -974,7 +981,7 @@ resolver is skipped for that creation (per-call data wins)**:
 
 ```go
 // Auth: a session the application authenticated itself, by user ID, recording how
-// (the sign-in policy is not consulted):
+// (decided like a login: the sign-in policy answers when one is set):
 sessionID, err := auth.API().StartAuthenticatedSession(ctx, w, userID,
     []sessioninfo.AuthEvent{{Method: "api-key"}},
     &MyData{TenantID: tenantID, RoleID: roleID},

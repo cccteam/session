@@ -17,7 +17,6 @@ import (
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/workos"
 	"github.com/cccteam/session/sessioninfo"
-	"github.com/cccteam/session/signin"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -100,7 +99,7 @@ func surfaceBuilders() []struct {
 			name: "Auth",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook ImpersonationAuditHook) *surface {
 				storage := newAuthStoreMock(ctrl)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, signin.AllowAll, WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}

@@ -76,7 +76,7 @@ store := sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(eve
     WithCustomSessionData(sessionData). // optional: the README's "Custom session data"
     WithCustomUserData(userData)        // optional: the README's "Custom user data"
 
-auth, err := session.NewAuth[MyData, UserData](store, cookieKey, signin.AllowAll,
+auth, err := session.NewAuth[MyData, UserData](store, cookieKey,
     session.WithCookieName("app_auth"), session.WithSessionTimeout(8*time.Hour))
 
 password := session.PasswordSignIn(auth, session.HashAlgorithm(alg))
@@ -109,10 +109,12 @@ Two things every move shares:
   `UnlinkIdentity`. The `Auth` has no user-management handlers of its own: the
   application writes them over the API and guards them, as it guarded the callers of
   the legacy handlers.
-- **The sign-in policy decides every sign-in** once the user is known.
-  `signin.AllowAll` keeps v0.12's behaviour, where a valid credential signs in. The
-  application's own rule can deny a sign-in or hold it for its MFA step
-  (`signin.RequireMFA`), which the legacy types could not express.
+- **A sign-in policy is optional.** Without one, a valid credential or a resolved
+  identity signs in on the library's checks, which is v0.12's behaviour. An
+  application's own rule (`auth.SetSignInPolicy(rule)`) can deny a sign-in or hold it
+  for its MFA step (`signin.RequireMFA`), which the legacy types could not express, and
+  it decides a session the application starts (`StartAuthenticatedSession`) as well:
+  there is no session start that skips it.
 
 ### From the legacy password type
 
@@ -269,8 +271,9 @@ conflict by that name.
   `identity_rejected`, `policy_denied`, `user_disabled`, `pending_expired` and
   `no_email`.
 - **The pending flow** (`?pending=confirmation` or `?pending=mfa` on the login page)
-  exists only when the resolver or the policy asks for it. With `signin.AllowAll` and a
-  resolver that never answers `signin.Confirm`, no page is needed for it.
+  exists only when the resolver or the policy asks for it. Without a policy that
+  answers `signin.RequireMFA`, and with a resolver that never answers `signin.Confirm`,
+  no page is needed for it.
 - **Linking across connections.** A resolver's `signin.Link(userID, false)` is refused
   for a user who has a password (confirm with `signin.Confirm`) and for a user without
   one when the identity comes through another connection than the ones that user

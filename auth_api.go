@@ -33,20 +33,30 @@ func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, p
 	return user.ID, nil
 }
 
-// StartAuthenticatedSession starts a session for an existing user that the
-// application authenticated itself, and records events. The sign-in policy is not
-// consulted. It regenerates the session ID.
+// StartAuthenticatedSession starts a session for an existing user the application
+// authenticated itself, recording how in events, which must name at least one method:
+// a sign-up that just created the user, a factor the application ran on its own. It is
+// decided like a login: the sign-in policy, when one is set, answers with the request's
+// ReasonExternalAuth, and the library refuses a missing or disabled user. An Allow
+// establishes the session under a new session ID; a Deny is a refusal
+// (sessioninfo.LoginRefusal); a RequireMFA holds the sign-in as the browser's pending
+// identity and returns a *signin.PendingSignInError, as CompletePending does, for
+// CompletePending to finish. There is no session start that skips the policy: a support
+// session is StartImpersonatedSession.
 //
-// The user must exist and be enabled. Each event needs a method. An event with a
-// zero At records the session's creation time. Optional customData (at most one *S) is
-// written atomically with the session insert, and the custom session data resolver is
-// not called. Without it, the resolver receives ReasonExternalAuth.
+// An event with a zero At records the session's creation time. Optional customData
+// (at most one *S) is written atomically with the session insert, and the custom
+// session data resolver is not called for it; without it the resolver receives
+// ReasonExternalAuth.
 func (p *AuthAPI[S, U, Tx]) StartAuthenticatedSession(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, events []sessioninfo.AuthEvent, customData ...*S) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if len(customData) > 1 {
 		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom session data row")
+	}
+	if len(events) == 0 {
+		return ccc.NilUUID, httpio.NewBadRequestMessage("StartAuthenticatedSession records how the user authenticated: pass at least one auth event")
 	}
 	if err := validateEvents(events); err != nil {
 		return ccc.NilUUID, err
@@ -56,16 +66,27 @@ func (p *AuthAPI[S, U, Tx]) StartAuthenticatedSession(ctx context.Context, w htt
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if user.Disabled {
-		return ccc.NilUUID, httpio.NewUnauthorizedMessage("User disabled")
-	}
 
-	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonExternalAuth, Username: user.Username, UserID: user.ID, AuthEvents: events}
+	at := &signInAttempt{
+		identity: &sessioninfo.Identity{Method: sessioninfo.MethodApplication, Subject: user.ID.String()},
+		reason:   sessioninfo.ReasonExternalAuth,
+		userID:   user.ID,
+		username: user.Username,
+		events:   events,
+		sameSite: sessioncore.SameSiteStrict,
+	}
 	if len(customData) == 1 && customData[0] != nil {
-		req.CustomData = customData[0]
+		at.customData = customData[0]
+	}
+	outcome, err := p.auth.signIn(ctx, w, at)
+	if err != nil {
+		return ccc.NilUUID, err
+	}
+	if outcome.pending != nil {
+		return ccc.NilUUID, stillPending(outcome.pending)
 	}
 
-	return p.auth.startSession(ctx, w, req)
+	return outcome.sessionID, nil
 }
 
 // startSession inserts req's session and writes its cookies. It is for sessions the

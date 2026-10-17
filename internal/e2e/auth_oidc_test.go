@@ -58,10 +58,11 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
 
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy, session.WithIdentityLinked(h.identityLinked))
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
+	auth.SetSignInPolicy(h.signInPolicy)
 	azureMethod := azure.SignIn(auth, "azure", h.azureResolver, &azure.Config{
 		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
 		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",

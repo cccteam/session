@@ -13,8 +13,9 @@ type NewSessionReason string
 const (
 	// ReasonLogin indicates the session is being created by an interactive credential login.
 	ReasonLogin NewSessionReason = "Login"
-	// ReasonExternalAuth indicates the session is being created for a user that was
-	// already authenticated by an external system (e.g. StartAuthenticatedSession).
+	// ReasonExternalAuth indicates the session is being created for a user the
+	// application authenticated itself (StartAuthenticatedSession); the sign-in policy
+	// decides it like a login.
 	ReasonExternalAuth NewSessionReason = "ExternalAuth"
 	// ReasonRegeneration indicates an existing authenticated session is being replaced
 	// with a new session ID (e.g. after a password change). Custom session data is

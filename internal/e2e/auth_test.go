@@ -297,11 +297,12 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, h.signInPolicy,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
+	auth.SetSignInPolicy(h.signInPolicy)
 	password := session.PasswordSignIn(auth)
 	sso := workos.SignIn(auth, "workos", h.workOSResolver, &workos.Config{APIKey: "sk_test", ClientID: workosClientID, RedirectURL: "https://app.example/sso/callback", BaseURL: fake.server.URL})
 

@@ -26,7 +26,8 @@ type SessionIdentity struct {
 // password identity names its user directly (req.UserID), and an impersonation
 // identity belongs to the impersonation flow.
 func IsExternal(identity *sessioninfo.Identity) bool {
-	return identity != nil && identity.Method != sessioninfo.MethodPassword && identity.Method != sessioninfo.MethodImpersonation
+	return identity != nil && identity.Method != sessioninfo.MethodPassword && identity.Method != sessioninfo.MethodImpersonation &&
+		identity.Method != sessioninfo.MethodApplication
 }
 
 // ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of

@@ -39,6 +39,9 @@ type signInAttempt struct {
 	// events are the auth events the session records. Nil records only the identity's
 	// method.
 	events []sessioninfo.AuthEvent
+	// customData is the per-call custom session data of an application-started
+	// session, nil for none; the custom session data resolver is skipped when set.
+	customData any
 	// returnURL is where an external sign-in sends the browser afterwards.
 	returnURL string
 	// roleNames are the role names the method asserted, reconciled once the user is
@@ -75,10 +78,11 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		AuthEvents:            at.events,
 		ProviderSessionID:     at.providerSessionID,
 		ProviderSessionIssuer: at.providerSessionIssuer,
+		CustomData:            at.customData,
 	}
 
 	// An external identity is resolved by its registration's user resolver; a password
-	// identity names its user and needs none.
+	// identity, or the application's own, names its user and needs none.
 	var resolve signin.UserResolver[Tx]
 	if m, ok := a.registered().external[at.registration]; ok {
 		resolve = m.resolve
@@ -381,6 +385,12 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 	}
 
 	return err
+}
+
+// namesItsUser reports whether identity names its user instead of being resolved to
+// one: a password identity, or the application's own (StartAuthenticatedSession).
+func namesItsUser(identity *sessioninfo.Identity) bool {
+	return identity.Method == sessioninfo.MethodPassword || identity.Method == sessioninfo.MethodApplication
 }
 
 // identityEvent returns the auth event of a sign-in with identity. Its time is the

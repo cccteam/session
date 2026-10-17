@@ -27,6 +27,11 @@ const (
 	// MethodLinkConfirmation records a password confirmation that linked a new
 	// external identity to an existing user.
 	MethodLinkConfirmation AuthMethod = "link-confirmation"
+	// MethodApplication is the identity of a session the application starts for a
+	// user it authenticated itself (AuthAPI.StartAuthenticatedSession): the user, named
+	// by ID, with no identity to resolve; the session's auth events say how the person
+	// authenticated. A pending identity held from such a start carries it.
+	MethodApplication AuthMethod = "application"
 )
 
 // Identity is a verified identity produced by a sign-in method. An external identity
