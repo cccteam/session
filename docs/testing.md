@@ -84,7 +84,7 @@ the backends shows up: Spanner's buffered writes are invisible to later reads in
 transaction, PostgreSQL's are not.
 
 **Verifiers** (`azure`, `google`, `workos`). Real
-login round trips against `internal/oidctest.FakeIDP`, which signs real RS256 tokens (`NewFakeIDP` serves one issuer at its root, as Google does; `NewFakeEntra` serves discovery per tenant and Microsoft's shared endpoints, whose documents name the issuer with a placeholder), and,
+login round trips against `internal/oidctest.FakeIDP`, which signs real RS256 tokens (`NewFakeIDP` serves one issuer at its root, as Google does; `NewFakeEntra` serves discovery per tenant and Microsoft's shared endpoints, whose documents name the issuer with a placeholder; `Rotate` rolls its key over, `Mint` mints a token under any key or algorithm, and `KeyFetches` counts the key set's reads), and,
 for WorkOS, against a fake code exchange. Both build tags are
 tested: the production verifier under the default tag and the `skipAuth` simulator under
 its own. The Google groups lookup has the same split: the Cloud Identity Groups API

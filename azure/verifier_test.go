@@ -141,9 +141,11 @@ func TestOIDC_Verify(t *testing.T) {
 		name string
 		// tenants is the registration's slot; the zero value stands for one tenant,
 		// tenantLake.
-		tenants       TenantSet
-		tokenClaims   func(idp *oidctest.FakeIDP) map[string]any
-		tokenStatus   int
+		tenants     TenantSet
+		tokenClaims func(idp *oidctest.FakeIDP) map[string]any
+		tokenStatus int
+		// mint, when set, serializes the token in place of the provider's signing.
+		mint          func(claims map[string]any) string
 		mutateReq     func(r *http.Request)
 		dropCookie    bool
 		wantErr       bool
@@ -195,6 +197,39 @@ func TestOIDC_Verify(t *testing.T) {
 		{
 			name:        "a token from another issuer fails verification",
 			tokenClaims: claimsOf(tenantLake, func(_ *oidctest.FakeIDP, c map[string]any) { c["iss"] = "https://login.attacker.example" }),
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "an expired token fails verification",
+			tokenClaims: claimsOf(tenantLake, func(_ *oidctest.FakeIDP, c map[string]any) { c["exp"] = time.Now().Add(-time.Minute).Unix() }),
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token signed with a key the provider never published fails verification",
+			tokenClaims: goodClaims,
+			mint:        func(c map[string]any) string { return oidctest.SignedBy(oidctest.NewKey(t), "rogue-key", c) },
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "an unsigned token fails verification",
+			tokenClaims: goodClaims,
+			mint:        oidctest.Unsigned,
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token under another algorithm than the provider's fails verification",
+			tokenClaims: goodClaims,
+			mint: func(c map[string]any) string {
+				return oidctest.SignedHS256([]byte("a shared secret the provider never had"), c)
+			},
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
 			wantCode:    sessioninfo.RefusedIDTokenVerification,
@@ -289,6 +324,7 @@ func TestOIDC_Verify(t *testing.T) {
 			idp := oidctest.NewFakeEntra(t, testClientID)
 			idp.TokenClaims = func() map[string]any { return tt.tokenClaims(idp) }
 			idp.TokenStatus = tt.tokenStatus
+			idp.Mint = tt.mint
 
 			o := newVerifier(t, idp, tenants, "azure")
 
@@ -366,4 +402,57 @@ func assertVerified(t *testing.T, rec *httptest.ResponseRecorder, returnURL, sid
 	if !cleared {
 		t.Error("the OIDC cookie was not deleted by the callback")
 	}
+}
+
+// TestOIDC_Verify_KeyRotation proves the key set is read once and cached, a token under
+// a key the provider rotated to is accepted after one refresh, and a token under a key
+// the provider never published is refused after one refresh.
+func TestOIDC_Verify_KeyRotation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	idp := oidctest.NewFakeEntra(t, testClientID)
+	idp.TokenClaims = func() map[string]any {
+		return map[string]any{"preferred_username": "user@example.com", "tid": tenantLake, "oid": "object-1"}
+	}
+	o := newVerifier(t, idp, Tenant(tenantLake), "azure")
+	verify := func() error {
+		_, callback := startLogin(t, o)
+		var claims json.RawMessage
+		_, _, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
+
+		return err
+	}
+	fetches := func(want int, when string) {
+		t.Helper()
+		if got := idp.KeyFetches(); got != want {
+			t.Errorf("key set fetches %s = %d, want %d", when, got, want)
+		}
+	}
+
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the first token accepted", err)
+	}
+	fetches(1, "after the first token")
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the second token accepted", err)
+	}
+	fetches(1, "after a second token under the same key: the set is cached")
+
+	idp.Rotate(t)
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() under the rotated key error = %v, want it accepted after one refresh of the key set", err)
+	}
+	fetches(2, "after the rotation: one refresh")
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the next token under the rotated key accepted", err)
+	}
+	fetches(2, "after another token under the rotated key: the refreshed set is cached")
+
+	rogue := oidctest.NewKey(t)
+	idp.Mint = func(claims map[string]any) string { return oidctest.SignedBy(rogue, "rogue-key", claims) }
+	if err := verify(); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedIDTokenVerification {
+		t.Fatalf("Verify() under a key the provider never published error = %v, want %s", err, sessioninfo.RefusedIDTokenVerification)
+	}
+	fetches(3, "after a token under an unknown key id: one refresh, then refused")
 }

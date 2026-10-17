@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
@@ -147,6 +148,8 @@ func TestOIDC_Verify(t *testing.T) {
 		workspaces  func() WorkspaceSet
 		tokenClaims func() map[string]any
 		tokenStatus int
+		// mint, when set, serializes the token in place of the provider's signing.
+		mint        func(claims map[string]any) string
 		mutateReq   func(r *http.Request)
 		dropCookie  bool
 		wantErr     bool
@@ -184,6 +187,44 @@ func TestOIDC_Verify(t *testing.T) {
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
 			wantCode:    sessioninfo.RefusedTokenExchange,
+		},
+		{
+			name: "an expired token fails verification",
+			tokenClaims: func() map[string]any {
+				c := workspaceClaims()
+				c["exp"] = time.Now().Add(-time.Minute).Unix()
+
+				return c
+			},
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token signed with a key the provider never published fails verification",
+			tokenClaims: workspaceClaims,
+			mint:        func(c map[string]any) string { return oidctest.SignedBy(oidctest.NewKey(t), "rogue-key", c) },
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "an unsigned token fails verification",
+			tokenClaims: workspaceClaims,
+			mint:        oidctest.Unsigned,
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "a token under another algorithm than the provider's fails verification",
+			tokenClaims: workspaceClaims,
+			mint: func(c map[string]any) string {
+				return oidctest.SignedHS256([]byte("a shared secret the provider never had"), c)
+			},
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 		{
 			name: "wrong audience fails verification",
@@ -348,6 +389,7 @@ func TestOIDC_Verify(t *testing.T) {
 			idp := newFakeIDP(t)
 			idp.TokenClaims = tt.tokenClaims
 			idp.TokenStatus = tt.tokenStatus
+			idp.Mint = tt.mint
 
 			workspaces := Workspace("test", testHostedDomain)
 			if tt.workspaces != nil {
@@ -394,4 +436,50 @@ func TestOIDC_Verify(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOIDC_Verify_KeyRotation proves the key set is read once and cached, a token under
+// a key the provider rotated to is accepted after one refresh, and a token under a key
+// the provider never published is refused after one refresh.
+func TestOIDC_Verify_KeyRotation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	idp := newFakeIDP(t)
+	idp.TokenClaims = workspaceClaims
+	o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", Workspace("test", testHostedDomain))
+	verify := func() error {
+		_, callback := startLogin(t, o)
+		var claims json.RawMessage
+		_, _, err := o.Verify(ctx, httptest.NewRecorder(), callback.WithContext(ctx), &claims)
+
+		return err
+	}
+	fetches := func(want int, when string) {
+		t.Helper()
+		if got := idp.KeyFetches(); got != want {
+			t.Errorf("key set fetches %s = %d, want %d", when, got, want)
+		}
+	}
+
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the first token accepted", err)
+	}
+	fetches(1, "after the first token")
+	idp.Rotate(t)
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() under the rotated key error = %v, want it accepted after one refresh of the key set", err)
+	}
+	fetches(2, "after the rotation: one refresh")
+	if err := verify(); err != nil {
+		t.Fatalf("Verify() error = %v, want the next token under the rotated key accepted", err)
+	}
+	fetches(2, "after another token under the rotated key: the refreshed set is cached")
+
+	rogue := oidctest.NewKey(t)
+	idp.Mint = func(claims map[string]any) string { return oidctest.SignedBy(rogue, "rogue-key", claims) }
+	if err := verify(); sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedIDTokenVerification {
+		t.Fatalf("Verify() under a key the provider never published error = %v, want %s", err, sessioninfo.RefusedIDTokenVerification)
+	}
+	fetches(3, "after a token under an unknown key id: one refresh, then refused")
 }

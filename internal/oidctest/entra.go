@@ -26,7 +26,7 @@ const entraTemplatedIssuer = "{tenantid}"
 func NewFakeEntra(t *testing.T, clientID string) *FakeIDP {
 	t.Helper()
 
-	f := &FakeIDP{key: newKey(t), clientID: clientID}
+	f := &FakeIDP{keys: []signingKey{{kid: "test-key", key: NewKey(t)}}, clientID: clientID}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
