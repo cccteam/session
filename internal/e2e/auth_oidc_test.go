@@ -27,8 +27,10 @@ import (
 var googleIssuerMu sync.Mutex
 
 const (
-	azureTenant  = "11111111-1111-1111-1111-111111111111"
-	hostedDomain = "lakeside.edu"
+	azureTenant = "11111111-1111-1111-1111-111111111111"
+	// riversideTenant is another Entra tenant, behind a second Azure registration.
+	riversideTenant = "22222222-2222-2222-2222-222222222222"
+	hostedDomain    = "lakeside.edu"
 	// lakesideSecondDomain is the Lakeside Workspace's second domain: the same
 	// organization, so the same connection.
 	lakesideSecondDomain = "lakeside.org"
@@ -53,8 +55,8 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
-	azureIDP := oidctest.NewFakeIDP(t, "azure-client")
-	riversideIDP := oidctest.NewFakeIDP(t, "riverside-client")
+	azureIDP := oidctest.NewFakeEntra(t, "azure-client")
+	riversideIDP := oidctest.NewFakeEntra(t, "riverside-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
 
@@ -64,11 +66,11 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	}
 	auth.SetSignInPolicy(h.signInPolicy)
 	azureMethod := azure.SignIn(auth, "azure", h.azureResolver, &azure.Config{
-		RoleSync: signin.DisableRoleSync(), IssuerURL: azureIDP.Server.URL,
+		RoleSync: signin.DisableRoleSync(), Authority: azureIDP.Server.URL, Tenants: azure.Tenant(azureTenant),
 		ClientID: "azure-client", ClientSecret: "secret", RedirectURL: "https://app.example/azure/callback",
 	})
 	riversideMethod := azure.SignIn(auth, "riverside", h.azureResolver, &azure.Config{
-		RoleSync: signin.DisableRoleSync(), IssuerURL: riversideIDP.Server.URL,
+		RoleSync: signin.DisableRoleSync(), Authority: riversideIDP.Server.URL, Tenants: azure.Tenant(riversideTenant),
 		ClientID: "riverside-client", ClientSecret: "secret", RedirectURL: "https://app.example/riverside/callback",
 	})
 	googleIssuerMu.Lock()
@@ -182,7 +184,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				})
 				a.azure.TokenClaims = func() map[string]any { return azureClaims(azureTenant, "oid-lake", "lake@lakeside.edu") }
 				a.riverside.TokenClaims = func() map[string]any {
-					return azureClaims("22222222-2222-2222-2222-222222222222", "oid-river", "river@riverside.edu")
+					return azureClaims(riversideTenant, "oid-river", "river@riverside.edu")
 				}
 
 				b := a.browser(t)
@@ -247,9 +249,10 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				assertEventsSeen(t, gv, "google:lakeside")
 
-				// The same oid in another tenant is another identity, whatever its email.
+				// The same oid in another tenant, at that tenant's registration, is another
+				// identity, whatever its email: it reaches the resolver as unknown.
 				other := a.browser(t)
-				assertRedirect(t, other.oidcSignIn(ctx, a.azure, "/azure", azureClaims("22222222-2222-2222-2222-222222222222", "oid-pat", "pat@lakeside.edu")), "/login",
+				assertRedirect(t, other.oidcSignIn(ctx, a.riverside, "/riverside", azureClaims(riversideTenant, "oid-pat", "pat@lakeside.edu")), "/login",
 					url.Values{"code": {"identity_rejected"}})
 
 				// Both links are now the user's: signing in again asks the resolver nothing.
@@ -348,7 +351,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				other.view(ctx)
 				// The same sid at the other Entra tenant is another issuer's: out of reach.
 				elsewhere := a.browser(t)
-				assertRedirect(t, elsewhere.oidcSignIn(ctx, a.riverside, "/riverside", withSID(azureClaims("22222222-2222-2222-2222-222222222222", "oid-rpat", "rpat@riverside.edu"), "sid-pat-1")), "/home", url.Values{})
+				assertRedirect(t, elsewhere.oidcSignIn(ctx, a.riverside, "/riverside", withSID(azureClaims(riversideTenant, "oid-rpat", "rpat@riverside.edu"), "sid-pat-1")), "/home", url.Values{})
 				elsewhere.view(ctx)
 				// An impersonation started on the session under sid-pat-1 keeps that id, so
 				// the logout reaches it too.
@@ -361,7 +364,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 
 				// Entra calls the logout URL in a frame: a client with no cookies.
 				provider := a.browser(t)
-				provider.expect(ctx, http.StatusOK, http.MethodGet, "/azure/logout?sid=sid-pat-1&iss="+url.QueryEscape(a.azure.Server.URL), nil)
+				provider.expect(ctx, http.StatusOK, http.MethodGet, "/azure/logout?sid=sid-pat-1&iss="+url.QueryEscape(a.azure.TenantIssuer(azureTenant)), nil)
 
 				named.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 				acting.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)

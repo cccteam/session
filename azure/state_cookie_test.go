@@ -23,12 +23,12 @@ func TestOIDC_Verify_LegacyStateCookie(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	idp := oidctest.NewFakeIDP(t, testClientID)
+	idp := oidctest.NewFakeEntra(t, testClientID)
 	idp.TokenClaims = func() map[string]any {
-		return map[string]any{"preferred_username": "user@example.com", "tid": "tenant-1", "oid": "object-1"}
+		return map[string]any{"preferred_username": "user@example.com", "tid": tenantLake, "oid": "object-1"}
 	}
 	cookies := oidctest.NewCookieClient(t)
-	o := NewOIDC(cookies.ForLegacy("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+	o := NewOIDC(cookies.ForLegacy("azure"), idp.Server.URL, Tenant(tenantLake), testClientID, "test-secret", "https://app.example.com/callback")
 
 	_, callback := startLogin(t, o)
 	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.StateCookieName("azure"))
@@ -113,12 +113,12 @@ func TestOIDC_StateCookie_RegistrationsCoexist(t *testing.T) {
 			return map[string]any{"preferred_username": oid + "@example.com", "tid": tenant, "oid": oid}
 		}
 	}
-	lakeIDP := oidctest.NewFakeIDP(t, testClientID)
-	lakeIDP.TokenClaims = claimsOf("tenant-lake", "lake-1")
-	riverIDP := oidctest.NewFakeIDP(t, testClientID)
-	riverIDP.TokenClaims = claimsOf("tenant-river", "river-1")
-	lakeside := NewOIDC(cookies.ForRegistration("lakeside"), lakeIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/lakeside/callback")
-	riverside := NewOIDC(cookies.ForRegistration("riverside"), riverIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/riverside/callback")
+	lakeIDP := oidctest.NewFakeEntra(t, testClientID)
+	lakeIDP.TokenClaims = claimsOf(tenantLake, "lake-1")
+	riverIDP := oidctest.NewFakeEntra(t, testClientID)
+	riverIDP.TokenClaims = claimsOf(tenantRiver, "river-1")
+	lakeside := NewOIDC(cookies.ForRegistration("lakeside"), lakeIDP.Server.URL, Tenant(tenantLake), testClientID, "test-secret", "https://app.example.com/lakeside/callback")
+	riverside := NewOIDC(cookies.ForRegistration("riverside"), riverIDP.Server.URL, Tenant(tenantRiver), testClientID, "test-secret", "https://app.example.com/riverside/callback")
 
 	browser := browserJar{}
 	lakeState := beginLogin(t, browser, lakeside, "/lake")
@@ -162,14 +162,14 @@ func TestOIDC_Verify_RegistrationRefusesLegacyStateCookie(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	idp := oidctest.NewFakeIDP(t, testClientID)
+	idp := oidctest.NewFakeEntra(t, testClientID)
 	idp.TokenClaims = func() map[string]any {
 		t.Error("the token endpoint was called for a login the callback should have refused")
 
 		return nil
 	}
 	cookies := oidctest.NewCookieClient(t)
-	o := NewOIDC(cookies.ForRegistration("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+	o := NewOIDC(cookies.ForRegistration("azure"), idp.Server.URL, Tenant(tenantLake), testClientID, "test-secret", "https://app.example.com/callback")
 
 	_, callback := startLogin(t, o)
 	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.StateCookieName("azure"))

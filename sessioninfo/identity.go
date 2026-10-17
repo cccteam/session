@@ -65,6 +65,13 @@ type Identity struct {
 	// use it as the username of the account they provision or match. It is an
 	// attribute, never a key.
 	SignInName string
+	// Organization is the organization the identity came from as the registration
+	// names it: the tenant's name when the application gave one and its id otherwise
+	// on Entra, the connection the Workspaces slot selected on Google; "" when the
+	// method has none. The standard account rules store it as the tenant key of the
+	// link they make, unless a custom rule names another. It is an attribute, never a
+	// key: the key stays Connection.
+	Organization string
 	// Guest reports that the account is a guest of its directory, not a member: an
 	// Entra B2B guest, whose preferred username is an address the directory did not
 	// verify. The standard account rules refuse a guest; a custom rule decides for
@@ -190,4 +197,10 @@ const (
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rules refuse.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"
+	// RefusedUnlistedTenant is the code for an Entra token from a tenant the
+	// registration's Tenants slot does not admit.
+	RefusedUnlistedTenant LoginRefusalCode = "unlisted_tenant"
+	// RefusedPersonalAccount is the code for an Entra token of a Microsoft personal
+	// account under a registration that admits work or school accounts only.
+	RefusedPersonalAccount LoginRefusalCode = "personal_account"
 )

@@ -431,7 +431,7 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 
 		password := PasswordSignIn(a, AutoUpgradeHashes(false))
 		sso := workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback", BaseURL: "https://workos.test", LoginURL: "/signin"})
-		entra := azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
+		entra := azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(ctrl)), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", LoginURL: "/signin"})
 		workspace := google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
 
 		for name, h := range map[string]http.HandlerFunc{
@@ -484,11 +484,11 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		t.Parallel()
 		a := newBareAuth(t, gomock.NewController(t))
 		cfg := func(tenant string) *azure.Config {
-			return &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://login/" + tenant, ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + tenant + "/callback"}
+			return &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenant), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + tenant + "/callback"}
 		}
 
-		lakeside := azure.SignIn(a, "lakeside", resolveAll[azure.Identity](), cfg("lakeside"))
-		riverside := azure.SignIn(a, "riverside", resolveAll[azure.Identity](), cfg("riverside"))
+		lakeside := azure.SignIn(a, "lakeside", resolveAll[azure.Identity](), cfg(tenantLake))
+		riverside := azure.SignIn(a, "riverside", resolveAll[azure.Identity](), cfg(tenantRiver))
 
 		if lakeside.Callback() == nil || riverside.Callback() == nil {
 			t.Fatal("a registration returned no callback handler")
@@ -504,18 +504,18 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		cfg := func(tenant string) *azure.Config {
-			return &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://login/" + tenant, ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + tenant + "/callback"}
+			return &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenant), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + tenant + "/callback"}
 		}
-		azure.SignIn(f.auth, "lakeside", resolveAll[azure.Identity](), cfg("lakeside"))
-		riverside := azure.SignIn(f.auth, "riverside", resolveAll[azure.Identity](), cfg("riverside"))
+		azure.SignIn(f.auth, "lakeside", resolveAll[azure.Identity](), cfg(tenantLake))
+		riverside := azure.SignIn(f.auth, "riverside", resolveAll[azure.Identity](), cfg(tenantRiver))
 
 		// Entra may send the sid alone: the route's registration supplies the issuer.
-		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://login/riverside", "sid-1").Return(nil)
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), entraIssuer(tenantRiver), "sid-1").Return(nil)
 		if rr := f.serve(riverside.FrontChannelLogout(), http.MethodGet, "/riverside/logout?sid=sid-1", nil, nil); rr.Code != http.StatusOK {
 			t.Errorf("FrontChannelLogout() with a sid alone status = %d, want 200: %s", rr.Code, rr.Body.String())
 		}
 		// Lakeside's issuer at riverside's route is refused before the store is asked.
-		if rr := f.serve(riverside.FrontChannelLogout(), http.MethodGet, "/riverside/logout?sid=sid-1&iss="+url.QueryEscape("https://login/lakeside"), nil, nil); rr.Code != http.StatusBadRequest {
+		if rr := f.serve(riverside.FrontChannelLogout(), http.MethodGet, "/riverside/logout?sid=sid-1&iss="+url.QueryEscape(entraIssuer(tenantLake)), nil, nil); rr.Code != http.StatusBadRequest {
 			t.Errorf("FrontChannelLogout() naming the other registration's issuer status = %d, want 400", rr.Code)
 		}
 	})
@@ -523,17 +523,17 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 	t.Run("the Azure front-channel logout ends the sessions under the sid it names, without a session of its own", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+		entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 
-		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://issuer", "sid-1").Return(nil)
-		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss=https://issuer", nil, nil); rr.Code != http.StatusOK {
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), entraIssuer(tenantLake), "sid-1").Return(nil)
+		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss="+url.QueryEscape(entraIssuer(tenantLake)), nil, nil); rr.Code != http.StatusOK {
 			t.Errorf("FrontChannelLogout() status = %d, want 200: %s", rr.Code, rr.Body.String())
 		}
 		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout", nil, nil); rr.Code != http.StatusBadRequest {
 			t.Errorf("FrontChannelLogout() without a sid status = %d, want 400", rr.Code)
 		}
 		// The store is not asked: a request naming another issuer is refused first.
-		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss=https://other", nil, nil); rr.Code != http.StatusBadRequest {
+		if rr := f.serve(entra.FrontChannelLogout(), http.MethodGet, "/azure/logout?sid=sid-1&iss="+url.QueryEscape(entraIssuer(tenantRiver)), nil, nil); rr.Code != http.StatusBadRequest {
 			t.Errorf("FrontChannelLogout() naming another issuer status = %d, want 400", rr.Code)
 		}
 	})
@@ -546,7 +546,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		workos.SignIn(a, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
 	}
 	entra := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-		azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+		azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 	}
 	workspace := func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
 		google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com")})
@@ -583,7 +583,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a registration whose name cannot name its state cookie",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "lake side", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+				azure.SignIn(a, "lake side", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: `registered under the name "lake side", which cannot name its state cookie`,
 		},
@@ -675,9 +675,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "the Azure method with open sign-up, which one tenant cannot take",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
+				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
 			},
-			wantHas: "Accounts: open sign-up is for any organization or personal accounts",
+			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
 		},
 		{
 			name: "the Google method with open sign-up, which one Workspace cannot take",
@@ -690,7 +690,7 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			name:   "a registration name used twice, by the same method",
 			before: entra,
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://other", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/other/callback"})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantRiver), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/other/callback"})
 			},
 			wantHas: `registered twice on one Auth under the name "azure"`,
 		},
@@ -725,9 +725,51 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method without its role sync slot",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{IssuerURL: "https://issuer", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "roleSync is required",
+		},
+		{
+			name: "an Azure method without its Tenants",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "Tenants is required",
+		},
+		{
+			name: "an Azure tenant id that is not a GUID",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant("lakeside"), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: `Tenants: "lakeside" is not a tenant id`,
+		},
+		{
+			name: "the consumer tenant listed as an Azure tenant",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(azure.ConsumerTenantID), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "is Microsoft's consumer tenant, the personal accounts: use azure.PersonalAccounts()",
+		},
+		{
+			name: "an Azure Authority that is not a base URL",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: "https://login.microsoftonline.com/common", Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: `Authority: "https://login.microsoftonline.com/common" is not the base URL of a Microsoft identity platform`,
+		},
+		{
+			name: "an Azure method synchronizing roles across any tenant",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+			},
+			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
+		},
+		{
+			name: "an Azure method admitting any tenant as members of the directory with no rule of its own",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+			},
+			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
 			name: "a Google method without its Workspaces",
@@ -984,7 +1026,7 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			authn := mock_azure.NewMockAuthenticator(ctrl)
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
-			entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authenticator: authn})
+			entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Tenants: azure.Tenant(tenantLake), Authenticator: authn})
 			if tt.prepare != nil {
 				tt.prepare(authn)
 			}
@@ -1005,7 +1047,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 	global := accesstypes.GlobalPolicyScope()
 	every := accesstypes.EveryDomainPolicyScope()
-	claims := `{"iss":"https://issuer","tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"],"sid":"sid-1"}`
+	claims := `{"iss":"` + entraIssuer(tenantLake) + `","tid":"` + tenantLake + `","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"],"sid":"sid-1"}`
 
 	// resolved plays the driver: the identity resolves to the user pat.
 	resolved := func(req *sessioninfo.NewSessionRequest) {
@@ -1027,15 +1069,15 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:   "a linked identity signs in by (tid, oid), and roles are reconciled for the user it resolved to",
 			claims: claims,
 			wantIdentity: &azure.Identity{
-				TenantID: "tenant-1", ObjectID: "oid-1", Email: "pat@lakeside.edu", PreferredUsername: "p.lee@lakeside.edu", Roles: []string{"Editor"}, AMR: []string{"pwd", "mfa"}, SessionID: "sid-1",
+				TenantID: tenantLake, Organization: tenantLake, ObjectID: "oid-1", Email: "pat@lakeside.edu", PreferredUsername: "p.lee@lakeside.edu", Roles: []string{"Editor"}, AMR: []string{"pwd", "mfa"}, SessionID: "sid-1",
 			},
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{
-						Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"},
-						SignInName: "p.lee@lakeside.edu",
+						Method: sessioninfo.MethodAzure, Connection: tenantLake, Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"},
+						SignInName: "p.lee@lakeside.edu", Organization: tenantLake,
 					}
-					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != "https://issuer" {
+					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != entraIssuer(tenantLake) {
 						t.Errorf("SignIn() request = %+v, mismatch (-want +got):\n%s", req, diff)
 					}
 					if diff := cmp.Diff([]string{"Editor"}, req.RoleNames); diff != "" {
@@ -1064,9 +1106,9 @@ func TestAuth_AzureCallback(t *testing.T) {
 		},
 		{
 			name:   "a guest of the tenant is marked on the identity, and a refusal by the standard rule sends its code to the login page",
-			claims: `{"iss":"https://issuer","idp":"https://login/other-tenant","tid":"tenant-1","oid":"oid-9","preferred_username":"visitor_gmail.com#EXT#@lakeside.onmicrosoft.com","roles":["Editor"]}`,
+			claims: `{"iss":"` + entraIssuer(tenantLake) + `","idp":"` + entraIssuer(tenantOther) + `","tid":"` + tenantLake + `","oid":"oid-9","preferred_username":"visitor_gmail.com#EXT#@lakeside.onmicrosoft.com","roles":["Editor"]}`,
 			wantIdentity: &azure.Identity{
-				TenantID: "tenant-1", ObjectID: "oid-9", PreferredUsername: "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com", Guest: true, Roles: []string{"Editor"},
+				TenantID: tenantLake, Organization: tenantLake, ObjectID: "oid-9", PreferredUsername: "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com", Guest: true, Roles: []string{"Editor"},
 			},
 			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -1085,9 +1127,19 @@ func TestAuth_AzureCallback(t *testing.T) {
 			wantLocation: "/login?code=parse_claims_failed",
 		},
 		{
-			name:         "a token from an issuer the registration does not declare is refused before any user is resolved",
-			claims:       `{"iss":"https://other","tid":"tenant-1","oid":"oid-1"}`,
-			wantLocation: "/login?code=internal_error",
+			name:         "a token whose issuer is not its tenant's is refused before any user is resolved, whatever the authenticator verified",
+			claims:       `{"iss":"https://other/` + tenantLake + `/v2.0","tid":"` + tenantLake + `","oid":"oid-1","preferred_username":"p.lee@lakeside.edu"}`,
+			wantLocation: "/login?code=verify_id_token_failed",
+		},
+		{
+			name:         "a token from a tenant the registration does not admit is refused before any user is resolved, whatever the authenticator verified",
+			claims:       `{"iss":"` + entraIssuer(tenantRiver) + `","tid":"` + tenantRiver + `","oid":"oid-1","preferred_username":"p.lee@riverside.edu"}`,
+			wantLocation: "/login?code=unlisted_tenant",
+		},
+		{
+			name:         "a personal account under a registration for one tenant is refused before any user is resolved",
+			claims:       `{"iss":"` + entraIssuer(azure.ConsumerTenantID) + `","tid":"` + azure.ConsumerTenantID + `","oid":"oid-1","preferred_username":"pat@outlook.com"}`,
+			wantLocation: "/login?code=personal_account",
 		},
 		{
 			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
@@ -1144,7 +1196,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 
 				return signin.Link(userID, false), nil
 			}
-			entra := azure.SignIn(f.auth, "azure", resolve, &azure.Config{RoleSync: signin.RoleSync(roles), IssuerURL: "https://issuer", Authenticator: authn})
+			entra := azure.SignIn(f.auth, "azure", resolve, &azure.Config{RoleSync: signin.RoleSync(roles), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
 			// A second Entra tenant on the same Auth: the callback under test must hand
 			// the store its own registration's resolver, never this one.
 			otherTenant := false
@@ -1152,7 +1204,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 				otherTenant = true
 
 				return signin.Reject(""), nil
-			}, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://other", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/other/callback"})
+			}, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantRiver), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/other/callback"})
 			if tt.prepare != nil {
 				tt.prepare(f, roles)
 			}
@@ -1261,7 +1313,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 	expectIdentity := func(connection, hd string) func(f *authFixture) {
 		return func(f *authFixture) {
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com"}
+				want := &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: connection, Subject: "sub-1", Email: "pat@example.com", EmailVerified: true, SignInName: "pat@example.com", Organization: connection}
 				if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" {
 					t.Errorf("SignIn() identity mismatch (-want +got):\n%s", diff)
 				}
@@ -2056,13 +2108,13 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 			authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 			authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
-					if err := json.Unmarshal([]byte(`{"iss":"https://issuer","tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu"}`), claims); err != nil {
+					if err := json.Unmarshal([]byte(`{"iss":"`+entraIssuer(tenantLake)+`","tid":"`+tenantLake+`","oid":"oid-1","preferred_username":"p.lee@lakeside.edu"}`), claims); err != nil {
 						t.Fatal(err)
 					}
 
 					return "/next", "", nil
 				})
-			entra := azure.SignIn(f.auth, "azure", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), IssuerURL: "https://issuer", Accounts: tt.accounts, Authenticator: authn})
+			entra := azure.SignIn(f.auth, "azure", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Accounts: tt.accounts, Authenticator: authn})
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.UserID, req.Username = ccc.Must(ccc.NewUUID()), "p.lee@lakeside.edu"
 			}, nil)
@@ -2352,5 +2404,51 @@ func TestAuth_RegistrationRacingTheFirstRequest(t *testing.T) {
 		if got := <-done; got != nil && !strings.Contains(fmt.Sprint(got), "after the Auth is in use") {
 			t.Fatalf("the racing registration panicked with %v", got)
 		}
+	}
+}
+
+const (
+	// tenantLake, tenantRiver and tenantOther are three Entra tenants' ids: the two
+	// the tests register, and one no registration admits.
+	tenantLake  = "11111111-1111-1111-1111-111111111111"
+	tenantRiver = "22222222-2222-2222-2222-222222222222"
+	tenantOther = "33333333-3333-3333-3333-333333333333"
+	// testAuthority is the Microsoft identity platform the tests' tenants live on.
+	testAuthority = "https://login"
+)
+
+// entraIssuer is the issuer of tenant tid's tokens under testAuthority.
+func entraIssuer(tid string) string {
+	return testAuthority + "/" + tid + "/v2.0"
+}
+
+// TestAuth_CallbackFromUndeclaredIssuer proves the core refuses a round trip whose token
+// came from an issuer the registration does not declare, whatever the method verified,
+// before any user is resolved. (The Entra method refuses such a token itself first;
+// this is the core's own check, which every method is behind.)
+func TestAuth_CallbackFromUndeclaredIssuer(t *testing.T) {
+	t.Parallel()
+	f := newAuthFixture(t, gomock.NewController(t))
+	h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
+		Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: signin.MembersOfDirectory,
+		Issuers: signin.IssuerList("https://issuer"),
+		Build: func(signin.StateCookies) (*signin.Method, error) {
+			return &signin.Method{
+				Name:     "bare",
+				LoginURL: func() string { return "/login" },
+				Complete: func(context.Context, http.ResponseWriter, *http.Request) (*signin.Verified, error) {
+					return &signin.Verified{
+						Identity:  &sessioninfo.Identity{Method: "bare", Connection: "c", Subject: "s", SignInName: "pat"},
+						ReturnURL: "/next", Issuer: "https://other",
+					}, nil
+				},
+			}, nil
+		},
+	})
+
+	rr := f.serve(h.Callback, http.MethodGet, "/bare/callback?code=c&state=s", nil, nil)
+
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/login?code=internal_error" {
+		t.Errorf("response = %d %q, want 302 /login?code=internal_error", rr.Code, rr.Header().Get("Location"))
 	}
 }

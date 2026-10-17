@@ -21,6 +21,14 @@ func entra(subject, signInName string) *sessioninfo.Identity {
 	}
 }
 
+// organizationOf is identity with the organization the method names, as the Entra
+// method names a tenant or the Google method a Workspace.
+func organizationOf(identity *sessioninfo.Identity, organization string) *sessioninfo.Identity {
+	identity.Organization = organization
+
+	return identity
+}
+
 // signInRequest establishes a session for req through the instance's sign-in flow.
 func signInRequest(ctx context.Context, in *AuthInstance, req *sessioninfo.NewSessionRequest) error {
 	if _, err := in.SignIn(ctx, newInsertSession(req.Username), req); err != nil {
@@ -127,6 +135,14 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			accounts: signin.MembersOfDirectory,
 			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
 				assertProvisioned(ctx, t, d, err, req, entra("oid-pat", name), "tenant-1")
+			},
+		},
+		{
+			name:     "members of the directory: the organization the method names is the tenant key when it names one",
+			accounts: signin.MembersOfDirectory,
+			identity: organizationOf(entra("oid-pat", name), "lakeside"),
+			check: func(ctx context.Context, t *testing.T, d AuthDriver, err error, req *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
+				assertProvisioned(ctx, t, d, err, req, organizationOf(entra("oid-pat", name), "lakeside"), "lakeside")
 			},
 		},
 		{

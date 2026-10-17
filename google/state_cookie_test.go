@@ -47,14 +47,15 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 
 	cookies := oidctest.NewCookieClient(t)
 
-	azureIDP := oidctest.NewFakeIDP(t, testClientID)
+	const entraTenant = "11111111-1111-1111-1111-111111111111"
+	azureIDP := oidctest.NewFakeEntra(t, testClientID)
 	azureIDP.TokenClaims = func() map[string]any {
-		return map[string]any{"preferred_username": "user@example.com", "tid": "tenant-1", "oid": "object-1"}
+		return map[string]any{"preferred_username": "user@example.com", "tid": entraTenant, "oid": "object-1"}
 	}
 	googleIDP := newFakeIDP(t)
 	googleIDP.TokenClaims = workspaceClaims
 
-	entra := azure.NewOIDC(cookies.ForRegistration("azure"), azureIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/azure/callback")
+	entra := azure.NewOIDC(cookies.ForRegistration("azure"), azureIDP.Server.URL, azure.Tenant(entraTenant), testClientID, "test-secret", "https://app.example.com/azure/callback")
 	google := newWithIssuer(cookies.ForRegistration("google"), googleIDP.Server.URL, testClientID, "test-secret", "https://app.example.com/google/callback", Workspace("test", testHostedDomain))
 
 	browser := jar{}

@@ -17,7 +17,7 @@ import (
 )
 
 // pendingColumns are the pending sign-ins table's columns.
-const pendingColumns = `Id, TokenHash, Step, Registration, Method, Connection, Subject, Email, EmailVerified, IdpAmr, Claims, SignInName, Guest, ` +
+const pendingColumns = `Id, TokenHash, Step, Registration, Method, Connection, Subject, Email, EmailVerified, IdpAmr, Claims, SignInName, Guest, Organization, ` +
 	`UserId, Username, Tenant, Events, RoleNames, Factors, ReturnUrl, ProviderSessionId, ProviderSessionIssuer, CreatedAt, ExpiresAt, ConsumedAt`
 
 // pendingRow is a pending sign-in as the table holds it.
@@ -35,6 +35,7 @@ type pendingRow struct {
 	Claims                []byte             `spanner:"Claims"`
 	SignInName            string             `spanner:"SignInName"`
 	Guest                 bool               `spanner:"Guest"`
+	Organization          string             `spanner:"Organization"`
 	UserID                spanner.NullString `spanner:"UserId"`
 	Username              string             `spanner:"Username"`
 	Tenant                string             `spanner:"Tenant"`
@@ -59,7 +60,8 @@ func newPendingRow(p *dbtype.PendingSignIn) (*pendingRow, error) {
 	r := &pendingRow{
 		ID: p.ID.String(), TokenHash: p.TokenHash, Step: string(p.Step), Registration: p.Registration,
 		Method: string(p.Identity.Method), Connection: p.Identity.Connection, Subject: p.Identity.Subject, Email: p.Identity.Email,
-		EmailVerified: p.Identity.EmailVerified, IdpAmr: p.Identity.IDPAMR, Claims: []byte(p.Identity.Claims), SignInName: p.Identity.SignInName, Guest: p.Identity.Guest,
+		EmailVerified: p.Identity.EmailVerified, IdpAmr: p.Identity.IDPAMR, Claims: []byte(p.Identity.Claims),
+		SignInName: p.Identity.SignInName, Guest: p.Identity.Guest, Organization: p.Identity.Organization,
 		Username: p.Username, Tenant: p.Tenant, Events: events, RoleNames: p.RoleNames, Factors: dbtype.MethodNames(p.Factors),
 		ReturnURL: p.ReturnURL, CreatedAt: spanner.CommitTimestamp, ExpiresAt: p.ExpiresAt,
 	}
@@ -89,7 +91,7 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 		ID: id, TokenHash: r.TokenHash, Step: sessioninfo.PendingReason(r.Step), Registration: r.Registration,
 		Identity: sessioninfo.Identity{
 			Method: sessioninfo.AuthMethod(r.Method), Connection: r.Connection, Subject: r.Subject, Email: r.Email, EmailVerified: r.EmailVerified,
-			Claims: r.Claims, IDPAMR: r.IdpAmr, SignInName: r.SignInName, Guest: r.Guest,
+			Claims: r.Claims, IDPAMR: r.IdpAmr, SignInName: r.SignInName, Guest: r.Guest, Organization: r.Organization,
 		},
 		Username: r.Username, Tenant: r.Tenant, Events: events, RoleNames: r.RoleNames, Factors: dbtype.AuthMethods(r.Factors),
 		ReturnURL: r.ReturnURL, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,

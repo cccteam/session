@@ -196,11 +196,16 @@ func resolveIn[Tx any](
 // decideAccount asks the account rules what to do with an unlinked identity: the
 // custom rule when the registration has one, and the standard rule when it has none or
 // the custom rule answers signin.Standard. A refusal the standard rule makes before any
-// row is written is returned as stop.
+// row is written is returned as stop. The standard rule's tenant key is the
+// organization the method names, or the identity's connection when it names none,
+// unless the custom rule's Standard names another.
 func decideAccount[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule,
 ) (res *signin.Resolution, stop, err error) {
-	tenant := req.Identity.Connection
+	tenant := req.Identity.Organization
+	if tenant == "" {
+		tenant = req.Identity.Connection
+	}
 	if rule != nil {
 		res, err = rule(ctx, tx, req)
 		if err != nil {

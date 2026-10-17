@@ -16,8 +16,21 @@ import (
 
 // Config configures the Microsoft Entra ID (Azure) sign-in method.
 type Config struct {
-	// IssuerURL is the tenant's OpenID Connect issuer.
-	IssuerURL string
+	// Tenants is required: which Microsoft Entra tenants' accounts may sign in. One
+	// tenant, Tenant(id) or NamedTenant(id, name), is the application that belongs to
+	// one organization, served at the tenant's own endpoint; Tenants(...) lists
+	// several; AnyTenant() admits the work or school account of any tenant, and
+	// PersonalAccounts() Microsoft personal accounts. The verified tid claim selects
+	// the entry at the callback, before the account rules run, so an account the slot
+	// does not admit never reaches a row (unlisted_tenant, personal_account); under
+	// every shape but one tenant the token's issuer is checked against its tenant by
+	// this library, since Microsoft's shared endpoints name no one issuer.
+	Tenants TenantSet
+	// Authority is the base URL of the Microsoft identity platform the tenants live
+	// on: DefaultAuthority, https://login.microsoftonline.com, when empty;
+	// https://login.microsoftonline.us for Azure Government. Issuers are
+	// <Authority>/<tenant id>/v2.0.
+	Authority string
 	// ClientID and ClientSecret are the application registration's.
 	ClientID     string
 	ClientSecret string
@@ -26,15 +39,19 @@ type Config struct {
 	// RoleSync is required: signin.RoleSync(manager) reconciles the user's roles to
 	// the token's roles claim whenever an Azure sign-in establishes a session, and
 	// refuses the sign-in (no_roles) when no recognized role results;
-	// signin.DisableRoleSync() leaves roles to the application.
+	// signin.DisableRoleSync() leaves roles to the application. Role synchronization
+	// follows one tenant's application roles: it is refused with several tenants, any
+	// tenant or personal accounts.
 	RoleSync signin.RoleSyncConfig
-	// Accounts is the standard account rule for a member of the tenant who signs in
-	// for the first time: signin.MembersOfDirectory (the default) provisions an
-	// account under the user principal name, signin.InvitedUsersOnly links only a
-	// pre-created user under that name and refuses anyone else. A guest of the tenant
-	// is refused by either (guest_account). signin.OpenSignUp is refused at
-	// registration: this registration serves one tenant. A rule given to SignIn runs
-	// first and may leave the decision to this one with signin.Standard.
+	// Accounts is the standard account rule for an account that signs in for the first
+	// time: signin.MembersOfDirectory (the default) provisions an account under the
+	// user principal name, signin.InvitedUsersOnly links only a pre-created user under
+	// that name and refuses anyone else, signin.OpenSignUp provisions anyone. A guest
+	// of the tenant is refused by every standard rule (guest_account). With one or
+	// several listed tenants open sign-up is refused at registration; with any tenant
+	// or personal accounts members of the directory is refused unless a rule is given
+	// to SignIn, since it would sign up the world. A rule given to SignIn runs first
+	// and may leave the decision to this one with signin.Standard.
 	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
@@ -48,6 +65,10 @@ type Identity struct {
 	// TenantID and ObjectID key the identity: the tid and oid claims.
 	TenantID string
 	ObjectID string
+	// Organization is the tenant as the registration's Tenants slot names it: the
+	// application's name for a named tenant, the tenant id otherwise. The standard
+	// account rules store it as the tenant key of the link they make.
+	Organization string
 	// Email is the email claim. Microsoft does not verify it.
 	Email string
 	// PreferredUsername and Name are the preferred_username and name claims. The
@@ -87,14 +108,17 @@ type Method struct {
 
 // SignIn registers Microsoft Entra ID (Azure) OpenID Connect sign-in on auth under
 // name and returns its handlers. name identifies the registration on auth, so one Auth
-// can offer several Entra tenants as several registrations. The identity key is (tid,
-// oid). An identity that is not linked yet is decided by rule when one is given and by
-// the standard rule in cfg.Accounts otherwise, or when rule answers signin.Standard;
-// nil is the usual value.
+// can offer several registrations of the method. The identity key is (tid, oid) under
+// every shape of cfg.Tenants. An identity that is not linked yet is decided by rule
+// when one is given and by the standard rule in cfg.Accounts otherwise, or when rule
+// answers signin.Standard; nil is the usual value.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, when cfg.RoleSync is missing, or when cfg.Accounts is open sign-up or no
-// standard rule.
+// request, when cfg.RoleSync or cfg.Tenants is missing or malformed, when
+// cfg.Authority is not a base URL, when role synchronization is asked for with other
+// than one tenant, and when cfg.Accounts does not fit the slot: open sign-up with
+// listed tenants only, members of the directory with any tenant or personal accounts
+// and no rule, or no standard rule.
 func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
@@ -103,13 +127,18 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 	if accounts == "" {
 		accounts = signin.MembersOfDirectory
 	}
+	authority, misuse := authorityOf(cfg.Authority)
+	if misuse == nil {
+		misuse = refuseShape(cfg.Tenants, cfg.RoleSync, accounts, rule == nil)
+	}
 	reg := &signin.Registration[Tx]{
 		Name:               name,
 		Method:             sessioninfo.MethodAzure,
 		StandardRule:       accounts,
 		AccountRule:        accountRule(rule),
 		FrontChannelLogout: true,
-		Issuers:            signin.IssuerList(cfg.IssuerURL),
+		Issuers:            cfg.Tenants.issuers(authority),
+		Err:                misuse,
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			roles, err := signin.ReconcilerOf(cfg.RoleSync)
 			if err != nil {
@@ -117,22 +146,46 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 			}
 			authn := cfg.Authenticator
 			if authn == nil {
-				o := NewOIDC(cookies, cfg.IssuerURL, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
+				o := NewOIDC(cookies, authority, cfg.Tenants, cfg.ClientID, cfg.ClientSecret, cfg.RedirectURL)
 				if cfg.LoginURL != "" {
 					o.SetLoginURL(cfg.LoginURL)
 				}
 				authn = o
 			}
 
-			return method(authn, roles), nil
+			return method(authn, roles, authority, cfg.Tenants), nil
 		},
-	}
-	if accounts == signin.OpenSignUp {
-		reg.Err = errors.New("Accounts: open sign-up is for any organization or personal accounts; this registration serves one tenant, which takes members of the directory or invited users only")
 	}
 	h := signin.Register(auth, reg)
 
 	return &Method{login: h.Login, callback: h.Callback, frontChannelLogout: h.FrontChannelLogout}
+}
+
+// refuseShape is the registration's startup check of the organization slot against the
+// role sync slot and the account rules, each refusal naming its field: the slot's own
+// rules (validate), role synchronization with other than one tenant, open sign-up with
+// listed tenants only, and members of the directory with an open slot and no rule of
+// the application's own.
+func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts signin.StandardAccountRule, noRule bool) error {
+	if err := tenants.validate(); err != nil {
+		return err
+	}
+	roles, err := signin.ReconcilerOf(roleSync)
+	if err != nil {
+		return errors.Wrap(err, "signin.ReconcilerOf()")
+	}
+	if _, one := tenants.one(); !one && roles != nil {
+		return errors.New("RoleSync: role synchronization follows one tenant's application roles; a registration serving several tenants, any tenant or personal accounts takes signin.DisableRoleSync()")
+	}
+	switch {
+	case accounts == signin.OpenSignUp && !tenants.open():
+		return errors.New("Accounts: open sign-up is for any tenant or personal accounts; a registration listing its tenants takes members of the directory or invited users only")
+	case accounts == signin.MembersOfDirectory && tenants.open() && noRule:
+		return errors.New("Accounts: members of the directory with any tenant or personal accounts would sign up the world; " +
+			"use signin.InvitedUsersOnly, signin.OpenSignUp, or give SignIn a rule of the application's own")
+	}
+
+	return nil
 }
 
 // Login redirects to Microsoft. It accepts ?returnUrl=, which must be a path in this
@@ -148,12 +201,13 @@ func (m *Method) Login() http.HandlerFunc { return m.login }
 func (m *Method) Callback() http.HandlerFunc { return m.callback }
 
 // FrontChannelLogout handles Microsoft-initiated logout. It ends every session whose
-// sign-in carried the sid the request names (?sid=), answers 200, and 400 without a
-// sid. Register its URL as the application's front-channel logout URL in Entra. Route it
-// without ValidateSession: Entra calls it in a frame, with no session of its own.
-// A request whose iss names another issuer than Config.IssuerURL is refused with 400;
-// a known sid is the request's only credential, as the front-channel logout design
-// has it.
+// sign-in carried the sid the request names (?sid=) under the issuer it names (?iss=),
+// answers 200, and 400 without a sid. Register its URL as the application's
+// front-channel logout URL in Entra. Route it without ValidateSession: Entra calls it
+// in a frame, with no session of its own. A request naming an issuer of no tenant the
+// registration admits is refused with 400, and a registration serving several tenants
+// needs the iss Entra sends; a known sid under an admitted issuer is the request's only
+// credential, as the front-channel logout design has it.
 func (m *Method) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
 // claims are the ID token's claims the method reads.
@@ -190,6 +244,21 @@ func identityOf(rawClaims json.RawMessage) (*Identity, error) {
 	}, nil
 }
 
+// admit checks a verified token's tenant against the slot: the issuer must be the
+// tenant's under authority, and the tenant one the slot admits. It returns the
+// organization the identity came from as the slot names it.
+func admit(authority string, tenants TenantSet, iss, tid string) (string, error) {
+	if iss != issuerOf(authority, tid) {
+		return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedIDTokenVerification, httpio.NewUnauthorizedMessage("the ID token's issuer is not its tenant's"))
+	}
+	organization, ok := tenants.admits(tid)
+	if !ok {
+		return "", tenants.refusal(tid)
+	}
+
+	return organization, nil
+}
+
 // guest reports whether the token's account is a guest of the tenant: Entra sets idp
 // to the identity provider that authenticated the person when it is not the issuer,
 // as it is for a guest, and a guest's user principal name carries the #EXT# marker.
@@ -210,14 +279,18 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 		if err != nil {
 			return nil, errors.Wrap(err, "azure.identityOf()")
 		}
+		identity.Organization = req.Identity.Organization
 
 		return rule(ctx, tx, identity)
 	}
 }
 
 // method is the Azure method over authn. The identity is (tid, oid), its sign-in name
-// the preferred username. When roles is set, the token's roles claim is reconciled.
-func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
+// the preferred username, its organization the tenant as tenants names it. The
+// authenticator checks the token's issuer against its tenant and the tenant against
+// the slot; both are checked here again, so an authenticator that did not cannot admit
+// a tenant outside it. When roles is set, the token's roles claim is reconciled.
+func method(authn Authenticator, roles *signin.RoleReconciler, authority string, tenants TenantSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodAzure,
 		LoginURL: authn.LoginURL,
@@ -238,11 +311,15 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 			if err != nil {
 				return nil, errors.Wrap(err, "oidc.Issuer()")
 			}
+			organization, err := admit(authority, tenants, iss, id.TenantID)
+			if err != nil {
+				return nil, err
+			}
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodAzure, Connection: id.TenantID, Subject: id.ObjectID, Email: id.Email, Claims: rawClaims, IDPAMR: id.AMR,
-					SignInName: id.PreferredUsername, Guest: id.Guest,
+					SignInName: id.PreferredUsername, Guest: id.Guest, Organization: organization,
 				},
 				ReturnURL:         returnURL,
 				ProviderSessionID: id.SessionID,

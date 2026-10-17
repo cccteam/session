@@ -562,13 +562,18 @@ func TestOIDCAzureAPI_UpdateCustomSessionData(t *testing.T) {
 	}
 }
 
+// testIssuerURL is the v2.0 issuer of the tenant the legacy tests configure.
+const testIssuerURL = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+
 func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
 		roleSync func(manager session.UserRoleManager) session.RoleSyncConfig
-		wantErr  bool
+		// issuerURL is the tenant's issuer; empty stands for testIssuerURL.
+		issuerURL string
+		wantErr   bool
 	}{
 		{
 			name: "nil role sync slot is a construction error",
@@ -594,6 +599,14 @@ func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 				return session.DisableRoleSync()
 			},
 		},
+		{
+			name: "an issuer that is not a tenant's v2.0 issuer is a construction error",
+			roleSync: func(session.UserRoleManager) session.RoleSyncConfig {
+				return session.DisableRoleSync()
+			},
+			issuerURL: "https://login.microsoftonline.com/common/v2.0",
+			wantErr:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -603,7 +616,11 @@ func TestNewOIDCAzure_roleSyncValidation(t *testing.T) {
 			storage := newOIDCStoreMock(ctrl)
 			manager := mock_signin.NewMockUserRoleManager(ctrl)
 
-			_, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, tt.roleSync(manager), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+			issuerURL := tt.issuerURL
+			if issuerURL == "" {
+				issuerURL = testIssuerURL
+			}
+			_, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, tt.roleSync(manager), cookieKey, issuerURL, "clientID", "clientSecret", "redirectURL")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewOIDCAzure() error = %v, wantErr %v", err, tt.wantErr)
 			}

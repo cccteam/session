@@ -19,6 +19,7 @@ CREATE TABLE "SessionPendingSignIns"
     "Claims" bytea,
     "SignInName" character varying NOT NULL,
     "Guest" boolean NOT NULL,
+    "Organization" character varying NOT NULL,
     "UserId" UUID,
     "Username" character varying NOT NULL,
     "Tenant" character varying NOT NULL,

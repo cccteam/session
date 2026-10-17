@@ -14,6 +14,9 @@ var _ Provider = &provider{}
 type provider struct {
 	provider *gooidc.Provider
 	config   oauth2.Config
+	// skipIssuerCheck leaves the issuer check to the caller: the provider was read
+	// from a shared endpoint whose document names no one issuer.
+	skipIssuerCheck bool
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process.
@@ -34,12 +37,13 @@ func (o *provider) Exchange(ctx context.Context, code string, opts ...oauth2.Aut
 	return t, nil
 }
 
-// Verify verifies the OIDC ID Token.
+// Verify verifies the OIDC ID Token: its signature, audience and expiry, and its
+// issuer unless the provider was read from a shared endpoint, whose caller checks it.
 func (o *provider) Verify(ctx context.Context, rawIDToken string) (*gooidc.IDToken, error) {
 	expire, cancel := context.WithTimeoutCause(ctx, 5*time.Second, errors.New("oidc.IDTokenVerifier.Verify() timeout"))
 	defer cancel()
 
-	token, err := o.provider.Verifier(&gooidc.Config{ClientID: o.config.ClientID}).Verify(expire, rawIDToken)
+	token, err := o.provider.Verifier(&gooidc.Config{ClientID: o.config.ClientID, SkipIssuerCheck: o.skipIssuerCheck}).Verify(expire, rawIDToken)
 	if err != nil {
 		return nil, errors.Wrap(err, "oidc.IDTokenVerifier.Verify()")
 	}

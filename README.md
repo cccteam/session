@@ -13,7 +13,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Auth Sessions`: One session that every sign-in method can establish, with users, explicit identity links, pending confirmation and MFA. See the "Auth sessions (multiple sign-in methods)" section.
 - `Sign-in methods` of the Auth session, each in its own package:
   - Username/Password (`session.PasswordSignIn`)
-  - Microsoft Entra ID (Azure) OIDC (`session/azure`), with role synchronization from the token's roles and provider-initiated logout
+  - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
@@ -292,7 +292,7 @@ auth.SetSignInPolicy(signInPolicy) // optional: without it the library's checks 
 // Register the sign-in methods before serving; each returns its own handlers.
 password := session.PasswordSignIn(auth) // *session.PasswordMethod
 sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Method; nil leaves first sign-ins to Accounts alone
-    IssuerURL: cfg.EntraIssuerURL, ClientID: cfg.EntraClientID, ClientSecret: cfg.EntraClientSecret,
+    Tenants: azure.Tenant(cfg.EntraTenantID), ClientID: cfg.EntraClientID, ClientSecret: cfg.EntraClientSecret,
     RedirectURL: cfg.SSORedirectURL, RoleSync: signin.DisableRoleSync(), LoginURL: "/login",
     Accounts: signin.InvitedUsersOnly, // the standard rule: pre-created users only
 })
@@ -328,13 +328,17 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 - **A registration without an account rule**: a WorkOS registration with a nil `rule`
   (WorkOS has no standard rule), or a registration naming a standard rule that does not
   exist.
-- **A misconfigured method**: Azure or Google without its role sync slot; a Google
-  registration without its `Workspaces`, a Workspace without a name or a domain, a value
-  that is not a domain name, a name used twice or a domain in two Workspaces; role
-  synchronization with other than one Workspace; open sign-up (`signin.OpenSignUp`) on
-  a registration that serves one or several named organizations; members of the
-  directory with any Workspace or any Google account and no rule of the application's
-  own; cookie or session options passed to `PasswordSignIn` instead of `NewAuth`.
+- **A misconfigured method**: Azure or Google without its role sync slot; an Azure
+  registration without its `Tenants`, a tenant id that is not a GUID, Microsoft's
+  consumer tenant listed as a tenant, a tenant listed twice or a name used twice, or an
+  `Authority` that is not a base URL; a Google registration without its `Workspaces`, a
+  Workspace without a name or a domain, a value that is not a domain name, a name used
+  twice or a domain in two Workspaces; role synchronization with other than one tenant
+  or one Workspace; open sign-up (`signin.OpenSignUp`) on a registration that serves
+  one or several named organizations; members of the directory with any tenant,
+  personal accounts, any Workspace or any Google account and no rule of the
+  application's own; cookie or session options passed to `PasswordSignIn` instead of
+  `NewAuth`.
 
 ### Routes
 
@@ -486,7 +490,8 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   its session row with that issuer (`ProviderSessionId`, `ProviderSessionIssuer`), a
   pending sign-in carries them to the session it completes, and a regenerated session
   keeps them. A registration declares the issuers its tokens may come from
-  (`signin.Registration.Issuers`), and a round trip from any other issuer is refused
+  (`signin.Registration.Issuers`; an Entra registration declares its one tenant's
+  issuer, or the issuer of every tenant its `Tenants` slot admits), and a round trip from any other issuer is refused
   (`internal_error`). `azure.Method.FrontChannelLogout()` ends every live session under
   the issuer the request names (`iss`), or the registration's only issuer when it names
   none, and the `sid` it names, impersonations started from it included (their records
@@ -548,8 +553,8 @@ methods").
 
 ```go
 entra := azure.SignIn(auth, "azure", nil, &azure.Config{
-    IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
-    RoleSync:  signin.RoleSync(userRoleManager), // or signin.DisableRoleSync()
+    Tenants: azure.Tenant(tenantID), ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
+    RoleSync: signin.RoleSync(userRoleManager), // or signin.DisableRoleSync(); one tenant is the shape it runs with
 })
 ```
 
@@ -596,6 +601,75 @@ to `NewOIDCAzure` wraps it in `session.RoleSync(manager)`, and
 disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
 `google.RoleSync`, in the `session/google` package.
 
+## Microsoft Entra ID OIDC
+
+Microsoft Entra ID sign-in is a method of the `Auth` session, registered with
+`azure.SignIn(auth, name, rule, &azure.Config{...})` from the `session/azure` package
+(see "Registering sign-in methods" above). The identity is linked to its user by the
+tenant and the object id, the `tid` and `oid` claims, under every shape below. Its
+sign-in name is `preferred_username`, the user principal name, so the standard account
+rules (`Config.Accounts`) provision and match users under it. A guest of the tenant (a
+B2B guest, whose `idp` claim names another provider than the issuer or whose name
+carries `#EXT#`) is marked on the identity (`Identity.Guest`) and refused by the
+standard rules (`guest_account`); a rule of the application's own decides for itself.
+
+### Which accounts may sign in
+
+`Config.Tenants` is required and says which Microsoft Entra tenants' accounts a
+registration admits. The verified ID token's `tid` claim selects the entry at the
+callback, before the account rules run, so an account the slot does not admit never
+reaches a row (`unlisted_tenant`, or `personal_account` for a Microsoft personal
+account under a work or school shape). The entry also decides the organization the
+standard rules store as the tenant key of the links they make
+(`Identity.Organization`); the link's connection is the tenant id under every shape.
+
+- **One tenant**, `azure.Tenant("<tenant id>")`: the application that belongs to one
+  organization, as a single-tenant app registration serves it. The registration reads
+  its provider configuration at the tenant's own endpoint, whose document names the
+  tenant's issuer, so every token is held to it. `azure.NamedTenant(id, "lakeside")`
+  gives the tenant the application's own name, stored as the tenant key in place of
+  the id. This is the only shape role synchronization runs with, since a token's
+  application roles are asserted by the tenant that issued it.
+- **Listed tenants**, `azure.Tenants(azure.Tenant(...), azure.NamedTenant(...))`: the
+  `tid` claim selects the entry, and a tenant outside the list is refused. A tenant id
+  is listed once and a name is used once.
+- **Any tenant**, `azure.AnyTenant()`: the work or school account of any Microsoft
+  Entra tenant, and no personal account. The tenant key is the tenant id; name the
+  tenants you know beside it (`azure.Tenants(azure.NamedTenant(...), azure.AnyTenant())`)
+  and theirs is the name.
+- **Personal accounts**, `azure.PersonalAccounts()`: Microsoft personal accounts
+  (outlook.com, hotmail.com, Xbox), which Microsoft issues from one consumer tenant
+  (`azure.ConsumerTenantID`), alone or beside any tenant or listed tenants.
+
+Several tenants, any tenant and personal accounts are served through Microsoft's shared
+endpoints (`organizations`, `consumers` or `common`, as the shape calls for), whose
+discovery documents name their issuer with a placeholder; the app registration must
+then admit accounts in any organizational directory, and personal accounts when the
+slot does. A shared document cannot hold a token to an issuer, so this library checks
+the token's issuer against the token's tenant itself, `<Authority>/<tid>/v2.0`, and
+the tenant against the slot, in the verifier and again in the method, before any user
+is resolved; the signature, audience and expiry are checked as always.
+
+A first sign-in through an open entry (any tenant, personal accounts) cannot take
+members of the directory, which would sign up the world: the registration takes
+`signin.InvitedUsersOnly`, `signin.OpenSignUp` or a rule of the application's own.
+Open sign-up, in turn, is refused on a registration that lists its tenants only.
+
+`Config.Authority` is the Microsoft identity platform the tenants live on,
+`https://login.microsoftonline.com` when empty; Azure Government tenants live at
+`https://login.microsoftonline.us`. There is no issuer setting: a tenant's issuer is
+`<Authority>/<tenant id>/v2.0`, and `azure.TenantOfIssuer` reads a v0.12 issuer into
+the authority and the tenant it names.
+
+### Provider-initiated logout
+
+Entra calls the application's front-channel logout URL (`FrontChannelLogout`) with
+`sid` and `iss` when the person signs out of Microsoft. The handler ends every session
+whose sign-in carried that `sid` under that issuer, impersonations started from them
+included, and refuses an issuer of no tenant the registration admits. A registration
+serving one tenant supplies its issuer when the request names none; one serving several
+needs the `iss` Entra sends. See "Every session" for the design.
+
 ## Google Workspace OIDC
 
 Google Workspace sign-in is a method of the `Auth` session, registered with
@@ -610,7 +684,7 @@ the user is (`email`, `sub`) and which Workspace org they belong to (`hd`), and 
 about what they may do. Authorization signals therefore come from the directory itself
 (Google Groups), fetched at login.
 
-There is no `IssuerURL` setting — Google operates a single issuer for all orgs;
+There is no issuer or authority setting — Google operates a single issuer for all orgs;
 tenancy is the `hd` claim, not the issuer. The identity is linked to its user by its
 connection and the `sub` claim: `sub` is globally unique among all Google identities
 and never reused, and the connection is what the registration's `Workspaces` slot
@@ -766,9 +840,11 @@ table is the wire contract:
 | `invalid_pkce` | `RefusedInvalidPKCE` | The login cookie carries no usable PKCE verifier. |
 | `token_exchange_failed` | `RefusedTokenExchange` | The provider refused to exchange the authorization code for tokens. |
 | `no_id_token` | `RefusedNoIDToken` | The token response carried no `id_token`. |
-| `verify_id_token_failed` | `RefusedIDTokenVerification` | The ID token failed signature, issuer, audience, or expiry verification. |
+| `verify_id_token_failed` | `RefusedIDTokenVerification` | The ID token failed signature, issuer, audience, or expiry verification; under an Entra shape served through a shared endpoint, a token whose issuer is not its tenant's or that names no tenant. |
 | `parse_claims_failed` | `RefusedClaimsParse` | The verified ID token's claims would not decode. |
 | `not_workspace_member` | `RefusedNotWorkspaceMember` | Google: the user is outside the Workspace domain logins are restricted to. |
+| `unlisted_tenant` | `RefusedUnlistedTenant` | Entra: the token's tenant is outside the registration's `Tenants` slot. |
+| `personal_account` | `RefusedPersonalAccount` | Entra: a Microsoft personal account under a registration that admits work or school accounts only. |
 | `email_not_verified` | `RefusedEmailNotVerified` | Google: the user's email address is not verified. |
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role, or a standard account rule saw a token asserting no application role and wrote nothing. |

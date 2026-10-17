@@ -682,7 +682,7 @@ func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPasswordAuth() error = %v", err)
 	}
-	azure, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](newOIDCStoreMock(ctrl), session.DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL", opt)
+	azure, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](newOIDCStoreMock(ctrl), session.DisableRoleSync(), cookieKey, testIssuerURL, "clientID", "clientSecret", "redirectURL", opt)
 	if err != nil {
 		t.Fatalf("NewOIDCAzure() error = %v", err)
 	}

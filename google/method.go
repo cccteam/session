@@ -268,6 +268,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Claims: rawClaims, IDPAMR: id.AMR,
+					Organization: connection,
 				},
 				ReturnURL: returnURL,
 				Issuer:    iss,

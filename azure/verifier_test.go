@@ -20,6 +20,26 @@ import (
 
 const testClientID = "test-client-id"
 
+// newVerifier is an OIDC for tenants over idp, a fake Microsoft identity platform,
+// under the registration named.
+func newVerifier(t *testing.T, idp *oidctest.FakeIDP, tenants TenantSet, registration string) *OIDC {
+	t.Helper()
+
+	return NewOIDC(oidctest.NewCookieClient(t).ForRegistration(registration), idp.Server.URL, tenants, testClientID, "test-secret", "https://app.example.com/callback")
+}
+
+// serverHost is the host idp serves on.
+func serverHost(t *testing.T, idp *oidctest.FakeIDP) string {
+	t.Helper()
+
+	u, err := url.Parse(idp.Server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+
+	return u.Host
+}
+
 // startLogin runs AuthCodeURL and returns the parsed redirect URL plus a callback
 // request pre-loaded with the OIDC cookie, the redirect's state value, and the
 // provider's session_state.
@@ -49,47 +69,80 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 func TestOIDC_AuthCodeURL(t *testing.T) {
 	t.Parallel()
 
-	idp := oidctest.NewFakeIDP(t, testClientID)
-	o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+	tests := []struct {
+		name     string
+		tenants  TenantSet
+		wantPath string
+	}{
+		{name: "one tenant authorizes at the tenant's own endpoint", tenants: Tenant(tenantLake), wantPath: "/" + tenantLake + "/oauth2/v2.0/authorize"},
+		{name: "several tenants authorize at organizations", tenants: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), wantPath: "/organizations/oauth2/v2.0/authorize"},
+		{name: "any tenant authorizes at organizations", tenants: AnyTenant(), wantPath: "/organizations/oauth2/v2.0/authorize"},
+		{name: "personal accounts authorize at consumers", tenants: PersonalAccounts(), wantPath: "/consumers/oauth2/v2.0/authorize"},
+		{name: "any tenant and personal accounts authorize at common", tenants: Tenants(AnyTenant(), PersonalAccounts()), wantPath: "/common/oauth2/v2.0/authorize"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	authURL, _ := startLogin(t, o)
+			idp := oidctest.NewFakeEntra(t, testClientID)
+			o := newVerifier(t, idp, tt.tenants, "azure")
 
-	q := authURL.Query()
-	if q.Get("state") == "" {
-		t.Error("state parameter is empty")
-	}
-	if q.Get("code_challenge") == "" || q.Get("code_challenge_method") != "S256" {
-		t.Errorf("PKCE challenge missing or not S256: method = %q", q.Get("code_challenge_method"))
-	}
-	if !strings.Contains(q.Get("scope"), "openid") {
-		t.Errorf("scope = %q, want it to include openid", q.Get("scope"))
-	}
+			authURL, _ := startLogin(t, o)
 
-	// A second login must use fresh state and PKCE values.
-	authURL2, _ := startLogin(t, o)
-	if authURL2.Query().Get("state") == q.Get("state") {
-		t.Error("state parameter reused across logins")
-	}
-	if authURL2.Query().Get("code_challenge") == q.Get("code_challenge") {
-		t.Error("PKCE challenge reused across logins")
+			if authURL.Host != serverHost(t, idp) || authURL.Path != tt.wantPath {
+				t.Errorf("authorization URL = %s, want %s at the provider", authURL, tt.wantPath)
+			}
+			q := authURL.Query()
+			if q.Get("state") == "" {
+				t.Error("state parameter is empty")
+			}
+			if q.Get("code_challenge") == "" || q.Get("code_challenge_method") != "S256" {
+				t.Errorf("PKCE challenge missing or not S256: method = %q", q.Get("code_challenge_method"))
+			}
+			if !strings.Contains(q.Get("scope"), "openid") {
+				t.Errorf("scope = %q, want it to include openid", q.Get("scope"))
+			}
+
+			// A second login must use fresh state and PKCE values.
+			authURL2, _ := startLogin(t, o)
+			if authURL2.Query().Get("state") == q.Get("state") {
+				t.Error("state parameter reused across logins")
+			}
+			if authURL2.Query().Get("code_challenge") == q.Get("code_challenge") {
+				t.Error("PKCE challenge reused across logins")
+			}
+		})
 	}
 }
 
 func TestOIDC_Verify(t *testing.T) {
 	t.Parallel()
 
-	goodClaims := func() map[string]any {
-		return map[string]any{
-			"preferred_username": "user@example.com",
-			"roles":              []string{"Admin"},
-			"tid":                "tenant-1",
-			"oid":                "object-1",
+	// claimsOf is a token of tenant tid, issued by idp for that tenant unless mutate
+	// says otherwise.
+	claimsOf := func(tid string, mutate func(idp *oidctest.FakeIDP, c map[string]any)) func(idp *oidctest.FakeIDP) map[string]any {
+		return func(idp *oidctest.FakeIDP) map[string]any {
+			c := map[string]any{
+				"preferred_username": "user@example.com",
+				"roles":              []string{"Admin"},
+				"tid":                tid,
+				"oid":                "object-1",
+			}
+			if mutate != nil {
+				mutate(idp, c)
+			}
+
+			return c
 		}
 	}
+	goodClaims := claimsOf(tenantLake, nil)
 
 	tests := []struct {
-		name          string
-		tokenClaims   func() map[string]any
+		name string
+		// tenants is the registration's slot; the zero value stands for one tenant,
+		// tenantLake.
+		tenants       TenantSet
+		tokenClaims   func(idp *oidctest.FakeIDP) map[string]any
 		tokenStatus   int
 		mutateReq     func(r *http.Request)
 		dropCookie    bool
@@ -133,27 +186,94 @@ func TestOIDC_Verify(t *testing.T) {
 			wantCode:    sessioninfo.RefusedTokenExchange,
 		},
 		{
-			name: "a token for another client fails verification",
-			tokenClaims: func() map[string]any {
-				c := goodClaims()
-				c["aud"] = "other-client"
-
-				return c
-			},
+			name:        "a token for another client fails verification",
+			tokenClaims: claimsOf(tenantLake, func(_ *oidctest.FakeIDP, c map[string]any) { c["aud"] = "other-client" }),
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
 			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 		{
-			name: "a token from another issuer fails verification",
-			tokenClaims: func() map[string]any {
-				c := goodClaims()
-				c["iss"] = "https://login.attacker.example"
-
-				return c
-			},
+			name:        "a token from another issuer fails verification",
+			tokenClaims: claimsOf(tenantLake, func(_ *oidctest.FakeIDP, c map[string]any) { c["iss"] = "https://login.attacker.example" }),
 			wantErr:     true,
 			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "one tenant: a token of another tenant fails verification at the tenant's own endpoint, whose document names one issuer",
+			tokenClaims: claimsOf(tenantRiver, nil),
+			wantErr:     true,
+			wantErrPart: "Failed to verify ID token",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "any tenant admits the work or school account of a tenant it never heard of",
+			tenants:     AnyTenant(),
+			tokenClaims: claimsOf(tenantOther, nil),
+		},
+		{
+			name:          "any tenant refuses a personal account",
+			tenants:       AnyTenant(),
+			tokenClaims:   claimsOf(ConsumerTenantID, nil),
+			wantErr:       true,
+			wantForbidden: true,
+			wantErrPart:   "Personal Microsoft accounts cannot sign in here",
+			wantCode:      sessioninfo.RefusedPersonalAccount,
+		},
+		{
+			name:        "personal accounts admit the consumer tenant",
+			tenants:     PersonalAccounts(),
+			tokenClaims: claimsOf(ConsumerTenantID, nil),
+		},
+		{
+			name:          "personal accounts refuse a work or school account",
+			tenants:       PersonalAccounts(),
+			tokenClaims:   claimsOf(tenantLake, nil),
+			wantErr:       true,
+			wantForbidden: true,
+			wantErrPart:   "cannot sign in here",
+			wantCode:      sessioninfo.RefusedUnlistedTenant,
+		},
+		{
+			name:        "listed tenants admit a listed one",
+			tenants:     Tenants(Tenant(tenantLake), Tenant(tenantRiver)),
+			tokenClaims: claimsOf(tenantRiver, nil),
+		},
+		{
+			name:          "listed tenants refuse one outside the list",
+			tenants:       Tenants(Tenant(tenantLake), Tenant(tenantRiver)),
+			tokenClaims:   claimsOf(tenantOther, nil),
+			wantErr:       true,
+			wantForbidden: true,
+			wantErrPart:   "cannot sign in here",
+			wantCode:      sessioninfo.RefusedUnlistedTenant,
+		},
+		{
+			name:    "under a shared endpoint a token whose issuer is another tenant's fails verification",
+			tenants: AnyTenant(),
+			tokenClaims: claimsOf(tenantRiver, func(idp *oidctest.FakeIDP, c map[string]any) {
+				c["iss"] = idp.TenantIssuer(tenantOther)
+			}),
+			wantErr:     true,
+			wantErrPart: "the ID token's issuer is not its tenant's",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:    "under a shared endpoint a token from another authority fails verification, since the shared document holds no token to an issuer",
+			tenants: AnyTenant(),
+			tokenClaims: claimsOf(tenantRiver, func(_ *oidctest.FakeIDP, c map[string]any) {
+				c["iss"] = "https://login.attacker.example/" + tenantRiver + "/v2.0"
+			}),
+			wantErr:     true,
+			wantErrPart: "the ID token's issuer is not its tenant's",
+			wantCode:    sessioninfo.RefusedIDTokenVerification,
+		},
+		{
+			name:        "under a shared endpoint a token naming no tenant fails verification",
+			tenants:     AnyTenant(),
+			tokenClaims: claimsOf("", func(_ *oidctest.FakeIDP, c map[string]any) { delete(c, "tid") }),
+			wantErr:     true,
+			wantErrPart: "the ID token names no tenant",
 			wantCode:    sessioninfo.RefusedIDTokenVerification,
 		},
 	}
@@ -162,11 +282,15 @@ func TestOIDC_Verify(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			idp := oidctest.NewFakeIDP(t, testClientID)
-			idp.TokenClaims = tt.tokenClaims
+			tenants := tt.tenants
+			if len(tenants.listed) == 0 && !tenants.open() {
+				tenants = Tenant(tenantLake)
+			}
+			idp := oidctest.NewFakeEntra(t, testClientID)
+			idp.TokenClaims = func() map[string]any { return tt.tokenClaims(idp) }
 			idp.TokenStatus = tt.tokenStatus
 
-			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("azure"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback")
+			o := newVerifier(t, idp, tenants, "azure")
 
 			_, callback := startLogin(t, o)
 			if tt.dropCookie {
@@ -183,47 +307,63 @@ func TestOIDC_Verify(t *testing.T) {
 				t.Fatalf("OIDC.Verify() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Errorf("OIDC.Verify() error = %q, want it to contain %q", err.Error(), tt.wantErrPart)
-				}
-				if got := sessioninfo.LoginRefusalCodeOf(err); got != tt.wantCode {
-					t.Errorf("OIDC.Verify() refusal code = %q, want %q: %v", got, tt.wantCode, err)
-				}
-				if httpio.HasForbidden(err) != tt.wantForbidden {
-					t.Errorf("OIDC.Verify() forbidden = %v, want %v: %v", httpio.HasForbidden(err), tt.wantForbidden, err)
-				}
+				assertRefusal(t, err, tt.wantErrPart, tt.wantCode, tt.wantForbidden)
 
 				return
 			}
-
-			if returnURL != "/app" {
-				t.Errorf("OIDC.Verify() returnURL = %q, want %q", returnURL, "/app")
-			}
-			if sid != "idp-session-1" {
-				t.Errorf("OIDC.Verify() sid = %q, want the session_state parameter", sid)
-			}
-			var decoded struct {
-				PreferredUsername string   `json:"preferred_username"`
-				Roles             []string `json:"roles"`
-				Tid               string   `json:"tid"`
-				Oid               string   `json:"oid"`
-			}
-			if err := json.Unmarshal(claims, &decoded); err != nil {
-				t.Fatalf("json.Unmarshal(claims) error = %v", err)
-			}
-			if decoded.PreferredUsername != "user@example.com" || decoded.Tid != "tenant-1" || decoded.Oid != "object-1" || len(decoded.Roles) != 1 {
-				t.Errorf("verified claims = %+v", decoded)
-			}
-			// The single-use state cookie is cleared on the response: emptied and expired.
-			cleared := false
-			for _, c := range rec.Result().Cookies() {
-				if c.Name == internalcookie.StateCookieName("azure") && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
-					cleared = true
-				}
-			}
-			if !cleared {
-				t.Error("the OIDC cookie was not deleted by the callback")
-			}
+			wantTid, _ := tt.tokenClaims(idp)["tid"].(string)
+			assertVerified(t, rec, returnURL, sid, claims, wantTid)
 		})
+	}
+}
+
+// assertRefusal fails unless err is the refusal wanted: its text, its code and whether
+// it is forbidden.
+func assertRefusal(t *testing.T, err error, wantErrPart string, wantCode sessioninfo.LoginRefusalCode, wantForbidden bool) {
+	t.Helper()
+
+	if wantErrPart != "" && !strings.Contains(err.Error(), wantErrPart) {
+		t.Errorf("OIDC.Verify() error = %q, want it to contain %q", err.Error(), wantErrPart)
+	}
+	if got := sessioninfo.LoginRefusalCodeOf(err); got != wantCode {
+		t.Errorf("OIDC.Verify() refusal code = %q, want %q: %v", got, wantCode, err)
+	}
+	if httpio.HasForbidden(err) != wantForbidden {
+		t.Errorf("OIDC.Verify() forbidden = %v, want %v: %v", httpio.HasForbidden(err), wantForbidden, err)
+	}
+}
+
+// assertVerified fails unless the completed round trip returned the return URL, the
+// provider's session id and the claims of tenant wantTid, and cleared the state cookie.
+func assertVerified(t *testing.T, rec *httptest.ResponseRecorder, returnURL, sid string, claims json.RawMessage, wantTid string) {
+	t.Helper()
+
+	if returnURL != "/app" {
+		t.Errorf("OIDC.Verify() returnURL = %q, want %q", returnURL, "/app")
+	}
+	if sid != "idp-session-1" {
+		t.Errorf("OIDC.Verify() sid = %q, want the session_state parameter", sid)
+	}
+	var decoded struct {
+		PreferredUsername string   `json:"preferred_username"`
+		Roles             []string `json:"roles"`
+		Tid               string   `json:"tid"`
+		Oid               string   `json:"oid"`
+	}
+	if err := json.Unmarshal(claims, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(claims) error = %v", err)
+	}
+	if decoded.PreferredUsername != "user@example.com" || decoded.Tid != wantTid || decoded.Oid != "object-1" || len(decoded.Roles) != 1 {
+		t.Errorf("verified claims = %+v", decoded)
+	}
+	// The single-use state cookie is cleared on the response: emptied and expired.
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == internalcookie.StateCookieName("azure") && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("the OIDC cookie was not deleted by the callback")
 	}
 }

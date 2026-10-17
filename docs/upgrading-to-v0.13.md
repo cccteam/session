@@ -81,8 +81,8 @@ auth, err := session.NewAuth[MyData, UserData](store, cookieKey,
 
 password := session.PasswordSignIn(auth, session.HashAlgorithm(alg))
 entra := azure.SignIn(auth, "azure", nil, &azure.Config{ // nil: the standard account rule decides first sign-ins
-    IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
-    RoleSync:  signin.RoleSync(userRoleManager), LoginURL: "/login",
+    Tenants: azure.Tenant(tenantID), ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, // the tenant the v0.12 issuer named
+    RoleSync: signin.RoleSync(userRoleManager), LoginURL: "/login",
 })
 
 r.Use(auth.StartSession, auth.SetXSRFToken)
@@ -206,8 +206,9 @@ ALTER TABLE OIDCUserData ADD CONSTRAINT FK_OIDCUserData_SessionUsers FOREIGN KEY
 
 | Legacy Azure type | Auth |
 | --- | --- |
-| `legacy.NewOIDCAzure[S, U](sessionstorage.NewSpannerOIDC(client, sessionstorage.WithOIDCUsers(), storeOptions...), session.RoleSync(m), cookieKey, issuerURL, clientID, clientSecret, redirectURL, legacy.WithLoginURL(url))` | `session.NewAuth[S, U](sessionstorage.NewSpannerAuth(client, storeOptions...), cookieKey, policy)`, then `entra := azure.SignIn(auth, "azure", nil, &azure.Config{IssuerURL: issuerURL, ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, RoleSync: signin.RoleSync(m), LoginURL: url})` |
+| `legacy.NewOIDCAzure[S, U](sessionstorage.NewSpannerOIDC(client, sessionstorage.WithOIDCUsers(), storeOptions...), session.RoleSync(m), cookieKey, issuerURL, clientID, clientSecret, redirectURL, legacy.WithLoginURL(url))` | `session.NewAuth[S, U](sessionstorage.NewSpannerAuth(client, storeOptions...), cookieKey, policy)`, then `entra := azure.SignIn(auth, "azure", nil, &azure.Config{Tenants: azure.Tenant(tenantID), ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, RoleSync: signin.RoleSync(m), LoginURL: url})` |
 | `oidc.Login()`, `oidc.CallbackOIDC()`, `oidc.FrontChannelLogout()` | `entra.Login()`, `entra.Callback()`, `entra.FrontChannelLogout()` |
+| `issuerURL`, `https://login.microsoftonline.com/<tenant id>/v2.0` | `Tenants: azure.Tenant("<tenant id>")`: the slot names the tenant, and the authority stays `https://login.microsoftonline.com` unless `Config.Authority` says otherwise; `azure.TenantOfIssuer(issuerURL)` reads a v0.12 issuer into both. The slot also takes several tenants, any tenant or Microsoft personal accounts (the README's "Microsoft Entra ID OIDC") |
 | The anchor's just-in-time provisioning (`WithOIDCUsers`) | The registration's standard account rule, members of the directory: after the backfill every person the anchor knew is linked, so it provisions new people only, under `preferred_username` as the anchor did. A guest of the tenant is refused (`guest_account`), where the anchor provisioned them |
 | The custom user data login hook (`NewSpannerCustomUserData(table, hook)`) | `sessionstorage.NewCustomUserData[U](table)` has no hook. A new person's row is written by a custom rule's `signin.Provision` in `onProvisioned`, in the sign-in's transaction (capture the transaction in the rule's closure), as below. A refresh from the claims on every sign-in moves to the sign-in policy, which runs on every sign-in with the transaction, `req.Identity` and `req.Claims` |
 | The custom session data resolver over `req.Claims` | The same resolver, through `NewCustomSessionData`. `req.Claims` is still the raw verified claims; `req.Identity` is the decoded identity and `req.UserID` the user |
@@ -284,9 +285,17 @@ conflict by that name.
   and ends the sessions whose sign-in carried it, impersonations started from them
   included; a request naming another issuer in `iss` is refused. The legacy type ended
   every session carrying the username.
+- **Which tenants sign in** is the registration's `Tenants` slot: the one tenant the
+  v0.12 issuer named, or several, any tenant or Microsoft personal accounts. A token of
+  a tenant outside the slot is refused (`unlisted_tenant`, `personal_account`) before
+  any user is resolved, and under every shape but one tenant the library checks the
+  token's issuer against its tenant itself. Under the `skipAuth` build tag the
+  simulated login asserts the registration's first listed tenant, where v0.12 asserted
+  one fixed tenant, so a development database keyed on the fixed tenant sees each
+  simulated person as new.
 - **Refusal codes.** The login page needs a sentence for the codes `Auth` adds:
   `identity_rejected`, `policy_denied`, `user_disabled`, `pending_expired`,
-  `no_email`, `not_invited` and `guest_account`.
+  `no_email`, `not_invited`, `guest_account`, `unlisted_tenant` and `personal_account`.
 - **The pending flow** (`?pending=confirmation` or `?pending=mfa` on the login page)
   exists only when an account rule or the policy asks for it. The standard rules ask
   for a confirmation when a pre-created user under the sign-in name has a password;

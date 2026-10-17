@@ -101,7 +101,7 @@ func surfaceBuilders() []struct {
 			name: "OIDCAzure",
 			build: func(t *testing.T, ctrl *gomock.Controller, hook session.ImpersonationAuditHook) *surface {
 				storage := newOIDCStoreMock(ctrl)
-				a, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, session.DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL", session.WithImpersonationAudit(hook))
+				a, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, session.DisableRoleSync(), cookieKey, testIssuerURL, "clientID", "clientSecret", "redirectURL", session.WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewOIDCAzure() error = %v", err)
 				}

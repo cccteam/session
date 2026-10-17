@@ -22,13 +22,17 @@ type loader struct {
 	clientSecret string
 	redirectURL  string
 	scopes       []string
+	// sharedEndpoint marks a discovery document that names its issuer with a
+	// placeholder, so the issuer is not checked against it: see NewSharedEndpoint.
+	sharedEndpoint bool
 
 	mu       sync.RWMutex
 	provider *provider
 }
 
-// New creates a new OIDC loader. scopes is the OAuth2 scope set requested at
-// authorization time; it must include the openid scope.
+// New creates a new OIDC loader for the provider at issuerURL, whose discovery
+// document must name that issuer and whose tokens must carry it. scopes is the OAuth2
+// scope set requested at authorization time; it must include the openid scope.
 func New(issuerURL, clientID, clientSecret, redirectURL string, scopes []string) Loader {
 	return &loader{
 		issuerURL:    issuerURL,
@@ -36,6 +40,23 @@ func New(issuerURL, clientID, clientSecret, redirectURL string, scopes []string)
 		clientSecret: clientSecret,
 		redirectURL:  redirectURL,
 		scopes:       scopes,
+	}
+}
+
+// NewSharedEndpoint creates a loader for a provider configuration read at
+// discoveryURL whose document names its issuer with a placeholder, as the Microsoft
+// identity platform's organizations, common and consumers endpoints do: the document
+// is accepted as it is, and a token's issuer is not checked against it. The caller
+// must check the token's issuer itself, against the tenant the token names, before
+// trusting the token; the signature, audience and expiry are checked as always.
+func NewSharedEndpoint(discoveryURL, clientID, clientSecret, redirectURL string, scopes []string) Loader {
+	return &loader{
+		issuerURL:      discoveryURL,
+		clientID:       clientID,
+		clientSecret:   clientSecret,
+		redirectURL:    redirectURL,
+		scopes:         scopes,
+		sharedEndpoint: true,
 	}
 }
 
@@ -81,13 +102,19 @@ func (l *loader) newProvider(ctx context.Context) error {
 	expire, cancel := context.WithTimeoutCause(ctx, 5*time.Second, errors.New("gooidc.NewProvider() timeout"))
 	defer cancel()
 
+	if l.sharedEndpoint {
+		// The document's issuer is a placeholder: discovery accepts it as read from
+		// the endpoint, and Verify leaves the issuer check to the caller.
+		expire = gooidc.InsecureIssuerURLContext(expire, l.issuerURL)
+	}
 	newProvider, err := gooidc.NewProvider(expire, l.issuerURL)
 	if err != nil {
 		return errors.Wrap(err, "gooidc.NewProvider()")
 	}
 
 	l.provider = &provider{
-		provider: newProvider,
+		provider:        newProvider,
+		skipIssuerCheck: l.sharedEndpoint,
 		config: oauth2.Config{
 			ClientID:     l.clientID,
 			ClientSecret: l.clientSecret,

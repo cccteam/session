@@ -123,7 +123,7 @@ func TestNewOIDCAzure_CustomUserDataChecks(t *testing.T) {
 				storage.EXPECT().OIDCUsersEnabled().Return(true)
 			},
 			build: func(storage *mock_sessionstorage.MockOIDCStore) error {
-				_, err := NewOIDCAzure[session.NoCustomData, testUserProfile](storage, session.DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+				_, err := NewOIDCAzure[session.NoCustomData, testUserProfile](storage, session.DisableRoleSync(), cookieKey, testIssuerURL, "clientID", "clientSecret", "redirectURL")
 
 				return err
 			},
@@ -135,7 +135,7 @@ func TestNewOIDCAzure_CustomUserDataChecks(t *testing.T) {
 				storage.EXPECT().OIDCUsersEnabled().Return(false)
 			},
 			build: func(storage *mock_sessionstorage.MockOIDCStore) error {
-				_, err := NewOIDCAzure[session.NoCustomData, testUserProfile](storage, session.DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+				_, err := NewOIDCAzure[session.NoCustomData, testUserProfile](storage, session.DisableRoleSync(), cookieKey, testIssuerURL, "clientID", "clientSecret", "redirectURL")
 
 				return err
 			},
@@ -148,7 +148,7 @@ func TestNewOIDCAzure_CustomUserDataChecks(t *testing.T) {
 				storage.EXPECT().OIDCUsersEnabled().Return(false)
 			},
 			build: func(storage *mock_sessionstorage.MockOIDCStore) error {
-				_, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, session.DisableRoleSync(), cookieKey, "issuerURL", "clientID", "clientSecret", "redirectURL")
+				_, err := NewOIDCAzure[session.NoCustomData, session.NoCustomData](storage, session.DisableRoleSync(), cookieKey, testIssuerURL, "clientID", "clientSecret", "redirectURL")
 
 				return err
 			},

@@ -17,7 +17,9 @@ import (
 )
 
 // FakeIDP is a minimal OIDC provider: discovery, JWKS, and a token endpoint that
-// returns an ID token built per request by the test case.
+// returns an ID token built per request by the test case. NewFakeIDP serves them at
+// the root, as Google does; NewFakeEntra serves them per tenant, as the Microsoft
+// identity platform does.
 type FakeIDP struct {
 	Server   *httptest.Server
 	clientID string
@@ -30,17 +32,13 @@ type FakeIDP struct {
 	TokenStatus int
 }
 
-// NewFakeIDP starts a provider whose tokens are issued for clientID. It is closed with
-// the test.
+// NewFakeIDP starts a provider whose tokens are issued for clientID, serving discovery,
+// the key set and the token endpoint at its root with the issuer being the server. It
+// is closed with the test.
 func NewFakeIDP(t *testing.T, clientID string) *FakeIDP {
 	t.Helper()
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("rsa.GenerateKey() error = %v", err)
-	}
-
-	f := &FakeIDP{key: key, clientID: clientID}
+	f := &FakeIDP{key: newKey(t), clientID: clientID}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -52,42 +50,64 @@ func NewFakeIDP(t *testing.T, clientID string) *FakeIDP {
 			"jwks_uri":               f.Server.URL + "/jwks",
 		})
 	})
-	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{
-			Keys: []jose.JSONWebKey{{Key: key.Public(), KeyID: "test-key", Algorithm: "RS256", Use: "sig"}},
-		})
-	})
+	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) { f.serveKeys(w) })
 	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
-		if f.TokenStatus != 0 {
-			http.Error(w, "token endpoint failure", f.TokenStatus)
-
-			return
-		}
-
-		claims := f.TokenClaims()
-		if _, ok := claims["iss"]; !ok {
-			claims["iss"] = f.Server.URL
-		}
-		if _, ok := claims["aud"]; !ok {
-			claims["aud"] = f.clientID
-		}
-		claims["exp"] = time.Now().Add(time.Hour).Unix()
-		claims["iat"] = time.Now().Unix()
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token": "test-access-token",
-			"token_type":   "Bearer",
-			"expires_in":   3600,
-			"id_token":     f.SignToken(claims),
-		})
+		f.serveToken(w, func(map[string]any) string { return f.Server.URL })
 	})
 
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Server.Close)
 
 	return f
+}
+
+// newKey is a fresh signing key.
+func newKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey() error = %v", err)
+	}
+
+	return key
+}
+
+// serveKeys writes the provider's key set.
+func (f *FakeIDP) serveKeys(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{
+		Keys: []jose.JSONWebKey{{Key: f.key.Public(), KeyID: "test-key", Algorithm: "RS256", Use: "sig"}},
+	})
+}
+
+// serveToken answers the token endpoint: a failure when TokenStatus says so, otherwise
+// an ID token of the claims the test case builds, with the issuer defaultIssuer gives
+// them and the audience filled in unless already present.
+func (f *FakeIDP) serveToken(w http.ResponseWriter, defaultIssuer func(claims map[string]any) string) {
+	if f.TokenStatus != 0 {
+		http.Error(w, "token endpoint failure", f.TokenStatus)
+
+		return
+	}
+
+	claims := f.TokenClaims()
+	if _, ok := claims["iss"]; !ok {
+		claims["iss"] = defaultIssuer(claims)
+	}
+	if _, ok := claims["aud"]; !ok {
+		claims["aud"] = f.clientID
+	}
+	claims["exp"] = time.Now().Add(time.Hour).Unix()
+	claims["iat"] = time.Now().Unix()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"access_token": "test-access-token",
+		"token_type":   "Bearer",
+		"expires_in":   3600,
+		"id_token":     f.SignToken(claims),
+	})
 }
 
 // SignToken signs claims as a compact RS256 JWT under the provider's key.

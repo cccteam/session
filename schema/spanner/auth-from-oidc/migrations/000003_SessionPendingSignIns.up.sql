@@ -17,6 +17,7 @@ CREATE TABLE SessionPendingSignIns (
     Claims        BYTES(MAX),
     SignInName    STRING(MAX) NOT NULL,
     Guest         BOOL NOT NULL,
+    Organization  STRING(MAX) NOT NULL,
     UserId        STRING(36),
     Username      STRING(MAX) NOT NULL,
     Tenant        STRING(MAX) NOT NULL,

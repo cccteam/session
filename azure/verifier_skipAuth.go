@@ -24,9 +24,10 @@ var _ Authenticator = &OIDC{}
 
 const defaultLoginURL = "/login"
 
-// skipAuthTenantID is the tid claim stamped on every simulated login. skipAuth
-// simulates a single directory tenant, matching a real deployment where all of an
-// application's users share one tenant.
+// skipAuthTenantID is the tid claim stamped on a simulated login when the registration
+// lists no tenant (AnyTenant): a fixed tenant, so every simulated user of such a
+// registration shares one directory. A registration listing tenants simulates its
+// first, as the method admits no other.
 var skipAuthTenantID = uuid.Must(uuid.FromString("034cdd64-5dd9-4a3b-90fb-c76d3a499433"))
 
 // skipAuthOidNamespace is the UUIDv5 namespace the simulated oid claim is derived
@@ -38,17 +39,20 @@ var skipAuthOidNamespace = uuid.Must(uuid.FromString("2aa10a18-1d51-4dcd-949a-b8
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
-	issuerURL   string
+	authority   string
+	tenants     TenantSet
 	redirectURL string
 	cookies     signin.StateCookies
 	loginURL    string
 }
 
-// NewOIDC returns a new OIDC Authenticator. The issuer is kept so the simulated claims
-// name it, as a verified token's iss would.
-func NewOIDC(cookies signin.StateCookies, issuerURL, _, _, redirectURL string) *OIDC {
+// NewOIDC returns a new OIDC Authenticator. The authority and the tenants are kept so
+// the simulated claims name a tenant the registration admits and its issuer, as a
+// verified token's tid and iss would.
+func NewOIDC(cookies signin.StateCookies, authority string, tenants TenantSet, _, _, redirectURL string) *OIDC {
 	return &OIDC{
-		issuerURL:   issuerURL,
+		authority:   authority,
+		tenants:     tenants,
 		redirectURL: redirectURL,
 		cookies:     cookies,
 	}
@@ -83,9 +87,10 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 //   - the 'sid' value from the session_state query parameter
 //
 // The simulated claims carry preferred_username and roles from APP_USERNAME and
-// APP_ROLES, plus a deterministic (tid, oid) pair — the fixed skipAuth tenant and a
-// UUIDv5 of APP_USERNAME — so logins satisfy the OIDC user anchor's fail-closed
-// (tid, oid) requirement and each simulated user maps to one durable anchor row.
+// APP_ROLES, plus a deterministic (tid, oid) pair — the registration's first listed
+// tenant, or the fixed skipAuth tenant when it lists none, and a UUIDv5 of
+// APP_USERNAME — so logins satisfy the OIDC user anchor's fail-closed (tid, oid)
+// requirement and each simulated user maps to one durable anchor row.
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	type claimsSimulated struct {
 		Iss               string   `json:"iss"`
@@ -95,10 +100,10 @@ func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request,
 		Oid               string   `json:"oid"`
 	}
 	var c claimsSimulated
-	c.Iss = o.issuerURL
+	c.Tid = o.tenants.simulatedTenantID(skipAuthTenantID.String())
+	c.Iss = issuerOf(o.authority, c.Tid)
 	c.PreferredUsername = os.Getenv("APP_USERNAME")
 	c.Roles = strings.Split(os.Getenv("APP_ROLES"), ",")
-	c.Tid = skipAuthTenantID.String()
 	c.Oid = uuid.NewV5(skipAuthOidNamespace, c.PreferredUsername).String()
 
 	// Transfer the claims values to the input 'claims' variable
