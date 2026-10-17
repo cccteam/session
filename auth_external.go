@@ -47,7 +47,7 @@ func (a *Auth[S, U, Tx]) externalLogin(m *signin.Method) http.HandlerFunc {
 
 // externalCallback completes the provider round trip of the registration named name.
 // See the README's "The redirect and response contract" for where it redirects.
-func (a *Auth[S, U, Tx]) externalCallback(name, issuer string, m *signin.Method) http.HandlerFunc {
+func (a *Auth[S, U, Tx]) externalCallback(name string, issuers signin.Issuers, m *signin.Method) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -59,9 +59,21 @@ func (a *Auth[S, U, Tx]) externalCallback(name, issuer string, m *signin.Method)
 			return errors.Wrap(err, string(m.Name)+": complete the sign-in")
 		}
 
-		// The provider's session id is recorded under the registration's issuer, since
-		// it is unique only there; a registration without an issuer records none.
-		providerSessionID, providerSessionIssuer := v.ProviderSessionID, issuer
+		// The provider's session id is recorded under the issuer of the token that
+		// arrived, since it is unique only there. A registration that declares its
+		// issuers accepts a round trip from one of them and no other; one that declares
+		// none records no provider session id.
+		providerSessionID, providerSessionIssuer := v.ProviderSessionID, v.Issuer
+		switch {
+		case issuers == nil:
+			providerSessionIssuer = ""
+		case !issuers.Contains(v.Issuer):
+			refusal := sessioninfo.NewLoginRefusal(sessioninfo.RefusedInternalError,
+				httpio.NewInternalServerErrorMessagef("the %s sign-in verified a token from %q, an issuer its registration does not declare", m.Name, v.Issuer))
+			sessioncore.RedirectRefusedLogin(w, r, m.LoginURL(), refusal)
+
+			return refusal
+		}
 		if providerSessionID == "" || providerSessionIssuer == "" {
 			providerSessionID, providerSessionIssuer = "", ""
 		}

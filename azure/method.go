@@ -84,7 +84,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 		Method:             sessioninfo.MethodAzure,
 		Resolve:            resolver(resolve),
 		FrontChannelLogout: true,
-		Issuer:             cfg.IssuerURL,
+		Issuers:            signin.IssuerList(cfg.IssuerURL),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			roles, err := signin.ReconcilerOf(cfg.RoleSync)
 			if err != nil {
@@ -192,6 +192,10 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 			if err != nil {
 				return nil, err
 			}
+			iss, err := oidc.Issuer(rawClaims)
+			if err != nil {
+				return nil, errors.Wrap(err, "oidc.Issuer()")
+			}
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
@@ -199,6 +203,7 @@ func method(authn Authenticator, roles *signin.RoleReconciler) *signin.Method {
 				},
 				ReturnURL:         returnURL,
 				ProviderSessionID: id.SessionID,
+				Issuer:            iss,
 			}
 			if roles != nil {
 				v.RoleNames = signin.RoleNames(id.Roles)

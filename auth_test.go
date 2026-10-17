@@ -463,6 +463,32 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 	})
 
+	t.Run("a registration serving several issuers scopes a front-channel logout by the issuer the request names, and refuses one that names none", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
+			Name: "any-entra", Method: sessioninfo.MethodAzure, FrontChannelLogout: true,
+			Issuers: signin.IssuersMatching(func(iss string) bool { return strings.HasPrefix(iss, "https://login/") }),
+			Resolve: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+				return signin.Reject(""), nil
+			},
+			Build: func(signin.StateCookies) (*signin.Method, error) {
+				return &signin.Method{Name: sessioninfo.MethodAzure}, nil
+			},
+		})
+
+		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9", nil, nil); rr.Code != http.StatusBadRequest {
+			t.Errorf("FrontChannelLogout() naming no issuer status = %d, want 400", rr.Code)
+		}
+		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9&iss="+url.QueryEscape("https://evil/hilltop"), nil, nil); rr.Code != http.StatusBadRequest {
+			t.Errorf("FrontChannelLogout() naming an issuer outside the set status = %d, want 400", rr.Code)
+		}
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://login/hilltop", "sid-9").Return(nil)
+		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9&iss="+url.QueryEscape("https://login/hilltop"), nil, nil); rr.Code != http.StatusOK {
+			t.Errorf("FrontChannelLogout() naming an issuer in the set status = %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+	})
+
 	t.Run("two Entra tenants are two registrations of the Azure method, each with its own handlers and resolver", func(t *testing.T) {
 		t.Parallel()
 		a := newBareAuth(t, gomock.NewController(t))
@@ -595,6 +621,19 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 				}
 			},
 			register: password, wantHas: "after the Auth is in use",
+		},
+		{
+			name: "a method asking for the front-channel logout handler without declaring its issuers",
+			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
+				a.RegisterExternal(&signin.Registration[mockTx]{
+					Name: "bare", Method: sessioninfo.AuthMethod("bare"), FrontChannelLogout: true,
+					Resolve: func(context.Context, mockTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+						return signin.Reject(""), nil
+					},
+					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
+				})
+			},
+			wantHas: "declaring its issuers",
 		},
 		{
 			name: "the WorkOS method without a user resolver",
@@ -908,7 +947,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 	global := accesstypes.GlobalPolicyScope()
 	every := accesstypes.EveryDomainPolicyScope()
-	claims := `{"tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"],"sid":"sid-1"}`
+	claims := `{"iss":"https://issuer","tid":"tenant-1","oid":"oid-1","preferred_username":"p.lee@lakeside.edu","email":"pat@lakeside.edu","roles":["Editor"],"amr":["pwd","mfa"],"sid":"sid-1"}`
 
 	// resolved plays the driver: the identity resolves to the user pat.
 	resolved := func(req *sessioninfo.NewSessionRequest) {
@@ -963,6 +1002,11 @@ func TestAuth_AzureCallback(t *testing.T) {
 			name:         "an ID token without tid and oid is refused before any user is resolved",
 			claims:       `{"preferred_username":"pat"}`,
 			wantLocation: "/login?code=parse_claims_failed",
+		},
+		{
+			name:         "a token from an issuer the registration does not declare is refused before any user is resolved",
+			claims:       `{"iss":"https://other","tid":"tenant-1","oid":"oid-1"}`,
+			wantLocation: "/login?code=internal_error",
 		},
 		{
 			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
@@ -1142,7 +1186,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 	}{
 		{
 			name:         "a Google identity is keyed by the registration's connection and sub",
-			claims:       `{"sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true,"hd":"example.com"}`,
 			wantIdentity: &google.Identity{Subject: "sub-1", Email: "pat@example.com", HostedDomain: "example.com"},
 			prepare: func(f *authFixture) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
@@ -1160,7 +1204,7 @@ func TestAuth_GoogleCallback(t *testing.T) {
 		},
 		{
 			name:         "an ID token without an email is refused with its code",
-			claims:       `{"sub":"sub-1"}`,
+			claims:       `{"iss":"https://accounts.google.com","sub":"sub-1"}`,
 			wantLocation: "/login?code=no_email_claim",
 		},
 	}
@@ -1336,7 +1380,7 @@ func TestAuth_PendingHook(t *testing.T) {
 				authn.EXPECT().LoginURL().Return("/login").AnyTimes()
 				authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
-						return "/home", "access-token", json.Unmarshal([]byte(`{"sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
+						return "/home", "access-token", json.Unmarshal([]byte(`{"iss":"https://accounts.google.com","sub":"sub-1","email":"pat@example.com","email_verified":true}`), claims)
 					})
 				workspace := google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), Connection: "lakeside", HostedDomains: []string{"example.com"}, Authenticator: authn})
 				rr = f.serve(workspace.Callback(), http.MethodGet, "/google/callback", nil, nil)

@@ -434,16 +434,20 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
   `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
   refuses a user's last means of sign-in.
-- **Provider-initiated (front-channel) logout** is keyed by the registration's issuer
-  and the provider's session id, since a provider's session id is unique only within
-  its issuer: an Azure sign-in records the ID token's `sid` claim on its session row
-  with the registration's issuer (`ProviderSessionId`, `ProviderSessionIssuer`), a
+- **Provider-initiated (front-channel) logout** is keyed by the issuer of the token the
+  sign-in verified and the provider's session id, since a provider's session id is
+  unique only within its issuer: an Azure sign-in records the ID token's `sid` claim on
+  its session row with that issuer (`ProviderSessionId`, `ProviderSessionIssuer`), a
   pending sign-in carries them to the session it completes, and a regenerated session
-  keeps them. `azure.Method.FrontChannelLogout()` ends every live session under its
-  registration's issuer and the `sid` the request names, impersonations started from
-  it included (their records end `Logout`), answers 200, and 400 without a `sid` or
-  with an `iss` naming another issuer; it reads nothing from the browser, since Entra
-  calls it in a frame, and a known `sid` under this issuer is its only credential. A
+  keeps them. A registration declares the issuers its tokens may come from
+  (`signin.Registration.Issuers`), and a round trip from any other issuer is refused
+  (`internal_error`). `azure.Method.FrontChannelLogout()` ends every live session under
+  the issuer the request names (`iss`), or the registration's only issuer when it names
+  none, and the `sid` it names, impersonations started from it included (their records
+  end `Logout`), answers 200, and 400 without a `sid`, with an `iss` the registration
+  does not declare, or without an `iss` when the registration serves several issuers;
+  it reads nothing from the browser, since Entra calls it in a frame, and a known `sid`
+  under a declared issuer is its only credential. A
   session recorded with an id but no issuer (a legacy session the upgrade carried
   over) is out of its reach until the person signs in again. Register its route as the
   application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions

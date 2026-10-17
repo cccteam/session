@@ -71,12 +71,14 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL, 
 // exchanged, and the simulated group lookup needs none.
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, accessToken string, err error) {
 	type claimsSimulated struct {
+		Iss           string `json:"iss"`
 		Email         string `json:"email"`
 		EmailVerified bool   `json:"email_verified"`
 		Hd            string `json:"hd"`
 		Sub           string `json:"sub"`
 	}
 	c := claimsSimulated{
+		Iss:           IssuerURL,
 		Email:         os.Getenv("APP_USERNAME"),
 		EmailVerified: true,
 		Hd:            primaryHostedDomain(o.hostedDomains),

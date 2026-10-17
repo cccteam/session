@@ -57,12 +57,15 @@ type Registration[Tx any] struct {
 	Build func(cookies StateCookies) (*Method, error)
 	// FrontChannelLogout asks for the provider-initiated logout handler.
 	FrontChannelLogout bool
-	// Issuer is the provider's issuer. A sign-in's provider session id is recorded
-	// under it, since a provider's session id is unique only within its issuer, and a
-	// front-channel logout ends the sessions under this issuer and the id it names; a
-	// request naming another issuer (iss) is refused. A registration without an issuer
-	// records no provider session id and can serve no front-channel logout.
-	Issuer string
+	// Issuers is the set of issuers the registration's tokens may come from, nil for a
+	// method that has none. The core refuses a round trip whose Verified.Issuer is not
+	// in the set, records a sign-in's provider session id under that issuer (a
+	// provider's session id is unique only within its issuer), and scopes the
+	// front-channel logout handler by one of the set: the issuer the request names
+	// (iss), or the set's only issuer when the request names none. A registration that
+	// asks for the handler must declare its issuers; one that declares none records no
+	// provider session id.
+	Issuers Issuers
 	// Err is a misuse the registration function found in its own arguments; the core
 	// panics with it.
 	Err error
@@ -115,6 +118,10 @@ type Verified struct {
 	// Connect sid claim), which a provider-initiated logout names; "" when the method
 	// has none.
 	ProviderSessionID string
+	// Issuer is the issuer of the token the round trip verified, "" when the method
+	// has none. It must be one of the registration's Issuers when those are declared;
+	// the core records ProviderSessionID under it.
+	Issuer string
 }
 
 // Handlers are a registered method's HTTP handlers, built by the core.

@@ -38,14 +38,17 @@ var skipAuthOidNamespace = uuid.Must(uuid.FromString("2aa10a18-1d51-4dcd-949a-b8
 
 // OIDC implements the Authenticator interface for OpenID Connect authentication.
 type OIDC struct {
+	issuerURL   string
 	redirectURL string
 	cookies     signin.StateCookies
 	loginURL    string
 }
 
-// NewOIDC returns a new OIDC Authenticator
-func NewOIDC(cookies signin.StateCookies, _, _, _, redirectURL string) *OIDC {
+// NewOIDC returns a new OIDC Authenticator. The issuer is kept so the simulated claims
+// name it, as a verified token's iss would.
+func NewOIDC(cookies signin.StateCookies, issuerURL, _, _, redirectURL string) *OIDC {
 	return &OIDC{
+		issuerURL:   issuerURL,
 		redirectURL: redirectURL,
 		cookies:     cookies,
 	}
@@ -85,12 +88,14 @@ func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL s
 // (tid, oid) requirement and each simulated user maps to one durable anchor row.
 func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
 	type claimsSimulated struct {
+		Iss               string   `json:"iss"`
 		PreferredUsername string   `json:"preferred_username"`
 		Roles             []string `json:"roles"`
 		Tid               string   `json:"tid"`
 		Oid               string   `json:"oid"`
 	}
 	var c claimsSimulated
+	c.Iss = o.issuerURL
 	c.PreferredUsername = os.Getenv("APP_USERNAME")
 	c.Roles = strings.Split(os.Getenv("APP_ROLES"), ",")
 	c.Tid = skipAuthTenantID.String()

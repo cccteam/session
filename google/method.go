@@ -94,6 +94,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, resolve UserResolver[Tx],
 		Name:    name,
 		Method:  sessioninfo.MethodGoogle,
 		Resolve: resolver(resolve),
+		Issuers: signin.IssuerList(IssuerURL),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			if strings.TrimSpace(cfg.Connection) == "" {
 				return nil, errors.New("connection is required: the application's name for the Workspace, which keys every Google identity link; see google.Config.Connection")
@@ -209,12 +210,17 @@ func method(authn Authenticator, groups *groupSync, connection string) *signin.M
 			if err != nil {
 				return nil, err
 			}
+			iss, err := oidc.Issuer(rawClaims)
+			if err != nil {
+				return nil, errors.Wrap(err, "oidc.Issuer()")
+			}
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Claims: rawClaims, IDPAMR: id.AMR,
 				},
 				ReturnURL: returnURL,
+				Issuer:    iss,
 			}
 			if groups != nil {
 				roleNames, err := groups.roleNames(ctx, id.Email, accessToken)
