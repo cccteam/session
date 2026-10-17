@@ -47,6 +47,13 @@ func newWithIssuer(cookies signin.StateCookies, issuer, clientID, clientSecret, 
 	return &OIDC{Flow: oidc.NewFlow(cookies, loader), workspaces: workspaces}
 }
 
+// simulateAs is the simulated build's hook (verifier_skipAuth.go), where the
+// registration's name selects the person who signs in. This verifier asks Google who
+// signed in, so the name changes nothing here.
+func (o *OIDC) simulateAs(string) {
+	// Nothing to record: the provider answers.
+}
+
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
 // authentication process. loginHint, when given, is passed to Google as login_hint, so
 // Google picks that account and skips its chooser.

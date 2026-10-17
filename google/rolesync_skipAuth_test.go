@@ -36,6 +36,34 @@ func Test_groupSync_roleNames_simulatedGroups(t *testing.T) {
 	}
 }
 
+// The token the simulated sign-in hands the lookup is the registration's name, which
+// selects the roles variable: the registration's own, else APP_ROLES.
+func Test_groupSync_roleNames_simulatedRegistration(t *testing.T) {
+	tests := []struct {
+		name         string
+		registration string
+		want         []string
+	}{
+		{name: "a registration with a roles variable of its own is in those groups", registration: "google", want: []string{"crewcommon", "headquarters"}},
+		{name: "a registration without one is in the APP_ROLES groups", registration: "directory", want: []string{"client-portal"}},
+		{name: "no registration is in the APP_ROLES groups", registration: "", want: []string{"client-portal"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APP_ROLES", "client-portal")
+			t.Setenv("APP_GOOGLE_ROLES", "CrewCommon, Headquarters")
+
+			got, err := RoleSync(nil, "app-", DirectGroups()).groupSync().roleNames(t.Context(), "user@example.com", tt.registration)
+			if err != nil {
+				t.Fatalf("groupSync.roleNames() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("groupSync.roleNames() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func Test_groupSync_roleFromGroup_simulated(t *testing.T) {
 	t.Parallel()
 
