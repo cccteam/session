@@ -330,7 +330,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", claims), "/login", url.Values{"code": {"verify_id_token_failed"}})
 				b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 				if resolved, _ := a.hooks.counts(); resolved != 0 {
-					t.Errorf("user resolver ran %d times, want never", resolved)
+					t.Errorf("account rule ran %d times, want never", resolved)
 				}
 			},
 		},
@@ -390,7 +390,7 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				b := a.browser(t)
 				assertRedirect(t, b.oidcSignIn(ctx, a.google, "/google", claims), "/login", url.Values{"code": {"not_workspace_member"}})
 				if resolved, _ := a.hooks.counts(); resolved != 0 {
-					t.Errorf("user resolver ran %d times, want never", resolved)
+					t.Errorf("account rule ran %d times, want never", resolved)
 				}
 			},
 		},

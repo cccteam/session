@@ -33,6 +33,8 @@ type appDB interface {
 	attemptOutcome(ctx context.Context, t *testing.T, subject string) string
 	// disableUser disables a user.
 	disableUser(ctx context.Context, t *testing.T, userID ccc.UUID)
+	// hasUser reports whether a user exists under username, as stored.
+	hasUser(ctx context.Context, t *testing.T, username string) bool
 }
 
 // appRows reads and writes the application's own tables in a sign-in's transaction, the
@@ -142,6 +144,17 @@ func (db postgresDB) disableUser(ctx context.Context, t *testing.T, userID ccc.U
 	}
 }
 
+func (db postgresDB) hasUser(ctx context.Context, t *testing.T, username string) bool {
+	t.Helper()
+
+	var exists bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM "SessionUsers" WHERE "Username" = $1)`, username).Scan(&exists); err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+
+	return exists
+}
+
 var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 	name: "spanner",
 	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[*spanner.ReadWriteTransaction]) {
@@ -240,4 +253,24 @@ func (db spannerDB) disableUser(ctx context.Context, t *testing.T, userID ccc.UU
 	if _, err := db.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("disable the user: %v", err)
 	}
+}
+
+func (db spannerDB) hasUser(ctx context.Context, t *testing.T, username string) bool {
+	t.Helper()
+
+	iter := db.Single().Query(ctx, spanner.Statement{
+		SQL:    `SELECT COUNT(1) FROM SessionUsers WHERE Username = @username`,
+		Params: map[string]any{"username": username},
+	})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+	var n int64
+	if err := row.Column(0, &n); err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+
+	return n > 0
 }

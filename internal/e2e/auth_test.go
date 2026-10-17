@@ -35,7 +35,7 @@ const (
 	lakesideOrganization = "org_lakeside"
 )
 
-// hooks are an Auth app's user resolvers, sign-in policy, IdentityLinked hook and
+// hooks are an Auth app's account rules, sign-in policy, IdentityLinked hook and
 // PendingHook, set per scenario. The resolvers and the policy run inside the sign-in's
 // transactions, typed to the backend's transaction; resolveTx and policyTx, when set,
 // receive it to write and read the application's own rows.
@@ -339,7 +339,7 @@ func (a *authApp[Tx]) seed(ctx context.Context, t *testing.T, username string) c
 	return id
 }
 
-// provisionMember is a user resolver that provisions every unlinked identity under its
+// provisionMember is a account rule that provisions every unlinked identity under its
 // email for the lakeside partner, and records the membership in the application's own
 // table in OnProvisioned, in the sign-in's transaction.
 func (a *authApp[Tx]) provisionMember(_ context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error) {
@@ -695,7 +695,7 @@ func seamWorkOSProvisionThenLink[Tx any](ctx context.Context, t *testing.T, a *a
 
 	resolved, linked := a.hooks.counts()
 	if resolved != 1 {
-		t.Errorf("user resolver ran %d times, want once: a linked identity never reaches it", resolved)
+		t.Errorf("account rule ran %d times, want once: a linked identity never reaches it", resolved)
 	}
 	if len(linked) != 1 || linked[0].String() != first.UserID {
 		t.Errorf("IdentityLinked reports = %v, want one for %s", linked, first.UserID)
@@ -1055,7 +1055,7 @@ func seamWorkOSOrganizationMismatch[Tx any](ctx context.Context, t *testing.T, a
 	assertRedirect(t, b.workOSSignInAt(ctx, idp, "/home", lakesideConnection, "org_other", "idp_mallory", "mallory@lakeside.edu"), "/login", url.Values{"code": {"organization_mismatch"}})
 	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 	if resolved, _ := a.hooks.counts(); resolved != 0 {
-		t.Errorf("user resolver ran %d times, want never", resolved)
+		t.Errorf("account rule ran %d times, want never", resolved)
 	}
 }
 

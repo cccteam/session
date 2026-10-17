@@ -13,7 +13,11 @@ invariant. Add a scenario when a property only holds if several layers agree, su
 old cookie is dead after the end". The Auth scenarios run password and WorkOS sign-in on
 one `Auth` against a fake WorkOS code exchange (`TestAuthSeams_PasswordAndWorkOS`), and
 Azure and Google sign-in against `oidctest.FakeIDP` (`TestAuthSeams_AzureAndGoogle`,
-production verifiers only, so not under `skipAuth`), each on both backends
+production verifiers only, so not under `skipAuth`), and the sign-in rules shape by rule
+(`TestAuthSeams_SignInRules`: each scenario registers the two methods in the shape it
+needs, a `rulesShape`, against a fake Microsoft identity platform and a fake Google, and
+runs the standard account rules, a custom rule beside them, the organization slots, the
+policy at every start and the provider-initiated logout across tenants), each on both backends
 (`backends_test.go`: a `backend[Tx]` prepares the database, builds the store and reaches
 the application's own tables), so the rules an application gives the `Auth` are exercised
 typed to each backend's transaction. Their account rules and sign-in policy can take the
