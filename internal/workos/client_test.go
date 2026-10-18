@@ -108,10 +108,10 @@ func TestClient_AuthorizationURL(t *testing.T) {
 
 		var stateCookie bool
 		for _, ck := range rr.Result().Cookies() {
-			stateCookie = stateCookie || ck.Name == internalcookie.StateCookieName("workos")
+			stateCookie = stateCookie || ck.Name == internalcookie.StateCookieName(internalcookie.AuthCookieName, "workos")
 		}
 		if !stateCookie {
-			t.Errorf("no %s state cookie written", internalcookie.StateCookieName("workos"))
+			t.Errorf("no %s state cookie written", internalcookie.StateCookieName(internalcookie.AuthCookieName, "workos"))
 		}
 	}
 	if len(states) != 2 || states[""] {
@@ -248,7 +248,7 @@ func TestClient_Verify(t *testing.T) {
 			}
 			var deleted bool
 			for _, ck := range rr.Result().Cookies() {
-				deleted = deleted || (ck.Name == internalcookie.StateCookieName("workos") && ck.Value == "" && ck.Expires.Before(time.Now()))
+				deleted = deleted || (ck.Name == internalcookie.StateCookieName(internalcookie.AuthCookieName, "workos") && ck.Value == "" && ck.Expires.Before(time.Now()))
 			}
 			if !deleted {
 				t.Error("the state cookie was not deleted: it must be single-use")

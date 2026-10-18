@@ -109,7 +109,7 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	}
 	// The registration's state cookie is named for it; a name no cookie can carry is
 	// refused here rather than at the first login.
-	probe := &http.Cookie{Name: internalcookie.StateCookieName(name), Value: "x", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+	probe := &http.Cookie{Name: internalcookie.StateCookieName(a.cookies.CookieName, name), Value: "x", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
 	if err := probe.Valid(); err != nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered under the name %q, which cannot name its state cookie (%v): "+
 			"use letters, digits and hyphens, such as \"lakeside-entra\"", method, name, err))

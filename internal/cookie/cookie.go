@@ -176,15 +176,25 @@ func (c *Client) DeleteStateCookie(w http.ResponseWriter, name string) {
 }
 
 // StateCookieName is the name of the state cookie of the registration named
-// registration: StateCookiePrefix followed by the name.
-func StateCookieName(registration string) string {
-	return StateCookiePrefix + registration
+// registration on the Auth whose session cookie is named auth: StateCookiePrefix, the
+// Auth's cookie name and the registration's, so two Auths on one host with a
+// registration of the same name never read each other's login state.
+func StateCookieName(auth, registration string) string {
+	return StateCookiePrefix + auth + "-" + registration
+}
+
+// LegacyStateCookieName is the name of the state cookie the legacy Azure session keeps:
+// StateCookiePrefix and the provider, OIDC-azure, the name every v0.12 Azure login used.
+func LegacyStateCookieName(provider string) string {
+	return StateCookiePrefix + provider
 }
 
 // RegistrationStateCookies is one registration's state cookie, as the core hands it to
-// the method it registers: named for the registration (OIDC-<name>), so two
-// registrations of one method, and logins with different providers in one browser,
-// never read each other's state; and carrying the registration's name in its values,
+// the method it registers: named for the Auth and the registration
+// (OIDC-<session cookie name>-<registration>), so two registrations of one method,
+// logins with different providers in one browser, and two Auths on one host with a
+// registration of the same name never read each other's state; and carrying the
+// registration's name in its values,
 // so a cookie another registration wrote, or the shared OIDC cookie of v0.12, reads as
 // absent and the callback that finds it is refused. It implements signin.StateCookies.
 type RegistrationStateCookies struct {
@@ -195,10 +205,10 @@ type RegistrationStateCookies struct {
 
 // ForRegistration returns the state cookie of the registration named registration.
 func (c *Client) ForRegistration(registration string) RegistrationStateCookies {
-	return RegistrationStateCookies{client: c, registration: registration, name: StateCookieName(registration)}
+	return RegistrationStateCookies{client: c, registration: registration, name: StateCookieName(c.CookieName, registration)}
 }
 
-// Name is the cookie's name, OIDC-<registration>.
+// Name is the cookie's name, OIDC-<session cookie name>-<registration>.
 func (s RegistrationStateCookies) Name() string {
 	return s.name
 }
@@ -246,7 +256,7 @@ type LegacyStateCookies struct {
 
 // ForLegacy returns the legacy state cookie of provider (azure).
 func (c *Client) ForLegacy(provider string) LegacyStateCookies {
-	return LegacyStateCookies{client: c, name: StateCookieName(provider)}
+	return LegacyStateCookies{client: c, name: LegacyStateCookieName(provider)}
 }
 
 // WriteStateCookie writes values as the provider's state cookie.

@@ -318,10 +318,11 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 - **A registration name used twice** on one `Auth`, by the same method or another, or a
   registration without a name.
 - **A registration name that cannot name its state cookie.** Each registration keeps its
-  own state cookie, `OIDC-<name>`, so the name is letters, digits and hyphens
-  (`lakeside-entra`): two registrations of one method, and logins with different
-  providers in one browser, never read each other's state, and a callback completes only
-  the login its own registration began.
+  own state cookie, `OIDC-<session cookie name>-<name>`, so the name is letters, digits
+  and hyphens (`lakeside-entra`): two registrations of one method, logins with different
+  providers in one browser, and two `Auth`s on one host with a registration of the same
+  name never read each other's state, and a callback completes only the login its own
+  registration began.
 - **A method registered once the `Auth` is in use**: after it has served a request
   through any of its handlers or middleware, or read its methods to check or hash a
   password through its API (`CreateSessionUser` before `PasswordSignIn(auth,

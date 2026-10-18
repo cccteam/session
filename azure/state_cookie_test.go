@@ -31,8 +31,8 @@ func TestOIDC_Verify_LegacyStateCookie(t *testing.T) {
 	o := NewOIDC(cookies.ForLegacy("azure"), idp.Server.URL, Tenant(tenantLake), testClientID, "test-secret", "https://app.example.com/callback")
 
 	_, callback := startLogin(t, o)
-	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.StateCookieName("azure"))
-	if err != nil || readName != internalcookie.StateCookieName("azure") {
+	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.LegacyStateCookieName("azure"))
+	if err != nil || readName != internalcookie.LegacyStateCookieName("azure") {
 		t.Fatalf("ReadStateCookie() = %q, %v, want the Azure state cookie", readName, err)
 	}
 	written := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func beginLogin(t *testing.T, browser browserJar, o *OIDC, returnURL string) str
 
 // TestOIDC_StateCookie_RegistrationsCoexist proves two registrations of the Azure method,
 // two Entra tenants on one Auth, keep separate state: each login writes the cookie of its
-// own registration (OIDC-<registration>), logins begun in turn both complete, and a
+// own registration (OIDC-<session cookie name>-<registration>), logins begun in turn both complete, and a
 // callback carrying the other registration's state is refused before its provider is
 // asked, so one tenant's state never completes a login at the other (RFC 9700 §4.4.2).
 func TestOIDC_StateCookie_RegistrationsCoexist(t *testing.T) {
@@ -123,7 +123,7 @@ func TestOIDC_StateCookie_RegistrationsCoexist(t *testing.T) {
 	browser := browserJar{}
 	lakeState := beginLogin(t, browser, lakeside, "/lake")
 	riverState := beginLogin(t, browser, riverside, "/river")
-	for _, name := range []string{internalcookie.StateCookieName("lakeside"), internalcookie.StateCookieName("riverside")} {
+	for _, name := range []string{internalcookie.StateCookieName(cookies.CookieName, "lakeside"), internalcookie.StateCookieName(cookies.CookieName, "riverside")} {
 		if _, ok := browser[name]; !ok {
 			t.Fatalf("browser cookies = %v, want the state cookie %q", browser, name)
 		}
@@ -172,8 +172,8 @@ func TestOIDC_Verify_RegistrationRefusesLegacyStateCookie(t *testing.T) {
 	o := NewOIDC(cookies.ForRegistration("azure"), idp.Server.URL, Tenant(tenantLake), testClientID, "test-secret", "https://app.example.com/callback")
 
 	_, callback := startLogin(t, o)
-	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.StateCookieName("azure"))
-	if err != nil || readName != internalcookie.StateCookieName("azure") {
+	values, readName, err := cookies.ReadStateCookie(callback, internalcookie.StateCookieName(cookies.CookieName, "azure"))
+	if err != nil || readName != internalcookie.StateCookieName(cookies.CookieName, "azure") {
 		t.Fatalf("ReadStateCookie() = %q, %v, want the registration's state cookie", readName, err)
 	}
 	written := httptest.NewRecorder()

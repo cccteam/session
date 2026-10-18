@@ -562,9 +562,9 @@ func TestClient_WriteStateCookie(t *testing.T) {
 		name       string
 		cookieName string
 	}{
-		{name: "Azure", cookieName: StateCookieName("azure")},
-		{name: "Google", cookieName: StateCookieName("google")},
-		{name: "WorkOS", cookieName: StateCookieName("workos")},
+		{name: "Azure", cookieName: StateCookieName(AuthCookieName, "azure")},
+		{name: "Google", cookieName: StateCookieName(AuthCookieName, "google")},
+		{name: "WorkOS", cookieName: StateCookieName(AuthCookieName, "workos")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -604,20 +604,20 @@ func TestClient_ForRegistration(t *testing.T) {
 		t.Fatalf("NewCookieClient() error = %v", err)
 	}
 	lakeside := c.ForRegistration("lakeside")
-	if lakeside.Name() != "OIDC-lakeside" {
-		t.Fatalf("ForRegistration(lakeside).Name() = %q, want OIDC-lakeside", lakeside.Name())
+	if lakeside.Name() != "OIDC-auth-lakeside" {
+		t.Fatalf("ForRegistration(lakeside).Name() = %q, want OIDC-auth-lakeside", lakeside.Name())
 	}
 
 	w := httptest.NewRecorder()
 	lakeside.WriteStateCookie(w, cookie.NewValues().SetString(OIDCState, "s"))
 	written := w.Result().Cookies()
-	if len(written) != 1 || written[0].Name != "OIDC-lakeside" {
-		t.Fatalf("WriteStateCookie() wrote %v, want one OIDC-lakeside cookie", written)
+	if len(written) != 1 || written[0].Name != "OIDC-auth-lakeside" {
+		t.Fatalf("WriteStateCookie() wrote %v, want one OIDC-auth-lakeside cookie", written)
 	}
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
 	r.AddCookie(written[0])
 	values, name, err := lakeside.ReadStateCookie(r)
-	if err != nil || name != "OIDC-lakeside" || values == nil {
+	if err != nil || name != "OIDC-auth-lakeside" || values == nil {
 		t.Fatalf("ReadStateCookie() = %v, %q, %v; want the cookie back", values, name, err)
 	}
 	if registration, _ := values.GetString(Registration); registration != "lakeside" {
@@ -630,7 +630,7 @@ func TestClient_ForRegistration(t *testing.T) {
 	// A cookie under this registration's name that another registration wrote reads as
 	// absent, and so does the shared OIDC cookie of v0.12, which names no registration.
 	other := httptest.NewRecorder()
-	c.WriteStateCookie(other, "OIDC-lakeside", cookie.NewValues().SetString(OIDCState, "s").SetString(Registration, "riverside"))
+	c.WriteStateCookie(other, "OIDC-auth-lakeside", cookie.NewValues().SetString(OIDCState, "s").SetString(Registration, "riverside"))
 	shared := httptest.NewRecorder()
 	c.WriteStateCookie(shared, OIDCCookieName, cookie.NewValues().SetString(OIDCState, "s"))
 	for _, tt := range []struct {
@@ -644,6 +644,41 @@ func TestClient_ForRegistration(t *testing.T) {
 		if values, name, err := lakeside.ReadStateCookie(r); err != nil || name != "" || values != nil {
 			t.Errorf("ReadStateCookie() with %s = %v, %q, %v; want it read as absent", tt.name, values, name, err)
 		}
+	}
+}
+
+// TestClient_ForRegistration_TwoAuths proves two Auths on one host, each with a
+// registration of the same name, keep separate state: the cookie is named for the Auth's
+// session cookie as well as the registration, and the one Auth's cookie reads as absent
+// to the other.
+func TestClient_ForRegistration_TwoAuths(t *testing.T) {
+	t.Parallel()
+
+	members, err := NewCookieClient(cookieKey, WithCookieName("members"))
+	if err != nil {
+		t.Fatalf("NewCookieClient(members) error = %v", err)
+	}
+	staff, err := NewCookieClient(cookieKey, WithCookieName("staff"))
+	if err != nil {
+		t.Fatalf("NewCookieClient(staff) error = %v", err)
+	}
+	membersGoogle := members.ForRegistration("google")
+	staffGoogle := staff.ForRegistration("google")
+	if membersGoogle.Name() != "OIDC-members-google" || staffGoogle.Name() != "OIDC-staff-google" {
+		t.Fatalf("state cookie names = %q and %q, want OIDC-members-google and OIDC-staff-google", membersGoogle.Name(), staffGoogle.Name())
+	}
+
+	w := httptest.NewRecorder()
+	membersGoogle.WriteStateCookie(w, cookie.NewValues().SetString(OIDCState, "s"))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", http.NoBody)
+	for _, ck := range w.Result().Cookies() {
+		r.AddCookie(ck)
+	}
+	if values, name, err := membersGoogle.ReadStateCookie(r); err != nil || name != "OIDC-members-google" || values == nil {
+		t.Fatalf("the members Auth's ReadStateCookie() = %v, %q, %v; want its cookie back", values, name, err)
+	}
+	if values, name, err := staffGoogle.ReadStateCookie(r); err != nil || name != "" || values != nil {
+		t.Errorf("the staff Auth's ReadStateCookie() with the members Auth's cookie = %v, %q, %v; want it read as absent", values, name, err)
 	}
 }
 

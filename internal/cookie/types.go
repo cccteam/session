@@ -49,10 +49,11 @@ const (
 	OIDCCookieName = "OIDC"
 
 	// StateCookiePrefix begins the name of a registration's state cookie: the core names
-	// the cookie OIDC-<registration> (StateCookieName), so two registrations of one
-	// method, and logins with different providers in one browser, never read each
+	// the cookie OIDC-<session cookie name>-<registration> (StateCookieName), so two
+	// registrations of one method, logins with different providers in one browser, and
+	// two Auths on one host with a registration of the same name never read each
 	// other's state. The legacy Azure session keeps OIDC-azure, the name every v0.12
-	// Azure login used.
+	// Azure login used (LegacyStateCookieName).
 	StateCookiePrefix = "OIDC-"
 
 	// XSRFHeaderName is the header name of the XSRF Token Cookie

@@ -194,8 +194,8 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				for _, c := range b.client.Jar.Cookies(b.base) {
 					names[c.Name] = true
 				}
-				if !names["OIDC-azure"] || !names["OIDC-riverside"] {
-					t.Fatalf("state cookies after both logins began = %v, want OIDC-azure and OIDC-riverside", names)
+				if !names["OIDC-auth-azure"] || !names["OIDC-auth-riverside"] {
+					t.Fatalf("state cookies after both logins began = %v, want OIDC-auth-azure and OIDC-auth-riverside", names)
 				}
 				assertRedirect(t, b.location(ctx, "/azure/callback?code=c&state="+url.QueryEscape(lake.Query().Get("state"))), "/home", url.Values{})
 				assertRedirect(t, b.location(ctx, "/riverside/callback?code=c&state="+url.QueryEscape(river.Query().Get("state"))), "/home", url.Values{})

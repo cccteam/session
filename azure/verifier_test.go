@@ -395,7 +395,7 @@ func assertVerified(t *testing.T, rec *httptest.ResponseRecorder, returnURL, sid
 	// The single-use state cookie is cleared on the response: emptied and expired.
 	cleared := false
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == internalcookie.StateCookieName("azure") && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
+		if c.Name == internalcookie.StateCookieName(internalcookie.AuthCookieName, "azure") && c.Value == "" && !c.Expires.IsZero() && c.Expires.Before(time.Now()) {
 			cleared = true
 		}
 	}

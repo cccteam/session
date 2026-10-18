@@ -80,11 +80,11 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 		return google.AuthCodeURL(ctx, rec, "/google", "")
 	})
 
-	if _, ok := browser[internalcookie.StateCookieName("azure")]; !ok {
-		t.Fatalf("browser cookies = %v, want the Azure state cookie %q", browser, internalcookie.StateCookieName("azure"))
+	if _, ok := browser[internalcookie.StateCookieName(cookies.CookieName, "azure")]; !ok {
+		t.Fatalf("browser cookies = %v, want the Azure state cookie %q", browser, internalcookie.StateCookieName(cookies.CookieName, "azure"))
 	}
-	if _, ok := browser[internalcookie.StateCookieName("google")]; !ok {
-		t.Fatalf("browser cookies = %v, want the Google state cookie %q", browser, internalcookie.StateCookieName("google"))
+	if _, ok := browser[internalcookie.StateCookieName(cookies.CookieName, "google")]; !ok {
+		t.Fatalf("browser cookies = %v, want the Google state cookie %q", browser, internalcookie.StateCookieName(cookies.CookieName, "google"))
 	}
 
 	var azureClaims json.RawMessage
@@ -125,7 +125,7 @@ func TestOIDC_Verify_RefusesLegacyStateCookie(t *testing.T) {
 	o := newWithIssuer(cookies.ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", Workspace("test", testHostedDomain))
 
 	_, callback := startLogin(t, o)
-	legacy := legacyStateCallback(t, cookies, callback, internalcookie.StateCookieName("google"))
+	legacy := legacyStateCallback(t, cookies, callback, internalcookie.StateCookieName(cookies.CookieName, "google"))
 
 	rec := httptest.NewRecorder()
 	var claims json.RawMessage
