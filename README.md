@@ -878,8 +878,9 @@ else is ignored. With prefix `app-myapp-`:
 The candidates then flow through the same reconcile logic as Azure's token roles: names
 for which a role exists are assigned, held roles not among them are removed, and the
 login is rejected unless at least one recognized role results. Group emails are
-lowercase by nature, so define application roles intended for Google sync with
-lowercase names.
+lowercase, so the candidate names are lowercase; the store resolves each without regard
+to case (`ResolveRole`) and the sync writes the role in the store's spelling, so the
+application's roles keep whatever spelling they have.
 
 Membership is read at login through Google's Cloud Identity Groups API, with the
 signing-in person's own access token. An access token is the credential that lets the

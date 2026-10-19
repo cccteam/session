@@ -132,8 +132,9 @@ func ParseGroupLookup(value string) (GroupLookup, error) {
 // group that hides them is simply absent, and with NestedGroups nothing above it is
 // reached. No administrator credential is involved.
 //
-// Group emails are lowercase by nature, so derived role names are lowercase — define
-// the application roles intended for Google sync with lowercase names.
+// Group emails are lowercase, so the candidate names are lowercase; the store resolves
+// each without regard to case (signin.UserRoleManager.ResolveRole) and the sync writes
+// the role in the store's spelling, so the application's roles keep their own.
 func RoleSync(manager signin.UserRoleManager, groupPrefix string, lookup GroupLookup) RoleSyncConfig {
 	cfg := &groupSync{
 		manager:     manager,
