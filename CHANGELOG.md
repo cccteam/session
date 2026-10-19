@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.0](https://github.com/cccteam/session/compare/v0.12.3...v0.13.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Auth sessions with several sign-in methods per group: password, Entra ID, Google and WorkOS on one user model ([#265](https://github.com/cccteam/session/issues/265))
+
+### Features
+
+* Auth sessions with several sign-in methods per group: password, Entra ID, Google and WorkOS on one user model ([#265](https://github.com/cccteam/session/issues/265)) ([e2e3c1a](https://github.com/cccteam/session/commit/e2e3c1acadd260fb4a21e91dc14bdbb0556b315a))
+* the user API lists and reads users, and a password an operator sets is temporary: the user changes it before anything else is served ([#274](https://github.com/cccteam/session/issues/274)) ([ca39e2d](https://github.com/cccteam/session/commit/ca39e2dd3e3f89a0aae164252d9ad422fd4a8473))
+
+
+### Documentation
+
+* the Google role sync's naming note says the store resolves a group's lowercase name without regard to case ([#273](https://github.com/cccteam/session/issues/273)) ([f4f9504](https://github.com/cccteam/session/commit/f4f95044090c082ebcbe8e24c10ae012a24625b8))
+
+
+### Code Upgrade
+
+* **deps:** bump the go-dependencies group across 1 directory with 12 updates ([#276](https://github.com/cccteam/session/issues/276)) ([0157760](https://github.com/cccteam/session/commit/01577605482b0b378ecd0389a21bf48a47bb58f9))
+
 ## [0.12.3](https://github.com/cccteam/session/compare/v0.12.2...v0.12.3) (2026-10-11)
 
 
