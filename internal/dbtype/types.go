@@ -48,19 +48,27 @@ type InsertOIDCSession struct {
 	InsertSession
 }
 
-// SessionUser is a person authorized to access the application
+// SessionUser is a person authorized to access the application. PasswordChangeRequired
+// marks a user whose password an operator set (a new user's first password, a reset):
+// the user changes it before anything else. CreatedAt is the database's time at the
+// insert and LastSignInAt its time at the user's latest sign-in, nil before the first.
 type SessionUser struct {
-	ID           ccc.UUID         `spanner:"Id"           db:"Id"`
-	Username     string           `spanner:"Username"     db:"Username"`
-	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
-	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
+	ID                     ccc.UUID         `spanner:"Id"                     db:"Id"`
+	Username               string           `spanner:"Username"               db:"Username"`
+	PasswordHash           *securehash.Hash `spanner:"PasswordHash"           db:"PasswordHash"`
+	Disabled               bool             `spanner:"Disabled"               db:"Disabled"`
+	PasswordChangeRequired bool             `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
+	CreatedAt              time.Time        `spanner:"CreatedAt"              db:"CreatedAt"`
+	LastSignInAt           *time.Time       `spanner:"LastSignInAt"           db:"LastSignInAt"`
 }
 
-// InsertSessionUser defines the structure for inserting new SessionUser into the database
+// InsertSessionUser is the caller-supplied part of a new user row. The driver writes
+// CreatedAt with the database's time at commit.
 type InsertSessionUser struct {
-	Username     string           `spanner:"Username"     db:"Username"`
-	PasswordHash *securehash.Hash `spanner:"PasswordHash" db:"PasswordHash"`
-	Disabled     bool             `spanner:"Disabled"     db:"Disabled"`
+	Username               string           `spanner:"Username"               db:"Username"`
+	PasswordHash           *securehash.Hash `spanner:"PasswordHash"           db:"PasswordHash"`
+	Disabled               bool             `spanner:"Disabled"               db:"Disabled"`
+	PasswordChangeRequired bool             `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
 }
 
 // OIDCUser is a library-managed durable user record for OIDC logins, keyed by the

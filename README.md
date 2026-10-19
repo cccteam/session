@@ -44,10 +44,11 @@ db-initiator in one read-write transaction, so check that your migration runner
 executes DML on Spanner.
 
 **Time columns are the database's.** Every column that records when something happened
-(a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, an auth event's
-`OccurredAt`, an impersonation record's `StartedAt` and `EndedAt`, an identity link's
-`CreatedAt` and `LastUsedAt`, a pending sign-in's `CreatedAt` and `ConsumedAt`, the OIDC
-user anchor's `CreatedAt` and `UpdatedAt`) is written with the database's time, never
+(a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, a user's `CreatedAt` and
+`LastSignInAt`, an auth event's `OccurredAt`, an impersonation record's `StartedAt` and
+`EndedAt`, an identity link's `CreatedAt` and `LastUsedAt`, a pending sign-in's
+`CreatedAt` and `ConsumedAt`, the OIDC user anchor's `CreatedAt` and `UpdatedAt`) is
+written with the database's time, never
 the application's: Spanner's commit timestamp, PostgreSQL's transaction time (`now()`).
 A host clock that runs ahead of the database's therefore cannot be refused, and the
 rows one write stores carry one time. On Spanner the columns carry
@@ -64,6 +65,12 @@ A deadline (`ExpiresAt`) is the application's and is written as given. An auth e
 the application hands the library (`sessioninfo.AuthEvent`) carries a zero `At` when it
 happens now, and the database stamps it; an earlier event carries its time, stored as
 given.
+
+**The users table carries the user-management columns.** `SessionUsers` has, beside
+the username, the password hash and `Disabled`, the password change mark
+`PasswordChangeRequired` and the time columns `CreatedAt` and `LastSignInAt` (see
+"Users and the forced password change"). The shipped `000002_SessionUsers` migration
+creates them; a users table named per group takes the same DDL under its name.
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -365,10 +372,10 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/pending/confirm", auth.Pending().ConfirmWithPassword())
     r.Post("/api/user/pending/cancel", auth.Pending().Cancel())
     r.Post("/api/user/mfa", app.CompleteMFA) // checks the app's code, then auth.API().CompletePending
+    r.Post("/api/user/logout", auth.Logout())
+    r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
     r.Group(func(r chi.Router) {
         r.Use(auth.ValidateSession)
-        r.Post("/api/user/logout", auth.Logout())
-        r.Post("/api/user/password", password.ChangeUserPassword())
         // …protected routes
     })
 })
@@ -376,15 +383,20 @@ r.Group(func(r chi.Router) {
 
 The pending handlers and the API's pending methods read the pending identity
 `StartSession` found, so they must run behind it; the POSTs belong behind
-`ValidateXSRFToken` like the password login.
+`ValidateXSRFToken` like the password login. The session read (`Authenticated`), the
+logout and the password change sit outside `ValidateSession`: they validate the session
+on their own, and they are what a user who must change their password reaches (see
+"Users and the forced password change"). The methods list names the password change
+route (`ChangePassword`) whenever it lists the password method.
 
 ### What the login page is told
 
 The login page renders from the server, so the browser bundle is the same in every
 environment and a method that is not registered has no button. `auth.Methods(list)` is
 the public route that tells it: for each method the application lists, its name, the
-method behind it, how it starts, its label and its path, in the list's order, and the
-pending sign-in routes when the list names them.
+method behind it, how it starts, its label and its path, in the list's order, the
+pending sign-in routes when the list names them, and the password change route when
+the password method is listed.
 
 ```json
 {
@@ -392,7 +404,8 @@ pending sign-in routes when the list names them.
     {"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/session"},
     {"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/api/user/sso/login"}
   ],
-  "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"}
+  "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+  "changePassword": "/api/user/password"
 }
 ```
 
@@ -404,15 +417,20 @@ pending sign-in routes when the list names them.
 - `name` is the registration's name on the `Auth`, `method` the method behind it
   (`password`, `azure`, `google`, `workos`), for a page that shows a provider's mark.
 - `label` is the application's wording for the method.
-- `path` and the pending paths are the application's: the list is written where the
-  routes are wired, so the paths the page is told are the paths the router serves. A
-  registered method the list leaves out is not offered.
+- `path`, the pending paths and `changePassword` are the application's: the list is
+  written where the routes are wired, so the paths the page is told are the paths the
+  router serves. A registered method the list leaves out is not offered.
+- `changePassword` is the path of the password method's `ChangeUserPassword` handler,
+  which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
+  user must change their password (the session read's `passwordChangeRequired`). It is
+  present whenever the password method is listed.
 
 `Methods` is called after every method is registered and panics on a wiring mistake,
 as a registration does: an empty list, a method that is not registered on the `Auth`,
 a name listed twice, a method without a label or with a path that is not a canonical
-path in the application, or a pending block with some of its paths. Route it beside
-the login routes: behind `StartSession`, before `ValidateSession`, no XSRF token.
+path in the application, a pending block with some of its paths, the password method
+without its change route or that route without the method. Route it beside the login
+routes: behind `StartSession`, before `ValidateSession`, no XSRF token.
 
 ### The redirect and response contract
 
@@ -528,9 +546,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   the impersonated user; a role principal's belongs to none. The session records an
   `impersonation` event whose connection is the actor.
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
-  `DeactivateSessionUser` and `DeleteSessionUser` destroy the user's sessions by
-  `UserId`; `DeleteSessionUser` deletes its identity links with it; `UnlinkIdentity`
-  refuses a user's last means of sign-in.
+  `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
+  the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
+  it; `UnlinkIdentity` refuses a user's last means of sign-in. See "Users and the forced
+  password change".
 - **Provider-initiated (front-channel) logout** is keyed by the issuer of the token the
   sign-in verified and the provider's session id, since a provider's session id is
   unique only within its issuer: an Azure sign-in records the ID token's `sid` claim on
@@ -551,6 +570,42 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions
   of the same user under another `sid`, or signed in by a method that reports no
   session id (password, Google, WorkOS), are not touched.
+
+### Users and the forced password change
+
+The `Auth` has no user-management handlers of its own: an application, or a library
+over it, manages users through `auth.API()` and guards the callers. The API reads
+users as the store holds them (`sessionstorage.SessionUser`: the username, `Disabled`,
+the password hash, nil for a password-less user, `PasswordChangeRequired`, `CreatedAt`
+and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
+
+| Call | What it does |
+| --- | --- |
+| `Users(ctx)` | Every user, by username. |
+| `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
+| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). |
+| `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
+| `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Clears the mark, destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
+| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
+| `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark, destroys the sessions. |
+| `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
+| `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+
+**The forced password change.** A password an operator set, at creation
+(`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
+anything else is served. While the mark is set, `ValidateSession` (and
+`AuthAPI.ValidateSession`) refuses every request with 403 and `{"message", "code":
+"password_change_required"}`; the session read answers, with `"passwordChangeRequired":
+true`, and the logout and the password change go through, since they validate the
+session on their own, which is why the three sit outside `ValidateSession` in the
+wiring above. A login page that reads the mark from the session read posts the change
+to the methods list's `changePassword` path before it opens the application. The change
+clears the mark, regenerates the session and records a `password` event; an
+impersonated session is the actor's and is not held to the user's mark. The seed user
+of a new application and every user an operator creates with a password carry the
+mark; the password a user chose through `ChangeSessionUserPassword` or
+`SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
+mark without a password is refused.
 
 ## Legacy session types
 
@@ -918,6 +973,7 @@ table is the wire contract:
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or a standard account rule found no sign-in name to use as the username. |
+| `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

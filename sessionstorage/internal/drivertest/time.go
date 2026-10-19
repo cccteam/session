@@ -118,11 +118,7 @@ func testDatabaseTimeOnInsert(ctx context.Context, t *testing.T, h *Harness) {
 	if !destroyed.UpdatedAt.After(impersonated.UpdatedAt) {
 		t.Errorf("Session().UpdatedAt after DestroySession() = %v, want it moved past %v", destroyed.UpdatedAt, impersonated.UpdatedAt)
 	}
-	endedAt, _ := h.RecordEnd(ctx, t, inst.Raw, impID)
-	if endedAt == nil {
-		t.Fatal("record EndedAt = nil after DestroySession(), want the database's time")
-	}
-	assertSameTime(t, "record EndedAt", *endedAt, destroyed.UpdatedAt)
+	assertSameTime(t, "record EndedAt", recordEndedAt(ctx, t, h, inst.Raw, impID, "DestroySession()"), destroyed.UpdatedAt)
 }
 
 func testDatabaseTimeOnDestroyAll(ctx context.Context, t *testing.T, h *Harness) {
@@ -169,11 +165,21 @@ func testDatabaseTimeOnDestroyAll(ctx context.Context, t *testing.T, h *Harness)
 		}
 		assertSameTime(t, "Session().UpdatedAt", sess.UpdatedAt, expiredAt)
 	}
-	endedAt, _ := h.RecordEnd(ctx, t, inst.Raw, held)
-	if endedAt == nil {
-		t.Fatal("record EndedAt = nil after DestroyAllUserSessions(), want the database's time")
+	assertSameTime(t, "record EndedAt", recordEndedAt(ctx, t, h, inst.Raw, held, "DestroyAllUserSessions()"), expiredAt)
+}
+
+// recordEndedAt reads the time the session's impersonation record ended, straight from
+// the store, and fails the test when the record has none. after names the call that
+// should have ended it.
+func recordEndedAt(ctx context.Context, t *testing.T, h *Harness, raw any, sessionID ccc.UUID, after string) time.Time {
+	t.Helper()
+	endedAt, _ := h.RecordEnd(ctx, t, raw, sessionID)
+	if endedAt != nil {
+		return *endedAt
 	}
-	assertSameTime(t, "record EndedAt", *endedAt, expiredAt)
+	t.Fatalf("record EndedAt = nil after %s, want the database's time", after)
+
+	return time.Time{}
 }
 
 func testDatabaseTimeOnSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {

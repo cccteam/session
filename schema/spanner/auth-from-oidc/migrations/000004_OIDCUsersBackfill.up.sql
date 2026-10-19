@@ -5,8 +5,8 @@
 -- statements then. Two anchor rows with usernames that casefold alike stop the
 -- backfill: resolve them first. The anchor table is not dropped here; drop it in the
 -- release after the cutover, once nothing can roll back to the legacy type.
-INSERT INTO SessionUsers (Id, Username)
-    SELECT Id, Username FROM OIDCUsers;
+INSERT INTO SessionUsers (Id, Username, CreatedAt)
+    SELECT Id, Username, CreatedAt FROM OIDCUsers;
 
 INSERT INTO SessionIdentities (Id, UserId, Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt)
     SELECT GENERATE_UUID(), Id, 'azure', Tid, Oid, NULL, NULL, CreatedAt, UpdatedAt FROM OIDCUsers;

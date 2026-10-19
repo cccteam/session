@@ -16,9 +16,11 @@ import (
 
 // ValidateSession validates the session cookie and stores the session data and its
 // user (sessioninfo.UserFromCtx) in the context. Like Auth.ValidateSession, it
-// refuses a session whose user is missing or disabled as unauthorized.
+// refuses a session whose user is missing or disabled as unauthorized, and the request
+// of a user who must change their password as forbidden, with a
+// *sessioninfo.LoginRefusal carrying RefusedPasswordChangeRequired.
 func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Context, error) {
-	return p.auth.validate(ctx)
+	return p.auth.validateRequest(ctx)
 }
 
 // ValidateCredentials checks a username and password and returns the user ID. A
@@ -115,13 +117,18 @@ func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 }
 
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
-// user.
+// user. req.PasswordChangeRequired marks the password as one an operator set, which
+// the user changes before anything else is served; a user without a password has
+// nothing to change, so the mark without a password is a BadRequest.
 func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if len(customData) > 1 {
 		return ccc.NilUUID, errors.New("at most one customData value may be provided; it is the complete custom user data row")
+	}
+	if req.PasswordChangeRequired && req.Password == nil {
+		return ccc.NilUUID, httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
 	}
 
 	var hash *securehash.Hash
@@ -138,12 +145,47 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 		data = customData[0]
 	}
 
-	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{Username: req.Username, PasswordHash: hash, Disabled: req.Disabled}, data)
+	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{
+		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired,
+	}, data)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
 	}
 
 	return user.ID, nil
+}
+
+// Users lists every user, by username. A user carries its username, whether it is
+// disabled, its password hash (nil for a password-less user), whether it must change
+// its password, when it was created and when it last signed in.
+func (p *AuthAPI[S, U, Tx]) Users(ctx context.Context) ([]*sessionstorage.SessionUser, error) {
+	users, err := p.auth.storage.Users(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.Users()")
+	}
+
+	return users, nil
+}
+
+// User returns a user by ID, or a NotFound error.
+func (p *AuthAPI[S, U, Tx]) User(ctx context.Context, userID ccc.UUID) (*sessionstorage.SessionUser, error) {
+	user, err := p.auth.storage.User(ctx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+
+	return user, nil
+}
+
+// UserByUsername returns a user by username, matched without regard to case, or a
+// NotFound error.
+func (p *AuthAPI[S, U, Tx]) UserByUsername(ctx context.Context, username string) (*sessionstorage.SessionUser, error) {
+	user, err := p.auth.storage.UserByUserName(ctx, username)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.UserByUserName()")
+	}
+
+	return user, nil
 }
 
 // ChangeSessionUserUsername changes a user's username, and atomically the username
@@ -156,9 +198,11 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 	return nil
 }
 
-// ChangeSessionUserPassword changes a user's password and regenerates its session.
+// ChangeSessionUserPassword changes a user's password to one the user chose and
+// regenerates its session.
 //
-// The old password must match (BadRequest otherwise). Every session of the user is
+// The old password must match and the new one must differ from it (BadRequest
+// otherwise). The password change mark is cleared, every session of the user is
 // destroyed, by UserId, and the caller continues in a new session (ReasonRegeneration)
 // that records a password event.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID ccc.UUID, req *ChangeSessionUserPasswordRequest) error {
@@ -173,11 +217,14 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, req.OldPassword); err != nil {
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
 	}
+	if req.NewPassword == req.OldPassword {
+		return httpio.NewBadRequestMessage("The new password must differ from the old one")
+	}
 
 	if err := a.storage.DestroyUserSessions(ctx, user.ID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
-	if err := a.setPasswordHash(ctx, user.ID, req.NewPassword); err != nil {
+	if err := a.setPassword(ctx, user.ID, req.NewPassword, false); err != nil {
 		return err
 	}
 
@@ -198,10 +245,27 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 	return err
 }
 
-// SetSessionUserPassword sets a user's password without the old one (enrollment,
-// reset), destroying its sessions.
+// SetSessionUserPassword sets a password the user chose, without the old one: the end
+// of a flow of the application's own that proved who they are (a reset link, an
+// enrollment). The password change mark is cleared and the user's sessions are
+// destroyed. A password an operator chose is ResetSessionUserPassword.
 func (p *AuthAPI[S, U, Tx]) SetSessionUserPassword(ctx context.Context, userID ccc.UUID, password string) error {
-	if err := p.auth.setPasswordHash(ctx, userID, password); err != nil {
+	if err := p.auth.setPassword(ctx, userID, password, false); err != nil {
+		return err
+	}
+	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
+	}
+
+	return nil
+}
+
+// ResetSessionUserPassword sets a temporary password an operator chose: the user must
+// change it before anything else is served (SessionUser.PasswordChangeRequired; see
+// "Users and the forced password change" in the README), and its sessions are
+// destroyed.
+func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID ccc.UUID, temporary string) error {
+	if err := p.auth.setPassword(ctx, userID, temporary, true); err != nil {
 		return err
 	}
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {

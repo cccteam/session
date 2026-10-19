@@ -275,12 +275,16 @@ type db interface {
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
 	SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error
-	// SetUserPasswordHash updates the user password hash
+	// SetUserPasswordHash updates the user password hash, leaving the password change mark as it is.
 	SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error
+	// SetUserPassword updates the user password hash and the password change mark in one write.
+	SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id ccc.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
 	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
+	// Users lists every user, by username.
+	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
 	// DeactivateUser deactivates a user
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	// DeleteUser deletes a user
@@ -302,6 +306,8 @@ type db interface {
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.
+	TouchUserSignIn(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records an auth event on a live session.
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 

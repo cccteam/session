@@ -418,10 +418,13 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 
 	query := fmt.Sprintf(`
 		SELECT
-			"Id", 
-			"Username", 
-			"PasswordHash", 
-			"Disabled"
+			"Id",
+			"Username",
+			"PasswordHash",
+			"Disabled",
+			"PasswordChangeRequired",
+			"CreatedAt",
+			"LastSignInAt"
 		FROM %s
 		WHERE "Id" = $1
 	`, s.userTable())
@@ -445,10 +448,13 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 
 	query := fmt.Sprintf(`
 		SELECT
-			"Id", 
-			"Username", 
-			"PasswordHash", 
-			"Disabled"
+			"Id",
+			"Username",
+			"PasswordHash",
+			"Disabled",
+			"PasswordChangeRequired",
+			"CreatedAt",
+			"LastSignInAt"
 		FROM %s
 		WHERE "NormalizedUsername" = casefold(normalize($1))
 	`, s.userTable())
@@ -465,9 +471,36 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
-// CreateUser creates a new user. When customData (*U, may be nil) is provided it is
-// written to the custom user data table in the same transaction as the user insert; it
-// requires a custom user data configuration on the driver.
+// Users lists every user, by username.
+func (s *SessionStorageDriver) Users(ctx context.Context) ([]*dbtype.SessionUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		SELECT
+			"Id",
+			"Username",
+			"PasswordHash",
+			"Disabled",
+			"PasswordChangeRequired",
+			"CreatedAt",
+			"LastSignInAt"
+		FROM %s
+		ORDER BY "NormalizedUsername"
+	`, s.userTable())
+
+	var users []*dbtype.SessionUser
+	if err := pgxscan.Select(ctx, s.conn, &users, query); err != nil {
+		return nil, errors.Wrap(err, "pgxscan.Select()")
+	}
+
+	return users, nil
+}
+
+// CreateUser creates a new user and returns it as stored, its CreatedAt the
+// transaction's time. When customData (*U, may be nil) is provided it is written to the
+// custom user data table in the same transaction as the user insert; it requires a
+// custom user data configuration on the driver.
 func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -499,10 +532,10 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 func (s *SessionStorageDriver) userInsertStatement(id ccc.UUID, user *dbtype.InsertSessionUser) (query string, args []any) {
 	return fmt.Sprintf(`
 		INSERT INTO %s
-			("Id", "Username", "PasswordHash", "Disabled")
+			("Id", "Username", "PasswordHash", "Disabled", "PasswordChangeRequired", "CreatedAt")
 		VALUES
-			($1, $2, $3, $4)
-		`, s.userTable()), []any{id, user.Username, user.PasswordHash, user.Disabled}
+			($1, $2, $3, $4, $5, now())
+		`, s.userTable()), []any{id, user.Username, user.PasswordHash, user.Disabled, user.PasswordChangeRequired}
 }
 
 // execUserInsert executes a user-insert statement; when customData is non-nil the
@@ -619,6 +652,47 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 		WHERE "Id" = $1`, s.userTable())
 
 	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
+}
+
+// SetUserPassword sets a user's password hash and whether the user must change the
+// password before anything else is served, in one write: true for a password an
+// operator set, false for one the user chose.
+func (s *SessionStorageDriver) SetUserPassword(ctx context.Context, userID ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE %s SET "PasswordHash" = $2, "PasswordChangeRequired" = $3
+		WHERE "Id" = $1`, s.userTable())
+
+	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	} else if cmdTag.RowsAffected() == 0 {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
+}
+
+// TouchUserSignIn moves a user's LastSignInAt to the transaction's time. It is its own
+// write, after the sign-in's transaction has committed: inside it, the update would
+// upgrade the share lock the flow holds on the user row (UserIn) and deadlock two
+// sign-ins of one user.
+func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE %s SET "LastSignInAt" = now()
+		WHERE "Id" = $1`, s.userTable())
+
+	if cmdTag, err := s.conn.Exec(ctx, query, userID); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	} else if cmdTag.RowsAffected() == 0 {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)

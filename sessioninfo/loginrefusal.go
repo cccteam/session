@@ -59,6 +59,11 @@ const (
 	RefusedNoRoles LoginRefusalCode = "no_roles"
 	// RefusedNoEmailClaim is the code for a Google ID token that carries no email claim.
 	RefusedNoEmailClaim LoginRefusalCode = "no_email_claim"
+	// RefusedPasswordChangeRequired is the code every request of a user who must change
+	// a password an operator set is refused with (403) until the change, but the
+	// password change itself, the session read and the logout: the login page shows the
+	// change form. An Auth answers it from ValidateSession.
+	RefusedPasswordChangeRequired LoginRefusalCode = "password_change_required"
 )
 
 // LoginRefusal is a refused login: the code the login page receives and the cause the

@@ -342,7 +342,7 @@ func (p *PasswordAuth[T, U]) CreateUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		id, err := p.createSessionUser(ctx, (*session.CreateUserRequest)(req), nil)
+		id, err := p.createSessionUser(ctx, &session.CreateUserRequest{Username: req.Username, Password: req.Password, Disabled: req.Disabled}, nil)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

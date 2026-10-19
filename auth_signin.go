@@ -103,6 +103,11 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 			return ccc.NilUUID, err
 		}
+		// The user's last sign-in is bookkeeping, written once the session stands: a
+		// failure is logged and the sign-in goes on.
+		if err := a.storage.TouchUserSignIn(ctx, req.UserID); err != nil {
+			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.TouchUserSignIn()"))
+		}
 
 		return id, nil
 	})
@@ -219,7 +224,29 @@ func enabledUser(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error
 		return nil, httpio.NewUnauthorizedMessage("Session Expired")
 	}
 
-	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username}, nil
+	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username, PasswordChangeRequired: user.PasswordChangeRequired}, nil
+}
+
+// validateRequest validates the session as validate does and then refuses the request
+// of a user who must change their password (RefusedPasswordChangeRequired, Forbidden),
+// as every request is but the password change, the session read and the logout, which
+// validate on their own. An impersonated session is the actor's and is not held to the
+// user's mark.
+func (a *Auth[S, U, Tx]) validateRequest(ctx context.Context) (context.Context, error) {
+	ctx, err := a.validate(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	if _, impersonated := sessioninfo.ImpersonationFromCtx(ctx); !impersonated && sessioninfo.UserFromCtx(ctx).PasswordChangeRequired {
+		return ctx, errPasswordChangeRequired()
+	}
+
+	return ctx, nil
+}
+
+// errPasswordChangeRequired is the refusal of a request under the password change mark.
+func errPasswordChangeRequired() error {
+	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedPasswordChangeRequired, httpio.NewForbiddenMessage("Change your password to continue"))
 }
 
 // passwordSignIn checks username and password and signs the user in.
@@ -265,6 +292,8 @@ func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, passwor
 	return user, nil
 }
 
+// setPasswordHash re-hashes a password the user already has (the hash upgrade), leaving
+// the password change mark as it is.
 func (a *Auth[S, U, Tx]) setPasswordHash(ctx context.Context, userID ccc.UUID, password string) error {
 	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
@@ -272,6 +301,20 @@ func (a *Auth[S, U, Tx]) setPasswordHash(ctx context.Context, userID ccc.UUID, p
 	}
 	if err := a.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPasswordHash()")
+	}
+
+	return nil
+}
+
+// setPassword sets a new password and whether the user must change it: true for a
+// password an operator set, false for one the user chose.
+func (a *Auth[S, U, Tx]) setPassword(ctx context.Context, userID ccc.UUID, password string, changeRequired bool) error {
+	hash, err := a.registered().hasher.Hash(password)
+	if err != nil {
+		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+	}
+	if err := a.storage.SetUserPassword(ctx, userID, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPassword()")
 	}
 
 	return nil
@@ -324,7 +367,9 @@ func (a *Auth[S, U, Tx]) answerSignIn(ctx context.Context, w http.ResponseWriter
 	return nil
 }
 
-// changeUserPasswordHandler is the password method's change-password handler.
+// changeUserPasswordHandler is the password method's change-password handler. It is
+// the one route a user who must change their password reaches, so it validates the
+// session itself, without the mark's refusal, unless ValidateSession already has.
 func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 	type request struct {
 		OldPassword string `json:"oldPassword"`
@@ -336,6 +381,12 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
+			var err error
+			if ctx, err = a.validate(ctx); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
 		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "ChangeUserPassword", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

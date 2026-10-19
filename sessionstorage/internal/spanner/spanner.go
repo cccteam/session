@@ -437,7 +437,10 @@ func (s *SessionStorageDriver) User(ctx context.Context, id ccc.UUID) (*dbtype.S
 			Id,
 			Username,
 			PasswordHash,
-			Disabled
+			Disabled,
+			PasswordChangeRequired,
+			CreatedAt,
+			LastSignInAt
 		FROM %s
 		WHERE Id = @id
 	`, s.userTableName))
@@ -465,7 +468,10 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 			Id,
 			Username,
 			PasswordHash,
-			Disabled
+			Disabled,
+			PasswordChangeRequired,
+			CreatedAt,
+			LastSignInAt
 		FROM %s
 		WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)
 	`, s.userTableName))
@@ -483,9 +489,36 @@ func (s *SessionStorageDriver) UserByUserName(ctx context.Context, username stri
 	return user, nil
 }
 
-// CreateUser creates a new user. When customData (*U, may be nil) is provided it is
-// written to the custom user data table in the same commit as the user insert; it
-// requires a custom user data configuration on the driver.
+// Users lists every user, by username.
+func (s *SessionStorageDriver) Users(ctx context.Context) ([]*dbtype.SessionUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+		SELECT
+			Id,
+			Username,
+			PasswordHash,
+			Disabled,
+			PasswordChangeRequired,
+			CreatedAt,
+			LastSignInAt
+		FROM %s
+		ORDER BY NormalizedUsername
+	`, s.userTableName))
+
+	var users []*dbtype.SessionUser
+	if err := spxscan.Select(ctx, s.spanner.Single(), &users, stmt); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+
+	return users, nil
+}
+
+// CreateUser creates a new user and returns it as stored, its CreatedAt the commit's
+// time. When customData (*U, may be nil) is provided it is written to the custom user
+// data table in the same commit as the user insert; it requires a custom user data
+// configuration on the driver.
 func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -517,7 +550,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 		return nil, errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
-	return user, nil
+	return s.User(ctx, id)
 }
 
 // SetUserUsername updates the user record and every active session row
@@ -644,6 +677,63 @@ func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID c
 	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
 			return httpio.NewNotFoundMessagef("user id %q does not exist", passwordUpdate.ID)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+// SetUserPassword sets a user's password hash and whether the user must change the
+// password before anything else is served, in one write: true for a password an
+// operator set, false for one the user chose.
+func (s *SessionStorageDriver) SetUserPassword(ctx context.Context, userID ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	passwordHash, err := passwordHashValue(hash)
+	if err != nil {
+		return err
+	}
+	passwordUpdate := struct {
+		ID                     ccc.UUID           `spanner:"Id"`
+		PasswordHash           spanner.NullString `spanner:"PasswordHash"`
+		PasswordChangeRequired bool               `spanner:"PasswordChangeRequired"`
+	}{
+		ID:                     userID,
+		PasswordHash:           passwordHash,
+		PasswordChangeRequired: changeRequired,
+	}
+
+	mutation, err := spanner.UpdateStruct(s.userTableName, passwordUpdate)
+	if err != nil {
+		return errors.Wrap(err, "spanner.UpdateStruct()")
+	}
+
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		return errors.Wrap(err, "spanner.Client.Apply()")
+	}
+
+	return nil
+}
+
+// TouchUserSignIn moves a user's LastSignInAt to the commit's time. It is its own
+// write, after the sign-in's transaction has committed: inside it, the update would
+// upgrade the share lock the flow holds on the user row and deadlock two sign-ins of one
+// user on PostgreSQL, and the drivers behave alike.
+func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	touch := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, "LastSignInAt": spanner.CommitTimestamp})
+	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{touch}); err != nil {
+		if spanner.ErrCode(err) == codes.NotFound {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
 		return errors.Wrap(err, "spanner.Client.Apply()")

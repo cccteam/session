@@ -6,9 +6,13 @@ type ChangeSessionUserPasswordRequest struct {
 	NewPassword string
 }
 
-// CreateUserRequest takes in the user information for creating a new SessionUser
+// CreateUserRequest takes in the user information for creating a new SessionUser. A nil
+// Password creates a password-less user. PasswordChangeRequired marks the password as
+// one an operator set: the user changes it before anything else is served (see the
+// README's "Users and the forced password change"); it needs a Password.
 type CreateUserRequest struct {
-	Username string  `json:"username"`
-	Password *string `json:"password"`
-	Disabled bool    `json:"disabled"`
+	Username               string  `json:"username"`
+	Password               *string `json:"password"`
+	Disabled               bool    `json:"disabled"`
+	PasswordChangeRequired bool    `json:"passwordChangeRequired"`
 }
