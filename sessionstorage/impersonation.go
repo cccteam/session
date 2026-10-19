@@ -90,9 +90,7 @@ func (s *sessionStorage) CreateImpersonatedSession(ctx context.Context, req *ses
 	defer span.End()
 
 	session := &dbtype.InsertSession{
-		Username:  req.Username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Username: req.Username,
 	}
 
 	id, err := s.db.InsertImpersonatedSession(ctx, session, req, dbtype.NewInsertImpersonation(imp))
@@ -115,9 +113,7 @@ func (s *OIDC) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.N
 
 	session := &dbtype.InsertOIDCSession{
 		InsertSession: dbtype.InsertSession{
-			Username:  req.Username,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			Username: req.Username,
 		},
 	}
 

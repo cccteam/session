@@ -33,8 +33,9 @@ type Impersonation struct {
 	EndReason       *string
 }
 
-// InsertImpersonation is the caller-supplied part of a new impersonation
-// record; the driver assigns SessionID and StartedAt.
+// InsertImpersonation is the caller-supplied part of a new impersonation record; the
+// driver assigns SessionID and writes StartedAt with the database's time at commit.
+// ExpiresAt is the caller's deadline.
 type InsertImpersonation struct {
 	ActorUsername   string
 	ActorRealm      *string
@@ -44,7 +45,6 @@ type InsertImpersonation struct {
 	PrincipalRole   *string
 	Mask            *string
 	Reason          *string
-	StartedAt       time.Time
 	ExpiresAt       time.Time
 }
 
@@ -56,7 +56,6 @@ func NewInsertImpersonation(imp *sessioninfo.Impersonation) *InsertImpersonation
 		ActorRealm:    optionalString(imp.ActorRealm),
 		Reason:        optionalString(imp.Reason),
 		Mask:          MaskColumn(imp.Mask),
-		StartedAt:     imp.StartedAt,
 		ExpiresAt:     imp.ExpiresAt,
 	}
 	if imp.SourceSessionID.Valid {

@@ -3,7 +3,6 @@ package sessionstorage
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -18,11 +17,15 @@ import (
 var _ OIDCStore = (*OIDC)(nil)
 
 // OIDC is the session storage implementation for with OIDC support.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 type OIDC struct {
 	sessionStorage
 }
 
 // NewSpannerOIDC creates a new SpannerOIDCSessionStorage instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewSpannerOIDC(client *cloudspanner.Client, opts ...SpannerOption) *OIDC {
 	driver := spanner.NewSessionStorageDriver(client)
 	for _, opt := range opts {
@@ -37,6 +40,8 @@ func NewSpannerOIDC(client *cloudspanner.Client, opts ...SpannerOption) *OIDC {
 }
 
 // NewPostgresOIDC creates a new PostgresOIDC instance.
+//
+// Deprecated: it serves the legacy session types in package legacy and leaves with them; Auth sessions use AuthStore (NewSpannerAuth, NewPostgresAuth).
 func NewPostgresOIDC(pg postgres.Queryer, opts ...PostgresOption) *OIDC {
 	driver := postgres.NewSessionStorageDriver(pg)
 	for _, opt := range opts {
@@ -62,9 +67,7 @@ func (s *OIDC) NewSession(ctx context.Context, username, oidcSID string, claims 
 	session := &dbtype.InsertOIDCSession{
 		OidcSID: oidcSID,
 		InsertSession: dbtype.InsertSession{
-			Username:  username,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			Username: username,
 		},
 	}
 

@@ -3,7 +3,6 @@ package sessionstorage
 import (
 	"context"
 	"reflect"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -18,13 +17,21 @@ type sessionStorage struct {
 }
 
 // SetSessionTableName sets the name of the session table.
-func (s *sessionStorage) SetSessionTableName(name string) {
-	s.db.SetSessionTableName(name)
+func (s *sessionStorage) SetSessionTableName(name string) error {
+	if err := s.db.SetSessionTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetSessionTableName()")
+	}
+
+	return nil
 }
 
 // SetUserTableName sets the name of the user table.
-func (s *sessionStorage) SetUserTableName(name string) {
-	s.db.SetUserTableName(name)
+func (s *sessionStorage) SetUserTableName(name string) error {
+	if err := s.db.SetUserTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetUserTableName()")
+	}
+
+	return nil
 }
 
 // NewSession inserts SessionInfo into the database. customData is nil or *T for the
@@ -36,9 +43,7 @@ func (s *sessionStorage) NewSession(ctx context.Context, username string, custom
 	defer span.End()
 
 	session := &dbtype.InsertSession{
-		Username:  username,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Username: username,
 	}
 
 	req := &sessioninfo.NewSessionRequest{
@@ -68,7 +73,14 @@ func (s *sessionStorage) Session(ctx context.Context, sessionID ccc.UUID) (*sess
 	sessData := &sessioninfo.SessionData{
 		SessionInfo: (*sessioninfo.SessionInfo)(si.Session),
 		CustomData:  si.CustomData,
+		UserID:      si.UserID,
+		AuthEvents:  si.AuthEvents,
 	}
+	if si.AuthenticatedAt != nil {
+		sessData.AuthenticatedAt = *si.AuthenticatedAt
+	}
+	sessData.ProviderSessionID = si.ProviderSessionID
+	sessData.ProviderSessionIssuer = si.ProviderSessionIssuer
 	if si.Impersonation != nil {
 		sessData.Impersonation = si.Impersonation.ToSessionInfo()
 	}
@@ -142,8 +154,12 @@ func (s *sessionStorage) OIDCUsersEnabled() bool {
 }
 
 // SetOIDCUserTableName sets the name of the OIDC user anchor table.
-func (s *sessionStorage) SetOIDCUserTableName(name string) {
-	s.db.SetOIDCUserTableName(name)
+func (s *sessionStorage) SetOIDCUserTableName(name string) error {
+	if err := s.db.SetOIDCUserTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetOIDCUserTableName()")
+	}
+
+	return nil
 }
 
 // CustomUserData returns the custom user data row for the given user ID as *U for the

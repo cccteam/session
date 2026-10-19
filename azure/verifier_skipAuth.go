@@ -1,0 +1,146 @@
+//go:build skipAuth
+
+// Package azure is the Microsoft Entra ID (Azure) sign-in method, where
+// authentication is skipped for development by using the skipAuth build tag
+package azure
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/cookie"
+	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/simulated"
+	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
+	"github.com/go-playground/errors/v5"
+	"github.com/gofrs/uuid"
+)
+
+var _ Authenticator = &OIDC{}
+
+const defaultLoginURL = "/login"
+
+// skipAuthTenantID is the tid claim stamped on a simulated login when the registration
+// lists no tenant (AnyTenant): a fixed tenant, so every simulated user of such a
+// registration shares one directory. A registration listing tenants simulates its
+// first, as the method admits no other.
+var skipAuthTenantID = uuid.Must(uuid.FromString("034cdd64-5dd9-4a3b-90fb-c76d3a499433"))
+
+// skipAuthOidNamespace is the UUIDv5 namespace the simulated oid claim is derived
+// under. Deriving oid from APP_USERNAME gives each simulated user one durable
+// identity, so repeated logins resolve to the same OIDCUsers anchor row when the
+// anchor is enabled. The namespace is part of the skipAuth contract: changing it
+// changes every simulated oid, orphaning anchor rows in existing dev databases.
+var skipAuthOidNamespace = uuid.Must(uuid.FromString("2aa10a18-1d51-4dcd-949a-b85cf4e628e3"))
+
+// OIDC implements the Authenticator interface for OpenID Connect authentication.
+type OIDC struct {
+	authority   string
+	tenants     TenantSet
+	redirectURL string
+	cookies     signin.StateCookies
+	loginURL    string
+	// registration names the registration the simulated sign-in serves, which selects
+	// the environment it reads the person and their roles from (internal/simulated).
+	registration string
+}
+
+// NewOIDC returns a new OIDC Authenticator. The authority and the tenants are kept so
+// the simulated claims name a tenant the registration admits and its issuer, as a
+// verified token's tid and iss would.
+func NewOIDC(cookies signin.StateCookies, authority string, tenants TenantSet, _, _, redirectURL string) *OIDC {
+	return &OIDC{
+		authority:   authority,
+		tenants:     tenants,
+		redirectURL: redirectURL,
+		cookies:     cookies,
+	}
+}
+
+// SetLoginURL sets the URL to redirect to when an error occurs during the OIDC authentication process
+func (o *OIDC) SetLoginURL(url string) {
+	o.loginURL = url
+}
+
+// simulateAs names the registration this simulated sign-in serves: it signs in
+// APP_<NAME>_USERNAME in the roles APP_<NAME>_ROLES names when the variables are set,
+// APP_USERNAME and APP_ROLES otherwise.
+func (o *OIDC) simulateAs(registration string) {
+	o.registration = registration
+}
+
+// LoginURL returns the URL to redirect to when an error occurs during the OIDC authentication process
+func (o *OIDC) LoginURL() string {
+	if o.loginURL == "" {
+		return defaultLoginURL
+	}
+
+	return o.loginURL
+}
+
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
+func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
+
+	o.cookies.WriteStateCookie(w, cval)
+
+	return o.redirectURL, nil
+}
+
+// Verify performs the necessary verification and processing of the OIDC callback request.
+// It populates 'claims' with simulated ID Token claims and returns:
+//   - the URL to redirect to following successful authentication
+//   - the 'sid' value from the session_state query parameter
+//
+// The simulated claims carry preferred_username and roles from the registration's
+// username and roles variables (APP_<NAME>_USERNAME and APP_<NAME>_ROLES, else
+// APP_USERNAME and APP_ROLES), plus a deterministic (tid, oid) pair — the
+// registration's first listed tenant, or the fixed skipAuth tenant when it lists none,
+// and a UUIDv5 of the username — so logins satisfy the OIDC user anchor's fail-closed
+// (tid, oid) requirement and each simulated user maps to one durable anchor row.
+func (o *OIDC) Verify(_ context.Context, w http.ResponseWriter, r *http.Request, claims any) (returnURL, sid string, err error) {
+	type claimsSimulated struct {
+		Iss               string   `json:"iss"`
+		PreferredUsername string   `json:"preferred_username"`
+		Roles             []string `json:"roles"`
+		Tid               string   `json:"tid"`
+		Oid               string   `json:"oid"`
+	}
+	var c claimsSimulated
+	c.Tid = o.tenants.simulatedTenantID(skipAuthTenantID.String())
+	c.Iss = issuerOf(o.authority, c.Tid)
+	c.PreferredUsername = simulated.Username(o.registration)
+	c.Roles = simulated.Roles(o.registration)
+	c.Oid = uuid.NewV5(skipAuthOidNamespace, c.PreferredUsername).String()
+
+	// Transfer the claims values to the input 'claims' variable
+	cByte, err := json.Marshal(c)
+	if err != nil {
+		return "", "", errors.Wrap(err, "json.Marshal()")
+	}
+	if err := json.Unmarshal(cByte, claims); err != nil {
+		return "", "", errors.Wrap(err, "json.Unmarshal()")
+	}
+
+	cval, cookieName, err := o.cookies.ReadStateCookie(r)
+	if err != nil {
+		return "", "", errors.Wrap(err, "cookie.Client.ReadStateCookie()")
+	}
+	if cookieName == "" {
+		return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedNoOIDCCookie, httpio.NewForbiddenMessage("No OIDC cookie"))
+	}
+	o.cookies.DeleteStateCookie(w, cookieName)
+
+	returnURL, _ = cval.GetString(internalcookie.ReturnURL)
+	returnURL = internalcookie.SanitizeReturnURL(returnURL)
+
+	oidcID, err := uuid.NewV4()
+	if err != nil {
+		return "", "", errors.Wrap(err, "uuid.NewV4()")
+	}
+
+	return returnURL, oidcID.String(), nil
+}

@@ -19,12 +19,20 @@ func TestImpersonation(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunImpersonation(t, &drivertest.Harness{
-		New:           newImpersonationInstance,
-		RecordEnd:     recordEnd,
-		ExpireSession: expireSession,
-		OIDCSid:       oidcSid,
+		New:                 newImpersonationInstance,
+		RecordEnd:           recordEnd,
+		ExpireSession:       expireSession,
+		SetSessionUpdatedAt: setSessionUpdatedAt,
+		OIDCSid:             oidcSid,
+		ClockLead:           emulatorClockLead,
 	})
 }
+
+// emulatorClockLead is how far the emulator's clock may run ahead of the host's under
+// the suite's parallel load (drivertest.Harness.ClockLead). The emulator hands out
+// strictly increasing microsecond timestamps, so a burst of calls pushes it ahead of
+// real time by a few milliseconds that accumulate over a run; a second covers it.
+const emulatorClockLead = time.Second
 
 // impersonationSources maps a suite schema to this package's migration sources.
 func impersonationSources(schema drivertest.Schema) []string {
@@ -56,9 +64,6 @@ func newImpersonationInstance(ctx context.Context, t *testing.T, schema driverte
 
 	newDriver := func(cfg drivertest.Config) drivertest.Driver {
 		c := NewSessionStorageDriver(conn.Client)
-		if cfg.Google {
-			c = NewGoogleSessionStorageDriver(conn.Client)
-		}
 		if cfg.Impersonation {
 			c.SetImpersonation(&ImpersonationConfig{TableName: "SessionImpersonations"})
 		}
@@ -113,6 +118,26 @@ func expireSession(ctx context.Context, t *testing.T, raw any, id ccc.UUID) {
 		expire := spanner.NewStatement("UPDATE Sessions SET Expired = TRUE WHERE Id = @id")
 		expire.Params["id"] = id.String()
 		if _, err := txn.Update(ctx, expire); err != nil {
+			return errors.Wrap(err, "txn.Update()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReadWriteTransaction() error = %v", err)
+	}
+}
+
+// setSessionUpdatedAt writes a past UpdatedAt directly; a commit timestamp column takes
+// any value that is not in the future.
+func setSessionUpdatedAt(ctx context.Context, t *testing.T, raw any, id ccc.UUID, updatedAt time.Time) {
+	t.Helper()
+
+	_, err := client(t, raw).ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		touch := spanner.NewStatement("UPDATE Sessions SET UpdatedAt = @updatedAt WHERE Id = @id")
+		touch.Params["id"] = id.String()
+		touch.Params["updatedAt"] = updatedAt
+		if _, err := txn.Update(ctx, touch); err != nil {
 			return errors.Wrap(err, "txn.Update()")
 		}
 

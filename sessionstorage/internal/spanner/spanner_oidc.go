@@ -3,6 +3,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
@@ -20,10 +21,6 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if s.googleOIDC {
-		return ccc.NilUUID, errors.New("InsertSessionOIDC called on a Google OIDC storage driver")
-	}
-
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
@@ -32,45 +29,13 @@ func (s *SessionStorageDriver) InsertSessionOIDC(ctx context.Context, insertSess
 	session := &struct {
 		ID ccc.UUID
 		*dbtype.InsertOIDCSession
+		CreatedAt time.Time `spanner:"CreatedAt"`
+		UpdatedAt time.Time `spanner:"UpdatedAt"`
 	}{
 		ID:                id,
 		InsertOIDCSession: insertSession,
-	}
-
-	mutation, err := spanner.InsertStruct(s.sessionTableName, session)
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "spanner.InsertStruct()")
-	}
-
-	if err := s.applySessionInsertOIDC(ctx, id, mutation, req); err != nil {
-		return ccc.NilUUID, err
-	}
-
-	return id, nil
-}
-
-// InsertSessionGoogleOIDC inserts a Google OIDC Session into the database and returns
-// its id. Google issues no sid claim, so the session row carries no OidcSid. It honors
-// the request's custom session data semantics exactly like InsertSessionOIDC.
-func (s *SessionStorageDriver) InsertSessionGoogleOIDC(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	if !s.googleOIDC {
-		return ccc.NilUUID, errors.New("InsertSessionGoogleOIDC called on a non-Google OIDC storage driver")
-	}
-
-	id, err := ccc.NewUUID()
-	if err != nil {
-		return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
-	}
-
-	session := &struct {
-		ID ccc.UUID
-		*dbtype.InsertSession
-	}{
-		ID:            id,
-		InsertSession: insertSession,
+		CreatedAt:         spanner.CommitTimestamp,
+		UpdatedAt:         spanner.CommitTimestamp,
 	}
 
 	mutation, err := spanner.InsertStruct(s.sessionTableName, session)
@@ -152,7 +117,7 @@ func (s *SessionStorageDriver) DestroySessionOIDC(ctx context.Context, oidcSID s
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(_ context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`
 			UPDATE %[1]s
-			SET Expired = TRUE, UpdatedAt = CURRENT_TIMESTAMP()
+			SET Expired = TRUE, UpdatedAt = PENDING_COMMIT_TIMESTAMP()
 			WHERE NOT Expired AND Username = (
 				SELECT Username
 				FROM %[1]s

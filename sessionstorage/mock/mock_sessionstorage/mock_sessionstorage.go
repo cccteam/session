@@ -204,9 +204,11 @@ func (mr *MockBaseStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockBaseStore) SetOIDCUserTableName(name string) {
+func (m *MockBaseStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -216,9 +218,11 @@ func (mr *MockBaseStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockBaseStore) SetSessionTableName(name string) {
+func (m *MockBaseStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -228,9 +232,11 @@ func (mr *MockBaseStoreMockRecorder) SetSessionTableName(name any) *gomock.Call 
 }
 
 // SetUserTableName mocks base method.
-func (m *MockBaseStore) SetUserTableName(name string) {
+func (m *MockBaseStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -492,9 +498,11 @@ func (mr *MockPreauthStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockPreauthStore) SetOIDCUserTableName(name string) {
+func (m *MockPreauthStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -504,9 +512,11 @@ func (mr *MockPreauthStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.C
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockPreauthStore) SetSessionTableName(name string) {
+func (m *MockPreauthStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -516,9 +526,11 @@ func (mr *MockPreauthStoreMockRecorder) SetSessionTableName(name any) *gomock.Ca
 }
 
 // SetUserTableName mocks base method.
-func (m *MockPreauthStore) SetUserTableName(name string) {
+func (m *MockPreauthStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -567,6 +579,174 @@ func (m *MockPreauthStore) UserDataLoginHookConfigured() bool {
 func (mr *MockPreauthStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockPreauthStore)(nil).UserDataLoginHookConfigured))
+}
+
+// MockUserStore is a mock of UserStore interface.
+type MockUserStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockUserStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockUserStoreMockRecorder is the mock recorder for MockUserStore.
+type MockUserStoreMockRecorder struct {
+	mock *MockUserStore
+}
+
+// NewMockUserStore creates a new mock instance.
+func NewMockUserStore(ctrl *gomock.Controller) *MockUserStore {
+	mock := &MockUserStore{ctrl: ctrl}
+	mock.recorder = &MockUserStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockUserStore) EXPECT() *MockUserStoreMockRecorder {
+	return m.recorder
+}
+
+// ActivateUser mocks base method.
+func (m *MockUserStore) ActivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ActivateUser indicates an expected call of ActivateUser.
+func (mr *MockUserStoreMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockUserStore)(nil).ActivateUser), ctx, id)
+}
+
+// CreateUser mocks base method.
+func (m *MockUserStore) CreateUser(ctx context.Context, user *sessionstorage.InsertSessionUser, customData any) (*sessionstorage.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUser", ctx, user, customData)
+	ret0, _ := ret[0].(*sessionstorage.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUser indicates an expected call of CreateUser.
+func (mr *MockUserStoreMockRecorder) CreateUser(ctx, user, customData any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockUserStore)(nil).CreateUser), ctx, user, customData)
+}
+
+// CustomUserData mocks base method.
+func (m *MockUserStore) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CustomUserData", ctx, userID)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CustomUserData indicates an expected call of CustomUserData.
+func (mr *MockUserStoreMockRecorder) CustomUserData(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserData", reflect.TypeOf((*MockUserStore)(nil).CustomUserData), ctx, userID)
+}
+
+// DeactivateUser mocks base method.
+func (m *MockUserStore) DeactivateUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeactivateUser indicates an expected call of DeactivateUser.
+func (mr *MockUserStoreMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockUserStore)(nil).DeactivateUser), ctx, id)
+}
+
+// DeleteUser mocks base method.
+func (m *MockUserStore) DeleteUser(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockUserStoreMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockUserStore)(nil).DeleteUser), ctx, id)
+}
+
+// SetUserPasswordHash mocks base method.
+func (m *MockUserStore) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserPasswordHash", ctx, id, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserPasswordHash indicates an expected call of SetUserPasswordHash.
+func (mr *MockUserStoreMockRecorder) SetUserPasswordHash(ctx, id, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPasswordHash", reflect.TypeOf((*MockUserStore)(nil).SetUserPasswordHash), ctx, id, hash)
+}
+
+// SetUserUsername mocks base method.
+func (m *MockUserStore) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, newUsername)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserUsername indicates an expected call of SetUserUsername.
+func (mr *MockUserStoreMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockUserStore)(nil).SetUserUsername), ctx, id, newUsername)
+}
+
+// UpdateCustomUserData mocks base method.
+func (m *MockUserStore) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(any) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCustomUserData", ctx, userID, mutate)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCustomUserData indicates an expected call of UpdateCustomUserData.
+func (mr *MockUserStoreMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*MockUserStore)(nil).UpdateCustomUserData), ctx, userID, mutate)
+}
+
+// User mocks base method.
+func (m *MockUserStore) User(ctx context.Context, id ccc.UUID) (*sessionstorage.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "User", ctx, id)
+	ret0, _ := ret[0].(*sessionstorage.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// User indicates an expected call of User.
+func (mr *MockUserStoreMockRecorder) User(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockUserStore)(nil).User), ctx, id)
+}
+
+// UserByUserName mocks base method.
+func (m *MockUserStore) UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserByUserName", ctx, username)
+	ret0, _ := ret[0].(*sessionstorage.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserByUserName indicates an expected call of UserByUserName.
+func (mr *MockUserStoreMockRecorder) UserByUserName(ctx, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByUserName", reflect.TypeOf((*MockUserStore)(nil).UserByUserName), ctx, username)
 }
 
 // MockPasswordAuthStore is a mock of PasswordAuthStore interface.
@@ -867,9 +1047,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) Session(ctx, sessionID any) *gomock
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockPasswordAuthStore) SetOIDCUserTableName(name string) {
+func (m *MockPasswordAuthStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -879,9 +1061,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetOIDCUserTableName(name any) *gom
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockPasswordAuthStore) SetSessionTableName(name string) {
+func (m *MockPasswordAuthStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -905,9 +1089,11 @@ func (mr *MockPasswordAuthStoreMockRecorder) SetUserPasswordHash(ctx, id, hash a
 }
 
 // SetUserTableName mocks base method.
-func (m *MockPasswordAuthStore) SetUserTableName(name string) {
+func (m *MockPasswordAuthStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -1272,9 +1458,11 @@ func (mr *MockOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetOIDCUserTableName mocks base method.
-func (m *MockOIDCStore) SetOIDCUserTableName(name string) {
+func (m *MockOIDCStore) SetOIDCUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret := m.ctrl.Call(m, "SetOIDCUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
@@ -1284,9 +1472,11 @@ func (mr *MockOIDCStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call
 }
 
 // SetSessionTableName mocks base method.
-func (m *MockOIDCStore) SetSessionTableName(name string) {
+func (m *MockOIDCStore) SetSessionTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
+	ret := m.ctrl.Call(m, "SetSessionTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetSessionTableName indicates an expected call of SetSessionTableName.
@@ -1296,9 +1486,11 @@ func (mr *MockOIDCStoreMockRecorder) SetSessionTableName(name any) *gomock.Call 
 }
 
 // SetUserTableName mocks base method.
-func (m *MockOIDCStore) SetUserTableName(name string) {
+func (m *MockOIDCStore) SetUserTableName(name string) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
+	ret := m.ctrl.Call(m, "SetUserTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetUserTableName indicates an expected call of SetUserTableName.
@@ -1361,337 +1553,4 @@ func (m *MockOIDCStore) UserDataLoginHookConfigured() bool {
 func (mr *MockOIDCStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockOIDCStore)(nil).UserDataLoginHookConfigured))
-}
-
-// MockGoogleOIDCStore is a mock of GoogleOIDCStore interface.
-type MockGoogleOIDCStore struct {
-	ctrl     *gomock.Controller
-	recorder *MockGoogleOIDCStoreMockRecorder
-	isgomock struct{}
-}
-
-// MockGoogleOIDCStoreMockRecorder is the mock recorder for MockGoogleOIDCStore.
-type MockGoogleOIDCStoreMockRecorder struct {
-	mock *MockGoogleOIDCStore
-}
-
-// NewMockGoogleOIDCStore creates a new mock instance.
-func NewMockGoogleOIDCStore(ctrl *gomock.Controller) *MockGoogleOIDCStore {
-	mock := &MockGoogleOIDCStore{ctrl: ctrl}
-	mock.recorder = &MockGoogleOIDCStoreMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockGoogleOIDCStore) EXPECT() *MockGoogleOIDCStoreMockRecorder {
-	return m.recorder
-}
-
-// ActiveImpersonations mocks base method.
-func (m *MockGoogleOIDCStore) ActiveImpersonations(ctx context.Context, activeSince time.Time, q *sessioninfo.ImpersonationQuery) ([]*sessioninfo.Impersonation, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ActiveImpersonations", ctx, activeSince, q)
-	ret0, _ := ret[0].([]*sessioninfo.Impersonation)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ActiveImpersonations indicates an expected call of ActiveImpersonations.
-func (mr *MockGoogleOIDCStoreMockRecorder) ActiveImpersonations(ctx, activeSince, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveImpersonations", reflect.TypeOf((*MockGoogleOIDCStore)(nil).ActiveImpersonations), ctx, activeSince, q)
-}
-
-// CreateImpersonatedSession mocks base method.
-func (m *MockGoogleOIDCStore) CreateImpersonatedSession(ctx context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (ccc.UUID, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateImpersonatedSession", ctx, req, imp)
-	ret0, _ := ret[0].(ccc.UUID)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateImpersonatedSession indicates an expected call of CreateImpersonatedSession.
-func (mr *MockGoogleOIDCStoreMockRecorder) CreateImpersonatedSession(ctx, req, imp any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateImpersonatedSession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CreateImpersonatedSession), ctx, req, imp)
-}
-
-// CustomDataType mocks base method.
-func (m *MockGoogleOIDCStore) CustomDataType() reflect.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CustomDataType")
-	ret0, _ := ret[0].(reflect.Type)
-	return ret0
-}
-
-// CustomDataType indicates an expected call of CustomDataType.
-func (mr *MockGoogleOIDCStoreMockRecorder) CustomDataType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomDataType", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CustomDataType))
-}
-
-// CustomUserData mocks base method.
-func (m *MockGoogleOIDCStore) CustomUserData(ctx context.Context, userID ccc.UUID) (any, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CustomUserData", ctx, userID)
-	ret0, _ := ret[0].(any)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CustomUserData indicates an expected call of CustomUserData.
-func (mr *MockGoogleOIDCStoreMockRecorder) CustomUserData(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserData", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CustomUserData), ctx, userID)
-}
-
-// CustomUserDataType mocks base method.
-func (m *MockGoogleOIDCStore) CustomUserDataType() reflect.Type {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CustomUserDataType")
-	ret0, _ := ret[0].(reflect.Type)
-	return ret0
-}
-
-// CustomUserDataType indicates an expected call of CustomUserDataType.
-func (mr *MockGoogleOIDCStoreMockRecorder) CustomUserDataType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CustomUserDataType", reflect.TypeOf((*MockGoogleOIDCStore)(nil).CustomUserDataType))
-}
-
-// DestroyImpersonatedSession mocks base method.
-func (m *MockGoogleOIDCStore) DestroyImpersonatedSession(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroyImpersonatedSession", ctx, sessionID, reason)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DestroyImpersonatedSession indicates an expected call of DestroyImpersonatedSession.
-func (mr *MockGoogleOIDCStoreMockRecorder) DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).DestroyImpersonatedSession), ctx, sessionID, reason)
-}
-
-// DestroyImpersonatedSessions mocks base method.
-func (m *MockGoogleOIDCStore) DestroyImpersonatedSessions(ctx context.Context, actor string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroyImpersonatedSessions", ctx, actor)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DestroyImpersonatedSessions indicates an expected call of DestroyImpersonatedSessions.
-func (mr *MockGoogleOIDCStoreMockRecorder) DestroyImpersonatedSessions(ctx, actor any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroyImpersonatedSessions", reflect.TypeOf((*MockGoogleOIDCStore)(nil).DestroyImpersonatedSessions), ctx, actor)
-}
-
-// DestroySession mocks base method.
-func (m *MockGoogleOIDCStore) DestroySession(ctx context.Context, sessionID ccc.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DestroySession", ctx, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DestroySession indicates an expected call of DestroySession.
-func (mr *MockGoogleOIDCStoreMockRecorder) DestroySession(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DestroySession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).DestroySession), ctx, sessionID)
-}
-
-// EndImpersonation mocks base method.
-func (m *MockGoogleOIDCStore) EndImpersonation(ctx context.Context, sessionID ccc.UUID, reason sessioninfo.ImpersonationEndReason) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EndImpersonation", ctx, sessionID, reason)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// EndImpersonation indicates an expected call of EndImpersonation.
-func (mr *MockGoogleOIDCStoreMockRecorder) EndImpersonation(ctx, sessionID, reason any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndImpersonation", reflect.TypeOf((*MockGoogleOIDCStore)(nil).EndImpersonation), ctx, sessionID, reason)
-}
-
-// GoogleOIDCUser mocks base method.
-func (m *MockGoogleOIDCStore) GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*sessionstorage.GoogleOIDCUser, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GoogleOIDCUser", ctx, id)
-	ret0, _ := ret[0].(*sessionstorage.GoogleOIDCUser)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GoogleOIDCUser indicates an expected call of GoogleOIDCUser.
-func (mr *MockGoogleOIDCStoreMockRecorder) GoogleOIDCUser(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoogleOIDCUser", reflect.TypeOf((*MockGoogleOIDCStore)(nil).GoogleOIDCUser), ctx, id)
-}
-
-// GoogleOIDCUserBySub mocks base method.
-func (m *MockGoogleOIDCStore) GoogleOIDCUserBySub(ctx context.Context, sub string) (*sessionstorage.GoogleOIDCUser, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GoogleOIDCUserBySub", ctx, sub)
-	ret0, _ := ret[0].(*sessionstorage.GoogleOIDCUser)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GoogleOIDCUserBySub indicates an expected call of GoogleOIDCUserBySub.
-func (mr *MockGoogleOIDCStoreMockRecorder) GoogleOIDCUserBySub(ctx, sub any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GoogleOIDCUserBySub", reflect.TypeOf((*MockGoogleOIDCStore)(nil).GoogleOIDCUserBySub), ctx, sub)
-}
-
-// ImpersonationEnabled mocks base method.
-func (m *MockGoogleOIDCStore) ImpersonationEnabled() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ImpersonationEnabled")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// ImpersonationEnabled indicates an expected call of ImpersonationEnabled.
-func (mr *MockGoogleOIDCStoreMockRecorder) ImpersonationEnabled() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockGoogleOIDCStore)(nil).ImpersonationEnabled))
-}
-
-// NewSession mocks base method.
-func (m *MockGoogleOIDCStore) NewSession(ctx context.Context, username string, claims json.RawMessage) (ccc.UUID, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewSession", ctx, username, claims)
-	ret0, _ := ret[0].(ccc.UUID)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// NewSession indicates an expected call of NewSession.
-func (mr *MockGoogleOIDCStoreMockRecorder) NewSession(ctx, username, claims any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockGoogleOIDCStore)(nil).NewSession), ctx, username, claims)
-}
-
-// OIDCUsersEnabled mocks base method.
-func (m *MockGoogleOIDCStore) OIDCUsersEnabled() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OIDCUsersEnabled")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// OIDCUsersEnabled indicates an expected call of OIDCUsersEnabled.
-func (mr *MockGoogleOIDCStoreMockRecorder) OIDCUsersEnabled() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OIDCUsersEnabled", reflect.TypeOf((*MockGoogleOIDCStore)(nil).OIDCUsersEnabled))
-}
-
-// Session mocks base method.
-func (m *MockGoogleOIDCStore) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Session", ctx, sessionID)
-	ret0, _ := ret[0].(*sessioninfo.SessionData)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Session indicates an expected call of Session.
-func (mr *MockGoogleOIDCStoreMockRecorder) Session(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockGoogleOIDCStore)(nil).Session), ctx, sessionID)
-}
-
-// SetOIDCUserTableName mocks base method.
-func (m *MockGoogleOIDCStore) SetOIDCUserTableName(name string) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetOIDCUserTableName", name)
-}
-
-// SetOIDCUserTableName indicates an expected call of SetOIDCUserTableName.
-func (mr *MockGoogleOIDCStoreMockRecorder) SetOIDCUserTableName(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOIDCUserTableName", reflect.TypeOf((*MockGoogleOIDCStore)(nil).SetOIDCUserTableName), name)
-}
-
-// SetSessionTableName mocks base method.
-func (m *MockGoogleOIDCStore) SetSessionTableName(name string) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSessionTableName", name)
-}
-
-// SetSessionTableName indicates an expected call of SetSessionTableName.
-func (mr *MockGoogleOIDCStoreMockRecorder) SetSessionTableName(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockGoogleOIDCStore)(nil).SetSessionTableName), name)
-}
-
-// SetUserTableName mocks base method.
-func (m *MockGoogleOIDCStore) SetUserTableName(name string) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetUserTableName", name)
-}
-
-// SetUserTableName indicates an expected call of SetUserTableName.
-func (mr *MockGoogleOIDCStoreMockRecorder) SetUserTableName(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserTableName", reflect.TypeOf((*MockGoogleOIDCStore)(nil).SetUserTableName), name)
-}
-
-// UpdateCustomSessionData mocks base method.
-func (m *MockGoogleOIDCStore) UpdateCustomSessionData(ctx context.Context, sessionID ccc.UUID, mutate func(any) error) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateCustomSessionData", ctx, sessionID, mutate)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateCustomSessionData indicates an expected call of UpdateCustomSessionData.
-func (mr *MockGoogleOIDCStoreMockRecorder) UpdateCustomSessionData(ctx, sessionID, mutate any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomSessionData", reflect.TypeOf((*MockGoogleOIDCStore)(nil).UpdateCustomSessionData), ctx, sessionID, mutate)
-}
-
-// UpdateCustomUserData mocks base method.
-func (m *MockGoogleOIDCStore) UpdateCustomUserData(ctx context.Context, userID ccc.UUID, mutate func(any) error) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateCustomUserData", ctx, userID, mutate)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateCustomUserData indicates an expected call of UpdateCustomUserData.
-func (mr *MockGoogleOIDCStoreMockRecorder) UpdateCustomUserData(ctx, userID, mutate any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCustomUserData", reflect.TypeOf((*MockGoogleOIDCStore)(nil).UpdateCustomUserData), ctx, userID, mutate)
-}
-
-// UpdateSessionActivity mocks base method.
-func (m *MockGoogleOIDCStore) UpdateSessionActivity(ctx context.Context, sessionID ccc.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateSessionActivity", ctx, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateSessionActivity indicates an expected call of UpdateSessionActivity.
-func (mr *MockGoogleOIDCStoreMockRecorder) UpdateSessionActivity(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionActivity", reflect.TypeOf((*MockGoogleOIDCStore)(nil).UpdateSessionActivity), ctx, sessionID)
-}
-
-// UserDataLoginHookConfigured mocks base method.
-func (m *MockGoogleOIDCStore) UserDataLoginHookConfigured() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDataLoginHookConfigured")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// UserDataLoginHookConfigured indicates an expected call of UserDataLoginHookConfigured.
-func (mr *MockGoogleOIDCStoreMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockGoogleOIDCStore)(nil).UserDataLoginHookConfigured))
 }

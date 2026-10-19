@@ -94,7 +94,6 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				PrincipalKind: PrincipalKindUser,
 				PrincipalUser: strPtr("bob@partner.org"),
 				Mask:          strPtr("List,Read"),
-				StartedAt:     started,
 				ExpiresAt:     expires,
 			},
 			row: &Impersonation{
@@ -133,7 +132,6 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				PrincipalKind:   PrincipalKindRole,
 				PrincipalRole:   strPtr("PartnerViewer"),
 				Reason:          strPtr("ticket JRN-123"),
-				StartedAt:       started,
 				ExpiresAt:       expires,
 			},
 			row: &Impersonation{

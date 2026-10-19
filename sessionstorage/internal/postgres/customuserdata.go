@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/tracer"
@@ -65,9 +64,15 @@ func (s *SessionStorageDriver) OIDCUsersEnabled() bool {
 	return s.oidcUsersEnabled
 }
 
-// SetOIDCUserTableName sets the name of the OIDC user anchor table.
-func (s *SessionStorageDriver) SetOIDCUserTableName(name string) {
+// SetOIDCUserTableName sets the name of the OIDC user anchor table; a name that is not an
+// identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetOIDCUserTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
 	s.oidcUserTableName = name
+
+	return nil
 }
 
 // userDataParentTable returns the user table the custom user data table references:
@@ -217,7 +222,7 @@ func (s *SessionStorageDriver) OIDCUser(ctx context.Context, id ccc.UUID) (*dbty
 			"UpdatedAt"
 		FROM %s
 		WHERE "Id" = $1
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
+	`, s.oidcUserTable())
 
 	user := &dbtype.OIDCUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, id); err != nil {
@@ -246,7 +251,7 @@ func (s *SessionStorageDriver) OIDCUserByKey(ctx context.Context, tid, oid strin
 			"UpdatedAt"
 		FROM %s
 		WHERE "Tid" = $1 AND "Oid" = $2
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
+	`, s.oidcUserTable())
 
 	user := &dbtype.OIDCUser{}
 	if err := pgxscan.Get(ctx, s.conn, user, query, tid, oid); err != nil {
@@ -260,13 +265,9 @@ func (s *SessionStorageDriver) OIDCUserByKey(ctx context.Context, tid, oid strin
 	return user, nil
 }
 
-// upsertAnchor resolves the OIDC user anchor row for the driver's provider inside txn
-// and populates req.UserID with the anchor record's ID.
+// upsertAnchor resolves the OIDCUsers anchor row for the request inside txn and
+// populates req.UserID with the anchor record's ID.
 func (s *SessionStorageDriver) upsertAnchor(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) error {
-	if s.googleOIDC {
-		return s.upsertGoogleOIDCUser(ctx, txn, req)
-	}
-
 	return s.upsertOIDCUser(ctx, txn, req)
 }
 
@@ -278,8 +279,7 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 		return errors.New("the OIDC user anchor is enabled but the verified claims are missing the tid or oid claim")
 	}
 
-	table := pgx.Identifier{s.oidcUserTableName}.Sanitize()
-	now := time.Now()
+	table := s.oidcUserTable()
 
 	selectQuery := fmt.Sprintf(`SELECT "Id" FROM %s WHERE "Tid" = $1 AND "Oid" = $2 FOR UPDATE`, table)
 
@@ -289,8 +289,8 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 	case err == nil:
 		// Username is a mutable attribute: write the token's current value in place so
 		// an IdP rename never orphans the record.
-		updateQuery := fmt.Sprintf(`UPDATE %s SET "Username" = $2, "UpdatedAt" = $3 WHERE "Id" = $1`, table)
-		if _, err := txn.Exec(ctx, updateQuery, id, req.Username, now); err != nil {
+		updateQuery := fmt.Sprintf(`UPDATE %s SET "Username" = $2, "UpdatedAt" = now() WHERE "Id" = $1`, table)
+		if _, err := txn.Exec(ctx, updateQuery, id, req.Username); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	case errors.Is(err, pgx.ErrNoRows):
@@ -304,116 +304,9 @@ func (s *SessionStorageDriver) upsertOIDCUser(ctx context.Context, txn pgx.Tx, r
 			INSERT INTO %s
 				("Id", "Tid", "Oid", "Username", "CreatedAt", "UpdatedAt")
 			VALUES
-				($1, $2, $3, $4, $5, $6)
+				($1, $2, $3, $4, now(), now())
 			`, table)
-		if _, err := txn.Exec(ctx, insertQuery, id, req.Tid, req.Oid, req.Username, now, now); err != nil {
-			return errors.Wrap(err, "pgx.Tx.Exec()")
-		}
-	default:
-		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
-	}
-
-	req.UserID = id
-
-	return nil
-}
-
-// GoogleOIDCUser returns the Google OIDC user anchor record for the given ID.
-func (s *SessionStorageDriver) GoogleOIDCUser(ctx context.Context, id ccc.UUID) (*dbtype.GoogleOIDCUser, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	query := fmt.Sprintf(`
-		SELECT
-			"Id",
-			"Sub",
-			"Hd",
-			"Username",
-			"CreatedAt",
-			"UpdatedAt"
-		FROM %s
-		WHERE "Id" = $1
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
-
-	user := &dbtype.GoogleOIDCUser{}
-	if err := pgxscan.Get(ctx, s.conn, user, query, id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("Google OIDC user id %q does not exist", id)
-		}
-
-		return nil, errors.Wrap(err, "pgxscan.Get()")
-	}
-
-	return user, nil
-}
-
-// GoogleOIDCUserBySub returns the Google OIDC user anchor record for the given sub claim.
-func (s *SessionStorageDriver) GoogleOIDCUserBySub(ctx context.Context, sub string) (*dbtype.GoogleOIDCUser, error) {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	query := fmt.Sprintf(`
-		SELECT
-			"Id",
-			"Sub",
-			"Hd",
-			"Username",
-			"CreatedAt",
-			"UpdatedAt"
-		FROM %s
-		WHERE "Sub" = $1
-	`, pgx.Identifier{s.oidcUserTableName}.Sanitize())
-
-	user := &dbtype.GoogleOIDCUser{}
-	if err := pgxscan.Get(ctx, s.conn, user, query, sub); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, httpio.NewNotFoundMessagef("Google OIDC user (sub %q) does not exist", sub)
-		}
-
-		return nil, errors.Wrap(err, "pgxscan.Get()")
-	}
-
-	return user, nil
-}
-
-// upsertGoogleOIDCUser resolves the GoogleOIDCUsers anchor row for the request's Sub
-// inside txn — provisioning it on first login, updating the mutable Username and Hd
-// attributes in place on change, touching UpdatedAt otherwise — and populates req.UserID
-// with the anchor record's ID.
-func (s *SessionStorageDriver) upsertGoogleOIDCUser(ctx context.Context, txn pgx.Tx, req *sessioninfo.NewSessionRequest) error {
-	if req.Sub == "" || req.Hd == "" {
-		return errors.New("the OIDC user anchor is enabled but the verified claims are missing the sub or hd claim")
-	}
-
-	table := pgx.Identifier{s.oidcUserTableName}.Sanitize()
-	now := time.Now()
-
-	selectQuery := fmt.Sprintf(`SELECT "Id" FROM %s WHERE "Sub" = $1 FOR UPDATE`, table)
-
-	var id ccc.UUID
-	err := txn.QueryRow(ctx, selectQuery, req.Sub).Scan(&id)
-	switch {
-	case err == nil:
-		// Username and Hd are mutable attributes: write the token's current values in
-		// place so an IdP rename never orphans the record.
-		updateQuery := fmt.Sprintf(`UPDATE %s SET "Hd" = $2, "Username" = $3, "UpdatedAt" = $4 WHERE "Id" = $1`, table)
-		if _, err := txn.Exec(ctx, updateQuery, id, req.Hd, req.Username, now); err != nil {
-			return errors.Wrap(err, "pgx.Tx.Exec()")
-		}
-	case errors.Is(err, pgx.ErrNoRows):
-		// First login for this Sub: provision the anchor row.
-		id, err = ccc.NewUUID()
-		if err != nil {
-			return errors.Wrap(err, "ccc.NewUUID()")
-		}
-
-		insertQuery := fmt.Sprintf(`
-			INSERT INTO %s
-				("Id", "Sub", "Hd", "Username", "CreatedAt", "UpdatedAt")
-			VALUES
-				($1, $2, $3, $4, $5, $6)
-			`, table)
-		if _, err := txn.Exec(ctx, insertQuery, id, req.Sub, req.Hd, req.Username, now, now); err != nil {
+		if _, err := txn.Exec(ctx, insertQuery, id, req.Tid, req.Oid, req.Username); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 	default:

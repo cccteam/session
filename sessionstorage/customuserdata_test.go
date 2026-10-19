@@ -203,7 +203,7 @@ func TestCustomUserData_DriverConfigHook(t *testing.T) {
 
 				cfg, err := NewSpannerCustomUserData("UserCustomData",
 					func(_ context.Context, _ *cloudspanner.ReadWriteTransaction, _ *sessioninfo.NewSessionRequest, _ *testUserData) (*testUserData, error) {
-						return nil, nil //nolint:nilnil // typed-nil crossing is the behavior under test
+						return nil, nil
 					})
 				if err != nil {
 					t.Fatalf("NewSpannerCustomUserData() error = %v", err)

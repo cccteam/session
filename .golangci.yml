@@ -123,12 +123,18 @@ linters:
           json: camel
         use-field-name: true
     wrapcheck:
+      ignore-package-globs:
+        # The internal core wraps every error with its source's name; the session types'
+        # constructors and API methods are thin delegates over it.
+        - github.com/cccteam/session/internal/sessioncore
       ignore-sigs:
         - .Errorf(
         - errors.New(
         # A coded login refusal is the module's own error type; attaching the code IS the
         # wrapping, and the redirect helper reads it back with errors.As.
         - sessioninfo.NewLoginRefusal(
+        # The sign-in flow's coded refusal: a sessioninfo.LoginRefusal over its cause.
+        - signinflow.Refusal(
         - errors.Unwrap(
         - .Wrap(
         - .Wrapf(
@@ -141,6 +147,8 @@ linters:
       - common-false-positives
       - std-error-handling
     rules:
+      # nilnil: a custom data resolver answers (nil, nil) to write no row, and the tests
+      # prove that contract and the typed-nil crossing.
       - linters:
           - funlen
           - gochecknoglobals
@@ -149,6 +157,7 @@ linters:
           - gocyclo
           - lll
           - mnd
+          - nilnil
           - nlreturn
           - scopelint
         path: _test\.go
@@ -167,12 +176,16 @@ linters:
         path: sessionstorage/internal/drivertest/|internal/oidctest/
       - linters:
           - tagliatelle
-        path: oidc_azure\.go|internal/azureoidc/azureoidc(_skipAuth)?(_test)?\.go
+        path: legacy/oidc_azure\.go|azure/verifier(_skipAuth)?(_test)?\.go|azure/method\.go
         text: preferred_username
       - linters:
           - tagliatelle
-        path: internal/googleoidc/googleoidc(_skipAuth)?(_test)?\.go
+        path: google/verifier(_skipAuth)?(_test)?\.go|google/method\.go
         text: email_verified
+      # The WorkOS API's wire format is snake_case.
+      - linters:
+          - tagliatelle
+        path: internal/workos/|internal/e2e/auth_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
@@ -180,13 +193,25 @@ linters:
           - gosec
         path: cookie/cookie\.go
         text: G124
-      # gosec's taint analysis cannot see that every redirect target here is either
-      # constrained to a local path by internalcookie.SanitizeReturnURL or is the
-      # OIDC provider's authorization URL built from server-side configuration.
+      # gosec's taint analysis cannot see that the one http.Redirect left is to the OIDC
+      # provider's authorization URL, built from server-side configuration. Every return
+      # URL redirect writes its own Location header (internalcookie.WriteRedirect).
       - linters:
           - gosec
-        path: oidc_azure\.go|oidc_google\.go|internal/basesession/basesession\.go
+        path: legacy/oidc_core\.go
         text: G710
+      # WorkOS authenticates the code exchange by the API key in the JSON body of
+      # POST /sso/token, so the secret is marshaled on purpose, to WorkOS only.
+      - linters:
+          - gosec
+        path: internal/workos/client\.go
+        text: G117
+      # The legacy package is the deprecated surface itself: it is built from the storage
+      # pieces that leave with it.
+      - linters:
+          - staticcheck
+        path: legacy/
+        text: SA1019
       - linters:
           - gomoddirectives
         path: go\.mod

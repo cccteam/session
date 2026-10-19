@@ -143,28 +143,137 @@ func (c *Client) readXSRFHeader(r *http.Request) (values *cookie.Values, found b
 	return cval, true
 }
 
-// WriteOidcCookie writes the OIDC cookie to the response. It carries the sign-in round
-// trip's state, PKCE verifier and return URL between the redirect to the identity
-// provider and the callback: no script reads it, and the server reads it once at the
-// callback and deletes it, so it is HttpOnly. SameSite stays the default: a strict
-// setting would keep the cookie from coming back with the provider's redirect.
-func (c *Client) WriteOidcCookie(w http.ResponseWriter, values *cookie.Values) {
-	c.cookie.WritePersistentCookie(w, OIDCCookieName, c.Domain, true, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
+// WriteStateCookie writes an OIDC login's state cookie under name (a registration's,
+// StateCookieName), so logins with different providers in one browser never
+// overwrite each other's state. It carries the state, PKCE verifier and return URL
+// between the redirect to the identity provider and the callback. No script reads it
+// and the server reads it once at the callback, so it is HttpOnly. SameSite stays the
+// default: a strict setting would keep it from coming back with the provider's redirect.
+func (c *Client) WriteStateCookie(w http.ResponseWriter, name string, values *cookie.Values) {
+	c.cookie.WritePersistentCookie(w, name, c.Domain, true, http.SameSiteDefaultMode, OIDCCookieExpiration, values)
 }
 
-// ReadOidcCookie reads the OIDC cookie from the request
-func (c *Client) ReadOidcCookie(r *http.Request) (values *cookie.Values, found bool, err error) {
-	cval, found, err := c.cookie.Read(r, OIDCCookieName)
-	if err != nil {
-		return nil, found, errors.Wrap(err, "cookie.Client.Read()")
+// ReadStateCookie reads the state cookie named name, or the legacy OIDCCookieName cookie
+// when the browser has none. readName is the name of the cookie read, or "" when neither
+// is present. Pass it to DeleteStateCookie.
+func (c *Client) ReadStateCookie(r *http.Request, name string) (values *cookie.Values, readName string, err error) {
+	for _, n := range []string{name, OIDCCookieName} {
+		cval, found, err := c.cookie.Read(r, n)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "cookie.Client.Read()")
+		}
+		if found {
+			return cval, n, nil
+		}
 	}
 
-	return cval, found, nil
+	return nil, "", nil
 }
 
-// DeleteOidcCookie deletes the OIDC cookie from the response
-func (c *Client) DeleteOidcCookie(w http.ResponseWriter) {
-	c.cookie.Delete(w, OIDCCookieName, c.Domain)
+// DeleteStateCookie deletes the state cookie named name. A state cookie is single-use.
+func (c *Client) DeleteStateCookie(w http.ResponseWriter, name string) {
+	c.cookie.Delete(w, name, c.Domain)
+}
+
+// StateCookieName is the name of the state cookie of the registration named
+// registration on the Auth whose session cookie is named auth: StateCookiePrefix, the
+// Auth's cookie name and the registration's, so two Auths on one host with a
+// registration of the same name never read each other's login state.
+func StateCookieName(auth, registration string) string {
+	return StateCookiePrefix + auth + "-" + registration
+}
+
+// LegacyStateCookieName is the name of the state cookie the legacy Azure session keeps:
+// StateCookiePrefix and the provider, OIDC-azure, the name every v0.12 Azure login used.
+func LegacyStateCookieName(provider string) string {
+	return StateCookiePrefix + provider
+}
+
+// RegistrationStateCookies is one registration's state cookie, as the core hands it to
+// the method it registers: named for the Auth and the registration
+// (OIDC-<session cookie name>-<registration>), so two registrations of one method,
+// logins with different providers in one browser, and two Auths on one host with a
+// registration of the same name never read each other's state; and carrying the
+// registration's name in its values,
+// so a cookie another registration wrote, or the shared OIDC cookie of v0.12, reads as
+// absent and the callback that finds it is refused. It implements signin.StateCookies.
+type RegistrationStateCookies struct {
+	client       *Client
+	registration string
+	name         string
+}
+
+// ForRegistration returns the state cookie of the registration named registration.
+func (c *Client) ForRegistration(registration string) RegistrationStateCookies {
+	return RegistrationStateCookies{client: c, registration: registration, name: StateCookieName(c.CookieName, registration)}
+}
+
+// Name is the cookie's name, OIDC-<session cookie name>-<registration>.
+func (s RegistrationStateCookies) Name() string {
+	return s.name
+}
+
+// WriteStateCookie writes values, with the registration's name added, as the
+// registration's state cookie.
+func (s RegistrationStateCookies) WriteStateCookie(w http.ResponseWriter, values *cookie.Values) {
+	s.client.WriteStateCookie(w, s.name, values.SetString(Registration, s.registration))
+}
+
+// ReadStateCookie reads the registration's state cookie. readName is its name, or ""
+// when the browser carries none, or one that names another registration.
+func (s RegistrationStateCookies) ReadStateCookie(r *http.Request) (values *cookie.Values, readName string, err error) {
+	cval, found, err := s.client.cookie.Read(r, s.name)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "cookie.Client.Read()")
+	}
+	if !found {
+		return nil, "", nil
+	}
+	// A cookie without the key, the shared OIDC cookie of v0.12 among them, names no
+	// registration and so is not this one's.
+	registration, _ := cval.GetString(Registration)
+	if registration != s.registration {
+		return nil, "", nil
+	}
+
+	return cval, s.name, nil
+}
+
+// DeleteStateCookie deletes the state cookie named name, the name ReadStateCookie
+// returned.
+func (s RegistrationStateCookies) DeleteStateCookie(w http.ResponseWriter, name string) {
+	s.client.DeleteStateCookie(w, name)
+}
+
+// LegacyStateCookies is the state cookie of a legacy session type (legacy.OIDCAzure):
+// named for its provider as in v0.12 (OIDC-azure), with the shared OIDC cookie of
+// earlier releases read when the provider's is absent, so a login started before an
+// upgrade completes. It implements signin.StateCookies.
+type LegacyStateCookies struct {
+	client *Client
+	name   string
+}
+
+// ForLegacy returns the legacy state cookie of provider (azure).
+func (c *Client) ForLegacy(provider string) LegacyStateCookies {
+	return LegacyStateCookies{client: c, name: LegacyStateCookieName(provider)}
+}
+
+// WriteStateCookie writes values as the provider's state cookie.
+func (s LegacyStateCookies) WriteStateCookie(w http.ResponseWriter, values *cookie.Values) {
+	s.client.WriteStateCookie(w, s.name, values)
+}
+
+// ReadStateCookie reads the provider's state cookie, or the shared OIDC cookie when the
+// browser has none; readName is the name read, or "" when neither is present.
+func (s LegacyStateCookies) ReadStateCookie(r *http.Request) (values *cookie.Values, readName string, err error) {
+	return s.client.ReadStateCookie(r, s.name)
+}
+
+// DeleteStateCookie deletes the state cookie named name, the name ReadStateCookie
+// returned.
+func (s LegacyStateCookies) DeleteStateCookie(w http.ResponseWriter, name string) {
+	s.client.DeleteStateCookie(w, name)
 }
 
 // Cookie returns the underlying cookie.Client

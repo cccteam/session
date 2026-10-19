@@ -13,8 +13,9 @@ type NewSessionReason string
 const (
 	// ReasonLogin indicates the session is being created by an interactive credential login.
 	ReasonLogin NewSessionReason = "Login"
-	// ReasonExternalAuth indicates the session is being created for a user that was
-	// already authenticated by an external system (e.g. StartAuthenticatedSession).
+	// ReasonExternalAuth indicates the session is being created for a user the
+	// application authenticated itself (StartAuthenticatedSession); the sign-in policy
+	// decides it like a login.
 	ReasonExternalAuth NewSessionReason = "ExternalAuth"
 	// ReasonRegeneration indicates an existing authenticated session is being replaced
 	// with a new session ID (e.g. after a password change). Custom session data is
@@ -56,11 +57,30 @@ type NewSessionRequest struct {
 	// UserID is populated with the anchor record's ID before any resolver or hook runs.
 	Tid string
 	Oid string
-	// Sub and Hd are the verified subject and hosted-domain claims when the session is
-	// created by a Google OIDC login; they are empty for all other session types. When
-	// the OIDC user anchor is enabled, Sub keys the GoogleOIDCUsers upsert (Hd is a
-	// mutable attribute on the row), and UserID is populated with the anchor record's
-	// ID before any resolver or hook runs.
-	Sub string
-	Hd  string
+	// Identity is the verified identity establishing an Auth session. It is nil for the
+	// legacy session types.
+	Identity *Identity
+	// ProviderSessionID is the identity provider's session id the sign-in carried (an
+	// OpenID Connect sid claim), which a provider-initiated logout names; "" when the
+	// method has none. ProviderSessionIssuer is the registration's issuer it belongs
+	// to, set with it or not at all. The session row records both.
+	ProviderSessionID     string
+	ProviderSessionIssuer string
+	// RoleNames are the role names the sign-in method asserted for the person, which
+	// the method reconciles once the session exists. They are nil when the method
+	// synchronizes no roles, and never nil when it does: "no roles asserted" is an
+	// empty list, which a standard account rule refuses (no_roles) before it writes a
+	// row.
+	RoleNames []string
+	// AuthEvents are the auth events the new session records, in order, with the
+	// session row. An impersonated session records its impersonation event first. When
+	// AuthEvents is empty, a session that is not impersonated records one event for
+	// Identity's method. An event with a zero At takes the session's creation time.
+	// Events are written only when the storage has an auth events table.
+	AuthEvents []AuthEvent
+	// User is the user an Auth sign-in resolved to and how. The storage sets it
+	// once the user is known, before the sign-in policy and the custom session data
+	// resolver run, and leaves it set after the insert returns. It is nil while the
+	// account rules run and for the legacy session types.
+	User *SignInUser
 }

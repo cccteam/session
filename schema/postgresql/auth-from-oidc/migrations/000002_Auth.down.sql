@@ -1,0 +1,13 @@
+BEGIN;
+DROP TABLE IF EXISTS "SessionAuthEvents";
+DROP TABLE IF EXISTS "SessionIdentities";
+DROP INDEX IF EXISTS "Sessions_UserId_idx";
+ALTER TABLE "Sessions" DROP CONSTRAINT IF EXISTS "Sessions_UserId_fkey";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "AuthenticatedAt";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "UserId";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "ProviderSessionIssuer";
+ALTER INDEX "Sessions_ProviderSessionId_idx" RENAME TO "Sessions_OidcSid_idx";
+UPDATE "Sessions" SET "ProviderSessionId" = '' WHERE "ProviderSessionId" IS NULL;
+ALTER TABLE "Sessions" ALTER COLUMN "ProviderSessionId" SET NOT NULL;
+ALTER TABLE "Sessions" RENAME COLUMN "ProviderSessionId" TO "OidcSid";
+COMMIT;
