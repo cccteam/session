@@ -23,6 +23,11 @@ type MethodList struct {
 	// ConfirmWithPassword() and Cancel()), all three or none. The page needs them once a
 	// sign-in waits for a confirmation or the application's MFA step.
 	Pending PendingRoutes
+	// ChangePassword is the path of the password method's ChangeUserPassword handler,
+	// which the page needs when a sign-in finds the user must change a password an
+	// operator set. It is required when the password method is listed, since every
+	// user an operator gives a password must change it, and refused when it is not.
+	ChangePassword string
 }
 
 // AdvertisedMethod is one method of a MethodList.
@@ -47,8 +52,9 @@ type PendingRoutes struct {
 
 // methodsAnswer is what Methods writes.
 type methodsAnswer struct {
-	Methods []signin.Advertisement `json:"methods"`
-	Pending *pendingAnswer         `json:"pending,omitempty"`
+	Methods        []signin.Advertisement `json:"methods"`
+	Pending        *pendingAnswer         `json:"pending,omitempty"`
+	ChangePassword string                 `json:"changePassword,omitempty"`
 }
 
 // pendingAnswer is the pending block of a methods answer.
@@ -61,19 +67,22 @@ type pendingAnswer struct {
 // Methods answers the login page with the sign-in methods it offers: for each listed
 // method its name, the method behind it, how it starts (a form for the password
 // method, a redirect for an external one), its label and its path, in the list's
-// order, and the pending sign-in routes when the list names them. The answer is
-// public: route it beside the login routes, behind StartSession and before
-// ValidateSession, and it needs no XSRF token.
+// order, the pending sign-in routes when the list names them, and the password
+// change route when the password method is listed. The answer is public: route it
+// beside the login routes, behind StartSession and before ValidateSession, and it
+// needs no XSRF token.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
-//	 "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"}}
+//	 "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+//	 "changePassword": "/api/user/password"}
 //
 // Methods is called where the routes are wired, after every method is registered, and
 // panics on a wiring mistake, the way a registration does: an empty list, a method
 // that is not registered on this Auth, a name listed twice, a method without a label
-// or with a path that is not a canonical path in the application, or a pending block
-// with some of its paths.
+// or with a path that is not a canonical path in the application, a pending block
+// with some of its paths, the password method without the password change route, or
+// that route without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
@@ -118,8 +127,24 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		answer.Methods = append(answer.Methods, ad)
 	}
 	answer.Pending = pendingAnswerOf(list.Pending)
+	answer.ChangePassword = changePasswordPathOf(list, seen[string(sessioninfo.MethodPassword)])
 
 	return answer
+}
+
+// changePasswordPathOf validates the password change route: present and canonical with
+// the password method, absent without it.
+func changePasswordPathOf(list *MethodList, passwordListed bool) string {
+	switch {
+	case passwordListed && !advertisedPath(list.ChangePassword):
+		panic(fmt.Sprintf("session: Methods lists the password method with the password change route %q: "+
+			"give it the path its ChangeUserPassword handler is mounted at, such as /api/user/password, "+
+			"which the login page needs when a sign-in finds the user must change their password", list.ChangePassword))
+	case !passwordListed && list.ChangePassword != "":
+		panic(fmt.Sprintf("session: Methods is given the password change route %q but lists no password method: drop it, or list the method", list.ChangePassword))
+	}
+
+	return list.ChangePassword
 }
 
 // pendingAnswerOf validates the pending routes: none, or all three as canonical paths.

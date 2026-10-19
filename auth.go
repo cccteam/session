@@ -256,13 +256,17 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 	a.policy = policy
 }
 
-// Authenticated answers {"authenticated", "username", "impersonation"}. A session whose
-// user is missing or disabled is reported as not authenticated.
+// Authenticated answers {"authenticated", "username", "passwordChangeRequired",
+// "impersonation"}. A session whose user is missing or disabled is reported as not
+// authenticated. passwordChangeRequired is set while the user must change a password
+// an operator set (see "Users and the forced password change" in the README): the
+// session read is answered under the mark, so the login page can show the change form.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type response struct {
-		Authenticated bool                               `json:"authenticated"`
-		Username      string                             `json:"username"`
-		Impersonation *basesession.ImpersonationResponse `json:"impersonation,omitempty"`
+		Authenticated          bool                               `json:"authenticated"`
+		Username               string                             `json:"username"`
+		PasswordChangeRequired bool                               `json:"passwordChangeRequired"`
+		Impersonation          *basesession.ImpersonationResponse `json:"impersonation,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -281,9 +285,10 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 
 		return httpio.NewEncoder(w).Ok(response{
-			Authenticated: true,
-			Username:      sessioninfo.FromCtx(ctx).Username,
-			Impersonation: basesession.NewImpersonationResponse(imp),
+			Authenticated:          true,
+			Username:               sessioninfo.FromCtx(ctx).Username,
+			PasswordChangeRequired: sessioninfo.UserFromCtx(ctx).PasswordChangeRequired,
+			Impersonation:          basesession.NewImpersonationResponse(imp),
 		})
 	}))
 }
@@ -305,14 +310,26 @@ func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 // ValidateSession validates the session and loads its user by UserId. A session
 // with no user, or whose user is missing or disabled, is refused with 401. The
 // user is available through sessioninfo.UserFromCtx. A foreign actor's
-// role-principal impersonation has no user and carries only its username.
+// role-principal impersonation has no user and carries only its username. A user who
+// must change a password an operator set is refused with 403 and {"message", "code":
+// "password_change_required"} until the change: route the password change, the
+// session read and the logout outside this middleware, since they validate on their
+// own and are what the user reaches meanwhile. An impersonated session is not held to
+// the mark.
 func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		ctx, err := a.validate(ctx)
+		ctx, err := a.validateRequest(ctx)
 		if err != nil {
+			// The password change mark is a coded refusal; anything else is the usual
+			// client message.
+			var refusal *sessioninfo.LoginRefusal
+			if errors.As(err, &refusal) {
+				return writeSignInError(ctx, w, err)
+			}
+
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 

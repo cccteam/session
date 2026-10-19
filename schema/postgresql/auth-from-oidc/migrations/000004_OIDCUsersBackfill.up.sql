@@ -7,8 +7,8 @@
 -- release after the cutover, once nothing can roll back to the legacy type.
 BEGIN;
 
-INSERT INTO "SessionUsers" ("Id", "Username")
-    SELECT "Id", "Username" FROM "OIDCUsers";
+INSERT INTO "SessionUsers" ("Id", "Username", "CreatedAt")
+    SELECT "Id", "Username", "CreatedAt" FROM "OIDCUsers";
 
 INSERT INTO "SessionIdentities" ("Id", "UserId", "Method", "Connection", "Subject", "Tenant", "EmailAtLink", "CreatedAt", "LastUsedAt")
     SELECT gen_random_uuid(), "Id", 'azure', "Tid", "Oid", NULL, NULL, "CreatedAt", "UpdatedAt" FROM "OIDCUsers";

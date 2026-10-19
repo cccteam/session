@@ -298,24 +298,29 @@ func (s *SessionStorageDriver) InsertSessionIn(
 	return nil
 }
 
-// newUserMutation renders a new user row and its insert mutation.
+// newUserMutation renders a new user row and its insert mutation. The mutation writes
+// CreatedAt with the commit timestamp; the user carries it zero until a read reports it.
 func newUserMutation(table string, insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, *spanner.Mutation, error) {
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "ccc.NewUUID()")
 	}
-	user := &dbtype.SessionUser{ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled}
+	user := &dbtype.SessionUser{
+		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled, PasswordChangeRequired: insertUser.PasswordChangeRequired,
+	}
 
 	passwordHash, err := passwordHashValue(user.PasswordHash)
 	if err != nil {
 		return nil, nil, err
 	}
 	mutation, err := spanner.InsertStruct(table, &struct {
-		ID           ccc.UUID           `spanner:"Id"`
-		Username     string             `spanner:"Username"`
-		PasswordHash spanner.NullString `spanner:"PasswordHash"`
-		Disabled     bool               `spanner:"Disabled"`
-	}{ID: user.ID, Username: user.Username, PasswordHash: passwordHash, Disabled: user.Disabled})
+		ID                     ccc.UUID           `spanner:"Id"`
+		Username               string             `spanner:"Username"`
+		PasswordHash           spanner.NullString `spanner:"PasswordHash"`
+		Disabled               bool               `spanner:"Disabled"`
+		PasswordChangeRequired bool               `spanner:"PasswordChangeRequired"`
+		CreatedAt              time.Time          `spanner:"CreatedAt"`
+	}{ID: user.ID, Username: user.Username, PasswordHash: passwordHash, Disabled: user.Disabled, PasswordChangeRequired: user.PasswordChangeRequired, CreatedAt: spanner.CommitTimestamp})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "spanner.InsertStruct()")
 	}

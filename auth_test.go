@@ -79,6 +79,10 @@ type authFixture struct {
 	// held are the pending sign-ins the store was asked to hold, by row ID, as the
 	// pending sign-ins table would hold them.
 	held map[ccc.UUID]*sessionstorage.PendingSignIn
+	// touched records the users whose last sign-in the store was asked to touch, and
+	// touchErr is what the store answers.
+	touched  []ccc.UUID
+	touchErr error
 }
 
 // storeSignIn is one call of the mocked store's SignIn: the request, the account rules
@@ -95,6 +99,11 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 
 	f := &authFixture{t: t, store: newAuthStoreMock(ctrl), held: map[ccc.UUID]*sessionstorage.PendingSignIn{}}
 	f.store.EXPECT().PendingSignIn(gomock.Any(), gomock.Any()).DoAndReturn(f.livePending).AnyTimes()
+	f.store.EXPECT().TouchUserSignIn(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID ccc.UUID) error {
+		f.touched = append(f.touched, userID)
+
+		return f.touchErr
+	}).AnyTimes()
 	hook := func(_ context.Context, userID ccc.UUID, _ *sessioninfo.Identity) error {
 		f.linked = append(f.linked, userID)
 
@@ -1006,6 +1015,16 @@ func TestAuth_PasswordLogin(t *testing.T) {
 			wantSession: true,
 		},
 		{
+			name:     "a failed touch of the user's last sign-in is logged, and the sign-in goes on",
+			password: "pw",
+			prepare: func(f *authFixture) {
+				f.touchErr = errors.New("users table unreachable")
+				f.expectSignIn(sessionID, nil, nil)
+			},
+			wantStatus:  http.StatusOK,
+			wantSession: true,
+		},
+		{
 			name:       "a wrong password is invalid credentials and asks the store for no session",
 			password:   "wrong",
 			wantStatus: http.StatusUnauthorized,
@@ -1091,6 +1110,14 @@ func TestAuth_PasswordLogin(t *testing.T) {
 				if _, err := f.signedIn.policy(context.Background(), mockTx{}, f.signedIn.req); err != nil || f.policyAsked != 1 {
 					t.Errorf("the policy the store was given ran the Auth's %d times, %v; want once", f.policyAsked, err)
 				}
+			}
+			// The user's last sign-in is touched once the session stands, and only then.
+			wantTouched := []ccc.UUID{}
+			if tt.wantSession {
+				wantTouched = []ccc.UUID{userID}
+			}
+			if !cmp.Equal(f.touched, wantTouched, cmpopts.EquateEmpty()) {
+				t.Errorf("last sign-in touched for %v, want %v", f.touched, wantTouched)
 			}
 		})
 	}
@@ -2278,6 +2305,8 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	sessionID := ccc.Must(ccc.NewUUID())
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), signin.StandardAccountRule(""), gomock.Nil()).Return(sessionID, nil)
+	// A session the application starts is a sign-in: the user's last sign-in moves.
+	store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
 
 	rr := httptest.NewRecorder()
 	got, err := a.API().StartAuthenticatedSession(context.Background(), rr, userID, []sessioninfo.AuthEvent{{Method: "api-key"}})
@@ -2370,21 +2399,35 @@ func TestAuth_ValidateSession(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		session  *sessioninfo.SessionData
-		user     *sessionstorage.SessionUser
-		userErr  error
-		wantNext bool
-		wantUser ccc.UUID
+		name       string
+		session    *sessioninfo.SessionData
+		user       *sessionstorage.SessionUser
+		userErr    error
+		wantNext   bool
+		wantUser   ccc.UUID
+		wantStatus int
+		wantCode   sessioninfo.LoginRefusalCode
 	}{
 		{name: "a session is admitted with the user it belongs to, loaded by UserId", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}, wantNext: true, wantUser: userID},
-		{name: "a session whose user is disabled is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}},
-		{name: "a session whose user is gone is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), userErr: httpio.NewNotFoundMessage("gone")},
-		{name: "a session that belongs to no user (a pending identity's row) is refused", session: session(ccc.NullUUID{}, nil)},
+		{name: "a session whose user is disabled is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantStatus: http.StatusUnauthorized},
+		{name: "a session whose user is gone is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), userErr: httpio.NewNotFoundMessage("gone"), wantStatus: http.StatusUnauthorized},
+		{name: "a session that belongs to no user (a pending identity's row) is refused", session: session(ccc.NullUUID{}, nil), wantStatus: http.StatusUnauthorized},
 		{
 			name:     "a foreign actor's role-principal impersonation has no user to load",
 			session:  session(ccc.NullUUID{}, &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin", Principal: accesstypes.RolePrincipal("Viewer"), ExpiresAt: time.Now().Add(time.Hour)}),
 			wantNext: true,
+		},
+		{
+			name:       "a user who must change their password is refused with the code until the change",
+			session:    session(ccc.NullUUIDFromUUID(userID), nil),
+			user:       &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordChangeRequired: true},
+			wantStatus: http.StatusForbidden, wantCode: sessioninfo.RefusedPasswordChangeRequired,
+		},
+		{
+			name:     "an impersonation of a user who must change their password is the actor's and is not held to the mark",
+			session:  session(ccc.NullUUIDFromUUID(userID), &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("pat"), ExpiresAt: time.Now().Add(time.Hour)}),
+			user:     &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordChangeRequired: true},
+			wantNext: true, wantUser: userID,
 		},
 	}
 	for _, tt := range tests {
@@ -2405,8 +2448,14 @@ func TestAuth_ValidateSession(t *testing.T) {
 			if rec.called != tt.wantNext {
 				t.Fatalf("next called = %v, want %v (status %d)", rec.called, tt.wantNext, rr.Code)
 			}
-			if !tt.wantNext && rr.Code != http.StatusUnauthorized {
-				t.Errorf("status = %d, want 401", rr.Code)
+			if !tt.wantNext && rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rr.Code, tt.wantStatus)
+			}
+			if tt.wantCode != "" {
+				var body refusalResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || body.Code != tt.wantCode {
+					t.Errorf("body = %s (%v), want code %q", rr.Body.String(), err, tt.wantCode)
+				}
 			}
 			if tt.wantNext && sessioninfo.UserFromCtx(rec.ctx).ID != tt.wantUser {
 				t.Errorf("user in context = %s, want %s", sessioninfo.UserFromCtx(rec.ctx).ID, tt.wantUser)
@@ -2415,19 +2464,120 @@ func TestAuth_ValidateSession(t *testing.T) {
 	}
 }
 
+// TestAuth_ForcedPasswordChange proves what a user who must change their password
+// reaches: the session read, which reports the mark, and the password change, which
+// validates the session itself and clears the mark.
+func TestAuth_ForcedPasswordChange(t *testing.T) {
+	t.Parallel()
+
+	userID := ccc.Must(ccc.NewUUID())
+	sessionID := ccc.Must(ccc.NewUUID())
+	marked := func() *sessionstorage.SessionUser {
+		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "temporary"), PasswordChangeRequired: true}
+	}
+	request := func(method string, body any) *http.Request {
+		var payload *strings.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			payload = strings.NewReader(string(raw))
+		} else {
+			payload = strings.NewReader("")
+		}
+		r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), method, "/api/user/password", payload)
+		r.Header.Set("Content-Type", "application/json")
+
+		return r
+	}
+	session := func() *sessioninfo.SessionData {
+		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: ccc.NullUUIDFromUUID(userID)}
+	}
+
+	t.Run("the session read reports the mark", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil)
+
+		rr := httptest.NewRecorder()
+		f.auth.Authenticated().ServeHTTP(rr, request(http.MethodGet, nil))
+		var body struct {
+			Authenticated          bool   `json:"authenticated"`
+			Username               string `json:"username"`
+			PasswordChangeRequired bool   `json:"passwordChangeRequired"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || rr.Code != http.StatusOK || !body.Authenticated || body.Username != "pat" || !body.PasswordChangeRequired {
+			t.Errorf("Authenticated() = %d %s (%v), want the authenticated user with passwordChangeRequired", rr.Code, rr.Body.String(), err)
+		}
+	})
+
+	t.Run("the password change validates the session itself, clears the mark and continues in a new session", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
+		gomock.InOrder(
+			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
+		)
+		createSession(f.store, ccc.Must(ccc.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
+			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
+				t.Errorf("CreateSession() request = %+v", req)
+			}
+		})
+
+		rr := httptest.NewRecorder()
+		f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, map[string]string{"oldPassword": "temporary", "newPassword": "chosen"}))
+		if rr.Code != http.StatusOK {
+			t.Errorf("ChangeUserPassword() = %d %s, want 200", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("a wrong old password or the same password changes nothing", func(t *testing.T) {
+		t.Parallel()
+		for _, body := range []map[string]string{{"oldPassword": "nope", "newPassword": "chosen"}, {"oldPassword": "temporary", "newPassword": "temporary"}} {
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
+			f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
+
+			rr := httptest.NewRecorder()
+			f.password.ChangeUserPassword().ServeHTTP(rr, request(http.MethodPost, body))
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("ChangeUserPassword(%v) = %d %s, want 400", body, rr.Code, rr.Body.String())
+			}
+		}
+	})
+
+	t.Run("the API's validation refuses the request with the code", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil)
+
+		_, err := f.auth.API().ValidateSession(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID))
+		var refusal *sessioninfo.LoginRefusal
+		if !errors.As(err, &refusal) || refusal.Code() != sessioninfo.RefusedPasswordChangeRequired || !httpio.HasForbidden(err) {
+			t.Errorf("ValidateSession() error = %v, want a Forbidden refusal with %s", err, sessioninfo.RefusedPasswordChangeRequired)
+		}
+	})
+}
+
 func TestAuthAPI_UserManagement(t *testing.T) {
 	t.Parallel()
 
 	userID := ccc.Must(ccc.NewUUID())
 
-	t.Run("changing the password destroys the user's sessions by UserId and continues in a new one that records the password", func(t *testing.T) {
+	t.Run("changing the password destroys the user's sessions by UserId, clears the mark and continues in a new session that records the password", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old")}, nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old"), PasswordChangeRequired: true}, nil)
 		gomock.InOrder(
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPasswordHash(gomock.Any(), userID, gomock.Any()).Return(nil),
+			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
 		)
 		createSession(f.store, ccc.Must(ccc.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
@@ -2449,6 +2599,76 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "nope", NewPassword: "new"})
 		if !httpio.HasBadRequest(err) {
 			t.Errorf("ChangeSessionUserPassword() error = %v, want BadRequest", err)
+		}
+	})
+
+	t.Run("a new password equal to the old one changes nothing", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old")}, nil)
+
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "old"})
+		if !httpio.HasBadRequest(err) {
+			t.Errorf("ChangeSessionUserPassword() error = %v, want BadRequest", err)
+		}
+	})
+
+	t.Run("resetting the password marks the user and destroys its sessions; setting one the user chose clears the mark", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		gomock.InOrder(
+			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(nil),
+			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
+			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
+		)
+		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
+			t.Errorf("ResetSessionUserPassword() error = %v", err)
+		}
+		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen"); err != nil {
+			t.Errorf("SetSessionUserPassword() error = %v", err)
+		}
+	})
+
+	t.Run("a user created with a password an operator set carries the mark; the mark without a password is refused", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, user *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
+			if user.Username != "pat" || user.PasswordHash == nil || !user.PasswordChangeRequired {
+				t.Errorf("CreateUser() = %+v, want pat with a password and the mark", user)
+			}
+
+			return &sessionstorage.SessionUser{ID: userID, Username: user.Username, PasswordHash: user.PasswordHash, PasswordChangeRequired: user.PasswordChangeRequired}, nil
+		})
+		temporary := "temporary"
+		if id, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "pat", Password: &temporary, PasswordChangeRequired: true}); err != nil || id != userID {
+			t.Errorf("CreateSessionUser() = %s, %v; want %s", id, err, userID)
+		}
+		if _, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{Username: "sam", PasswordChangeRequired: true}); !httpio.HasBadRequest(err) {
+			t.Errorf("CreateSessionUser() of a password-less user with the mark error = %v, want BadRequest", err)
+		}
+	})
+
+	t.Run("the users are listed and read through the API", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		users := []*sessionstorage.SessionUser{{ID: userID, Username: "pat"}, {ID: ccc.Must(ccc.NewUUID()), Username: "sam"}}
+		f.store.EXPECT().Users(gomock.Any()).Return(users, nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(users[0], nil)
+		f.store.EXPECT().UserByUserName(gomock.Any(), "Pat").Return(users[0], nil)
+
+		if got, err := f.auth.API().Users(context.Background()); err != nil || !cmp.Equal(got, users) {
+			t.Errorf("Users() = %v, %v; want %v", got, err, users)
+		}
+		if got, err := f.auth.API().User(context.Background(), userID); err != nil || got != users[0] {
+			t.Errorf("User() = %v, %v; want pat", got, err)
+		}
+		if got, err := f.auth.API().UserByUsername(context.Background(), "Pat"); err != nil || got != users[0] {
+			t.Errorf("UserByUsername() = %v, %v; want pat", got, err)
 		}
 	})
 

@@ -227,6 +227,10 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 			w.WriteHeader(http.StatusNoContent)
 		})
 
+		// The logout is reached by a user who must change their password, so it sits
+		// outside ValidateSession, as the README prescribes.
+		r.Post("/logout", auth.Logout())
+
 		r.Group(func(r chi.Router) {
 			r.Use(auth.ValidateSession)
 			r.Get("/whoami", whoami)
@@ -239,7 +243,6 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 				}
 				_ = httpio.NewEncoder(w).Ok(data)
 			})
-			r.Post("/logout", auth.Logout())
 			r.Post("/impersonate", func(w http.ResponseWriter, r *http.Request) {
 				var body struct {
 					User string `json:"user"`
@@ -312,14 +315,18 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 		r.Get("/sso/login", sso.Login())
 		r.Get("/sso/callback", sso.Callback())
 		r.With(auth.ValidateXSRFToken).Post("/login", password.Login())
-		// The login page's list: the two methods at the paths above, and the pending
-		// routes mountAuth mounts.
+		// The password change validates the session itself: outside ValidateSession,
+		// behind the XSRF token, as the README prescribes.
+		r.With(auth.ValidateXSRFToken).Post("/password", password.ChangeUserPassword())
+		// The login page's list: the two methods at the paths above, the pending
+		// routes mountAuth mounts and the password change route.
 		r.Get("/methods", auth.Methods(&session.MethodList{
 			Methods: []session.AdvertisedMethod{
 				{Name: "password", Label: "Password", Path: "/login"},
 				{Name: "workos", Label: "Single sign-on", Path: "/sso/login"},
 			},
-			Pending: session.PendingRoutes{Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel"},
+			Pending:        session.PendingRoutes{Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel"},
+			ChangePassword: "/password",
 		}))
 	})
 
@@ -534,6 +541,22 @@ func (b *browser) sessionID(ctx context.Context) string {
 	return body.SessionID
 }
 
+// passwordChangeRequired decodes GET /authenticated: whether a session is reported and
+// whether its user must change their password.
+func (b *browser) passwordChangeRequired(ctx context.Context) (authenticated, required bool) {
+	b.t.Helper()
+
+	var body struct {
+		Authenticated          bool `json:"authenticated"`
+		PasswordChangeRequired bool `json:"passwordChangeRequired"`
+	}
+	if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/authenticated", nil), &body); err != nil {
+		b.t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	return body.Authenticated, body.PasswordChangeRequired
+}
+
 // passwordLogin signs pat@lakeside.edu in with password.
 func (b *browser) passwordLogin(ctx context.Context, password string) (status int, mfaIsRequired bool) {
 	b.t.Helper()
@@ -645,6 +668,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamDisabledAndImpersonation[Tx],
 		},
 		{
+			name: "a user with a temporary password reaches the session read, the logout and the password change, and nothing else, until the change",
+			run:  seamForcedPasswordChange[Tx],
+		},
+		{
 			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
 			run:  seamCustomData[Tx],
 		},
@@ -695,10 +722,90 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 			map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/login"},
 			map[string]any{"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/sso/login"},
 		},
-		"pending": map[string]any{"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel"},
+		"pending":        map[string]any{"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel"},
+		"changePassword": "/password",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("GET /methods mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// seamForcedPasswordChange: an operator creates pat with a temporary password. Signed
+// in, pat reaches the session read, which reports the mark, the password change and
+// the logout, and nothing else: a protected route answers 403 with
+// password_change_required. The change clears the mark and continues in a new session
+// that opens the application; an operator's reset marks pat again and ends the session.
+func seamForcedPasswordChange[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	temporary := seedPassword
+	pat, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "pat@lakeside.edu", Password: &temporary, PasswordChangeRequired: true})
+	if err != nil {
+		t.Fatalf("CreateSessionUser() error = %v", err)
+	}
+	if user, err := a.api.User(ctx, pat); err != nil || !user.PasswordChangeRequired || user.LastSignInAt != nil {
+		t.Fatalf("User() = %+v, %v; want the mark and no sign-in", user, err)
+	}
+
+	b := a.browser(t)
+	b.prime(ctx)
+	if status, mfa := b.passwordLogin(ctx, temporary); status != http.StatusOK || mfa {
+		t.Fatalf("password login = %d (mfaIsRequired %v), want 200 without MFA", status, mfa)
+	}
+	marked := b.sessionID(ctx)
+	if authenticated, required := b.passwordChangeRequired(ctx); !authenticated || !required {
+		t.Errorf("GET /authenticated = (%v, %v), want the authenticated user with passwordChangeRequired", authenticated, required)
+	}
+	if user, err := a.api.User(ctx, pat); err != nil || user.LastSignInAt == nil {
+		t.Errorf("User() after the sign-in = %+v, %v; want a last sign-in", user, err)
+	}
+
+	// Everything else is refused with the code, until the change.
+	status, body := b.do(ctx, http.MethodGet, "/whoami", nil)
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &refusal); status != http.StatusForbidden || err != nil || refusal.Code != string(sessioninfo.RefusedPasswordChangeRequired) {
+		t.Errorf("GET /whoami under the mark = %d %s, want 403 with code %s", status, body, sessioninfo.RefusedPasswordChangeRequired)
+	}
+	b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password", map[string]string{"oldPassword": "wrong", "newPassword": "chosen-1"})
+	b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password", map[string]string{"oldPassword": temporary, "newPassword": temporary})
+	b.expect(ctx, http.StatusForbidden, http.MethodGet, "/whoami", nil)
+
+	// The logout is reached under the mark: another tab of the same session signs out.
+	tab := b.clone()
+	tab.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	if authenticated, _ := tab.passwordChangeRequired(ctx); authenticated {
+		t.Error("GET /authenticated after the logout reports a session")
+	}
+
+	// The change clears the mark and continues in a new session that opens the application.
+	b.prime(ctx)
+	b.passwordLogin(ctx, temporary)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/password", map[string]string{"oldPassword": temporary, "newPassword": "chosen-1"})
+	if authenticated, required := b.passwordChangeRequired(ctx); !authenticated || required {
+		t.Errorf("GET /authenticated after the change = (%v, %v), want the authenticated user without the mark", authenticated, required)
+	}
+	v := b.view(ctx)
+	if v.UserID != pat.String() || v.SessionID == marked {
+		t.Errorf("session after the change = %+v, want pat under a session ID other than %s", v, marked)
+	}
+	if user, err := a.api.User(ctx, pat); err != nil || user.PasswordChangeRequired || user.LastSignInAt == nil {
+		t.Errorf("User() after the change = %+v, %v; want no mark and a last sign-in", user, err)
+	}
+
+	// An operator's reset marks pat again and ends the session; the temporary password
+	// signs in under the mark.
+	if err := a.api.ResetSessionUserPassword(ctx, pat, "temporary-2"); err != nil {
+		t.Fatalf("ResetSessionUserPassword() error = %v", err)
+	}
+	b.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	b.prime(ctx)
+	if status, _ := b.passwordLogin(ctx, "temporary-2"); status != http.StatusOK {
+		t.Fatalf("password login with the reset password = %d, want 200", status)
+	}
+	if _, required := b.passwordChangeRequired(ctx); !required {
+		t.Error("GET /authenticated after the reset reports no passwordChangeRequired")
 	}
 }
 

@@ -95,26 +95,33 @@ r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // the README's "Wh
         {Name: "password", Label: "Password", Path: "/api/user/session"},
         {Name: "azure", Label: "Microsoft", Path: "/api/user/login"},
     },
+    ChangePassword: "/api/user/password",
 }))
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
     r.Post("/api/user/session", password.Login())
+    r.Post("/api/user/logout", auth.Logout())
+    r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
     r.Group(func(r chi.Router) {
         r.Use(auth.ValidateSession)
-        r.Post("/api/user/logout", auth.Logout())
-        r.Post("/api/user/password", password.ChangeUserPassword())
+        // …protected routes
     })
 })
 ```
 
 Three things every move shares:
 
-- **Users are managed by ID through `auth.API()`**: `CreateSessionUser`,
-  `ChangeSessionUserUsername`, `SetSessionUserPassword`, `DeactivateSessionUser`,
+- **Users are managed by ID through `auth.API()`**: `Users`, `User`, `UserByUsername`,
+  `CreateSessionUser`, `ChangeSessionUserUsername`, `ChangeSessionUserPassword`,
+  `SetSessionUserPassword`, `ResetSessionUserPassword`, `DeactivateSessionUser`,
   `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions`, `Identities` and
   `UnlinkIdentity`. The `Auth` has no user-management handlers of its own: the
   application writes them over the API and guards them, as it guarded the callers of
-  the legacy handlers.
+  the legacy handlers. A password an operator sets (`CreateUserRequest.PasswordChangeRequired`,
+  `ResetSessionUserPassword`) is temporary: the user changes it before anything else is
+  served, so the session read, the logout and the password change move outside
+  `ValidateSession`, which refuses every other request with `password_change_required`
+  until then (the README's "Users and the forced password change").
 - **An account rule of the application's own is optional.** The Entra and Google
   methods apply a standard rule to an identity's first sign-in (`Config.Accounts`):
   members of the directory get an account under their sign-in name by default, or only
@@ -345,10 +352,10 @@ v0.13 moves the ownership of "now" from the library to the database. Every colum
 records when something happened is written with the database's time: on Spanner the
 commit timestamp (`spanner.CommitTimestamp` in a mutation, `PENDING_COMMIT_TIMESTAMP()`
 in DML), on PostgreSQL the transaction time (`now()`). The columns are a session's
-`CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, an auth event's `OccurredAt`, an
-impersonation record's `StartedAt` and `EndedAt`, an identity link's `CreatedAt` and
-`LastUsedAt`, a pending sign-in's `CreatedAt` and `ConsumedAt`, and the OIDC user
-anchor's `CreatedAt` and `UpdatedAt`. A deadline (`ExpiresAt`) is still the
+`CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, a user's `CreatedAt` and
+`LastSignInAt`, an auth event's `OccurredAt`, an impersonation record's `StartedAt`
+and `EndedAt`, an identity link's `CreatedAt` and `LastUsedAt`, a pending sign-in's
+`CreatedAt` and `ConsumedAt`, and the OIDC user anchor's `CreatedAt` and `UpdatedAt`. A deadline (`ExpiresAt`) is still the
 application's: computed from its clock and written as given. Earlier versions wrote
 `time.Now()` into all of them, which Spanner refuses on a commit-timestamp column when
 the host clock runs ahead of its own ("Cannot write timestamps in the future"), and
@@ -378,6 +385,11 @@ upgrades from the legacy Azure layout applies the `oidc` set through `000004` be
 release after, as before.
 
 Nothing changes on PostgreSQL: `now()` needs no DDL.
+
+**The users table has three more columns** in v0.13's DDL: `PasswordChangeRequired`,
+`CreatedAt` and `LastSignInAt` (the README's "Users and the forced password change").
+The shipped `SessionUsers` migrations create them, on both backends; a users table
+named per group takes the same DDL under its name.
 
 **Rolling back.** The down migrations clear the option. They are not needed to run a
 v0.12 driver, which writes plain values and keeps working against a marked column as

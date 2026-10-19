@@ -61,4 +61,7 @@ type UserInfo struct {
 	ID       ccc.UUID `spanner:"Id"           db:"Id"`
 	Username string   `spanner:"Username"     db:"Username"`
 	Disabled bool     `spanner:"Disabled"     db:"Disabled"`
+	// PasswordChangeRequired is set while the user must change a password an operator
+	// set before anything else is served; Auth sessions only.
+	PasswordChangeRequired bool `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
 }

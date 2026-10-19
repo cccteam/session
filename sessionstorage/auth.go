@@ -6,6 +6,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/signinflow"
@@ -71,6 +72,13 @@ func WithAuthEvents(table *AuthEventsTable) Option {
 type AuthStore[Tx any] interface {
 	BaseStore
 	UserStore
+	// Users lists every user, by username.
+	Users(ctx context.Context) ([]*SessionUser, error)
+	// SetUserPassword sets a user's password hash and whether the user must change the
+	// password before anything else is served (SessionUser.PasswordChangeRequired), in
+	// one write: true for a password an operator set, false for one the user chose.
+	// SetUserPasswordHash leaves the mark as it is.
+	SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a
 	// regeneration. A configured custom session data resolver runs inside the insert
@@ -99,6 +107,11 @@ type AuthStore[Tx any] interface {
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	// TouchUserSignIn moves a user's LastSignInAt to the database's time. The Auth calls
+	// it once a sign-in has established its session, as a write of its own: inside the
+	// sign-in's transaction the update would upgrade the share lock the flow holds on
+	// the user row and deadlock two sign-ins of one user.
+	TouchUserSignIn(ctx context.Context, userID ccc.UUID) error
 	// AppendAuthEvent records a step-up or confirmation on an existing session.
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 	// DestroySessionsByProviderSessionID expires every live session whose sign-in
@@ -190,6 +203,31 @@ func (a *Auth[Tx]) SignIn(
 	return id, nil
 }
 
+// Users implements AuthStore.
+func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	users, err := a.db.Users(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.Users()")
+	}
+
+	return users, nil
+}
+
+// SetUserPassword implements AuthStore.
+func (a *Auth[Tx]) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetUserPassword(ctx, id, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "db.SetUserPassword()")
+	}
+
+	return nil
+}
+
 // Identity implements AuthStore.
 func (a *Auth[Tx]) Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error) {
 	ctx, span := tracer.Start(ctx)
@@ -253,6 +291,18 @@ func (a *Auth[Tx]) DestroyUserSessions(ctx context.Context, userID ccc.UUID) err
 
 	if err := a.db.DestroyUserSessions(ctx, userID); err != nil {
 		return errors.Wrap(err, "db.DestroyUserSessions()")
+	}
+
+	return nil
+}
+
+// TouchUserSignIn implements AuthStore.
+func (a *Auth[Tx]) TouchUserSignIn(ctx context.Context, userID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.TouchUserSignIn(ctx, userID); err != nil {
+		return errors.Wrap(err, "db.TouchUserSignIn()")
 	}
 
 	return nil

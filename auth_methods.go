@@ -221,8 +221,12 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 
 // ChangeUserPassword accepts {"oldPassword", "newPassword"} and changes the signed-in
-// user's password. Every session of the user is destroyed and the caller
-// continues in a new one. Route it behind ValidateSession.
+// user's password to one they chose: the old one must match and the new one differ
+// (400 otherwise). The password change mark is cleared, every session of the user is
+// destroyed and the caller continues in a new one. It is the one route a user who must
+// change their password reaches, so it validates the session itself: route it beside
+// the session read and the logout, outside ValidateSession and behind
+// ValidateXSRFToken, and name its path to Methods (MethodList.ChangePassword).
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
 
 // frontChannelLogout handles a provider-initiated logout: it ends every session whose

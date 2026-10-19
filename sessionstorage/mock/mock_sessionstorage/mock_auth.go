@@ -477,6 +477,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetSessionTableName(name any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetSessionTableName), name)
 }
 
+// SetUserPassword mocks base method.
+func (m *MockAuthStore[Tx]) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserPassword", ctx, id, hash, changeRequired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserPassword indicates an expected call of SetUserPassword.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetUserPassword(ctx, id, hash, changeRequired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserPassword", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserPassword), ctx, id, hash, changeRequired)
+}
+
 // SetUserPasswordHash mocks base method.
 func (m *MockAuthStore[Tx]) SetUserPasswordHash(ctx context.Context, id ccc.UUID, hash *securehash.Hash) error {
 	m.ctrl.T.Helper()
@@ -532,6 +546,20 @@ func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSess
 func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy)
+}
+
+// TouchUserSignIn mocks base method.
+func (m *MockAuthStore[Tx]) TouchUserSignIn(ctx context.Context, userID ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TouchUserSignIn", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// TouchUserSignIn indicates an expected call of TouchUserSignIn.
+func (mr *MockAuthStoreMockRecorder[Tx]) TouchUserSignIn(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchUserSignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).TouchUserSignIn), ctx, userID)
 }
 
 // UnlinkIdentity mocks base method.
@@ -632,4 +660,19 @@ func (m *MockAuthStore[Tx]) UserDataLoginHookConfigured() bool {
 func (mr *MockAuthStoreMockRecorder[Tx]) UserDataLoginHookConfigured() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockAuthStore[Tx])(nil).UserDataLoginHookConfigured))
+}
+
+// Users mocks base method.
+func (m *MockAuthStore[Tx]) Users(ctx context.Context) ([]*sessionstorage.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Users", ctx)
+	ret0, _ := ret[0].([]*sessionstorage.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Users indicates an expected call of Users.
+func (mr *MockAuthStoreMockRecorder[Tx]) Users(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Users", reflect.TypeOf((*MockAuthStore[Tx])(nil).Users), ctx)
 }

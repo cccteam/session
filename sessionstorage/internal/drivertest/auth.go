@@ -7,6 +7,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
@@ -23,7 +24,10 @@ type AuthDriver interface {
 	InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	InsertImpersonatedSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation) (ccc.UUID, error)
 	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
+	User(ctx context.Context, id ccc.UUID) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
+	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
+	SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error
 	DeactivateUser(ctx context.Context, id ccc.UUID) error
 	DeleteUser(ctx context.Context, id ccc.UUID) error
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
@@ -31,6 +35,7 @@ type AuthDriver interface {
 	LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
+	TouchUserSignIn(ctx context.Context, userID ccc.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
@@ -214,6 +219,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the upgrade from the legacy Azure layout keeps the anchor's users and identities under their ids, gives live sessions their user, and serves Auth", run: testUpgradeFromOIDC},
 		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
+		{name: "a user is stored with its password change mark and the database's time, and listed by username", run: testUserAccounts},
+		{name: "a password is set with its change mark in one write", run: testUserPasswordSet},
+		{name: "a user's last sign-in is the database's time at the touch after a sign-in, nil before the first", run: testUserLastSignIn},
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 	}
 	for _, tt := range tests {
