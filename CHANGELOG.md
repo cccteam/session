@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/cccteam/session/compare/v0.13.1...v0.13.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* the Spanner driver reads a missing sign-in attempts table as its own error, not as no record on a closed txn ([#282](https://github.com/cccteam/session/issues/282)) ([01b565b](https://github.com/cccteam/session/commit/01b565b531642bd65ef297aaa8fa8a8274b78b06))
+
 ## [0.13.1](https://github.com/cccteam/session/compare/v0.13.0...v0.13.1) (2026-10-21)
 
 
