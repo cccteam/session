@@ -41,6 +41,9 @@ type AuthDriver interface {
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
 	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
+	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
+	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
+	ClearSignInAttempts(ctx context.Context, name string) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -166,6 +169,9 @@ type AuthHarness struct {
 	DeleteSession func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID)
 	// Recorded reads key from the HookRecords table directly, as committed.
 	Recorded func(ctx context.Context, t *testing.T, raw any, key string) (value string, found bool)
+	// Record writes key=value to the HookRecords table directly, bypassing the driver:
+	// a row the application's hooks then read in a sign-in's transaction.
+	Record func(ctx context.Context, t *testing.T, raw any, key, value string)
 	// PendingConsumedAt reads the ConsumedAt of the pending sign-in holding tokenHash
 	// directly: nil while it is live.
 	PendingConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
@@ -203,6 +209,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the policy of a provisioning sign-in reads the new user and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedUser},
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
+		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
@@ -223,6 +230,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a password is set with its change mark in one write", run: testUserPasswordSet},
 		{name: "a user's last sign-in is the database's time at the touch after a sign-in, nil before the first", run: testUserLastSignIn},
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
+		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
+		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
+		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
+		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

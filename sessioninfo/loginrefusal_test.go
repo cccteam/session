@@ -2,6 +2,7 @@ package sessioninfo
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
@@ -110,5 +111,61 @@ func TestLoginRefusal(t *testing.T) {
 				t.Errorf("httpio.HasForbidden() = %v, want %v", got, tt.wantForbidden)
 			}
 		})
+	}
+}
+
+func TestRetryAfterOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		err      error
+		wantWait time.Duration
+		wantOK   bool
+	}{
+		{
+			name:     "a too-many-attempts refusal carries its wait",
+			err:      NewTooManyAttemptsRefusal(90 * time.Second),
+			wantWait: 90 * time.Second,
+			wantOK:   true,
+		},
+		{
+			name:     "the wait rides through the handler chain",
+			err:      errors.Wrap(NewTooManyAttemptsRefusal(time.Minute), "passwordSignIn()"),
+			wantWait: time.Minute,
+			wantOK:   true,
+		},
+		{
+			name: "any other refusal asks for no wait",
+			err:  NewLoginRefusal(RefusedUserDisabled, httpio.NewUnauthorizedMessage("User disabled")),
+		},
+		{
+			name: "nil asks for no wait",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			wait, ok := RetryAfterOf(tt.err)
+			if wait != tt.wantWait || ok != tt.wantOK {
+				t.Errorf("RetryAfterOf() = %v, %v; want %v, %v", wait, ok, tt.wantWait, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestNewTooManyAttemptsRefusal(t *testing.T) {
+	t.Parallel()
+
+	err := NewTooManyAttemptsRefusal(time.Minute)
+	if got := LoginRefusalCodeOf(err); got != RefusedTooManyAttempts {
+		t.Errorf("LoginRefusalCodeOf() = %q, want %q", got, RefusedTooManyAttempts)
+	}
+	if !httpio.HasTooManyRequests(err) {
+		t.Errorf("HasTooManyRequests() = false, want the refusal to answer 429")
+	}
+	if got := httpio.Message(err); got != "Too many sign-in attempts" {
+		t.Errorf("Message() = %q, want the client message", got)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
+	"github.com/cccteam/session/internal/attempts"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/internal/signinflow"
@@ -404,6 +405,8 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 	if outcome.pending != nil {
 		return ccc.NilUUID, stillPending(outcome.pending)
 	}
+	// The person proved who they are: the name's failed attempts are reset.
+	p.auth.clearAttempts(ctx, pending.Username)
 
 	return outcome.sessionID, nil
 }
@@ -413,15 +416,18 @@ func (p *AuthAPI[S, U, Tx]) CompletePending(ctx context.Context, w http.Response
 //
 // The pending identity must wait for a password confirmation (Conflict otherwise). A
 // wrong password is Unauthorized and leaves the pending identity in place; the right
-// one consumes it. The session records the sign-in's event and a link-confirmation
-// event. If the sign-in policy requires MFA after the link, no session starts. The
-// error is then a *signin.PendingSignInError with reason PendingMFA, and a new pending
-// identity waits for MFA (see CompletePending).
+// one consumes it. The check is limited as a login's is, under the user's name: a
+// wrong password counts, and a name whose attempts reached the limit is refused with
+// RefusedTooManyAttempts and the wait before the password is hashed. The session
+// records the sign-in's event and a link-confirmation event. If the sign-in policy
+// requires MFA after the link, no session starts. The error is then a
+// *signin.PendingSignInError with reason PendingMFA, and a new pending identity waits
+// for MFA (see CompletePending).
 func (p *AuthAPI[S, U, Tx]) ConfirmPendingWithPassword(ctx context.Context, w http.ResponseWriter, password string) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	outcome, err := p.auth.confirmPending(ctx, w, password)
+	outcome, err := p.auth.confirmPending(ctx, w, password, attempts.Client{})
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -432,8 +438,9 @@ func (p *AuthAPI[S, U, Tx]) ConfirmPendingWithPassword(ctx context.Context, w ht
 	return outcome.sessionID, nil
 }
 
-// confirmPending implements ConfirmPendingWithPassword and returns the sign-in's outcome.
-func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWriter, password string) (*signInOutcome, error) {
+// confirmPending implements ConfirmPendingWithPassword for client and returns the
+// sign-in's outcome.
+func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWriter, password string, client attempts.Client) (*signInOutcome, error) {
 	p, err := a.pending(ctx)
 	if err != nil {
 		return nil, err
@@ -446,8 +453,8 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
-		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	if err := a.checkConfirmation(ctx, user, password, client); err != nil {
+		return nil, err
 	}
 	if user.Disabled {
 		return nil, signinflow.Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")
@@ -461,6 +468,23 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 	}
 
 	return a.completePending(ctx, w, p, sessioninfo.ReasonIdentityLinked, sessioninfo.AuthEvent{Method: sessioninfo.MethodLinkConfirmation})
+}
+
+// checkConfirmation checks a confirmation's password for user under the attempt
+// limiter, counted under the user's name as a login is: the name or the client held is
+// refused before the hash, a wrong password counts, a match resets the name.
+func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) error {
+	if err := a.limitAttempt(ctx, user.Username, client); err != nil {
+		return err
+	}
+	if _, err := a.registered().comparePassword(user.PasswordHash, password); err != nil {
+		a.recordFailure(ctx, user.Username, client)
+
+		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
+	}
+	a.attemptsSucceeded(ctx, user.Username)
+
+	return nil
 }
 
 // linkPending links a confirmed pending identity to userID and reports the link. If the
@@ -527,7 +551,7 @@ func (a *Auth[S, U, Tx]) pendingConfirm() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		outcome, err := a.confirmPending(ctx, w, req.Password)
+		outcome, err := a.confirmPending(ctx, w, req.Password, a.clientOf(r))
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}

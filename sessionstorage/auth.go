@@ -134,7 +134,30 @@ type AuthStore[Tx any] interface {
 	// conditional update, so it is consumed once; a pending sign-in that is not live
 	// (consumed, expired or unknown) is NotFound.
 	ConsumePendingSignIn(ctx context.Context, tokenHash []byte) error
+	// SetSignInAttemptsTableName sets the name of the sign-in attempts table. (default: SessionSignInAttempts)
+	SetSignInAttemptsTableName(name string) error
+	// SignInAttempts returns the sign-in attempts record of name, the submitted name as
+	// the Auth normalized it: its failed password attempts in the window and its lock.
+	// A name with no record is NotFound.
+	SignInAttempts(ctx context.Context, name string) (*SignInAttempts, error)
+	// RecordSignInFailure records a failed password attempt on name, at the time of
+	// the call, under limit, and returns the record as written: the failure counts in
+	// the name's window, or opens one, and the failure that reaches limit.Failures
+	// locks the name for limit.Lock; a name that is locked is left as it is. The read
+	// and the write are one transaction, so concurrent failures each count.
+	RecordSignInFailure(ctx context.Context, name string, limit SignInAttemptLimit) (*SignInAttempts, error)
+	// ClearSignInAttempts deletes the sign-in attempts record of name: a successful
+	// password check, an MFA completion and a password change reset the count.
+	ClearSignInAttempts(ctx context.Context, name string) error
 }
+
+// SignInAttempts is the sign-in attempts record of a name: the failed password
+// attempts in its window and the lock they earned.
+type SignInAttempts = dbtype.SignInAttempts
+
+// SignInAttemptLimit is the rule a failure is recorded under: Failures within Window
+// lock the name for Lock.
+type SignInAttemptLimit = dbtype.SignInAttemptLimit
 
 // PendingSignIn is a sign-in held in the pending sign-ins table until its confirmation
 // or MFA step.
@@ -387,6 +410,53 @@ func (a *Auth[Tx]) DestroySessionsByProviderSessionID(ctx context.Context, issue
 
 	if err := a.db.DestroySessionsByProviderSessionID(ctx, issuer, providerSessionID); err != nil {
 		return errors.Wrap(err, "db.DestroySessionsByProviderSessionID()")
+	}
+
+	return nil
+}
+
+// SetSignInAttemptsTableName implements AuthStore.
+func (a *Auth[Tx]) SetSignInAttemptsTableName(name string) error {
+	if err := a.db.SetSignInAttemptsTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetSignInAttemptsTableName()")
+	}
+
+	return nil
+}
+
+// SignInAttempts implements AuthStore.
+func (a *Auth[Tx]) SignInAttempts(ctx context.Context, name string) (*SignInAttempts, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	record, err := a.db.SignInAttempts(ctx, name)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.SignInAttempts()")
+	}
+
+	return record, nil
+}
+
+// RecordSignInFailure implements AuthStore.
+func (a *Auth[Tx]) RecordSignInFailure(ctx context.Context, name string, limit SignInAttemptLimit) (*SignInAttempts, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	record, err := a.db.RecordSignInFailure(ctx, name, time.Now(), limit)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.RecordSignInFailure()")
+	}
+
+	return record, nil
+}
+
+// ClearSignInAttempts implements AuthStore.
+func (a *Auth[Tx]) ClearSignInAttempts(ctx context.Context, name string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.ClearSignInAttempts(ctx, name); err != nil {
+		return errors.Wrap(err, "db.ClearSignInAttempts()")
 	}
 
 	return nil

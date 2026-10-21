@@ -24,6 +24,7 @@ func TestAuth(t *testing.T) {
 		CountAuthEvents:   countAuthEvents,
 		DeleteSession:     deleteSession,
 		Recorded:          recorded,
+		Record:            record,
 		PendingConsumedAt: pendingConsumedAt,
 		ClockLead:         emulatorClockLead,
 	})
@@ -186,4 +187,13 @@ func recorded(ctx context.Context, t *testing.T, raw any, key string) (string, b
 	}
 
 	return value, true
+}
+
+func record(ctx context.Context, t *testing.T, raw any, key, value string) {
+	t.Helper()
+
+	m := spanner.InsertOrUpdate("HookRecords", []string{"RecordKey", "RecordValue"}, []any{key, value})
+	if _, err := client(t, raw).Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
 }

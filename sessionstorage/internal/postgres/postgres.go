@@ -38,6 +38,8 @@ type SessionStorageDriver struct {
 	identitiesTableName string
 	// pendingTableName names the auth schema's pending sign-ins table.
 	pendingTableName string
+	// attemptsTableName names the auth schema's sign-in attempts table.
+	attemptsTableName string
 }
 
 // NewSessionStorageDriver creates a new SessionStorageDriver
@@ -49,6 +51,7 @@ func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 		oidcUserTableName:   "OIDCUsers",
 		identitiesTableName: "SessionIdentities",
 		pendingTableName:    "SessionPendingSignIns",
+		attemptsTableName:   "SessionSignInAttempts",
 	}
 }
 
@@ -114,6 +117,17 @@ func (s *SessionStorageDriver) SetPendingSignInsTableName(name string) error {
 		return errors.Wrap(err, "dbtype.ValidateTableName()")
 	}
 	s.pendingTableName = name
+
+	return nil
+}
+
+// SetSignInAttemptsTableName sets the name of the sign-in attempts table; a name that
+// is not an identifier is refused (dbtype.ValidateTableName).
+func (s *SessionStorageDriver) SetSignInAttemptsTableName(name string) error {
+	if err := dbtype.ValidateTableName(name); err != nil {
+		return errors.Wrap(err, "dbtype.ValidateTableName()")
+	}
+	s.attemptsTableName = name
 
 	return nil
 }
