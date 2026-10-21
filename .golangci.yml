@@ -81,6 +81,8 @@ linters:
             - golang.org/x/crypto/hkdf
             - golang.org/x/oauth2
             - golang.org/x/sync/errgroup
+            - golang.org/x/text/cases
+            - golang.org/x/text/unicode/norm
             - google.golang.org/api/cloudidentity/v1
             - google.golang.org/api/iterator
             - google.golang.org/api/option
@@ -133,6 +135,8 @@ linters:
         # A coded login refusal is the module's own error type; attaching the code IS the
         # wrapping, and the redirect helper reads it back with errors.As.
         - sessioninfo.NewLoginRefusal(
+        # The attempt limiter's refusal: a coded login refusal carrying the wait.
+        - sessioninfo.NewTooManyAttemptsRefusal(
         # The sign-in flow's coded refusal: a sessioninfo.LoginRefusal over its cause.
         - signinflow.Refusal(
         - errors.Unwrap(

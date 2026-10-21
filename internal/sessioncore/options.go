@@ -1,9 +1,12 @@
 package sessioncore
 
 import (
+	"time"
+
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
+	"github.com/cccteam/session/internal/dbtype"
 )
 
 // The option interfaces of the session types. Each is sealed by an unexported marker
@@ -60,16 +63,23 @@ func WithLoginURL(l string) OIDCOption {
 	}
 }
 
-// PasswordSettings are the password method's settings: how passwords are hashed and
-// whether a hash made with an older algorithm is upgraded at login.
+// PasswordSettings are the password method's settings: how passwords are hashed,
+// whether a hash made with an older algorithm is upgraded at login, and the attempt
+// limit failed attempts are held to.
 type PasswordSettings struct {
 	Hasher      *securehash.SecureHasher
 	AutoUpgrade bool
+	Attempts    dbtype.SignInAttemptLimit
 }
 
-// DefaultPasswordSettings returns the settings before any option: Argon2, upgrading.
+// DefaultAttemptLimit is the attempt limit before any option: five failed attempts on
+// a name within fifteen minutes lock the name for fifteen minutes.
+var DefaultAttemptLimit = dbtype.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
+
+// DefaultPasswordSettings returns the settings before any option: Argon2, upgrading,
+// the default attempt limit.
 func DefaultPasswordSettings() PasswordSettings {
-	return PasswordSettings{Hasher: securehash.New(securehash.Argon2()), AutoUpgrade: true}
+	return PasswordSettings{Hasher: securehash.New(securehash.Argon2()), AutoUpgrade: true, Attempts: DefaultAttemptLimit}
 }
 
 // Apply applies opt when it is a password settings option and reports whether it was
@@ -100,5 +110,13 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return passwordOption(func(s *PasswordSettings) {
 		s.Hasher = securehash.New(hasher)
+	})
+}
+
+// AttemptLimit sets the attempt limit: failures failed attempts on a name within
+// window lock the name for lock. (default: DefaultAttemptLimit)
+func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
+	return passwordOption(func(s *PasswordSettings) {
+		s.Attempts = dbtype.SignInAttemptLimit{Failures: failures, Window: window, Lock: lock}
 	})
 }

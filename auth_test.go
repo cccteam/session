@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,6 +84,18 @@ type authFixture struct {
 	// touchErr is what the store answers.
 	touched  []ccc.UUID
 	touchErr error
+	// attempts is the sign-in attempts table as the store would hold it, keyed by the
+	// normalized name, under the clock the fake store and the limiter share; the
+	// counters say how often the store was asked.
+	mu            sync.Mutex
+	attempts      map[string]*sessionstorage.SignInAttempts
+	attemptReads  int
+	attemptWrites int
+	attemptClears int
+	clock         time.Time
+	// signedInCalls records the SignedInHook's calls, and signedInErr is what it answers.
+	signedInCalls []*SignedIn
+	signedInErr   error
 }
 
 // storeSignIn is one call of the mocked store's SignIn: the request, the account rules
@@ -97,7 +110,21 @@ type storeSignIn struct {
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
 	t.Helper()
 
-	f := &authFixture{t: t, store: newAuthStoreMock(ctrl), held: map[ccc.UUID]*sessionstorage.PendingSignIn{}}
+	return newAuthFixtureWith(t, ctrl, nil, options...)
+}
+
+// newAuthFixtureWith is newAuthFixture with password options for the password
+// method's registration.
+func newAuthFixtureWith(t *testing.T, ctrl *gomock.Controller, passwordOptions []PasswordOption, options ...AuthOption) *authFixture {
+	t.Helper()
+
+	f := &authFixture{
+		t: t, store: newAuthStoreMock(ctrl), held: map[ccc.UUID]*sessionstorage.PendingSignIn{},
+		attempts: map[string]*sessionstorage.SignInAttempts{}, clock: time.Now(),
+	}
+	f.store.EXPECT().SignInAttempts(gomock.Any(), gomock.Any()).DoAndReturn(f.attemptsOf).AnyTimes()
+	f.store.EXPECT().RecordSignInFailure(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(f.recordFailure).AnyTimes()
+	f.store.EXPECT().ClearSignInAttempts(gomock.Any(), gomock.Any()).DoAndReturn(f.clearAttempts).AnyTimes()
 	f.store.EXPECT().PendingSignIn(gomock.Any(), gomock.Any()).DoAndReturn(f.livePending).AnyTimes()
 	f.store.EXPECT().TouchUserSignIn(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID ccc.UUID) error {
 		f.touched = append(f.touched, userID)
@@ -120,9 +147,94 @@ func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption
 	}
 	a.SetSignInPolicy(policy)
 	f.auth = a
-	f.password = PasswordSignIn(a)
+	f.password = PasswordSignIn(a, passwordOptions...)
+	a.methods.attempts.SetClock(f.now)
 
 	return f
+}
+
+// now is the fixture's clock, shared by the fake store and the limiter.
+func (f *authFixture) now() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.clock
+}
+
+// advance moves the fixture's clock.
+func (f *authFixture) advance(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.clock = f.clock.Add(d)
+}
+
+// attemptsOf answers the store's read of a name's attempts as the table would.
+func (f *authFixture) attemptsOf(_ context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.attemptReads++
+	r, found := f.attempts[name]
+	if !found {
+		return nil, httpio.NewNotFoundMessage("no sign-in attempts recorded")
+	}
+	copied := *r
+
+	return &copied, nil
+}
+
+// recordFailure answers the store's record of a failure as the table would, under
+// the fixture's clock.
+func (f *authFixture) recordFailure(_ context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.attemptWrites++
+	next := f.attempts[name].Failed(name, f.clock, limit)
+	next.UpdatedAt = f.clock
+	f.attempts[name] = next
+	copied := *next
+
+	return &copied, nil
+}
+
+// clearAttempts answers the store's reset of a name as the table would.
+func (f *authFixture) clearAttempts(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.attemptClears++
+	delete(f.attempts, name)
+
+	return nil
+}
+
+// attemptsRecord is the fixture's record of a name, nil for none.
+func (f *authFixture) attemptsRecord(name string) *sessionstorage.SignInAttempts {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.attempts[name]
+}
+
+// counts are the store's attempt calls so far: reads, writes and clears.
+func (f *authFixture) counts() (reads, writes, clears int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.attemptReads, f.attemptWrites, f.attemptClears
+}
+
+// signedInHook is the SignedInHook the fixture's tests set: it records the call and
+// answers signedInErr.
+func (f *authFixture) signedInHook(_ context.Context, signedIn *SignedIn) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.signedInCalls = append(f.signedInCalls, signedIn)
+
+	return f.signedInErr
 }
 
 // serve runs h behind the Auth's StartSession with cookies, as a mounted route would.
@@ -2618,6 +2730,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).Times(2)
 		gomock.InOrder(
 			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),

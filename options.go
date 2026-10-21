@@ -19,8 +19,8 @@ type (
 	// PreauthOption configures a Preauth session: the cookie options and the session
 	// options.
 	PreauthOption = sessioncore.PreauthOption
-	// PasswordOption configures the password method (PasswordSignIn): AutoUpgradeHashes
-	// and HashAlgorithm.
+	// PasswordOption configures the password method (PasswordSignIn): AutoUpgradeHashes,
+	// HashAlgorithm and AttemptLimit.
 	PasswordOption = sessioncore.PasswordOption
 )
 
@@ -105,4 +105,17 @@ func AutoUpgradeHashes(a bool) PasswordOption {
 // HashAlgorithm controls hashing algrorithm (default: securehash.Argon2())
 func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 	return sessioncore.HashAlgorithm(hasher)
+}
+
+// AttemptLimit sets how failed password attempts are limited: failures failed attempts
+// on a name within window lock the name for lock, whether a user exists under the name
+// or not, and an attempt during the lock is refused with too_many_attempts and the
+// wait. The client's address and the login's XSRF cookie are each allowed ten times
+// failures, across names, within window before they are locked for lock, and every
+// attempt a client makes during a wait extends its own lock. A success, an MFA
+// completion and a password change reset the name. (default: 5 failures within 15
+// minutes lock the name for 15 minutes) See "Attempt limiting and the after-sign-in
+// hook" in the README.
+func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
+	return sessioncore.AttemptLimit(failures, window, lock)
 }

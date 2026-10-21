@@ -239,6 +239,14 @@ type db interface {
 	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
 	// ConsumePendingSignIn marks the live pending sign-in holding tokenHash consumed at now by a conditional update; NotFound when it is not live.
 	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
+	// SetSignInAttemptsTableName sets the name of the sign-in attempts table.
+	SetSignInAttemptsTableName(name string) error
+	// SignInAttempts returns the sign-in attempts record of name, or NotFound when there is none.
+	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
+	// RecordSignInFailure records a failed attempt on name at now under limit, in one transaction, and returns the record as written.
+	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
+	// ClearSignInAttempts deletes the sign-in attempts record of name, if there is one.
+	ClearSignInAttempts(ctx context.Context, name string) error
 	// ImpersonationEnabled reports whether an impersonation record table is configured.
 	ImpersonationEnabled() bool
 	// InsertImpersonatedSession inserts a session row and its impersonation record atomically,

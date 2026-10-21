@@ -2,13 +2,18 @@ package session
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"slices"
+	"strconv"
+	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/logger"
+	"github.com/cccteam/session/internal/attempts"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
@@ -132,8 +137,30 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 	a.endPending(ctx, w, at)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
+	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: signedInEvents(at)})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
+}
+
+// signedInEvents are the auth events the session of at recorded: the events it
+// carried, or its identity's method when it carried none.
+func signedInEvents(at *signInAttempt) []sessioninfo.AuthEvent {
+	if at.events == nil {
+		return []sessioninfo.AuthEvent{identityEvent(at.identity)}
+	}
+
+	return slices.Clone(at.events)
+}
+
+// notifySignedIn calls the SignedInHook, once the session stands. An error is logged,
+// and the session stands.
+func (a *Auth[S, U, Tx]) notifySignedIn(ctx context.Context, signedIn *SignedIn) {
+	if a.signedIn == nil {
+		return
+	}
+	if err := a.signedIn(ctx, signedIn); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "SignedInHook()"))
+	}
 }
 
 // afterInsert runs once the session row exists and req carries the resolved user.
@@ -249,9 +276,9 @@ func errPasswordChangeRequired() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedPasswordChangeRequired, httpio.NewForbiddenMessage("Change your password to continue"))
 }
 
-// passwordSignIn checks username and password and signs the user in.
-func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string) (*signInOutcome, error) {
-	user, err := a.checkCredentials(ctx, username, password)
+// passwordSignIn checks username and password for client and signs the user in.
+func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWriter, username, password string, client attempts.Client) (*signInOutcome, error) {
+	user, err := a.checkCredentials(ctx, username, password, client)
 	if err != nil {
 		return nil, err
 	}
@@ -265,19 +292,39 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 	})
 }
 
-// checkCredentials returns the enabled user for username when password matches. A
-// missing user, a wrong password and a password-less user are all invalid
-// credentials. An outdated hash is upgraded when auto-upgrade is enabled.
-func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, password string) (*sessionstorage.SessionUser, error) {
-	user, err := a.storage.UserByUserName(ctx, username)
-	if err != nil {
-		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
-	}
+// checkCredentials returns the enabled user for username when password matches, under
+// the attempt limiter. A name or a client the limiter holds is refused before anything
+// is read or hashed, with too_many_attempts and the wait. Otherwise the user is looked
+// up and the password compared: against a dummy hash when there is no user or no
+// password, so an unknown name takes as long as a known one, and a missing user, a
+// wrong password and a password-less user are all invalid credentials, counted against
+// the name and the client alike. A match resets the name. An outdated hash is upgraded
+// when auto-upgrade is enabled, and a disabled user is refused after the match.
+func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, password string, client attempts.Client) (*sessionstorage.SessionUser, error) {
 	methods := a.registered()
-	upgrade, err := sessioncore.ComparePassword(methods.hasher, user.PasswordHash, password)
+	if err := a.limitAttempt(ctx, username, client); err != nil {
+		return nil, err
+	}
+
+	user, lookupErr := a.storage.UserByUserName(ctx, username)
+	if lookupErr != nil && !httpio.HasNotFound(lookupErr) {
+		return nil, httpio.NewUnauthorizedMessageWithError(lookupErr, "Invalid Credentials")
+	}
+	var hash *securehash.Hash
+	if lookupErr == nil {
+		hash = user.PasswordHash
+	}
+	upgrade, err := a.compareOrDummy(ctx, methods, hash, password)
 	if err != nil {
+		a.recordFailure(ctx, username, client)
+		// The log names the cause: no such user, or the comparison's failure.
+		if lookupErr != nil {
+			err = lookupErr
+		}
+
 		return nil, httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
+	a.attemptsSucceeded(ctx, username)
 	if upgrade && methods.autoUpgrade {
 		if err := a.setPasswordHash(ctx, user.ID, password); err != nil {
 			logger.FromCtx(ctx).Error(err)
@@ -320,6 +367,68 @@ func (a *Auth[S, U, Tx]) setPassword(ctx context.Context, userID ccc.UUID, passw
 	return nil
 }
 
+// limitAttempt asks the attempt limiter whether an attempt on username by client may
+// go on, and refuses it with too_many_attempts and the wait when it may not.
+func (a *Auth[S, U, Tx]) limitAttempt(ctx context.Context, username string, client attempts.Client) error {
+	wait, err := a.registered().attempts.Check(ctx, username, client)
+	if err != nil {
+		return errors.Wrap(err, "attempts.Limiter.Check()")
+	}
+	if wait > 0 {
+		return sessioninfo.NewTooManyAttemptsRefusal(wait)
+	}
+
+	return nil
+}
+
+// compareOrDummy compares password against hash, or against the dummy hash when there
+// is none (no user, or a user without a password), which then fails as a wrong
+// password does, in the same time. It reports whether a matching hash should be
+// upgraded.
+func (a *Auth[S, U, Tx]) compareOrDummy(ctx context.Context, methods *signInMethods[Tx], hash *securehash.Hash, password string) (upgrade bool, err error) {
+	if hash != nil {
+		return methods.comparePassword(hash, password)
+	}
+	dummy, err := methods.dummyHash()
+	if err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "the dummy hash could not be made: a refusal for a name with no password is not timed like one for a wrong password"))
+	}
+	if dummy != nil {
+		// The outcome is the same whatever the comparison says.
+		_, _ = methods.compare(dummy, password)
+	}
+
+	return false, sessioncore.ErrNoPassword
+}
+
+// recordFailure counts a failed attempt on username by client. A store failure is
+// logged; the refusal stands either way.
+func (a *Auth[S, U, Tx]) recordFailure(ctx context.Context, username string, client attempts.Client) {
+	lock, err := a.registered().attempts.Failed(ctx, username, client)
+	if err != nil {
+		logger.FromCtx(ctx).Error(err)
+	}
+	if lock > 0 {
+		logger.FromCtx(ctx).Warnf("sign-in attempts on %q reached the limit: refused for %s", username, lock)
+	}
+}
+
+// attemptsSucceeded resets username's attempts after a matching password. A store
+// failure is logged; the sign-in goes on.
+func (a *Auth[S, U, Tx]) attemptsSucceeded(ctx context.Context, username string) {
+	if err := a.registered().attempts.Succeeded(ctx, username); err != nil {
+		logger.FromCtx(ctx).Error(err)
+	}
+}
+
+// clearAttempts resets username's attempts after an MFA completion or a password
+// change. A store failure is logged; the operation stands.
+func (a *Auth[S, U, Tx]) clearAttempts(ctx context.Context, username string) {
+	if err := a.registered().attempts.Clear(ctx, username); err != nil {
+		logger.FromCtx(ctx).Error(err)
+	}
+}
+
 // passwordLogin is the password method's login handler.
 func (a *Auth[S, U, Tx]) passwordLogin() http.HandlerFunc {
 	type request struct {
@@ -337,7 +446,7 @@ func (a *Auth[S, U, Tx]) passwordLogin() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		outcome, err := a.passwordSignIn(ctx, w, req.Username, req.Password)
+		outcome, err := a.passwordSignIn(ctx, w, req.Username, req.Password, a.clientOf(r))
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}
@@ -412,15 +521,19 @@ type mfaResponse struct {
 	RedirectURL   string `json:"redirectUrl,omitempty"`
 }
 
-// refusalResponse is a JSON sign-in handler's answer to a refused sign-in.
+// refusalResponse is a JSON sign-in handler's answer to a refused sign-in. RetryAfter
+// is the wait in seconds of a too_many_attempts refusal, and absent otherwise.
 type refusalResponse struct {
-	Message string                       `json:"message"`
-	Code    sessioninfo.LoginRefusalCode `json:"code"`
+	Message    string                       `json:"message"`
+	Code       sessioninfo.LoginRefusalCode `json:"code"`
+	RetryAfter int                          `json:"retryAfter,omitempty"`
 }
 
 // writeSignInError writes a JSON sign-in handler's error. A sessioninfo.LoginRefusal
 // is answered with 401 (403 for a forbidden cause) and {"message", "code"}, so the
-// page can map the code to its own text. Any other error is the usual client message.
+// page can map the code to its own text; a too_many_attempts refusal is 429 with the
+// wait in seconds as "retryAfter" and the Retry-After header. Any other error is the
+// usual client message.
 func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) error {
 	var refusal *sessioninfo.LoginRefusal
 	if !errors.As(err, &refusal) {
@@ -432,14 +545,28 @@ func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) err
 	}
 
 	status := http.StatusUnauthorized
-	if httpio.HasForbidden(err) {
+	body := refusalResponse{Message: httpio.Message(err), Code: refusal.Code()}
+	switch {
+	case httpio.HasForbidden(err):
 		status = http.StatusForbidden
+	case httpio.HasTooManyRequests(err):
+		status = http.StatusTooManyRequests
 	}
-	if werr := httpio.NewEncoder(w).StatusCodeWithBody(status, refusalResponse{Message: httpio.Message(err), Code: refusal.Code()}); werr != nil {
+	if wait, ok := sessioninfo.RetryAfterOf(err); ok {
+		body.RetryAfter = retryAfterSeconds(wait)
+		w.Header().Set("Retry-After", strconv.Itoa(body.RetryAfter))
+	}
+	if werr := httpio.NewEncoder(w).StatusCodeWithBody(status, body); werr != nil {
 		return errors.Wrap(werr, "httpio.Encoder.StatusCodeWithBody()")
 	}
 
 	return err
+}
+
+// retryAfterSeconds renders a wait as the whole seconds Retry-After carries, rounded
+// up, and at least one so a client never retries at once.
+func retryAfterSeconds(wait time.Duration) int {
+	return max(int(math.Ceil(wait.Seconds())), 1)
 }
 
 // namesItsUser reports whether identity names its user instead of being resolved to

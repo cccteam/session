@@ -1,6 +1,8 @@
 package session
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"sync"
@@ -9,9 +11,11 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/internal/attempts"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
@@ -71,8 +75,69 @@ type signInMethods[Tx any] struct {
 	// passwords.
 	hasher      *securehash.SecureHasher
 	autoUpgrade bool
+	// attempts limits failed password attempts. It is built over the store under the
+	// default limit, and the password method's registration replaces it with one
+	// under its own, so a password check through the API is limited either way.
+	attempts *attempts.Limiter
+	// compare checks a password against a hash with the method's hasher; a test counts
+	// the checks through it.
+	compare func(hash *securehash.Hash, password string) (upgrade bool, err error)
+	// dummy is a hash the method's hasher made of a random secret, compared against for
+	// a name that has no user or no password, so a refusal takes as long as one for a
+	// wrong password. It is made once, at the first check, when the hasher is fixed.
+	dummy     *securehash.Hash
+	dummyOnce sync.Once
 	// external holds the registered redirect-based methods by registration name.
 	external map[string]*externalMethod[Tx]
+}
+
+// init sets the methods of a new Auth over storage, before any registration: the
+// default hasher and attempt limit, no external methods.
+func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
+	m.registered = make(map[string]bool)
+	m.hasher = securehash.New(securehash.Argon2())
+	m.autoUpgrade = true
+	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
+	m.external = make(map[string]*externalMethod[Tx])
+	m.compare = func(hash *securehash.Hash, password string) (bool, error) {
+		return m.hasher.Compare(hash, password)
+	}
+}
+
+// comparePassword checks password against hash, reporting whether the hash should be
+// upgraded. A nil hash (a user without a password) fails like a wrong password, so the
+// hasher never sees nil.
+func (m *signInMethods[Tx]) comparePassword(hash *securehash.Hash, password string) (upgrade bool, err error) {
+	if hash == nil {
+		return false, sessioncore.ErrNoPassword
+	}
+	upgrade, err = m.compare(hash, password)
+	if err != nil {
+		return false, errors.Wrap(err, "securehash.SecureHasher.Compare()")
+	}
+
+	return upgrade, nil
+}
+
+// dummyHash is the hash compared against for a name with no user or no password. It
+// is nil only when the hasher failed to make it, which is logged by the check that
+// found out.
+func (m *signInMethods[Tx]) dummyHash() (*securehash.Hash, error) {
+	var err error
+	m.dummyOnce.Do(func() {
+		secret := make([]byte, 32)
+		if _, err = rand.Read(secret); err != nil {
+			err = errors.Wrap(err, "rand.Read()")
+
+			return
+		}
+		m.dummy, err = m.hasher.Hash(base64.RawStdEncoding.EncodeToString(secret))
+		if err != nil {
+			err = errors.Wrap(err, "securehash.SecureHasher.Hash()")
+		}
+	})
+
+	return m.dummy, err
 }
 
 // registered returns the Auth's sign-in methods and closes registration. Every read
@@ -134,6 +199,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	a.refuseRegistration(reg.name, reg.method, reg.err)
 	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
+	a.methods.attempts = attempts.New(reg.password.Attempts, a.storage)
 
 	return methodHandlers{login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler())}
 }
@@ -195,19 +261,23 @@ type PasswordMethod struct {
 }
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
-// handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes); cookie and
-// session options belong to NewAuth.
+// handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes,
+// AttemptLimit); cookie and session options belong to NewAuth.
 //
 // It panics when the method is already registered on auth, when auth has served a
-// request, or when it is given an option that is not a password option. The
+// request, when it is given an option that is not a password option, or when the
+// attempt limit is not at least one failure within a positive window and lock. The
 // registration is named "password".
 func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMethod {
 	settings := sessioncore.DefaultPasswordSettings()
 	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
-			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes); pass cookie and session options to NewAuth")
+			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit); pass cookie and session options to NewAuth")
 		}
+	}
+	if limit := settings.Attempts; reg.err == nil && (limit.Failures < 1 || limit.Window <= 0 || limit.Lock <= 0) {
+		reg.err = errors.Newf("AttemptLimit(%d, %s, %s): the limit is at least one failure within a positive window, locking for a positive period", limit.Failures, limit.Window, limit.Lock)
 	}
 	h := registerMethod(auth, reg)
 

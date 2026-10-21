@@ -89,6 +89,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) AppendAuthEvent(ctx, sessionID, event a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*MockAuthStore[Tx])(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ClearSignInAttempts mocks base method.
+func (m *MockAuthStore[Tx]) ClearSignInAttempts(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSignInAttempts", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearSignInAttempts indicates an expected call of ClearSignInAttempts.
+func (mr *MockAuthStoreMockRecorder[Tx]) ClearSignInAttempts(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*MockAuthStore[Tx])(nil).ClearSignInAttempts), ctx, name)
+}
+
 // ConsumePendingSignIn mocks base method.
 func (m *MockAuthStore[Tx]) ConsumePendingSignIn(ctx context.Context, tokenHash []byte) error {
 	m.ctrl.T.Helper()
@@ -406,6 +420,21 @@ func (mr *MockAuthStoreMockRecorder[Tx]) PendingSignIn(ctx, tokenHash any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingSignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).PendingSignIn), ctx, tokenHash)
 }
 
+// RecordSignInFailure mocks base method.
+func (m *MockAuthStore[Tx]) RecordSignInFailure(ctx context.Context, name string, limit sessionstorage.SignInAttemptLimit) (*sessionstorage.SignInAttempts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordSignInFailure", ctx, name, limit)
+	ret0, _ := ret[0].(*sessionstorage.SignInAttempts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordSignInFailure indicates an expected call of RecordSignInFailure.
+func (mr *MockAuthStoreMockRecorder[Tx]) RecordSignInFailure(ctx, name, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSignInFailure", reflect.TypeOf((*MockAuthStore[Tx])(nil).RecordSignInFailure), ctx, name, limit)
+}
+
 // Session mocks base method.
 func (m *MockAuthStore[Tx]) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -477,6 +506,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetSessionTableName(name any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetSessionTableName), name)
 }
 
+// SetSignInAttemptsTableName mocks base method.
+func (m *MockAuthStore[Tx]) SetSignInAttemptsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSignInAttemptsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInAttemptsTableName indicates an expected call of SetSignInAttemptsTableName.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetSignInAttemptsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInAttemptsTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetSignInAttemptsTableName), name)
+}
+
 // SetUserPassword mocks base method.
 func (m *MockAuthStore[Tx]) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
 	m.ctrl.T.Helper()
@@ -546,6 +589,21 @@ func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSess
 func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy)
+}
+
+// SignInAttempts mocks base method.
+func (m *MockAuthStore[Tx]) SignInAttempts(ctx context.Context, name string) (*sessionstorage.SignInAttempts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInAttempts", ctx, name)
+	ret0, _ := ret[0].(*sessionstorage.SignInAttempts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInAttempts indicates an expected call of SignInAttempts.
+func (mr *MockAuthStoreMockRecorder[Tx]) SignInAttempts(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInAttempts", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignInAttempts), ctx, name)
 }
 
 // TouchUserSignIn mocks base method.

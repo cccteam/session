@@ -8,6 +8,7 @@ import (
 	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/internal/attempts"
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
@@ -25,9 +26,13 @@ func (p *AuthAPI[S, U, Tx]) ValidateSession(ctx context.Context) (context.Contex
 
 // ValidateCredentials checks a username and password and returns the user ID. A
 // password-less user always fails validation. It starts no session and asks no
-// sign-in policy.
+// sign-in policy. It is limited as the login is: a failure counts against the name,
+// and a name whose attempts reached the limit is refused with a
+// *sessioninfo.LoginRefusal carrying RefusedTooManyAttempts and the wait
+// (sessioninfo.RetryAfterOf), before the user is looked up or the password hashed.
+// The call has no client, so only the name is counted.
 func (p *AuthAPI[S, U, Tx]) ValidateCredentials(ctx context.Context, username, password string) (ccc.UUID, error) {
-	user, err := p.auth.checkCredentials(ctx, username, password)
+	user, err := p.auth.checkCredentials(ctx, username, password, attempts.Client{})
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -227,6 +232,7 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 	if err := a.setPassword(ctx, user.ID, req.NewPassword, false); err != nil {
 		return err
 	}
+	a.clearAttempts(ctx, user.Username)
 
 	// The regenerated session keeps the provider's session id, and its issuer, of the
 	// session it replaces, so a provider-initiated logout still finds it.
@@ -247,30 +253,35 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 
 // SetSessionUserPassword sets a password the user chose, without the old one: the end
 // of a flow of the application's own that proved who they are (a reset link, an
-// enrollment). The password change mark is cleared and the user's sessions are
-// destroyed. A password an operator chose is ResetSessionUserPassword.
+// enrollment). The password change mark is cleared, the user's sessions are
+// destroyed and the name's sign-in attempts are reset. A password an operator chose
+// is ResetSessionUserPassword.
 func (p *AuthAPI[S, U, Tx]) SetSessionUserPassword(ctx context.Context, userID ccc.UUID, password string) error {
-	if err := p.auth.setPassword(ctx, userID, password, false); err != nil {
-		return err
-	}
-	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
-	}
-
-	return nil
+	return p.auth.replacePassword(ctx, userID, password, false)
 }
 
 // ResetSessionUserPassword sets a temporary password an operator chose: the user must
 // change it before anything else is served (SessionUser.PasswordChangeRequired; see
-// "Users and the forced password change" in the README), and its sessions are
-// destroyed.
+// "Users and the forced password change" in the README), its sessions are destroyed
+// and the name's sign-in attempts are reset.
 func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID ccc.UUID, temporary string) error {
-	if err := p.auth.setPassword(ctx, userID, temporary, true); err != nil {
+	return p.auth.replacePassword(ctx, userID, temporary, true)
+}
+
+// replacePassword sets a new password for userID with its change mark, destroys the
+// user's sessions and resets the name's sign-in attempts.
+func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID ccc.UUID, password string, changeRequired bool) error {
+	user, err := a.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if err := a.setPassword(ctx, userID, password, changeRequired); err != nil {
 		return err
 	}
-	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
+	if err := a.storage.DestroyUserSessions(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
+	a.clearAttempts(ctx, user.Username)
 
 	return nil
 }

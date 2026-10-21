@@ -2,6 +2,7 @@ package sessioninfo
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/cccteam/httpio"
 	"github.com/go-playground/errors/v5"
@@ -117,4 +118,43 @@ func LoginRefusalCodeOf(err error) LoginRefusalCode {
 	}
 
 	return RefusedInternalError
+}
+
+// RefusedTooManyAttempts is the code for a password attempt on a name whose failed
+// attempts reached the limit: the name is refused until its lock passes, whether a user
+// exists under it or not. The answer is 429 with the wait in the body (retryAfter,
+// seconds) and the Retry-After header; RetryAfterOf reads the wait from the error.
+const RefusedTooManyAttempts LoginRefusalCode = "too_many_attempts"
+
+// retryAfterError is a refusal's cause that carries the wait before the next attempt.
+type retryAfterError struct {
+	wait  time.Duration
+	cause error
+}
+
+func (e *retryAfterError) Error() string {
+	return fmt.Sprintf("retry after %s: %s", e.wait, e.cause.Error())
+}
+
+func (e *retryAfterError) Unwrap() error {
+	return e.cause
+}
+
+// NewTooManyAttemptsRefusal is the refusal of a password attempt on a locked name:
+// RefusedTooManyAttempts over a TooManyRequests client message, carrying wait, the
+// time until the name may be tried again. It says nothing about the name.
+func NewTooManyAttemptsRefusal(wait time.Duration) error {
+	return NewLoginRefusal(RefusedTooManyAttempts, &retryAfterError{wait: wait, cause: httpio.NewTooManyRequestsMessage("Too many sign-in attempts")})
+}
+
+// RetryAfterOf returns the wait a refused attempt asks for before the next one, and
+// whether err asks for one: true for a RefusedTooManyAttempts refusal anywhere in
+// err's chain, false for any other error.
+func RetryAfterOf(err error) (wait time.Duration, ok bool) {
+	var retry *retryAfterError
+	if !errors.As(err, &retry) {
+		return 0, false
+	}
+
+	return retry.wait, true
 }
