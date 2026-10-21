@@ -166,6 +166,9 @@ type AuthHarness struct {
 	DeleteSession func(ctx context.Context, t *testing.T, raw any, sessionID ccc.UUID)
 	// Recorded reads key from the HookRecords table directly, as committed.
 	Recorded func(ctx context.Context, t *testing.T, raw any, key string) (value string, found bool)
+	// Record writes key=value to the HookRecords table directly, bypassing the driver:
+	// a row the application's hooks then read in a sign-in's transaction.
+	Record func(ctx context.Context, t *testing.T, raw any, key, value string)
 	// PendingConsumedAt reads the ConsumedAt of the pending sign-in holding tokenHash
 	// directly: nil while it is live.
 	PendingConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
@@ -203,6 +206,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the policy of a provisioning sign-in reads the new user and the rows OnProvisioned wrote, and knows it was provisioned", run: testPolicySeesProvisionedUser},
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
+		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},

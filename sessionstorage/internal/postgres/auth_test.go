@@ -23,6 +23,7 @@ func TestAuth(t *testing.T) {
 		CountAuthEvents:   countAuthEvents,
 		DeleteSession:     deleteSession,
 		Recorded:          recorded,
+		Record:            record,
 		PendingConsumedAt: pendingConsumedAt,
 	})
 }
@@ -160,4 +161,13 @@ func recorded(ctx context.Context, t *testing.T, raw any, key string) (string, b
 	}
 
 	return value, true
+}
+
+func record(ctx context.Context, t *testing.T, raw any, key, value string) {
+	t.Helper()
+
+	if _, err := queryer(t, raw).Exec(ctx, `INSERT INTO "HookRecords" ("RecordKey", "RecordValue") VALUES ($1, $2)
+		ON CONFLICT ("RecordKey") DO UPDATE SET "RecordValue" = EXCLUDED."RecordValue"`, key, value); err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
 }

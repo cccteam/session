@@ -78,6 +78,29 @@ func (r StandardAccountRule) Validate() error {
 // returned, so a DenySignIn or RequireMFA answer keeps the policy's own writes.
 type Policy[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error)
 
+// Then returns the policy that asks p and, when p allows the sign-in, asks next and
+// answers its decision: the library's tenant policy (TenantPolicy) first, then the
+// application's own rule for what the tenant policy cannot know. A Deny or a
+// RequireMFA from p is answered as it is, and next is not asked. A nil next is a
+// wiring mistake and panics.
+func (p Policy[Tx]) Then(next Policy[Tx]) Policy[Tx] {
+	if next == nil {
+		panic("signin: Policy.Then was given nil: pass the application's rule")
+	}
+
+	return func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Decision, error) {
+		decision, err := p(ctx, tx, req)
+		if err != nil {
+			return nil, err
+		}
+		if decision == nil || decision.Outcome() != AllowSignIn {
+			return decision, nil
+		}
+
+		return next(ctx, tx, req)
+	}
+}
+
 // NewUser is the user a rule provisions. It has no password unless PasswordHash is
 // set.
 type NewUser struct {
@@ -253,6 +276,7 @@ const (
 type Decision struct {
 	outcome PolicyOutcome
 	refusal sessioninfo.LoginRefusalCode
+	cause   error
 	factors []sessioninfo.AuthMethod
 }
 
@@ -265,6 +289,13 @@ func Allow() *Decision {
 // empty. The policy's own writes are committed.
 func Deny(code sessioninfo.LoginRefusalCode) *Decision {
 	return &Decision{outcome: DenySignIn, refusal: code}
+}
+
+// denyBecause is Deny with the cause the refusal carries beside ErrSignInDenied, for
+// errors.Is: the library's own rules name theirs (ErrNoTenant, ErrConnectionNotInTenant,
+// ErrDirectoryOnly).
+func denyBecause(code sessioninfo.LoginRefusalCode, cause error) *Decision {
+	return &Decision{outcome: DenySignIn, refusal: code, cause: cause}
 }
 
 // RequireMFA holds the sign-in as pending until the application completes its MFA step
@@ -283,6 +314,13 @@ func (d *Decision) Outcome() PolicyOutcome {
 // Refusal is a Deny decision's code.
 func (d *Decision) Refusal() sessioninfo.LoginRefusalCode {
 	return d.refusal
+}
+
+// Cause is the cause a Deny decision of one of the library's own rules carries beside
+// ErrSignInDenied (ErrNoTenant, ErrConnectionNotInTenant, ErrDirectoryOnly), nil for
+// a Deny the application built.
+func (d *Decision) Cause() error {
+	return d.cause
 }
 
 // Factors are the methods a RequireMFA decision accepts for the step-up; none means
@@ -326,8 +364,20 @@ var (
 	// pre-created user. The code is sessioninfo.RefusedNotInvited.
 	ErrNotInvited = errors.New("signin: no user was created for the identity's sign-in name")
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
-	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy.
+	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy. A refusal
+	// of the tenant policy carries its own cause beside it.
 	ErrSignInDenied = errors.New("signin: the sign-in policy denied the sign-in")
+	// ErrNoTenant is the cause when the tenant policy refused a person who is a member
+	// of no tenant. The code is sessioninfo.RefusedNoTenant.
+	ErrNoTenant = errors.New("signin: the person is a member of no tenant")
+	// ErrConnectionNotInTenant is the cause when the tenant policy refused a sign-in
+	// through a directory that no tenant of the person declares. The code is
+	// sessioninfo.RefusedConnectionNotInTenant.
+	ErrConnectionNotInTenant = errors.New("signin: no tenant of the person declares the directory the sign-in came through")
+	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
+	// through a directory because every tenant of the person admits its people through
+	// their directories only. The code is sessioninfo.RefusedDirectoryOnly.
+	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through their directories only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.
 	ErrUserDisabled = errors.New("signin: the user is disabled")

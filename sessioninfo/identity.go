@@ -34,6 +34,23 @@ const (
 	MethodApplication AuthMethod = "application"
 )
 
+// ThroughDirectory reports whether the method signs a person in through a directory:
+// Microsoft Entra ID, Google Workspace and WorkOS, whose identities carry the directory
+// as their connection (Identity.Connection, and AuthEvent.Connection on the session's
+// first auth event). A password, a session the application starts for a user it
+// authenticated itself, an impersonation, a link confirmation and a step the
+// application records under its own name are not. A tenant's declaration admits a
+// sign-in through a directory by naming the directory (signin.Directory); see
+// signin.TenantPolicy.
+func (m AuthMethod) ThroughDirectory() bool {
+	switch m {
+	case MethodAzure, MethodGoogle, MethodWorkOS:
+		return true
+	default:
+		return false
+	}
+}
+
 // Identity is a verified identity produced by a sign-in method. An external identity
 // is linked to a user by (Method, Connection, Subject). Email is an attribute and
 // is never used as a key.
@@ -203,4 +220,16 @@ const (
 	// RefusedPersonalAccount is the code for an Entra token of a Microsoft personal
 	// account under a registration that admits work or school accounts only.
 	RefusedPersonalAccount LoginRefusalCode = "personal_account"
+	// RefusedNoTenant is the code for a person who is a member of no tenant, under the
+	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
+	// built with signin.AdmitWithoutTenant.
+	RefusedNoTenant LoginRefusalCode = "no_tenant"
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
+	// no tenant of the person declares, under the tenant policy.
+	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
+	// RefusedDirectoryOnly is the code for a sign-in that is not through a directory (a
+	// password, a session the application starts itself) by a person whose every
+	// tenant admits its people through their directories only, under the tenant
+	// policy.
+	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
 )

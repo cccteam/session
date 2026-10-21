@@ -188,7 +188,9 @@ DML what a later rule must read.
   `signin.RequireMFA(factors...)`. The factors are the methods the application's MFA
   step may record when it completes the sign-in (`"email-otp"`, `"totp"`): the pending
   status and the `PendingHook` report them, and `CompletePending` refuses any other;
-  none accepts any.
+  none accepts any. An application whose users belong to tenants sets the library's
+  **tenant policy** (`signin.TenantPolicy`), with its own rule chained after it when it
+  has one; see "The tenant policy".
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in
@@ -309,6 +311,74 @@ sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Me
 
 `NewAuth` refuses the OIDC-only storage features
 (`WithOIDCUsers`, the custom user data login hook).
+
+### The tenant policy
+
+The tenant policy is the library's sign-in rule for an application whose users belong
+to tenants: a person signs in when one of their tenants admits the way they signed in.
+It is built from two things the application gives it and set like any other policy:
+
+```go
+auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
+```
+
+- **The person's memberships**, read through `userManager`, the access library's user
+  manager (`signin.UserRoleManager`, the same store role synchronization reconciles
+  through). The person's tenants are the domains where they hold a role; a role held in
+  the global partition or in every tenant domain makes the person the application's own
+  staff.
+- **Each tenant's declaration**, read through `tenantDeclaration`, a
+  `signin.DeclarationReader[Tx]` the application writes over its own tenant record,
+  typed to the store's transaction like the other hooks and run in the sign-in's:
+  `func(ctx, tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error)`. A
+  declaration names the **directories** the tenant admits its people through
+  (`signin.Directory`: a method and the connection its identities carry, which is the
+  Entra tenant id, the name the registration gives a Google Workspace, or a WorkOS
+  connection id) and whether its people come through those **only**
+  (`DirectoryOnly`). A tenant that declares nothing (a nil declaration) admits its
+  people by password and through no directory.
+
+The rules, in order, once the user is known:
+
+1. A person holding a role in the global partition or in every tenant domain is the
+   application's staff and is admitted on the library's own checks; so is a sign-in
+   whose method synchronizes roles, since the directory names the person's roles and
+   the synchronization, which runs once the session stands, refuses a person with none.
+   The application's own directories are admitted by the registration's organization
+   slot already.
+2. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
+   was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
+   application needs: a stranger signs in, then creates their organization and its
+   first membership, and until then the session reaches no tenant.
+3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
+   person's tenants declares the directory it came through, and refused otherwise
+   (`connection_not_in_tenant`).
+4. Any other sign-in, a password or a session the application starts for a user it
+   authenticated itself, is admitted when one of the person's tenants admits its people
+   other than through its directories, and refused when every one of them is directory
+   only (`directory_only`): nothing would be reachable.
+5. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
+   rule after the tenant policy, for what the tenant policy cannot know; it is asked
+   after an `Allow` and never after a `Deny` or a `RequireMFA`:
+
+   ```go
+   auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration, signin.AdmitWithoutTenant()).Then(ownRule))
+   ```
+
+The policy decides what the session may be and never writes. Which of the person's
+tenants the session then reaches is decided again, tenant by tenant, where the
+application computes the session's tenant list: `signin.TenantDeclaration.Admits(method,
+connection)` is the same decision over one tenant, with no transaction and no reads,
+and the session says how it was established through
+`sessioninfo.DataFromCtx(ctx).EstablishedBy()`, its first auth event, whose method and
+connection are the sign-in's (`sessioninfo.AuthMethod.ThroughDirectory` tells a sign-in
+through a directory from the application's own). So a person in a directory-only tenant
+and a password-admitting tenant signs in by password and reaches the second; a member
+of two tenants with two directories reaches the one whose directory they came through.
+A refusal is a `sessioninfo.LoginRefusal` with its code, and `errors.Is` matches
+`signin.ErrSignInDenied` and the rule's own cause (`signin.ErrNoTenant`,
+`signin.ErrConnectionNotInTenant`, `signin.ErrDirectoryOnly`); a role store or reader
+error fails the sign-in (`internal_error`).
 
 ### Registering sign-in methods
 
@@ -975,6 +1045,9 @@ table is the wire contract:
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or a standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
+| `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
+| `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

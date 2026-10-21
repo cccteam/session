@@ -56,6 +56,21 @@ type SessionData struct {
 	AuthEvents []AuthEvent
 }
 
+// EstablishedBy returns how the session was established: its first auth event, the
+// method and connection of the sign-in (a password; the Entra tenant id, the Google
+// Workspace or the WorkOS connection of a sign-in through a directory; the actor of an
+// impersonation; the application's own first event of a session it started itself).
+// It is what a tenant's declaration admits or refuses when the session reaches the
+// tenant (signin.TenantDeclaration.Admits). ok is false for a session that records no
+// events: a legacy or preauth session, or a storage without an auth events table.
+func (s *SessionData) EstablishedBy() (event AuthEvent, ok bool) {
+	if s == nil || len(s.AuthEvents) == 0 {
+		return AuthEvent{}, false
+	}
+
+	return s.AuthEvents[0], true
+}
+
 // UserInfo struct contains information about a user
 type UserInfo struct {
 	ID       ccc.UUID `spanner:"Id"           db:"Id"`
