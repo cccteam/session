@@ -44,6 +44,9 @@ type AuthDriver interface {
 	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
 	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
 	ClearSignInAttempts(ctx context.Context, name string) error
+	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
+	// it at a table that is not there.
+	SetSignInAttemptsTableName(name string) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -234,6 +237,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
+		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

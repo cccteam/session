@@ -9,7 +9,7 @@ import (
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/go-playground/errors/v5"
-	"google.golang.org/grpc/codes"
+	"google.golang.org/api/iterator"
 )
 
 // attemptsColumns are the sign-in attempts table's columns.
@@ -37,17 +37,29 @@ func (r *attemptsRow) record() *dbtype.SignInAttempts {
 	return rec
 }
 
-// readAttempts reads name's record through read; found is false when there is none.
-func readAttempts(
-	ctx context.Context, read func(ctx context.Context, table string, key spanner.Key, columns []string) (*spanner.Row, error), table, name string,
-) (record *dbtype.SignInAttempts, found bool, err error) {
-	row, err := read(ctx, table, spanner.Key{name}, attemptsColumns)
+// rowReader reads the rows of a key set from a table, as spanner.ReadOnlyTransaction.Read
+// and spanner.ReadWriteTransaction.Read do: the iterator answers iterator.Done for a key
+// with no row, and any failure of the read itself is the iterator's error.
+type rowReader func(ctx context.Context, table string, keys spanner.KeySet, columns []string) *spanner.RowIterator
+
+// readAttempts reads name's record from table through read; found is false when there is
+// none. The read tells a missing row from a failed read: a key with no row ends the
+// iterator (iterator.Done), while any other error, a missing table among them, is
+// returned naming the table. A ReadRow answers NotFound for both a missing row and a
+// missing table, and a read that failed has ended a read-write transaction, so taking
+// that NotFound for "no record yet" let the write that followed fail on a closed
+// transaction instead of saying what was wrong.
+func readAttempts(ctx context.Context, read rowReader, table, name string) (record *dbtype.SignInAttempts, found bool, err error) {
+	iter := read(ctx, table, spanner.Key{name}, attemptsColumns)
+	defer iter.Stop()
+
+	row, err := iter.Next()
 	if err != nil {
-		if spanner.ErrCode(err) == codes.NotFound {
+		if errors.Is(err, iterator.Done) {
 			return nil, false, nil
 		}
 
-		return nil, false, errors.Wrap(err, "ReadRow()")
+		return nil, false, errors.Wrapf(err, "reading %s", table)
 	}
 	var r attemptsRow
 	if err := row.ToStruct(&r); err != nil {
@@ -58,12 +70,13 @@ func readAttempts(
 }
 
 // SignInAttempts returns the sign-in attempts record of name, or NotFound when there
-// is none.
+// is none. A read that fails, as it does when the table is missing, is returned as its
+// own error, which names the table.
 func (s *SessionStorageDriver) SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	record, found, err := readAttempts(ctx, s.spanner.Single().ReadRow, s.attemptsTableName, name)
+	record, found, err := readAttempts(ctx, s.spanner.Single().Read, s.attemptsTableName, name)
 	if err != nil {
 		return nil, err
 	}
@@ -78,14 +91,16 @@ func (s *SessionStorageDriver) SignInAttempts(ctx context.Context, name string) 
 // the record as written, with UpdatedAt the commit time. The record is read and
 // written in one read-write transaction, which Spanner retries when another failure
 // of the same name commits first, so concurrent failures each count: the rule
-// (dbtype.SignInAttempts.Failed) is applied to what the transaction's read shows.
+// (dbtype.SignInAttempts.Failed) is applied to what the transaction's read shows. A
+// read that fails, as it does when the table is missing, ends the transaction with the
+// read's own error, which names the table; nothing is written.
 func (s *SessionStorageDriver) RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var record *dbtype.SignInAttempts
 	commit, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		current, _, err := readAttempts(ctx, txn.ReadRow, s.attemptsTableName, name)
+		current, _, err := readAttempts(ctx, txn.Read, s.attemptsTableName, name)
 		if err != nil {
 			return err
 		}
