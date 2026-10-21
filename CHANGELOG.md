@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.1](https://github.com/cccteam/session/compare/v0.13.0...v0.13.1) (2026-10-21)
+
+
+### Features
+
+* the password method limits failed sign-in attempts per name, with an after-sign-in hook ([#280](https://github.com/cccteam/session/issues/280)) ([ea23748](https://github.com/cccteam/session/commit/ea23748ebe35202fa92f059f13176fc7b6b25202))
+* the tenant policy admits a sign-in when one of the person's tenants admits the way they signed in ([#280](https://github.com/cccteam/session/issues/280)) ([ea23748](https://github.com/cccteam/session/commit/ea23748ebe35202fa92f059f13176fc7b6b25202))
+
+
+### Code Upgrade
+
+* **deps:** Go 1.26.10; crypto/x509 GO-2026-6809 fixed ([#280](https://github.com/cccteam/session/issues/280)) ([ea23748](https://github.com/cccteam/session/commit/ea23748ebe35202fa92f059f13176fc7b6b25202))
+
 ## [0.13.0](https://github.com/cccteam/session/compare/v0.12.3...v0.13.0) (2026-10-19)
 
 
