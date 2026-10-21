@@ -6,6 +6,7 @@ package signinflow
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/cccteam/ccc"
@@ -441,8 +442,19 @@ func decideSignIn(
 
 		return verdict{stop: pending}, nil
 	default:
-		return verdict{stop: Refusal(decision.Refusal(), sessioninfo.RefusedByPolicy, signin.ErrSignInDenied, "sign-in denied")}, nil
+		return verdict{stop: Refusal(decision.Refusal(), sessioninfo.RefusedByPolicy, denialCause(decision), "sign-in denied")}, nil
 	}
+}
+
+// denialCause is the cause a Deny decision's refusal carries: ErrSignInDenied, and
+// with it the cause one of the library's own rules named (Decision.Cause), so
+// errors.Is matches either.
+func denialCause(decision *signin.Decision) error {
+	if cause := decision.Cause(); cause != nil {
+		return fmt.Errorf("%w: %w", signin.ErrSignInDenied, cause)
+	}
+
+	return signin.ErrSignInDenied
 }
 
 // policyApplies reports whether the sign-in policy decides a session created for

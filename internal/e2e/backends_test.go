@@ -2,12 +2,16 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	dbinitiator "github.com/cccteam/db-initiator"
+	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc/codes"
@@ -35,6 +39,9 @@ type appDB interface {
 	disableUser(ctx context.Context, t *testing.T, userID ccc.UUID)
 	// hasUser reports whether a user exists under username, as stored.
 	hasUser(ctx context.Context, t *testing.T, username string) bool
+	// declareTenant writes tenant's declaration: the directories it admits its people
+	// through, and whether through those only.
+	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
 }
 
 // appRows reads and writes the application's own tables in a sign-in's transaction, the
@@ -46,6 +53,34 @@ type appRows[Tx any] struct {
 	partnerOf func(ctx context.Context, tx Tx, userID ccc.UUID) (partner string, found bool, err error)
 	// recordAttempt records the outcome of subject's sign-in attempt.
 	recordAttempt func(ctx context.Context, tx Tx, subject, outcome string) error
+	// tenantDeclaration reads tenant's declaration for the tenant policy, nil when the
+	// tenant declares nothing.
+	tenantDeclaration func(ctx context.Context, tx Tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error)
+}
+
+// renderDirectories renders directories as the TenantDeclarations row keeps them:
+// method:connection, comma-separated.
+func renderDirectories(directories []signin.Directory) string {
+	parts := make([]string, 0, len(directories))
+	for _, d := range directories {
+		parts = append(parts, string(d.Method)+":"+d.Connection)
+	}
+
+	return strings.Join(parts, ",")
+}
+
+// parseDirectories reads renderDirectories' form back.
+func parseDirectories(rendered string) []signin.Directory {
+	if rendered == "" {
+		return nil
+	}
+	var directories []signin.Directory
+	for part := range strings.SplitSeq(rendered, ",") {
+		method, connection, _ := strings.Cut(part, ":")
+		directories = append(directories, signin.Directory{Method: sessioninfo.AuthMethod(method), Connection: connection})
+	}
+
+	return directories
 }
 
 // storeTables are the auth events and impersonation tables every Auth store in these
@@ -102,6 +137,21 @@ var postgresBackend = backend[pgx.Tx]{
 
 			return nil
 		},
+		tenantDeclaration: func(ctx context.Context, tx pgx.Tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
+			var (
+				directories   string
+				directoryOnly bool
+			)
+			err := tx.QueryRow(ctx, `SELECT "Directories", "DirectoryOnly" FROM "TenantDeclarations" WHERE "Tenant" = $1`, string(tenant)).Scan(&directories, &directoryOnly)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				return nil, nil
+			case err != nil:
+				return nil, errors.Wrap(err, "pgx.Row.Scan()")
+			}
+
+			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
+		},
 	},
 }
 
@@ -155,6 +205,16 @@ func (db postgresDB) hasUser(ctx context.Context, t *testing.T, username string)
 	return exists
 }
 
+func (db postgresDB) declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory) {
+	t.Helper()
+
+	if _, err := db.Exec(ctx, `INSERT INTO "TenantDeclarations" ("Tenant", "Directories", "DirectoryOnly") VALUES ($1, $2, $3)
+		ON CONFLICT ("Tenant") DO UPDATE SET "Directories" = EXCLUDED."Directories", "DirectoryOnly" = EXCLUDED."DirectoryOnly"`,
+		tenant, renderDirectories(directories), directoryOnly); err != nil {
+		t.Fatalf("declare the tenant: %v", err)
+	}
+}
+
 var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 	name: "spanner",
 	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[*spanner.ReadWriteTransaction]) {
@@ -204,6 +264,24 @@ var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 			}
 
 			return nil
+		},
+		tenantDeclaration: func(ctx context.Context, tx *spanner.ReadWriteTransaction, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
+			row, err := tx.ReadRow(ctx, "TenantDeclarations", spanner.Key{string(tenant)}, []string{"Directories", "DirectoryOnly"})
+			if spanner.ErrCode(err) == codes.NotFound {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+			}
+			var (
+				directories   string
+				directoryOnly bool
+			)
+			if err := row.Columns(&directories, &directoryOnly); err != nil {
+				return nil, errors.Wrap(err, "spanner.Row.Columns()")
+			}
+
+			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
 		},
 	},
 }
@@ -273,4 +351,13 @@ func (db spannerDB) hasUser(ctx context.Context, t *testing.T, username string) 
 	}
 
 	return n > 0
+}
+
+func (db spannerDB) declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory) {
+	t.Helper()
+
+	m := spanner.InsertOrUpdate("TenantDeclarations", []string{"Tenant", "Directories", "DirectoryOnly"}, []any{tenant, renderDirectories(directories), directoryOnly})
+	if _, err := db.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("declare the tenant: %v", err)
+	}
 }
