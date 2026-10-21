@@ -22,6 +22,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `Custom User Data`: App-defined durable data attached to the user record — it survives logout, expiry, and regeneration, and dies with the user. See the "Custom user data" section.
 - `OIDC User Anchor`: the legacy Azure type's durable user record, keyed by the immutable `(tid, oid)` claim pair; an Auth session's users are `SessionUsers` records for every method. See the "OIDC user anchor" section.
 - `Login Refusal Codes`: A refused sign-in returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
+- `Attempt limiting`: The password method limits failed attempts per name, known or not, in memory and in the store, and refuses an attempt past the limit with `too_many_attempts` and the wait; an after-sign-in hook is told of every session a sign-in establishes. See the "Attempt limiting and the after-sign-in hook" section.
 
 Every session type is generic over two data axes, custom session data and custom user
 data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
@@ -124,12 +125,12 @@ first sign-in (see "Storage and schema").
 
 ### Storage and schema
 
-Each auth group owns six tables: sessions and users (the base migrations,
-`schema/*/migrations`), identities, auth events and pending sign-ins (the auth
-migrations, `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
-`ProviderSessionId` and `ProviderSessionIssuer` to the sessions table), and impersonations
-(`schema/*/impersonation/migrations`) if you use it. Which set to apply depends on
-where the group starts:
+Each auth group owns seven tables: sessions and users (the base migrations,
+`schema/*/migrations`), identities, auth events, pending sign-ins and sign-in attempts
+(the auth migrations, `schema/*/auth/migrations`, which also add `UserId`,
+`AuthenticatedAt`, `ProviderSessionId` and `ProviderSessionIssuer` to the sessions
+table), and impersonations (`schema/*/impersonation/migrations`) if you use it. Which
+set to apply depends on where the group starts:
 
 - **A new group**: the base set, then the auth set.
 - **A group on the legacy password type** (`legacy.PasswordAuth`): the auth set only;
@@ -160,7 +161,8 @@ long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
-`WithIdentitiesTableName` and `WithPendingSignInsTableName` on `NewAuth`, and
+`WithIdentitiesTableName`, `WithPendingSignInsTableName` and
+`WithSignInAttemptsTableName` on `NewAuth`, and
 `NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. A table name
 must be a plain identifier (a letter or underscore, then up to 127 letters, digits or
 underscores): the store refuses any other, and the constructor reports it under the
@@ -514,6 +516,7 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
 | Waits for the user's password | `302 <LoginURL>?pending=confirmation[&returnUrl=<path>]`, or the pending hook's URL | — |
 | Waits for the application's MFA | `302 <LoginURL>?pending=mfa[&returnUrl=<path>]`, or the pending hook's URL | `200 {"mfaIsRequired": true[, "redirectUrl"]}` |
 | Refused | `302 <LoginURL>?code=<code>` | `401 {"message", "code"}` (403 for a forbidden cause) |
+| Refused: the name's failed attempts reached the limit | — | `429 {"message", "code": "too_many_attempts", "retryAfter": <seconds>}` with the `Retry-After` header (see "Attempt limiting and the after-sign-in hook") |
 
 - `returnUrl` is only ever a path in the application, in canonical form: one leading
   `/` (not `//` or `/\`), printable ASCII, no backslash anywhere (raw or `%5C`), no
@@ -620,6 +623,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
   it; `UnlinkIdentity` refuses a user's last means of sign-in. See "Users and the forced
   password change".
+- **Failed password attempts are limited** per name, known or not, and an attempt past
+  the limit is refused with `too_many_attempts` and the wait before anything is read
+  or hashed; **the after-sign-in hook** (`SetSignedInHook`) is told of every session a
+  sign-in establishes. See "Attempt limiting and the after-sign-in hook".
 - **Provider-initiated (front-channel) logout** is keyed by the issuer of the token the
   sign-in verified and the provider's session id, since a provider's session id is
   unique only within its issuer: an Azure sign-in records the ID token's `sid` claim on
@@ -676,6 +683,83 @@ of a new application and every user an operator creates with a password carry th
 mark; the password a user chose through `ChangeSessionUserPassword` or
 `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
+
+### Attempt limiting and the after-sign-in hook
+
+The password method limits failed attempts itself. Five wrong passwords on a name
+within fifteen minutes lock the name for fifteen minutes, whether a user exists under
+the name or not; an attempt during the lock is refused with `too_many_attempts` and the
+wait, before the user is looked up or the password hashed; the right password resets
+the count. The thresholds are an option of `PasswordSignIn`:
+
+```go
+password := session.PasswordSignIn(auth, session.AttemptLimit(5, 15*time.Minute, 15*time.Minute))
+```
+
+`AttemptLimit(failures, window, lock)` reads: `failures` failed attempts on a name within
+`window` lock the name for `lock`. The default is the line above. The limit is at least
+one failure within a positive window and lock; any other panics at registration, as a
+misregistered method does.
+
+**What counts, and against what.** Every password check the library makes is held to
+the limit: the login (`PasswordMethod.Login()`), the API's `ValidateCredentials`, and
+a pending identity's password confirmation (`Pending().ConfirmWithPassword()`,
+`ConfirmPendingWithPassword`), under the name the attempt names, as the users table
+normalizes usernames (`Pat@Lakeside.edu` and `pat@lakeside.edu` are one name). A wrong
+password, an unknown name and a password-less user all count, and all answer the same
+`401 {"message": "Invalid Credentials"}` in the same time: a name with no user or no
+password is compared against a dummy hash the method's hasher made, so timing no
+longer tells an existing name from an unknown one. A matching password resets the
+name, as do an MFA completion (`CompletePending`) and a password change of any kind
+(`ChangeSessionUserPassword`, `SetSessionUserPassword`, `ResetSessionUserPassword`).
+Nothing locks a user an operator must unlock: the lock passes on its own, and a
+password change lifts it.
+
+**The three layers.** The name's count is durable: a row of the sign-in attempts table
+(`SessionSignInAttempts`, keyed by the name, never a column on the user row), written
+on failures and locks only and read through a short-lived per-instance cache, so every
+instance refuses a locked name. Over it, each instance holds three kinds of key in
+memory, in a bounded table: the name, the client's address and the login's XSRF cookie
+token, the cookie the XSRF guard reads (a POST without it never reaches the handler).
+During a name's lock every attempt on it is refused the moment it arrives, from memory,
+with the same answer and the remaining wait: nothing is read, written or hashed. An
+early retry during a wait counts against the client's address and cookie, never against
+the name, so a script that ignores the wait extends its own lock while the name's stays
+as it was, and a person who waits is not locked out by someone hammering their name.
+The client's keys are each allowed ten times the name limit's failures, across names,
+within the window; past that the client is locked for the lock period and every retry
+extends it. The address is the one a proxy reports (`True-Client-IP`, `X-Real-IP`, the
+first `X-Forwarded-For` entry) or the connection's; it is a throttle, not a security
+boundary, since the headers are the client's to forge, and a client cycling cookies is
+held by the name and the address, one cycling addresses by the edge's own throttle. The
+cookie carries no state and nothing new is written to it. In front of it all sits the
+edge: a per-address throttle on the sign-in route, outside the library.
+
+**The answer.** A locked name, and a held client, get `429 {"message", "code":
+"too_many_attempts", "retryAfter": <seconds>}` with the standard `Retry-After` header,
+and nothing about the name; `ValidateCredentials` and `ConfirmPendingWithPassword`
+return a `*sessioninfo.LoginRefusal` carrying `RefusedTooManyAttempts`, whose wait
+`sessioninfo.RetryAfterOf(err)` reads. A login page that reads `code` from a refusal's
+body shows its sentence for `too_many_attempts` (and may show the wait); the external
+methods are not limited, since the provider checks their passwords.
+
+**The after-sign-in hook.** One function per `Auth`, set once like the sign-in policy,
+is called once for every session a sign-in establishes, after the transaction that
+inserted it has committed: a password or external sign-in, a password confirmation, an
+MFA completion, a session the application started (`StartAuthenticatedSession`). It
+receives the session, its user and the auth events the session recorded, and never
+hears of a refused sign-in or one held for confirmation or MFA. An error from the hook
+is logged; the session stands. A regenerated session (a password change) and an
+impersonation are not sign-ins and are not reported.
+
+```go
+auth.SetSignedInHook(func(ctx context.Context, s *session.SignedIn) error {
+    return audit.SignedIn(ctx, s.UserID, s.Username, s.SessionID, s.Reason, s.Events)
+})
+```
+
+A nil hook, a second hook, or a hook set once the `Auth` is in use panics, as
+`SetSignInPolicy` does: set it after `NewAuth` and before serving.
 
 ## Legacy session types
 
@@ -1048,6 +1132,7 @@ table is the wire contract:
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
+| `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

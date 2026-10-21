@@ -41,6 +41,9 @@ type AuthDriver interface {
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)
 	ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error
+	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
+	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
+	ClearSignInAttempts(ctx context.Context, name string) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -227,6 +230,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a password is set with its change mark in one write", run: testUserPasswordSet},
 		{name: "a user's last sign-in is the database's time at the touch after a sign-in, nil before the first", run: testUserLastSignIn},
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
+		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},
+		{name: "a failed sign-in attempt after the window ended or the lock passed opens a new window", run: testSignInAttemptsWindowAndLockPass},
+		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
+		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

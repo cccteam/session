@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
-	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/cookie"
@@ -27,10 +26,11 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable and pendingSignInsTable name the group's tables; nil keeps the
-	// store's defaults.
+	// identitiesTable, pendingSignInsTable and signInAttemptsTable name the group's
+	// tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
+	signInAttemptsTable *string
 }
 
 // authOption is an Auth settings option.
@@ -103,6 +103,35 @@ func WithPendingSignInsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.pendingSignInsTable = &name }}
 }
 
+// WithSignInAttemptsTableName sets the name of the group's sign-in attempts table.
+// (default: SessionSignInAttempts)
+func WithSignInAttemptsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.signInAttemptsTable = &name }}
+}
+
+// SignedIn is a session a sign-in established, as the SignedInHook receives it.
+type SignedIn struct {
+	// SessionID is the new session's ID.
+	SessionID ccc.UUID
+	// UserID and Username are the user the session belongs to.
+	UserID   ccc.UUID
+	Username string
+	// Reason is how the session came about: ReasonLogin for a password or external
+	// sign-in, ReasonExternalAuth for one the application started
+	// (StartAuthenticatedSession), ReasonStepUp for an MFA completion,
+	// ReasonIdentityLinked for a password confirmation.
+	Reason sessioninfo.NewSessionReason
+	// Events are the auth events the session recorded, the sign-in's method first.
+	Events []sessioninfo.AuthEvent
+}
+
+// SignedInHook is called once for every session a sign-in establishes, after the
+// transaction that inserted it has committed: a password or external sign-in, a
+// confirmation, an MFA completion, a session the application started. It is never
+// called for a refused sign-in or one held as a pending identity. An error is logged
+// and the session stands.
+type SignedInHook = func(ctx context.Context, signedIn *SignedIn) error
+
 // nameTables applies the Auth's own table-name options to the store, whose setters
 // validate each name (dbtype.ValidateTableName); a refusal is reported under the
 // option's name. The base options (session and user tables) go the same way through
@@ -115,6 +144,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 	}{
 		{option: "WithIdentitiesTableName", name: settings.identitiesTable, set: storage.SetIdentitiesTableName},
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
+		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 	} {
 		if table.name == nil {
 			continue
@@ -151,6 +181,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// policy is the application's sign-in rule, nil when it set none: the library's
 	// own checks then decide. Set by SetSignInPolicy before the Auth is in use.
 	policy signin.Policy[Tx]
+	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
+	// SetSignedInHook before the Auth is in use.
+	signedIn SignedInHook
 
 	// cookies is the session cookie client. It also writes the external methods' state
 	// cookies.
@@ -218,19 +251,16 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
 
-	return &Auth[SessionData, UserData, Tx]{
+	a := &Auth[SessionData, UserData, Tx]{
 		baseSession:    baseSession,
 		storage:        storage,
 		settings:       settings,
 		cookies:        cookieClient,
 		pendingCookies: pendingCookies,
-		methods: signInMethods[Tx]{
-			registered:  make(map[string]bool),
-			hasher:      securehash.New(securehash.Argon2()),
-			autoUpgrade: true,
-			external:    make(map[string]*externalMethod[Tx]),
-		},
-	}, nil
+	}
+	a.methods.init(storage)
+
+	return a, nil
 }
 
 // SetSignInPolicy sets the application's sign-in rule: asked once a sign-in's user is
@@ -254,6 +284,29 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 		panic("session: the sign-in policy was set twice: one Auth has one rule")
 	}
 	a.policy = policy
+}
+
+// SetSignedInHook sets the application's after-sign-in hook, called once for every
+// session a sign-in establishes, whatever the method, after the transaction that
+// inserted it has committed, with the user and the sign-in's events; never for a
+// refusal or a sign-in held for confirmation or MFA. An error from the hook is logged
+// and the session stands. Set it after NewAuth and before serving the first request; a
+// nil hook, a second hook, or a hook set once the Auth is in use is a wiring mistake
+// and panics, as SetSignInPolicy does.
+func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
+	if hook == nil {
+		panic("session: SetSignedInHook was given nil: pass the application's hook, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the after-sign-in hook was set after the Auth served a request: set it before serving")
+	}
+	if a.signedIn != nil {
+		panic("session: the after-sign-in hook was set twice: one Auth has one hook")
+	}
+	a.signedIn = hook
 }
 
 // Authenticated answers {"authenticated", "username", "passwordChangeRequired",

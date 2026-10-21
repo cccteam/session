@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
@@ -60,6 +61,8 @@ type hooks[Tx any] struct {
 	resolved   int
 	linked     []ccc.UUID
 	pendings   []*sessioninfo.PendingIdentity
+	// established are the sessions the SignedInHook was told of.
+	established []*session.SignedIn
 }
 
 func (h *hooks[Tx]) workOSResolver(ctx context.Context, tx Tx, identity *workos.Identity) (*signin.Resolution, error) {
@@ -142,6 +145,28 @@ func (h *hooks[Tx]) identityLinked(_ context.Context, userID ccc.UUID, _ *sessio
 	h.linked = append(h.linked, userID)
 
 	return nil
+}
+
+func (h *hooks[Tx]) signedIn(_ context.Context, signedIn *session.SignedIn) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.established = append(h.established, signedIn)
+
+	return nil
+}
+
+// signedInSessions are the session IDs the SignedInHook was told of so far.
+func (h *hooks[Tx]) signedInSessions() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	ids := make([]string, 0, len(h.established))
+	for _, s := range h.established {
+		ids = append(ids, s.SessionID.String())
+	}
+
+	return ids
 }
 
 func (h *hooks[Tx]) set(fn func(h *hooks[Tx])) {
@@ -295,8 +320,8 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 }
 
 // newPasswordWorkOSApp is an application with password and WorkOS sign-in on one Auth
-// over be.
-func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], fake *fakeWorkOS) *authApp[Tx] {
+// over be, the password method registered with passwordOptions.
+func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], fake *fakeWorkOS, passwordOptions ...session.PasswordOption) *authApp[Tx] {
 	t.Helper()
 
 	h := &hooks[Tx]{rows: be.rows}
@@ -307,7 +332,8 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	auth.SetSignInPolicy(h.signInPolicy)
-	password := session.PasswordSignIn(auth)
+	auth.SetSignedInHook(h.signedIn)
+	password := session.PasswordSignIn(auth, passwordOptions...)
 	sso := workos.SignIn(auth, "workos", h.workOSResolver, &workos.Config{APIKey: "sk_test", ClientID: workosClientID, RedirectURL: "https://app.example/sso/callback", BaseURL: fake.server.URL})
 
 	r := chi.NewRouter()
@@ -606,6 +632,8 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 	tests := []struct {
 		name string
 		run  func(ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS)
+		// password are the options the scenario's password method is registered with.
+		password []session.PasswordOption
 	}{
 		{
 			name: "a password sign-in establishes a session under a new ID that belongs to the user and records the password method",
@@ -675,6 +703,15 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
 			run:  seamCustomData[Tx],
 		},
+		{
+			name:     "failed password attempts on a name are limited: the attempt past the limit is refused with 429 and the wait from any browser, known or unknown name alike, the lock passes, and a matching password resets the count",
+			run:      seamPasswordAttemptLimit[Tx],
+			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+		},
+		{
+			name: "the after-sign-in hook is told of every session a sign-in establishes, once, and of no refused or held sign-in",
+			run:  seamSignedInHook[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -682,7 +719,7 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			ctx := t.Context()
 
 			idp := newFakeWorkOS(t)
-			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, be, idp), idp)
+			tt.run(ctx, t, newPasswordWorkOSApp(ctx, t, be, idp, tt.password...), idp)
 		})
 	}
 }

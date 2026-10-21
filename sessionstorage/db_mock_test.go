@@ -256,6 +256,20 @@ func (mr *MockdbMockRecorder) AppendAuthEvent(ctx, sessionID, event any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*Mockdb)(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ClearSignInAttempts mocks base method.
+func (m *Mockdb) ClearSignInAttempts(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSignInAttempts", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearSignInAttempts indicates an expected call of ClearSignInAttempts.
+func (mr *MockdbMockRecorder) ClearSignInAttempts(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*Mockdb)(nil).ClearSignInAttempts), ctx, name)
+}
+
 // ConsumePendingSignIn mocks base method.
 func (m *Mockdb) ConsumePendingSignIn(ctx context.Context, tokenHash []byte, now time.Time) error {
 	m.ctrl.T.Helper()
@@ -660,6 +674,21 @@ func (mr *MockdbMockRecorder) PendingSignInByToken(ctx, tokenHash, now any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingSignInByToken", reflect.TypeOf((*Mockdb)(nil).PendingSignInByToken), ctx, tokenHash, now)
 }
 
+// RecordSignInFailure mocks base method.
+func (m *Mockdb) RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordSignInFailure", ctx, name, now, limit)
+	ret0, _ := ret[0].(*dbtype.SignInAttempts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordSignInFailure indicates an expected call of RecordSignInFailure.
+func (mr *MockdbMockRecorder) RecordSignInFailure(ctx, name, now, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSignInFailure", reflect.TypeOf((*Mockdb)(nil).RecordSignInFailure), ctx, name, now, limit)
+}
+
 // Session mocks base method.
 func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -731,6 +760,20 @@ func (mr *MockdbMockRecorder) SetSessionTableName(name any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionTableName", reflect.TypeOf((*Mockdb)(nil).SetSessionTableName), name)
 }
 
+// SetSignInAttemptsTableName mocks base method.
+func (m *Mockdb) SetSignInAttemptsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSignInAttemptsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSignInAttemptsTableName indicates an expected call of SetSignInAttemptsTableName.
+func (mr *MockdbMockRecorder) SetSignInAttemptsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInAttemptsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInAttemptsTableName), name)
+}
+
 // SetUserPassword mocks base method.
 func (m *Mockdb) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
 	m.ctrl.T.Helper()
@@ -785,6 +828,21 @@ func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername s
 func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, newUsername)
+}
+
+// SignInAttempts mocks base method.
+func (m *Mockdb) SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignInAttempts", ctx, name)
+	ret0, _ := ret[0].(*dbtype.SignInAttempts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignInAttempts indicates an expected call of SignInAttempts.
+func (mr *MockdbMockRecorder) SignInAttempts(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignInAttempts", reflect.TypeOf((*Mockdb)(nil).SignInAttempts), ctx, name)
 }
 
 // TouchUserSignIn mocks base method.
