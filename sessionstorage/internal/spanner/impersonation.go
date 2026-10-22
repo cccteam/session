@@ -60,7 +60,7 @@ func impersonationSelect() string {
 // impersonationJoin renders the LEFT JOIN of the impersonation table onto the
 // session table alias s.
 func (s *SessionStorageDriver) impersonationJoin() string {
-	return fmt.Sprintf("LEFT JOIN `%s` i ON s.Id = i.%s", s.impersonation.TableName, dbtype.SessionIDColumn)
+	return fmt.Sprintf("LEFT JOIN %#q i ON s.Id = i.%s", s.impersonation.TableName, dbtype.SessionIDColumn)
 }
 
 // readImpersonation reads the impersonation record from row positionally,

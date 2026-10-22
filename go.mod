@@ -1,6 +1,6 @@
 module github.com/cccteam/session
 
-go 1.26.10
+go 1.27.3
 
 retract (
 	v0.5.7 // Deprecated due to breaking changes to public interface

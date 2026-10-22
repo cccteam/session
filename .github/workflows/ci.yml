@@ -20,7 +20,7 @@ jobs:
       security-events: write
     uses: cccteam/github-workflows/.github/workflows/golang-ci.yml@ce3b6a61c4b88c82d3c0c1760dc1a3f5a2731021 # v8.2.3
     with:
-      golangci-lint-version: 'v2.12.2'
+      golangci-lint-version: 'v2.14.0'
       # insecurecookie is the development configuration for Chrome, alone and together
       # with skipAuth; every configuration a developer runs is one CI tests.
       build-tags: '["", "skipAuth", "insecurecookie", "skipAuth,insecurecookie"]'
