@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.3](https://github.com/cccteam/session/compare/v0.13.2...v0.13.3) (2026-10-22)
+
+
+### Code Upgrade
+
+* **deps:** bump the go-dependencies group with 3 updates ([#285](https://github.com/cccteam/session/issues/285)) ([63979e6](https://github.com/cccteam/session/commit/63979e69f88df1ab135844d069054f8a150cc14c))
+* **deps:** Go 1.27.3; crypto/x509 GO-2026-6809 fixed ([#286](https://github.com/cccteam/session/issues/286)) ([45f9d0b](https://github.com/cccteam/session/commit/45f9d0b1a4c69e5d1bb6f773394d0f1f1d7ce28a))
+
 ## [0.13.2](https://github.com/cccteam/session/compare/v0.13.1...v0.13.2) (2026-10-21)
 
 
