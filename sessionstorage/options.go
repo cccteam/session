@@ -101,7 +101,8 @@ type Option interface {
 
 type oidcUsersOption struct{}
 
-func (oidcUsersOption) applySpanner(driver *spanner.SessionStorageDriver)   { driver.EnableOIDCUsers() }
+func (oidcUsersOption) applySpanner(driver *spanner.SessionStorageDriver) { driver.EnableOIDCUsers() }
+
 func (oidcUsersOption) applyPostgres(driver *postgres.SessionStorageDriver) { driver.EnableOIDCUsers() }
 
 // WithOIDCUsers enables the library-managed OIDC user anchor: a durable user record

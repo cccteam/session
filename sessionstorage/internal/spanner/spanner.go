@@ -1022,7 +1022,7 @@ func (s *SessionStorageDriver) sessionQuery(sessionID ccc.UUID) spanner.Statemen
 		for _, col := range s.customData.Codec.Columns() {
 			fmt.Fprintf(&columns, ", c.`%s`", col)
 		}
-		joinClause = fmt.Sprintf("LEFT JOIN `%s` c ON s.Id = c.%s", s.customData.TableName, dbtype.SessionIDColumn)
+		joinClause = fmt.Sprintf("LEFT JOIN %#q c ON s.Id = c.%s", s.customData.TableName, dbtype.SessionIDColumn)
 	}
 	if s.impersonation != nil {
 		// The impersonation record follows the custom columns, with its own
