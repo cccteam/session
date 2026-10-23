@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.4](https://github.com/cccteam/session/compare/v0.13.3...v0.13.4) (2026-10-23)
+
+
+### Features
+
+* invitations, email addresses in two states and open sign-up, each through a mailed link its follower proves ([#290](https://github.com/cccteam/session/issues/290)) ([e30a305](https://github.com/cccteam/session/commit/e30a305ef67c33ec48eff3a0077aecc4a7ca9b67))
+* the library sends mail through one interface, with the Google Workspace SMTP relay as the first driver ([#289](https://github.com/cccteam/session/issues/289)) ([ea4350c](https://github.com/cccteam/session/commit/ea4350c762522ca616fc9550df17fe546e24d643))
+
+
+### Code Upgrade
+
+* **deps:** bump actions/create-github-app-token from 3.2.0 to 3.3.0 in the github-actions group across 1 directory ([#284](https://github.com/cccteam/session/issues/284)) ([afccf4c](https://github.com/cccteam/session/commit/afccf4c7eaeed4ecc0be148f0fc6d1ade29b551c))
+
 ## [0.13.3](https://github.com/cccteam/session/compare/v0.13.2...v0.13.3) (2026-10-22)
 
 
