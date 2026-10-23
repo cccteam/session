@@ -124,7 +124,9 @@ func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 // CreateSessionUser creates a user. A nil req.Password creates a password-less
 // user. req.PasswordChangeRequired marks the password as one an operator set, which
 // the user changes before anything else is served; a user without a password has
-// nothing to change, so the mark without a password is a BadRequest.
+// nothing to change, so the mark without a password is a BadRequest. req.Email, when
+// given, is written unverified and reserves the address; one another user holds is a
+// Conflict.
 func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -150,8 +152,12 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 		data = customData[0]
 	}
 
+	email, err := optionalAddress(req.Email)
+	if err != nil {
+		return ccc.NilUUID, err
+	}
 	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{
-		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired,
+		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email,
 	}, data)
 	if err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")

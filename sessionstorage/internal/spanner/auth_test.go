@@ -20,13 +20,14 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:               newAuthInstance,
-		CountAuthEvents:   countAuthEvents,
-		DeleteSession:     deleteSession,
-		Recorded:          recorded,
-		Record:            record,
-		PendingConsumedAt: pendingConsumedAt,
-		ClockLead:         emulatorClockLead,
+		New:                newAuthInstance,
+		CountAuthEvents:    countAuthEvents,
+		DeleteSession:      deleteSession,
+		Recorded:           recorded,
+		Record:             record,
+		PendingConsumedAt:  pendingConsumedAt,
+		MailLinkConsumedAt: mailLinkConsumedAt,
+		ClockLead:          emulatorClockLead,
 	})
 }
 
@@ -40,6 +41,8 @@ func authSources(schema drivertest.AuthSchema) []string {
 		return append(legacy, "file://../../../schema/spanner/auth/migrations")
 	case drivertest.AuthWithAppTables:
 		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables")
+	case drivertest.AuthUsernameIsEmail:
+		return append(legacy, "file://../../../schema/spanner/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
 	case drivertest.AuthFromOIDC:
 		return []string{
 			"file://../../../schema/spanner/oidc/migrations", "file://../../../schema/spanner/impersonation/migrations",
@@ -62,6 +65,9 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	if cfg.Auth {
 		d.EnableAuth()
 	}
+	if schema == drivertest.AuthUsernameIsEmail {
+		d.SetUsernameIsEmail(true)
+	}
 	if cfg.AuthEvents {
 		d.SetAuthEvents(&AuthEventsConfig{TableName: "SessionAuthEvents"})
 	}
@@ -81,6 +87,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Client,
 		SignIn: drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
+		Accept: drivertest.NewAccept(d, cfg),
 	}
 }
 
@@ -196,4 +203,20 @@ func record(ctx context.Context, t *testing.T, raw any, key, value string) {
 	if _, err := client(t, raw).Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
+}
+
+func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT ConsumedAt FROM SessionMailLinks WHERE TokenHash = @tokenHash")
+	stmt.Params["tokenHash"] = tokenHash
+	var consumedAt spanner.NullTime
+	if err := client(t, raw).Single().Query(ctx, stmt).Do(func(r *spanner.Row) error { return r.Column(0, &consumedAt) }); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !consumedAt.Valid {
+		return nil
+	}
+
+	return &consumedAt.Time
 }

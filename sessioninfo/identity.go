@@ -211,6 +211,10 @@ const (
 	// RefusedNotInvited is the code for an identity that is not linked yet and matches
 	// no pre-created user, under the invited-users-only account rule.
 	RefusedNotInvited LoginRefusalCode = "not_invited"
+	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
+	// admitted, under the invited-users-only account rule, whose invitation had expired
+	// or been used by the time the sign-in accepted it.
+	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rules refuse.
 	RefusedGuestAccount LoginRefusalCode = "guest_account"

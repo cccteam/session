@@ -119,3 +119,23 @@ func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 	return sessioncore.AttemptLimit(failures, window, lock)
 }
+
+// UsernameIsEmail declares, on the password method, that the username is the user's
+// email address: one value, which the users table derives from the username (see the
+// README's "Users and their email address" for the DDL). The login page asks for the
+// address, a sign-up's username is the address, renaming a user is refused, and a
+// person who verifies a new address is renamed to it, with their live sessions.
+// Without it the two are apart: the username is chosen, the address is added and
+// verified separately, and sign-in is by username. (default: apart)
+func UsernameIsEmail() PasswordOption {
+	return sessioncore.UsernameIsEmail()
+}
+
+// OpenSignUp declares, on the password method, that anyone may create an account:
+// the person gives their address, follows the link mailed to it, and sets a password
+// (SignUp handlers). Without it an account is created by an operator
+// (CreateSessionUser) or by the person through an invitation. It needs mail
+// (WithMail). (default: no sign-up)
+func OpenSignUp() PasswordOption {
+	return sessioncore.OpenSignUp()
+}

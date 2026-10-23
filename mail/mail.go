@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cccteam/logger"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -80,4 +81,20 @@ func (r *Recorder) Messages() []Message {
 	defer r.mu.Unlock()
 
 	return append([]Message(nil), r.Sent...)
+}
+
+// Log is a Sender for development: it writes each message to the request's logger, link
+// included, and sends nothing, so a developer follows the link from the log. Never for a
+// deployed environment, where the links are secrets: there the application configures a
+// driver.
+type Log struct{}
+
+// Send logs the message at Info.
+func (Log) Send(ctx context.Context, msg Message) error {
+	if err := msg.Validate(); err != nil {
+		return errors.Wrap(err, "mail.Message.Validate()")
+	}
+	logger.FromCtx(ctx).Infof("mail (not sent) to %s, subject %q:\n%s", msg.To, msg.Subject, msg.Text)
+
+	return nil
 }

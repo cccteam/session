@@ -16,6 +16,7 @@ import (
 
 	ccc "github.com/cccteam/ccc"
 	securehash "github.com/cccteam/ccc/securehash"
+	signinflow "github.com/cccteam/session/internal/signinflow"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	sessionstorage "github.com/cccteam/session/sessionstorage"
 	signin "github.com/cccteam/session/signin"
@@ -44,6 +45,20 @@ func NewMockAuthStore[Tx any](ctrl *gomock.Controller) *MockAuthStore[Tx] {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockAuthStore[Tx]) EXPECT() *MockAuthStoreMockRecorder[Tx] {
 	return m.recorder
+}
+
+// AcceptInvitation mocks base method.
+func (m *MockAuthStore[Tx]) AcceptInvitation(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcceptInvitation", ctx, userID, username, inv, accept)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AcceptInvitation indicates an expected call of AcceptInvitation.
+func (mr *MockAuthStoreMockRecorder[Tx]) AcceptInvitation(ctx, userID, username, inv, accept any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcceptInvitation", reflect.TypeOf((*MockAuthStore[Tx])(nil).AcceptInvitation), ctx, userID, username, inv, accept)
 }
 
 // ActivateUser mocks base method.
@@ -89,6 +104,21 @@ func (mr *MockAuthStoreMockRecorder[Tx]) AppendAuthEvent(ctx, sessionID, event a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*MockAuthStore[Tx])(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ClaimVerifiedEmail mocks base method.
+func (m *MockAuthStore[Tx]) ClaimVerifiedEmail(ctx context.Context, id ccc.UUID, email string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimVerifiedEmail", ctx, id, email)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimVerifiedEmail indicates an expected call of ClaimVerifiedEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) ClaimVerifiedEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimVerifiedEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).ClaimVerifiedEmail), ctx, id, email)
+}
+
 // ClearSignInAttempts mocks base method.
 func (m *MockAuthStore[Tx]) ClearSignInAttempts(ctx context.Context, name string) error {
 	m.ctrl.T.Helper()
@@ -101,6 +131,20 @@ func (m *MockAuthStore[Tx]) ClearSignInAttempts(ctx context.Context, name string
 func (mr *MockAuthStoreMockRecorder[Tx]) ClearSignInAttempts(ctx, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*MockAuthStore[Tx])(nil).ClearSignInAttempts), ctx, name)
+}
+
+// ConsumeMailLink mocks base method.
+func (m *MockAuthStore[Tx]) ConsumeMailLink(ctx context.Context, tokenHash []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeMailLink", ctx, tokenHash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConsumeMailLink indicates an expected call of ConsumeMailLink.
+func (mr *MockAuthStoreMockRecorder[Tx]) ConsumeMailLink(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeMailLink", reflect.TypeOf((*MockAuthStore[Tx])(nil).ConsumeMailLink), ctx, tokenHash)
 }
 
 // ConsumePendingSignIn mocks base method.
@@ -376,6 +420,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) ImpersonationEnabled() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImpersonationEnabled", reflect.TypeOf((*MockAuthStore[Tx])(nil).ImpersonationEnabled))
 }
 
+// InsertMailLink mocks base method.
+func (m *MockAuthStore[Tx]) InsertMailLink(ctx context.Context, l *sessionstorage.MailLink) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMailLink", ctx, l)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMailLink indicates an expected call of InsertMailLink.
+func (mr *MockAuthStoreMockRecorder[Tx]) InsertMailLink(ctx, l any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMailLink", reflect.TypeOf((*MockAuthStore[Tx])(nil).InsertMailLink), ctx, l)
+}
+
 // LinkIdentity mocks base method.
 func (m *MockAuthStore[Tx]) LinkIdentity(ctx context.Context, userID ccc.UUID, identity *sessioninfo.Identity, tenant string) (*sessionstorage.SessionIdentity, error) {
 	m.ctrl.T.Helper()
@@ -389,6 +447,36 @@ func (m *MockAuthStore[Tx]) LinkIdentity(ctx context.Context, userID ccc.UUID, i
 func (mr *MockAuthStoreMockRecorder[Tx]) LinkIdentity(ctx, userID, identity, tenant any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkIdentity", reflect.TypeOf((*MockAuthStore[Tx])(nil).LinkIdentity), ctx, userID, identity, tenant)
+}
+
+// LiveMailLinks mocks base method.
+func (m *MockAuthStore[Tx]) LiveMailLinks(ctx context.Context, kind sessionstorage.MailLinkKind) ([]*sessionstorage.MailLink, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LiveMailLinks", ctx, kind)
+	ret0, _ := ret[0].([]*sessionstorage.MailLink)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LiveMailLinks indicates an expected call of LiveMailLinks.
+func (mr *MockAuthStoreMockRecorder[Tx]) LiveMailLinks(ctx, kind any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LiveMailLinks", reflect.TypeOf((*MockAuthStore[Tx])(nil).LiveMailLinks), ctx, kind)
+}
+
+// MailLink mocks base method.
+func (m *MockAuthStore[Tx]) MailLink(ctx context.Context, tokenHash []byte) (*sessionstorage.MailLink, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MailLink", ctx, tokenHash)
+	ret0, _ := ret[0].(*sessionstorage.MailLink)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MailLink indicates an expected call of MailLink.
+func (mr *MockAuthStoreMockRecorder[Tx]) MailLink(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MailLink", reflect.TypeOf((*MockAuthStore[Tx])(nil).MailLink), ctx, tokenHash)
 }
 
 // OIDCUsersEnabled mocks base method.
@@ -435,6 +523,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) RecordSignInFailure(ctx, name, limit an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSignInFailure", reflect.TypeOf((*MockAuthStore[Tx])(nil).RecordSignInFailure), ctx, name, limit)
 }
 
+// RevokeMailLink mocks base method.
+func (m *MockAuthStore[Tx]) RevokeMailLink(ctx context.Context, id ccc.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeMailLink", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeMailLink indicates an expected call of RevokeMailLink.
+func (mr *MockAuthStoreMockRecorder[Tx]) RevokeMailLink(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeMailLink", reflect.TypeOf((*MockAuthStore[Tx])(nil).RevokeMailLink), ctx, id)
+}
+
 // Session mocks base method.
 func (m *MockAuthStore[Tx]) Session(ctx context.Context, sessionID ccc.UUID) (*sessioninfo.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -462,6 +564,20 @@ func (m *MockAuthStore[Tx]) SetIdentitiesTableName(name string) error {
 func (mr *MockAuthStoreMockRecorder[Tx]) SetIdentitiesTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdentitiesTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetIdentitiesTableName), name)
+}
+
+// SetMailLinksTableName mocks base method.
+func (m *MockAuthStore[Tx]) SetMailLinksTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMailLinksTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMailLinksTableName indicates an expected call of SetMailLinksTableName.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetMailLinksTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMailLinksTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetMailLinksTableName), name)
 }
 
 // SetOIDCUserTableName mocks base method.
@@ -520,6 +636,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetSignInAttemptsTableName(name any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInAttemptsTableName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetSignInAttemptsTableName), name)
 }
 
+// SetUserEmail mocks base method.
+func (m *MockAuthStore[Tx]) SetUserEmail(ctx context.Context, id ccc.UUID, email *string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserEmail", ctx, id, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserEmail indicates an expected call of SetUserEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetUserEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserEmail), ctx, id, email)
+}
+
 // SetUserPassword mocks base method.
 func (m *MockAuthStore[Tx]) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
 	m.ctrl.T.Helper()
@@ -576,19 +706,31 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetUserUsername(ctx, id, newUsername an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserUsername), ctx, id, newUsername)
 }
 
-// SignIn mocks base method.
-func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx]) (ccc.UUID, error) {
+// SetUsernameIsEmail mocks base method.
+func (m *MockAuthStore[Tx]) SetUsernameIsEmail(same bool) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SignIn", ctx, req, rule, standard, policy)
+	m.ctrl.Call(m, "SetUsernameIsEmail", same)
+}
+
+// SetUsernameIsEmail indicates an expected call of SetUsernameIsEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetUsernameIsEmail(same any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUsernameIsEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUsernameIsEmail), same)
+}
+
+// SignIn mocks base method.
+func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx], accept signinflow.InvitationAcceptor) (ccc.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignIn", ctx, req, rule, standard, policy, accept)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SignIn indicates an expected call of SignIn.
-func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy, accept any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy, accept)
 }
 
 // SignInAttempts mocks base method.
@@ -691,6 +833,21 @@ func (mr *MockAuthStoreMockRecorder[Tx]) User(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockAuthStore[Tx])(nil).User), ctx, id)
 }
 
+// UserByEmail mocks base method.
+func (m *MockAuthStore[Tx]) UserByEmail(ctx context.Context, email string) (*sessionstorage.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserByEmail", ctx, email)
+	ret0, _ := ret[0].(*sessionstorage.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserByEmail indicates an expected call of UserByEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) UserByEmail(ctx, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).UserByEmail), ctx, email)
+}
+
 // UserByUserName mocks base method.
 func (m *MockAuthStore[Tx]) UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -720,6 +877,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) UserDataLoginHookConfigured() *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*MockAuthStore[Tx])(nil).UserDataLoginHookConfigured))
 }
 
+// UsernameIsEmail mocks base method.
+func (m *MockAuthStore[Tx]) UsernameIsEmail() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UsernameIsEmail")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UsernameIsEmail indicates an expected call of UsernameIsEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) UsernameIsEmail() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UsernameIsEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).UsernameIsEmail))
+}
+
 // Users mocks base method.
 func (m *MockAuthStore[Tx]) Users(ctx context.Context) ([]*sessionstorage.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -733,4 +904,18 @@ func (m *MockAuthStore[Tx]) Users(ctx context.Context) ([]*sessionstorage.Sessio
 func (mr *MockAuthStoreMockRecorder[Tx]) Users(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Users", reflect.TypeOf((*MockAuthStore[Tx])(nil).Users), ctx)
+}
+
+// VerifyUserEmail mocks base method.
+func (m *MockAuthStore[Tx]) VerifyUserEmail(ctx context.Context, id ccc.UUID, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyUserEmail", ctx, id, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyUserEmail indicates an expected call of VerifyUserEmail.
+func (mr *MockAuthStoreMockRecorder[Tx]) VerifyUserEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).VerifyUserEmail), ctx, id, email)
 }

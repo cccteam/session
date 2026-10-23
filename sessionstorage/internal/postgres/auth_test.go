@@ -19,12 +19,13 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	drivertest.RunAuth(t, &drivertest.AuthHarness{
-		New:               newAuthInstance,
-		CountAuthEvents:   countAuthEvents,
-		DeleteSession:     deleteSession,
-		Recorded:          recorded,
-		Record:            record,
-		PendingConsumedAt: pendingConsumedAt,
+		New:                newAuthInstance,
+		CountAuthEvents:    countAuthEvents,
+		DeleteSession:      deleteSession,
+		Recorded:           recorded,
+		Record:             record,
+		PendingConsumedAt:  pendingConsumedAt,
+		MailLinkConsumedAt: mailLinkConsumedAt,
 	})
 }
 
@@ -38,6 +39,8 @@ func authSources(schema drivertest.AuthSchema) []string {
 		return append(legacy, "file://../../../schema/postgresql/auth/migrations")
 	case drivertest.AuthWithAppTables:
 		return append(legacy, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables")
+	case drivertest.AuthUsernameIsEmail:
+		return append(legacy, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
 	case drivertest.AuthFromOIDC:
 		return []string{
 			"file://../../../schema/postgresql/oidc/migrations", "file://../../../schema/postgresql/impersonation/migrations",
@@ -60,6 +63,9 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	if cfg.Auth {
 		d.EnableAuth()
 	}
+	if schema == drivertest.AuthUsernameIsEmail {
+		d.SetUsernameIsEmail(true)
+	}
 	if cfg.AuthEvents {
 		d.SetAuthEvents(&AuthEventsConfig{TableName: "SessionAuthEvents"})
 	}
@@ -79,6 +85,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Pool,
 		SignIn: drivertest.NewSignIn(d, cfg, func(txn pgx.Tx) drivertest.HookTx { return hookTx{txn} }),
+		Accept: drivertest.NewAccept(d, cfg),
 	}
 }
 
@@ -170,4 +177,15 @@ func record(ctx context.Context, t *testing.T, raw any, key, value string) {
 		ON CONFLICT ("RecordKey") DO UPDATE SET "RecordValue" = EXCLUDED."RecordValue"`, key, value); err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
+}
+
+func mailLinkConsumedAt(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time {
+	t.Helper()
+
+	var consumedAt *time.Time
+	if err := queryer(t, raw).QueryRow(ctx, `SELECT "ConsumedAt" FROM "SessionMailLinks" WHERE "TokenHash" = $1`, tokenHash).Scan(&consumedAt); err != nil {
+		t.Fatalf("QueryRow().Scan() error = %v", err)
+	}
+
+	return consumedAt
 }

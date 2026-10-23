@@ -247,6 +247,30 @@ type db interface {
 	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
 	// ClearSignInAttempts deletes the sign-in attempts record of name, if there is one.
 	ClearSignInAttempts(ctx context.Context, name string) error
+	// SetMailLinksTableName sets the name of the mail links table.
+	SetMailLinksTableName(name string) error
+	// InsertMailLink inserts a mail link.
+	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
+	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.
+	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
+	// LiveMailLinks lists the links of kind that are live at now, oldest first.
+	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
+	// ConsumeMailLink marks the live mail link holding tokenHash consumed at now by a conditional update; NotFound when it is not live.
+	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
+	// RevokeMailLink marks the live mail link id consumed at now; NotFound when it is not live.
+	RevokeMailLink(ctx context.Context, id ccc.UUID, now time.Time) error
+	// SetUsernameIsEmail declares the users table in the shape where the address is the username.
+	SetUsernameIsEmail(same bool)
+	// UsernameIsEmail reports whether the address is the username.
+	UsernameIsEmail() bool
+	// UserByEmail returns the user holding the address, verified or not, or NotFound.
+	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
+	// SetUserEmail puts an address on the user by hand, unverified, or takes it off (nil).
+	SetUserEmail(ctx context.Context, id ccc.UUID, email *string) error
+	// VerifyUserEmail writes the address the person proved they read, verified at the database's time.
+	VerifyUserEmail(ctx context.Context, id ccc.UUID, email string) error
+	// ClaimVerifiedEmail writes email on the user as verified when the user holds no verified address and no other user holds it, and reports whether it did.
+	ClaimVerifiedEmail(ctx context.Context, id ccc.UUID, email string) (bool, error)
 	// ImpersonationEnabled reports whether an impersonation record table is configured.
 	ImpersonationEnabled() bool
 	// InsertImpersonatedSession inserts a session row and its impersonation record atomically,
