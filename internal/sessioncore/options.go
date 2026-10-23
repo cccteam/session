@@ -70,6 +70,13 @@ type PasswordSettings struct {
 	Hasher      *securehash.SecureHasher
 	AutoUpgrade bool
 	Attempts    dbtype.SignInAttemptLimit
+	// UsernameIsEmail says the username is the user's email address: the users table
+	// derives the address from the username, a rename is refused, and a verified
+	// address is written as the username.
+	UsernameIsEmail bool
+	// OpenSignUp says anyone may create an account by giving an address and following
+	// the link mailed to it.
+	OpenSignUp bool
 }
 
 // DefaultAttemptLimit is the attempt limit before any option: five failed attempts on
@@ -118,5 +125,22 @@ func HashAlgorithm(hasher securehash.HashAlgorithm) PasswordOption {
 func AttemptLimit(failures int, window, lock time.Duration) PasswordOption {
 	return passwordOption(func(s *PasswordSettings) {
 		s.Attempts = dbtype.SignInAttemptLimit{Failures: failures, Window: window, Lock: lock}
+	})
+}
+
+// UsernameIsEmail declares that the username is the user's email address. (default: the
+// two are apart)
+func UsernameIsEmail() PasswordOption {
+	return passwordOption(func(s *PasswordSettings) {
+		s.UsernameIsEmail = true
+	})
+}
+
+// OpenSignUp declares that anyone may create an account by giving an address and
+// following the link mailed to it. (default: accounts are created by an operator or
+// through an invitation)
+func OpenSignUp() PasswordOption {
+	return passwordOption(func(s *PasswordSettings) {
+		s.OpenSignUp = true
 	})
 }

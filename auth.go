@@ -12,6 +12,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -26,11 +27,17 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable, pendingSignInsTable and signInAttemptsTable name the group's
-	// tables; nil keeps the store's defaults.
+	// identitiesTable, pendingSignInsTable, signInAttemptsTable and mailLinksTable
+	// name the group's tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
+	mailLinksTable      *string
+	// mail is how the Auth sends mail, nil when it sends none.
+	mail *mailSettings
+	// invitationCookie names the cookie that carries an opened invitation into the
+	// sign-in.
+	invitationCookie string
 }
 
 // authOption is an Auth settings option.
@@ -44,6 +51,9 @@ const (
 	defaultPendingTimeout    = 10 * time.Minute
 	defaultPendingCookieName = "auth-pending"
 )
+
+// defaultInvitationCookieName names the cookie that carries an opened invitation.
+const defaultInvitationCookieName = "auth-invitation"
 
 // IdentityLinkedHook is called after an external identity is linked to a user,
 // for example to notify the user.
@@ -109,6 +119,18 @@ func WithSignInAttemptsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.signInAttemptsTable = &name }}
 }
 
+// WithMailLinksTableName sets the name of the group's mail links table. (default:
+// SessionMailLinks)
+func WithMailLinksTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.mailLinksTable = &name }}
+}
+
+// WithInvitationCookieName sets the name of the cookie that carries an invitation the
+// browser opened into the sign-in. (default: auth-invitation)
+func WithInvitationCookieName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.invitationCookie = name }}
+}
+
 // SignedIn is a session a sign-in established, as the SignedInHook receives it.
 type SignedIn struct {
 	// SessionID is the new session's ID.
@@ -145,6 +167,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithIdentitiesTableName", name: settings.identitiesTable, set: storage.SetIdentitiesTableName},
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
+		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
 	} {
 		if table.name == nil {
 			continue
@@ -190,6 +213,11 @@ type Auth[SessionData, UserData, Tx any] struct {
 	cookies *internalcookie.Client
 	// pendingCookies writes the pending-identity cookie.
 	pendingCookies *internalcookie.Client
+	// invitationCookies writes and reads the invitation cookie.
+	invitationCookies *internalcookie.Client
+	// acceptInvitation is the application's invitation acceptor, nil for none.
+	acceptInvitation signinflow.InvitationAcceptor
+	userRenamed      UserRenamedHook
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
 }
@@ -222,7 +250,7 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")
 	}
 
-	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName}
+	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName, invitationCookie: defaultInvitationCookieName}
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		switch o := opt.(type) {
@@ -234,6 +262,11 @@ func NewAuth[SessionData, UserData, Tx any](
 	}
 	if settings.pendingTimeout <= 0 {
 		return nil, errors.New("the pending timeout must be positive")
+	}
+	if settings.mail != nil {
+		if err := settings.mail.validate(); err != nil {
+			return nil, err
+		}
 	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
@@ -250,13 +283,21 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err != nil {
 		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
 	}
+	if settings.invitationCookie == "" || settings.invitationCookie == cookieClient.CookieName || settings.invitationCookie == settings.pendingCookie {
+		return nil, errors.Newf("the invitation cookie name %q must be set and differ from the session and pending cookie names", settings.invitationCookie)
+	}
+	invitationCookies, err := internalcookie.NewCookieClient(cookieKey, append(cookieOpts, internalcookie.WithCookieName(settings.invitationCookie))...)
+	if err != nil {
+		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+	}
 
 	a := &Auth[SessionData, UserData, Tx]{
-		baseSession:    baseSession,
-		storage:        storage,
-		settings:       settings,
-		cookies:        cookieClient,
-		pendingCookies: pendingCookies,
+		baseSession:       baseSession,
+		storage:           storage,
+		settings:          settings,
+		cookies:           cookieClient,
+		pendingCookies:    pendingCookies,
+		invitationCookies: invitationCookies,
 	}
 	a.methods.init(storage)
 
@@ -309,16 +350,91 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
 	a.signedIn = hook
 }
 
+// UserRenamedHook is told that a user's username changed by the library's own doing:
+// under a password method declared UsernameIsEmail, the person who verifies a new
+// address is renamed to it, live sessions included, as a rename does. An application
+// that keys anything by the username, role memberships above all, moves it from the old
+// name to the new here. The hook runs after the rename is written and outside any
+// transaction; an error is logged and answered to the person as the verification
+// having failed, with the address verified and the username changed, so the hook is
+// written to be safe to run again (adding under the new name before removing under
+// the old).
+type UserRenamedHook = func(ctx context.Context, userID ccc.UUID, from, to string) error
+
+// SetUserRenamed sets the hook a rename the library performs is reported to. An
+// application whose password method declares UsernameIsEmail and that keys memberships
+// by username needs one. Set it after NewAuth and before serving the first request; a
+// nil hook, a second hook, or a hook set once the Auth is in use panics.
+func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
+	if hook == nil {
+		panic("session: SetUserRenamed was given nil: pass the application's hook, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the rename hook was set after the Auth served a request: set it before serving")
+	}
+	if a.userRenamed != nil {
+		panic("session: the rename hook was set twice: one Auth has one hook")
+	}
+	a.userRenamed = hook
+}
+
+// InvitationAcceptedHook is the application's half of an invitation's acceptance: it
+// grants what the invitation names, its roles in its tenant, to the user who accepted
+// it, once the transaction that consumed the invitation has committed and before the
+// sign-in policy decides, so the policy sees the membership. It runs for every
+// acceptance: the one a sign-in or a sign-up performs with the invitation the browser
+// carries, and Invitation().Accept() for a person already signed in. The user is named
+// by id and by username, the key an application's memberships are held under, and is
+// committed when the hook runs. The hook runs outside any transaction, once: an
+// application's memberships live in a store of their own, written through its own
+// client, which no transaction of the session store can carry (and which the Spanner
+// emulator, allowing one read-write transaction at a time, would deadlock inside one).
+// A hook that fails ends the sign-in with its error and leaves the invitation
+// consumed: the person's next attempt at the link finds it dead, and an administrator
+// invites again.
+type InvitationAcceptedHook = func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error
+
+// SetInvitationAccepted sets the application's invitation acceptor, the hook that
+// grants what an invitation names when it is accepted. An Auth that sends invitations
+// (AuthAPI.Invite) needs one, or an acceptance grants nothing. Set it after NewAuth
+// and before serving the first request; a nil hook, a second hook, or a hook set once
+// the Auth is in use is a wiring mistake and panics, as SetSignInPolicy does.
+func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationAcceptedHook) {
+	if hook == nil {
+		panic("session: SetInvitationAccepted was given nil: pass the application's hook, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the invitation hook was set after the Auth served a request: set it before serving")
+	}
+	if a.acceptInvitation != nil {
+		panic("session: the invitation hook was set twice: one Auth has one hook")
+	}
+	a.acceptInvitation = hook
+}
+
 // Authenticated answers {"authenticated", "username", "passwordChangeRequired",
-// "impersonation"}. A session whose user is missing or disabled is reported as not
-// authenticated. passwordChangeRequired is set while the user must change a password
-// an operator set (see "Users and the forced password change" in the README): the
-// session read is answered under the mark, so the login page can show the change form.
+// "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
+// missing or disabled is reported as not authenticated. passwordChangeRequired is set
+// while the user must change a password an operator set (see "Users and the forced
+// password change" in the README): the session read is answered under the mark, so the
+// login page can show the change form. email is the user's address when they hold one,
+// with emailVerified saying whether they have proven it; emailHint, present when the
+// user holds no address, is the address a directory asserted at a sign-in, offered as
+// a prefill for the add-address step and trusted for nothing.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated          bool                               `json:"authenticated"`
 		Username               string                             `json:"username"`
 		PasswordChangeRequired bool                               `json:"passwordChangeRequired"`
+		Email                  *string                            `json:"email,omitempty"`
+		EmailVerified          bool                               `json:"emailVerified"`
+		EmailHint              string                             `json:"emailHint,omitempty"`
 		Impersonation          *basesession.ImpersonationResponse `json:"impersonation,omitempty"`
 	}
 
@@ -336,11 +452,15 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		}
 
 		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
+		user := sessioninfo.UserFromCtx(ctx)
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
 			Username:               sessioninfo.FromCtx(ctx).Username,
-			PasswordChangeRequired: sessioninfo.UserFromCtx(ctx).PasswordChangeRequired,
+			PasswordChangeRequired: user.PasswordChangeRequired,
+			Email:                  user.Email,
+			EmailVerified:          user.EmailVerified(),
+			EmailHint:              a.emailHint(ctx, user),
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 		})
 	}))
@@ -356,7 +476,8 @@ func (a *Auth[S, U, Tx]) Logout() http.HandlerFunc {
 // methods.
 func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(a.withPendingCookie(r)))
+		ctx := a.withInvitationCookie(a.withPendingCookie(r), r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})))
 }
 

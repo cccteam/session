@@ -18,8 +18,9 @@ import (
 
 // Column names the driver writes in more than one place.
 const (
-	idColumn       = "Id"
-	usernameColumn = "Username"
+	idColumn        = "Id"
+	usernameColumn  = "Username"
+	createdAtColumn = "CreatedAt"
 )
 
 // The sign-in flow (internal/signinflow) drives the primitives below inside the
@@ -176,7 +177,7 @@ func (s *SessionStorageDriver) newIdentityLink(userID ccc.UUID, identity *sessio
 
 	return link, spanner.InsertMap(s.identitiesTableName, map[string]any{
 		idColumn: link.ID, "UserId": link.UserID, "Method": string(link.Method), "Connection": link.Connection, "Subject": link.Subject,
-		"Tenant": nullString(link.Tenant), "EmailAtLink": nullString(link.EmailAtLink), "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		"Tenant": nullString(link.Tenant), "EmailAtLink": nullString(link.EmailAtLink), createdAtColumn: spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 	}), nil
 }
 
@@ -247,7 +248,7 @@ func (s *SessionStorageDriver) LockUserIn(ctx context.Context, tx *spanner.ReadW
 
 // InsertUserIn buffers a new user row and returns its ID.
 func (s *SessionStorageDriver) InsertUserIn(_ context.Context, tx *spanner.ReadWriteTransaction, insertUser *dbtype.InsertSessionUser) (ccc.UUID, error) {
-	user, mutation, err := newUserMutation(s.userTableName, insertUser)
+	user, mutation, err := s.newUserMutation(insertUser)
 	if err != nil {
 		return ccc.NilUUID, err
 	}
@@ -300,10 +301,15 @@ func (s *SessionStorageDriver) InsertSessionIn(
 
 // newUserMutation renders a new user row and its insert mutation. The mutation writes
 // CreatedAt with the commit timestamp; the user carries it zero until a read reports it.
-func newUserMutation(table string, insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, *spanner.Mutation, error) {
+// The address columns are written on the auth schema only, which has them, and Email
+// never on a store whose usernames are the addresses, where the database derives it.
+func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, *spanner.Mutation, error) {
 	id, err := ccc.NewUUID()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "ccc.NewUUID()")
+	}
+	if err := dbtype.ValidateInsertUser(insertUser, s.usernameIsEmail); err != nil {
+		return nil, nil, errors.Wrap(err, "dbtype.ValidateInsertUser()")
 	}
 	user := &dbtype.SessionUser{
 		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled, PasswordChangeRequired: insertUser.PasswordChangeRequired,
@@ -313,19 +319,23 @@ func newUserMutation(table string, insertUser *dbtype.InsertSessionUser) (*dbtyp
 	if err != nil {
 		return nil, nil, err
 	}
-	mutation, err := spanner.InsertStruct(table, &struct {
-		ID                     ccc.UUID           `spanner:"Id"`
-		Username               string             `spanner:"Username"`
-		PasswordHash           spanner.NullString `spanner:"PasswordHash"`
-		Disabled               bool               `spanner:"Disabled"`
-		PasswordChangeRequired bool               `spanner:"PasswordChangeRequired"`
-		CreatedAt              time.Time          `spanner:"CreatedAt"`
-	}{ID: user.ID, Username: user.Username, PasswordHash: passwordHash, Disabled: user.Disabled, PasswordChangeRequired: user.PasswordChangeRequired, CreatedAt: spanner.CommitTimestamp})
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "spanner.InsertStruct()")
+	row := map[string]any{
+		idColumn: user.ID, usernameColumn: user.Username, "PasswordHash": passwordHash, "Disabled": user.Disabled,
+		"PasswordChangeRequired": user.PasswordChangeRequired, createdAtColumn: spanner.CommitTimestamp,
+	}
+	if s.users {
+		if !s.usernameIsEmail {
+			row["Email"] = spanner.NullString{}
+			if insertUser.Email != nil {
+				row["Email"] = spanner.NullString{StringVal: *insertUser.Email, Valid: true}
+			}
+		}
+		if insertUser.EmailVerified {
+			row["EmailVerifiedAt"] = spanner.CommitTimestamp
+		}
 	}
 
-	return user, mutation, nil
+	return user, spanner.InsertMap(s.userTableName, row), nil
 }
 
 // Identity returns the link for (method, connection, subject), or a NotFound error.

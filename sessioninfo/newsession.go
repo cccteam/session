@@ -83,4 +83,9 @@ type NewSessionRequest struct {
 	// resolver run, and leaves it set after the insert returns. It is nil while the
 	// account rules run and for the legacy session types.
 	User *SignInUser
+	// Invitation is the live invitation the browser carries into this sign-in, nil
+	// for none. The sign-in accepts it once the user is known and reports the outcome
+	// in Invitation.Accepted; the application's acceptance hook runs in that
+	// transaction. The sign-in policy runs afterwards and may read it.
+	Invitation *Invitation
 }

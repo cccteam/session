@@ -79,4 +79,14 @@ type UserInfo struct {
 	// PasswordChangeRequired is set while the user must change a password an operator
 	// set before anything else is served; Auth sessions only.
 	PasswordChangeRequired bool `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
+	// Email is the user's email address, nil for none, and EmailVerifiedAt when the
+	// person proved they read it, nil while it is unverified; Auth sessions only. An
+	// unverified address is trusted for nothing.
+	Email           *string    `spanner:"Email"           db:"Email"`
+	EmailVerifiedAt *time.Time `spanner:"EmailVerifiedAt" db:"EmailVerifiedAt"`
+}
+
+// EmailVerified reports whether the user holds a verified address.
+func (u *UserInfo) EmailVerified() bool {
+	return u != nil && u.Email != nil && u.EmailVerifiedAt != nil
 }

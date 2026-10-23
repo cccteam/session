@@ -59,6 +59,17 @@ func TestRecorder(t *testing.T) {
 	}
 }
 
+func TestLog(t *testing.T) {
+	t.Parallel()
+
+	if err := (Log{}).Send(t.Context(), Message{To: "a@example.com", Subject: "one", Text: "https://example.com/login?verify=abc"}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if err := (Log{}).Send(t.Context(), Message{To: "a@example.com"}); err == nil {
+		t.Fatal("Send() of a message without a subject or body = nil, want the validation error")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(sub) <= len(s) && (s == sub || indexOf(s, sub) >= 0)
 }

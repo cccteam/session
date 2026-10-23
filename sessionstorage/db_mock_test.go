@@ -256,6 +256,21 @@ func (mr *MockdbMockRecorder) AppendAuthEvent(ctx, sessionID, event any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendAuthEvent", reflect.TypeOf((*Mockdb)(nil).AppendAuthEvent), ctx, sessionID, event)
 }
 
+// ClaimVerifiedEmail mocks base method.
+func (m *Mockdb) ClaimVerifiedEmail(ctx context.Context, id ccc.UUID, email string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimVerifiedEmail", ctx, id, email)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimVerifiedEmail indicates an expected call of ClaimVerifiedEmail.
+func (mr *MockdbMockRecorder) ClaimVerifiedEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimVerifiedEmail", reflect.TypeOf((*Mockdb)(nil).ClaimVerifiedEmail), ctx, id, email)
+}
+
 // ClearSignInAttempts mocks base method.
 func (m *Mockdb) ClearSignInAttempts(ctx context.Context, name string) error {
 	m.ctrl.T.Helper()
@@ -268,6 +283,20 @@ func (m *Mockdb) ClearSignInAttempts(ctx context.Context, name string) error {
 func (mr *MockdbMockRecorder) ClearSignInAttempts(ctx, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSignInAttempts", reflect.TypeOf((*Mockdb)(nil).ClearSignInAttempts), ctx, name)
+}
+
+// ConsumeMailLink mocks base method.
+func (m *Mockdb) ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeMailLink", ctx, tokenHash, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConsumeMailLink indicates an expected call of ConsumeMailLink.
+func (mr *MockdbMockRecorder) ConsumeMailLink(ctx, tokenHash, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeMailLink", reflect.TypeOf((*Mockdb)(nil).ConsumeMailLink), ctx, tokenHash, now)
 }
 
 // ConsumePendingSignIn mocks base method.
@@ -556,6 +585,20 @@ func (mr *MockdbMockRecorder) InsertImpersonatedSessionOIDC(ctx, session, req, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertImpersonatedSessionOIDC", reflect.TypeOf((*Mockdb)(nil).InsertImpersonatedSessionOIDC), ctx, session, req, imp)
 }
 
+// InsertMailLink mocks base method.
+func (m *Mockdb) InsertMailLink(ctx context.Context, l *dbtype.MailLink) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMailLink", ctx, l)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMailLink indicates an expected call of InsertMailLink.
+func (mr *MockdbMockRecorder) InsertMailLink(ctx, l any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMailLink", reflect.TypeOf((*Mockdb)(nil).InsertMailLink), ctx, l)
+}
+
 // InsertPendingSignIn mocks base method.
 func (m *Mockdb) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	m.ctrl.T.Helper()
@@ -613,6 +656,36 @@ func (m *Mockdb) LinkIdentity(ctx context.Context, userID ccc.UUID, identity *se
 func (mr *MockdbMockRecorder) LinkIdentity(ctx, userID, identity, tenant any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkIdentity", reflect.TypeOf((*Mockdb)(nil).LinkIdentity), ctx, userID, identity, tenant)
+}
+
+// LiveMailLinks mocks base method.
+func (m *Mockdb) LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LiveMailLinks", ctx, kind, now)
+	ret0, _ := ret[0].([]*dbtype.MailLink)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LiveMailLinks indicates an expected call of LiveMailLinks.
+func (mr *MockdbMockRecorder) LiveMailLinks(ctx, kind, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LiveMailLinks", reflect.TypeOf((*Mockdb)(nil).LiveMailLinks), ctx, kind, now)
+}
+
+// MailLinkByToken mocks base method.
+func (m *Mockdb) MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MailLinkByToken", ctx, tokenHash, now)
+	ret0, _ := ret[0].(*dbtype.MailLink)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MailLinkByToken indicates an expected call of MailLinkByToken.
+func (mr *MockdbMockRecorder) MailLinkByToken(ctx, tokenHash, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MailLinkByToken", reflect.TypeOf((*Mockdb)(nil).MailLinkByToken), ctx, tokenHash, now)
 }
 
 // OIDCUser mocks base method.
@@ -689,6 +762,20 @@ func (mr *MockdbMockRecorder) RecordSignInFailure(ctx, name, now, limit any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSignInFailure", reflect.TypeOf((*Mockdb)(nil).RecordSignInFailure), ctx, name, now, limit)
 }
 
+// RevokeMailLink mocks base method.
+func (m *Mockdb) RevokeMailLink(ctx context.Context, id ccc.UUID, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeMailLink", ctx, id, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeMailLink indicates an expected call of RevokeMailLink.
+func (mr *MockdbMockRecorder) RevokeMailLink(ctx, id, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeMailLink", reflect.TypeOf((*Mockdb)(nil).RevokeMailLink), ctx, id, now)
+}
+
 // Session mocks base method.
 func (m *Mockdb) Session(ctx context.Context, sessionID ccc.UUID) (*dbtype.SessionData, error) {
 	m.ctrl.T.Helper()
@@ -716,6 +803,20 @@ func (m *Mockdb) SetIdentitiesTableName(name string) error {
 func (mr *MockdbMockRecorder) SetIdentitiesTableName(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdentitiesTableName", reflect.TypeOf((*Mockdb)(nil).SetIdentitiesTableName), name)
+}
+
+// SetMailLinksTableName mocks base method.
+func (m *Mockdb) SetMailLinksTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMailLinksTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMailLinksTableName indicates an expected call of SetMailLinksTableName.
+func (mr *MockdbMockRecorder) SetMailLinksTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMailLinksTableName", reflect.TypeOf((*Mockdb)(nil).SetMailLinksTableName), name)
 }
 
 // SetOIDCUserTableName mocks base method.
@@ -774,6 +875,20 @@ func (mr *MockdbMockRecorder) SetSignInAttemptsTableName(name any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignInAttemptsTableName", reflect.TypeOf((*Mockdb)(nil).SetSignInAttemptsTableName), name)
 }
 
+// SetUserEmail mocks base method.
+func (m *Mockdb) SetUserEmail(ctx context.Context, id ccc.UUID, email *string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserEmail", ctx, id, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserEmail indicates an expected call of SetUserEmail.
+func (mr *MockdbMockRecorder) SetUserEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserEmail", reflect.TypeOf((*Mockdb)(nil).SetUserEmail), ctx, id, email)
+}
+
 // SetUserPassword mocks base method.
 func (m *Mockdb) SetUserPassword(ctx context.Context, id ccc.UUID, hash *securehash.Hash, changeRequired bool) error {
 	m.ctrl.T.Helper()
@@ -828,6 +943,18 @@ func (m *Mockdb) SetUserUsername(ctx context.Context, id ccc.UUID, newUsername s
 func (mr *MockdbMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*Mockdb)(nil).SetUserUsername), ctx, id, newUsername)
+}
+
+// SetUsernameIsEmail mocks base method.
+func (m *Mockdb) SetUsernameIsEmail(same bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUsernameIsEmail", same)
+}
+
+// SetUsernameIsEmail indicates an expected call of SetUsernameIsEmail.
+func (mr *MockdbMockRecorder) SetUsernameIsEmail(same any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUsernameIsEmail", reflect.TypeOf((*Mockdb)(nil).SetUsernameIsEmail), same)
 }
 
 // SignInAttempts mocks base method.
@@ -930,6 +1057,21 @@ func (mr *MockdbMockRecorder) User(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*Mockdb)(nil).User), ctx, id)
 }
 
+// UserByEmail mocks base method.
+func (m *Mockdb) UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserByEmail", ctx, email)
+	ret0, _ := ret[0].(*dbtype.SessionUser)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserByEmail indicates an expected call of UserByEmail.
+func (mr *MockdbMockRecorder) UserByEmail(ctx, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserByEmail", reflect.TypeOf((*Mockdb)(nil).UserByEmail), ctx, email)
+}
+
 // UserByUserName mocks base method.
 func (m *Mockdb) UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -959,6 +1101,20 @@ func (mr *MockdbMockRecorder) UserDataLoginHookConfigured() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDataLoginHookConfigured", reflect.TypeOf((*Mockdb)(nil).UserDataLoginHookConfigured))
 }
 
+// UsernameIsEmail mocks base method.
+func (m *Mockdb) UsernameIsEmail() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UsernameIsEmail")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// UsernameIsEmail indicates an expected call of UsernameIsEmail.
+func (mr *MockdbMockRecorder) UsernameIsEmail() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UsernameIsEmail", reflect.TypeOf((*Mockdb)(nil).UsernameIsEmail))
+}
+
 // Users mocks base method.
 func (m *Mockdb) Users(ctx context.Context) ([]*dbtype.SessionUser, error) {
 	m.ctrl.T.Helper()
@@ -972,4 +1128,18 @@ func (m *Mockdb) Users(ctx context.Context) ([]*dbtype.SessionUser, error) {
 func (mr *MockdbMockRecorder) Users(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Users", reflect.TypeOf((*Mockdb)(nil).Users), ctx)
+}
+
+// VerifyUserEmail mocks base method.
+func (m *Mockdb) VerifyUserEmail(ctx context.Context, id ccc.UUID, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyUserEmail", ctx, id, email)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyUserEmail indicates an expected call of VerifyUserEmail.
+func (mr *MockdbMockRecorder) VerifyUserEmail(ctx, id, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUserEmail", reflect.TypeOf((*Mockdb)(nil).VerifyUserEmail), ctx, id, email)
 }

@@ -50,6 +50,11 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mock_sessionstorage.MockAuthStor
 	storage.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	storage.EXPECT().UserDataLoginHookConfigured().Return(false).AnyTimes()
 	storage.EXPECT().OIDCUsersEnabled().Return(false).AnyTimes()
+	storage.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
+	// The bookkeeping after a sign-in, and the hint the session read looks for, read
+	// an empty store unless a test says otherwise.
+	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	return storage
 }
@@ -105,6 +110,7 @@ type storeSignIn struct {
 	rule     signin.AccountRule[mockTx]
 	standard signin.StandardAccountRule
 	policy   signin.Policy[mockTx]
+	accept   signinflow.InvitationAcceptor
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -397,9 +403,12 @@ func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id ccc.UUID
 // resolution by setting its user. stop then answers as the driver would, with the error
 // that stops the sign-in; nil answers id.
 func (f *authFixture) expectSignIn(id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
-	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[mockTx], standard signin.StandardAccountRule, policy signin.Policy[mockTx]) (ccc.UUID, error) {
-			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy}
+	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(
+			_ context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[mockTx], standard signin.StandardAccountRule, policy signin.Policy[mockTx],
+			accept signinflow.InvitationAcceptor,
+		) (ccc.UUID, error) {
+			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept}
 			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
 				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
 			}
@@ -2416,7 +2425,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), signin.StandardAccountRule(""), gomock.Nil()).Return(sessionID, nil)
+	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), signin.StandardAccountRule(""), gomock.Nil(), gomock.Nil()).Return(sessionID, nil)
 	// A session the application starts is a sign-in: the user's last sign-in moves.
 	store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
 

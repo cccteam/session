@@ -89,6 +89,25 @@ type signInMethods[Tx any] struct {
 	dummyOnce sync.Once
 	// external holds the registered redirect-based methods by registration name.
 	external map[string]*externalMethod[Tx]
+	// password is the password method's registration, nil until it is registered: its
+	// username shape and whether it offers sign-up.
+	password *sessioncore.PasswordSettings
+}
+
+// passwordRegistered reports whether the password method is registered.
+func (m *signInMethods[Tx]) passwordRegistered() bool {
+	return m.password != nil
+}
+
+// usernameIsEmail reports whether the password method declares the username as the
+// email address.
+func (m *signInMethods[Tx]) usernameIsEmail() bool {
+	return m.password != nil && m.password.UsernameIsEmail
+}
+
+// openSignUp reports whether the password method offers sign-up.
+func (m *signInMethods[Tx]) openSignUp() bool {
+	return m.password != nil && m.password.OpenSignUp
 }
 
 // init sets the methods of a new Auth over storage, before any registration: the
@@ -197,9 +216,15 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	defer a.methods.mu.Unlock()
 
 	a.refuseRegistration(reg.name, reg.method, reg.err)
+	if reg.password.OpenSignUp && a.settings.mail == nil {
+		panic("session: the password method is registered with OpenSignUp on an Auth without mail: a sign-up starts from a link mailed to the person, so pass WithMail to NewAuth")
+	}
 	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
 	a.methods.attempts = attempts.New(reg.password.Attempts, a.storage)
+	settings := *reg.password
+	a.methods.password = &settings
+	a.storage.SetUsernameIsEmail(settings.UsernameIsEmail)
 
 	return methodHandlers{login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler())}
 }
@@ -262,7 +287,8 @@ type PasswordMethod struct {
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
 // handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes,
-// AttemptLimit); cookie and session options belong to NewAuth.
+// AttemptLimit, UsernameIsEmail, OpenSignUp); cookie and session options belong to
+// NewAuth.
 //
 // It panics when the method is already registered on auth, when auth has served a
 // request, when it is given an option that is not a password option, or when the
@@ -273,7 +299,7 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
-			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit); pass cookie and session options to NewAuth")
+			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, UsernameIsEmail, OpenSignUp); pass cookie and session options to NewAuth")
 		}
 	}
 	if limit := settings.Attempts; reg.err == nil && (limit.Failures < 1 || limit.Window <= 0 || limit.Lock <= 0) {

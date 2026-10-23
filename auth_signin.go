@@ -87,6 +87,14 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		CustomData:            at.customData,
 	}
 
+	// The invitation the browser opened, if any, goes with the sign-in: the store
+	// accepts it once the user is known.
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req.Invitation = inv
+
 	// An external identity is decided by its registration's account rules; a password
 	// identity, or the application's own, names its user and needs none.
 	var (
@@ -97,7 +105,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		rule, standard = m.rule, m.standard
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
-		id, err := a.storage.SignIn(ctx, req, rule, standard, a.policy)
+		id, err := a.storage.SignIn(ctx, req, rule, standard, a.policy, a.acceptInvitation)
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}
@@ -108,11 +116,12 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 			return ccc.NilUUID, err
 		}
-		// The user's last sign-in is bookkeeping, written once the session stands: a
-		// failure is logged and the sign-in goes on.
+		// The user's last sign-in and the address a method verified are bookkeeping,
+		// written once the session stands: a failure is logged and the sign-in goes on.
 		if err := a.storage.TouchUserSignIn(ctx, req.UserID); err != nil {
 			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.TouchUserSignIn()"))
 		}
+		a.claimVerifiedEmail(ctx, req.UserID, at.identity)
 
 		return id, nil
 	})
@@ -136,6 +145,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	}
 
 	a.endPending(ctx, w, at)
+	a.endInvitation(ctx, w, req.Invitation)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: signedInEvents(at)})
 
@@ -251,7 +261,9 @@ func enabledUser(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error
 		return nil, httpio.NewUnauthorizedMessage("Session Expired")
 	}
 
-	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username, PasswordChangeRequired: user.PasswordChangeRequired}, nil
+	return &sessioninfo.UserInfo{
+		ID: user.ID, Username: user.Username, PasswordChangeRequired: user.PasswordChangeRequired, Email: user.Email, EmailVerifiedAt: user.EmailVerifiedAt,
+	}, nil
 }
 
 // validateRequest validates the session as validate does and then refuses the request

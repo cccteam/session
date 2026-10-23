@@ -47,6 +47,17 @@ type AuthDriver interface {
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
+	SetUsernameIsEmail(same bool)
+	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
+	SetUserEmail(ctx context.Context, id ccc.UUID, email *string) error
+	SetUserUsername(ctx context.Context, id ccc.UUID, newUsername string) error
+	VerifyUserEmail(ctx context.Context, id ccc.UUID, email string) error
+	ClaimVerifiedEmail(ctx context.Context, id ccc.UUID, email string) (bool, error)
+	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
+	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
+	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
+	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
+	RevokeMailLink(ctx context.Context, id ccc.UUID, now time.Time) error
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -70,6 +81,11 @@ const (
 	// AnchoredOld and AnchoredOther, and a live session SeededLegacySession of
 	// old@lakeside.edu), upgraded by the shipped auth-from-oidc set.
 	AuthFromOIDC
+	// AuthUsernameIsEmail is AuthWithAppTables with the users table in the shape of an
+	// application whose usernames are email addresses: the address columns are
+	// generated from the username by the driver package's test data, as the README
+	// gives the DDL. The driver is configured with SetUsernameIsEmail.
+	AuthUsernameIsEmail
 )
 
 // The anchor rows the AuthFromOIDC schema is seeded with.
@@ -114,6 +130,10 @@ type AuthConfig struct {
 	// CustomData, when set, attaches the AuthWithAppTables schema's
 	// SessionCustomData table (CustomStringData) with CustomData as its resolver.
 	CustomData func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error)
+	// Accept is the invitation acceptor the instance's SignIn runs with, once the
+	// transaction that consumed an invitation the sign-in carries has committed,
+	// outside any transaction; nil for none.
+	Accept signinflow.InvitationAcceptor
 }
 
 // AuthInstance is a driver over a freshly prepared users database, with the
@@ -125,6 +145,21 @@ type AuthInstance struct {
 	// the sign-in flow over the driver with the configured resolver and policy, as the
 	// Auth session runs it. The harness builds it with NewSignIn.
 	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
+	// Accept accepts inv for userID by hand, as the Auth does for a person already
+	// signed in, with the configured acceptor. The harness builds it with NewAccept.
+	Accept func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error
+}
+
+// NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
+// acceptor.
+func NewAccept[Tx any](d signinflow.Driver[Tx], cfg AuthConfig) func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error {
+	return func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error {
+		if err := signinflow.AcceptInvitation(ctx, d, userID, username, inv, cfg.Accept); err != nil {
+			return errors.Wrap(err, "signinflow.AcceptInvitation()")
+		}
+
+		return nil
+	}
 }
 
 // NewSignIn returns an instance's SignIn over d: the sign-in flow with cfg's account
@@ -148,13 +183,13 @@ func NewSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
-
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error) {
 		id, err := ccc.NewUUID()
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "ccc.NewUUID()")
 		}
-		if err := signinflow.SignIn(ctx, d, id, insert, req, rule, cfg.Accounts, policy); err != nil {
+		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: cfg.Accept}
+		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
 
@@ -178,6 +213,9 @@ type AuthHarness struct {
 	// PendingConsumedAt reads the ConsumedAt of the pending sign-in holding tokenHash
 	// directly: nil while it is live.
 	PendingConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// MailLinkConsumedAt reads the ConsumedAt of the mail link holding tokenHash
+	// directly: nil while it is live.
+	MailLinkConsumedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
 	// ClockLead is how far the backend's clock may run ahead of the host's; see
 	// Harness.ClockLead.
 	ClockLead time.Duration
@@ -238,6 +276,18 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a clear deletes the name's sign-in attempts and the count starts over", run: testSignInAttemptsCleared},
 		{name: "concurrent failed sign-in attempts on one name each count", run: testSignInAttemptsConcurrent},
 		{name: "a driver whose sign-in attempts table is not there says so: an error naming the table, never a count of nothing", run: testSignInAttemptsMissingTable},
+		{name: "a user's email address is stored in two states, unique among every address held, and read back with the user", run: testUserEmail},
+		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
+		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
+		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
+		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
+		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},
+		{name: "an expired mail link is neither read, consumed nor listed", run: testMailLinkExpired},
+		{name: "a verification link goes with its user", run: testMailLinkCascade},
+		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},
+		{name: "an invitation that died is skipped by a member's sign-in and refuses an invited-only one, provisioning nothing", run: testInvitationDead},
+		{name: "a failing invitation hook ends the sign-in and leaves the invitation and the user untouched", run: testInvitationHookFails},
+		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand", run: testInvitationAcceptedByHand},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -442,7 +492,8 @@ func testInitialAuthEvents(ctx context.Context, t *testing.T, h *AuthHarness) {
 			},
 		},
 	}
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			in := h.New(ctx, t, Auth, tt.cfg)
 			user := createUser(ctx, t, in.Driver, "steps@example.com")

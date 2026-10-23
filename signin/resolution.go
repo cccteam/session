@@ -363,6 +363,11 @@ var (
 	// ErrNotInvited is the cause when the invited-users-only rule matched no
 	// pre-created user. The code is sessioninfo.RefusedNotInvited.
 	ErrNotInvited = errors.New("signin: no user was created for the identity's sign-in name")
+	// ErrInvitationExpired is the cause when the invitation a sign-in carried, which
+	// alone admitted the person under the invited-users-only rule, had expired or been
+	// used by the time the sign-in accepted it; nothing is provisioned. The code is
+	// sessioninfo.RefusedInvitationExpired.
+	ErrInvitationExpired = errors.New("signin: the invitation has expired or was already used")
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
 	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy. A refusal
 	// of the tenant policy carries its own cause beside it.

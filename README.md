@@ -16,6 +16,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
+- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted by whoever signs in or signs up at it; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification and sign-up flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
@@ -72,7 +73,10 @@ given.
 the username, the password hash and `Disabled`, the password change mark
 `PasswordChangeRequired` and the time columns `CreatedAt` and `LastSignInAt` (see
 "Users and the forced password change"). The shipped `000002_SessionUsers` migration
-creates them; a users table named per group takes the same DDL under its name.
+creates them; a users table named per group takes the same DDL under its name. The
+auth set adds the email address columns `Email`, `NormalizedEmail` and
+`EmailVerifiedAt` (`SessionUserEmail`) and the mail links table (`SessionMailLinks`);
+see "Users and their email address" for the two shapes the address columns take.
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -126,12 +130,13 @@ first sign-in (see "Storage and schema").
 
 ### Storage and schema
 
-Each auth group owns seven tables: sessions and users (the base migrations,
-`schema/*/migrations`), identities, auth events, pending sign-ins and sign-in attempts
-(the auth migrations, `schema/*/auth/migrations`, which also add `UserId`,
+Each auth group owns eight tables: sessions and users (the base migrations,
+`schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts and
+mail links (the auth migrations, `schema/*/auth/migrations`, which also add `UserId`,
 `AuthenticatedAt`, `ProviderSessionId` and `ProviderSessionIssuer` to the sessions
-table), and impersonations (`schema/*/impersonation/migrations`) if you use it. Which
-set to apply depends on where the group starts:
+table and the email address columns to the users table), and impersonations
+(`schema/*/impersonation/migrations`) if you use it. Which set to apply depends on
+where the group starts:
 
 - **A new group**: the base set, then the auth set.
 - **A group on the legacy password type** (`legacy.PasswordAuth`): the auth set only;
@@ -162,15 +167,16 @@ long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
-`WithIdentitiesTableName`, `WithPendingSignInsTableName` and
-`WithSignInAttemptsTableName` on `NewAuth`, and
+`WithIdentitiesTableName`, `WithPendingSignInsTableName`,
+`WithSignInAttemptsTableName` and `WithMailLinksTableName` on `NewAuth`, and
 `NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. A table name
 must be a plain identifier (a letter or underscore, then up to 127 letters, digits or
 underscores): the store refuses any other, and the constructor reports it under the
 option's name, so a name never reaches SQL unchecked. Name the users
-table's unique index after the table as the shipped DDL does
-(`<UsersTable>_NormalizedUsername_idx` on PostgreSQL, `<UsersTable>ByNormalizedUsername`
-on Spanner): the drivers read a username conflict by that name. Build the
+table's unique indexes after the table as the shipped DDL does
+(`<UsersTable>_NormalizedUsername_idx` and `<UsersTable>_NormalizedEmail_idx` on
+PostgreSQL, `<UsersTable>ByNormalizedUsername` and `<UsersTable>ByNormalizedEmail` on
+Spanner): the drivers read a username or an address conflict by those names. Build the
 storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
 the `Auth` and to each method,
 typed to the storage's transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`) so
@@ -205,7 +211,8 @@ DML what a later rule must read.
     when the user has a password, outright when the user has none and signs in through
     no other connection yet.
   - `signin.InvitedUsersOnly`: the same matching, and no provisioning; a person no user
-    was created for is refused (`not_invited`). The application creates the users
+    was created for is refused (`not_invited`), unless the sign-in carries an
+    invitation, which is then the account the rule asks for. The application creates the users
     under their sign-in names, with or without a password, before they sign in.
   - `signin.OpenSignUp`: anyone who signs in gets an account under their sign-in name.
     It is for public applications and refused on a registration that serves one
@@ -437,7 +444,10 @@ r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // what the login p
         {Name: "password", Label: "Password", Path: "/api/user/session"},
         {Name: "workos", Label: "Single sign-on", Path: "/api/user/sso/login"},
     },
-    Pending: session.PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+    Pending:    session.PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+    Invitation: session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+    Email:      session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
+    SignUp:     session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
 }))
 r.Group(func(r chi.Router) {
     r.Use(auth.ValidateXSRFToken)
@@ -447,12 +457,24 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/mfa", app.CompleteMFA) // checks the app's code, then auth.API().CompletePending
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
+    r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
+    r.Post("/api/user/invitation/sign-up", auth.Invitation().SignUp()) // {"password", "username"}: the invited person's account
+    r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link (OpenSignUp)
+    r.Post("/api/user/sign-up/open", auth.SignUp().Open())             // {"token"}
+    r.Post("/api/user/sign-up/complete", auth.SignUp().Complete())     // {"token", "password", "username"}
     r.Group(func(r chi.Router) {
         r.Use(auth.ValidateSession)
+        r.Post("/api/user/invitation/accept", auth.Invitation().Accept()) // the signed-in person accepts
+        r.Post("/api/user/email", auth.Email().Add())                     // {"email"}: mails the verification link
+        r.Post("/api/user/email/verify", auth.Email().Verify())           // {"token"}
         // …protected routes
     })
 })
 ```
+
+The invitation, email and sign-up handlers are described under "Invitations", "Users
+and their email address" and "Sign-up" below; the groups that send mail (`Email()`,
+`SignUp()`) panic at wiring on an `Auth` without `WithMail`.
 
 The pending handlers and the API's pending methods read the pending identity
 `StartSession` found, so they must run behind it; the POSTs belong behind
@@ -478,7 +500,11 @@ the password method is listed.
     {"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/api/user/sso/login"}
   ],
   "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
-  "changePassword": "/api/user/password"
+  "changePassword": "/api/user/password",
+  "usernameIsEmail": true,
+  "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up"},
+  "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
+  "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
 }
 ```
 
@@ -497,13 +523,25 @@ the password method is listed.
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
   present whenever the password method is listed.
+- `usernameIsEmail` is present, and true, when the listed password method declares
+  the username as the email address (`UsernameIsEmail`): the page then asks for the
+  address where it would ask for a username, and a sign-up takes none.
+- `invitation`, `email` and `signUp` are the paths of the invitation, email address and
+  sign-up handlers, each block present when the list names it (`MethodList.Invitation`,
+  `Email`, `SignUp`). The invitation block's `signUp` is named exactly when the
+  password method is listed; the sign-up block needs the password method listed and
+  registered with `OpenSignUp`. The page opens a link it was sent to with
+  `?invitation=`, `?verify=` or `?signUp=` by posting the token to the block's `open`
+  (or `verify`) path; see "Invitations", "Users and their email address" and "Sign-up".
 
 `Methods` is called after every method is registered and panics on a wiring mistake,
 as a registration does: an empty list, a method that is not registered on the `Auth`,
 a name listed twice, a method without a label or with a path that is not a canonical
 path in the application, a pending block with some of its paths, the password method
-without its change route or that route without the method. Route it beside the login
-routes: behind `StartSession`, before `ValidateSession`, no XSRF token.
+without its change route or that route without the method, an invitation, email or
+sign-up block with some of its paths, or a sign-up block for a password method that
+does not offer sign-up. Route it beside the login routes: behind `StartSession`,
+before `ValidateSession`, no XSRF token.
 
 ### The redirect and response contract
 
@@ -661,13 +699,15 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | --- | --- |
 | `Users(ctx)` | Every user, by username. |
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
-| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). |
+| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Clears the mark, destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark, destroys the sessions. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+| `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
+| `Invite(ctx, &InvitationRequest{Email, Tenant, RoleNames, InvitedBy})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -684,6 +724,140 @@ of a new application and every user an operator creates with a password carry th
 mark; the password a user chose through `ChangeSessionUserPassword` or
 `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
+
+### Users and their email address
+
+A user may hold one email address, in two states. **Verified before trusted**: an
+address is trusted for nothing until the person has proven they read it by following
+a link sent to it, and the user record carries the time that happened
+(`SessionUser.EmailVerifiedAt`, `UserInfo.EmailVerified()`). Code that sends a link
+may use an unverified address; code that relies on one (linking a social identity, a
+recovery) requires the time. No address is required of any user: an account without a
+verified address has no mail-based recovery, and multi-factor authentication can serve
+instead. The address is unique among every address held, verified or not, matched
+without regard to case (`NormalizedEmail`), so an address is held by one account at a
+time.
+
+How an address gets onto a user:
+
+- **The person adds and verifies their own**, signed in: `Email().Add()` takes
+  `{"email"}` and mails the address a link; nothing is written until the person
+  follows it and the page posts the token to `Email().Verify()`, which writes the
+  address verified, replacing whatever the user held. The link counts only for the
+  account that asked for it, so following a link never attaches an address to an
+  account the follower does not control. A directory's claim (Entra's user principal
+  name, Google's address) is offered as a prefill of that step through the session
+  read's `emailHint`, and never stored by it. `Add` answers `{}` whatever the address's
+  state, so the screen reveals nothing: an address another account holds is told so
+  by mail to that address, and an address the user already holds verified gets no
+  mail. A mailbox is sent at most three links within fifteen minutes; the fourth is
+  refused with `too_many_attempts` and the wait, as a locked name is.
+- **An operator enters one**, unverified: `CreateUserRequest.Email` or
+  `SetSessionUserEmail`. The entry reserves the address within the auth: a later
+  sign-up with it is pointed at this account by mail, and the person verifies it
+  through the same add step. An entry over a verified address leaves it unverified.
+- **Google writes its own**: a Google sign-in writes the address Google verified
+  onto the user, verified at the time of the sign-in, when the user holds no verified
+  address yet and no other user holds it (any method that asserts
+  `Identity.EmailVerified` does the same; Entra does not, so an Entra user's address
+  stays a prefill until the person verifies it).
+- **An invitation or a sign-up proves it**: the account an invited person creates, or
+  an existing account that accepts an invitation while holding no verified address,
+  takes the invitation's address verified; a sign-up's account is created with its
+  address verified.
+
+**Two shapes.** An application declares on the password method whether the username
+is the email address (`session.UsernameIsEmail()`), and the users table takes the
+matching shape:
+
+- **Apart** (the default): the username is chosen, the address is added and verified
+  separately, and sign-in is by username. The auth set's `SessionUserEmail` migration
+  creates the columns as plain columns.
+- **One value** (`UsernameIsEmail()`): the address is the username, derived from it by
+  the database so the two cannot diverge. The login page asks for the address, a
+  sign-up's username is the address, renaming a user is refused
+  (`ChangeSessionUserUsername`: Conflict) as is an operator's entry of an address, and
+  a person who verifies a new address is renamed to it with their live sessions, as
+  the rename does; an application that keys anything by the username, role
+  memberships above all, is told of that rename through `auth.SetUserRenamed(func(ctx,
+  userID, from, to) error)` and moves what it holds. The store is told the shape when
+  the method registers. The users
+  table is created with the address columns generated from the username, in place of
+  the migration's first two statements:
+
+  ```sql
+  -- Spanner
+  ALTER TABLE SessionUsers ADD COLUMN Email STRING(MAX) AS (Username) STORED;
+  ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED;
+  -- PostgreSQL
+  ALTER TABLE "SessionUsers" ADD COLUMN "Email" character varying GENERATED ALWAYS AS ("Username") STORED;
+  ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED;
+  ```
+
+  `EmailVerifiedAt` and the unique index on `NormalizedEmail` are as the migration has
+  them. Sign-in by address when the two are apart is not offered.
+
+The session read (`Authenticated`) reports `email`, `emailVerified` and, for a user
+without an address, `emailHint`.
+
+### Invitations
+
+An invitation is a mailed link that brings a person into the application, or into
+one of its tenants, with the roles it carries. It reaches anyone by address, and the
+actor's request is the same whether an account already holds the address or not: only
+the invitee's path differs, and the actor does not learn which. Whoever follows the
+link and signs in, by any method, or signs up with a password, accepts it: the person
+proved they read the mailbox, and the account they sign in with is theirs.
+
+- **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Tenant,
+  RoleNames, InvitedBy})` stores the invitation and mails the link; it stands for
+  `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
+  stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
+  application's, opaque to the library.
+- **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
+  `Invitation().Open()`, which answers `{"email", "tenant", "expiresAt", "signUp",
+  "usernameIsEmail"}` and sets an encrypted cookie holding the token, so the sign-in
+  that follows carries the invitation, an external round trip included. The page then
+  offers the sign-in methods, and, when `signUp` is true (the password method is
+  registered), an account with a password.
+- **Accepting**: a sign-in that carries an invitation accepts it once the user is
+  known, before the sign-in policy decides, so the policy sees the membership: the
+  invitation is consumed, the user takes its address when they hold no verified one,
+  and the application's hook grants what it names. The hook is set with
+  `auth.SetInvitationAccepted(func(ctx, userID, username, inv) error)` and runs once
+  the transaction that consumed the invitation has committed (for an external
+  identity, the resolution's own, so a user the invitation provisioned is committed
+  when the hook sees them), outside any transaction: an application's memberships
+  live in a store of their own, written through its own client, which no transaction
+  of the session store can carry, and which the Spanner emulator, allowing one
+  read-write transaction at a time, would deadlock inside one. Under the
+  invited-users-only account rule the invitation is the account the rule asks for: a
+  stranger who carries one is provisioned under their sign-in name. A person already
+  signed in accepts with `Invitation().Accept()` (behind `ValidateSession`); an
+  invited person creates an account with a password through `Invitation().SignUp()`
+  (`{"password", "username"}`), which creates the user with the invitation's address
+  verified and signs them in, the invitation accepted on the way. `NewSessionRequest.Invitation`
+  carries it to the policy, with `Accepted` saying whether this sign-in accepted it.
+- **A dead invitation** (used, revoked or expired) is skipped by a sign-in the person
+  was admitted to anyway, which goes on without a grant, and refuses one the invitation
+  alone admitted (`invitation_expired`), provisioning nothing. A hook that fails ends
+  the sign-in with its error and writes no session; the invitation stays consumed and a
+  user it provisioned stays, so the person's next attempt at the link finds it dead and
+  an administrator invites again.
+
+### Sign-up
+
+When the password method is registered with `session.OpenSignUp()`, anyone may create
+an account: the person gives their address to `SignUp().Start()` (`{"email"}`), which
+mails a link standing `MailSettings.LinkTimeout` (a day); the login page, sent to with
+`?signUp=<token>`, posts the token to `SignUp().Open()` for `{"email",
+"usernameIsEmail"}` and then, with the password the person chose (at least eight
+characters) and the username when the two are apart, to `SignUp().Complete()`, which
+creates the account with the address verified and signs the person in, answering as
+the password login does. `Start` answers `{}` whatever the address's state: an address
+an account already holds is pointed at that account by mail, and the screen says
+nothing. `OpenSignUp` needs mail (`WithMail`), and the sign-up routes are offered only
+with it; without `OpenSignUp` the handlers answer 404 and `Methods` refuses the block.
 
 ### Attempt limiting and the after-sign-in hook
 
@@ -804,6 +978,19 @@ What the Workspace side needs, once per organization:
    version (bedrock refuses a release where the pin is missing). Rotating it is
    generating a new app password and pinning the new version; nothing in the application
    changes.
+
+The `Auth` is given the sender with `WithMail`, with the application's name and the
+absolute URL of its login page, where every mailed link leads
+(`?invitation=<token>`, `?verify=<token>`, `?signUp=<token>`):
+
+```go
+auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey,
+	session.WithMail(sender, session.MailSettings{Application: "Harbor", LoginURL: "https://harbor.example.com/login"}))
+```
+
+In development `mail.Log{}` stands in for a driver: it writes each message to the log,
+link included, and sends nothing, so the link is followed from the log. It is never
+configured for a deployed environment, where the links are secrets.
 
 The relay allows a sending address ten thousand messages a day, counted apart from the
 mailbox's own sending. A refused login comes back in the relay's words after the driver's
@@ -1175,6 +1362,7 @@ table is the wire contract:
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
+| `invitation_expired` | `RefusedInvitationExpired` | Auth: under the invited-users-only account rule, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
