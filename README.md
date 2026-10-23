@@ -16,6 +16,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
+- `Mail`: one interface the invitation, verification and sign-up flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -760,6 +761,57 @@ auth.SetSignedInHook(func(ctx context.Context, s *session.SignedIn) error {
 
 A nil hook, a second hook, or a hook set once the `Auth` is in use panics, as
 `SetSignInPolicy` does: set it after `NewAuth` and before serving.
+
+## Sending mail
+
+The library sends mail for the flows that need a link in someone's mailbox: the
+invitation a tenant's administrator sends to an address, the link that verifies an
+address a person adds or changes, and the link a password sign-up starts from. It writes
+to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
+behind it; an application configures a driver and hands it to the `Auth`. A message is
+plain text with one link in it (`mail.Message`: the recipient, the subject and the body),
+and every message is from the one address the driver is configured to send as. Tests
+use `mail.Recorder`, a sender that keeps what it was asked to send.
+
+The first driver is the Google Workspace SMTP relay, `session/mail/workspace`. Google
+Cloud has no outbound mail service of its own and blocks port 25 from every compute
+product, so a mail server of our own is not an option there; the relay is Google's own
+route. The driver submits each message to `smtp-relay.gmail.com` on port 587 over TLS,
+which Cloud Run allows, logged in as one mailbox of the organization's Workspace domain
+with an app password, and Google carries delivery, reputation and signing from there.
+The mailbox is the From address of every message, a no-reply address as a rule.
+
+```go
+sender, err := workspace.New(workspace.Settings{
+	Mailbox:     "no-reply@example.com", // the Workspace account the relay is logged in to, and the From address
+	AppPassword: settings.MailAppPassword, // the mailbox's app password, from the secret store
+	Name:        "Harbor",                 // the display name beside the address
+})
+```
+
+What the Workspace side needs, once per organization:
+
+1. **The mailbox**, a Workspace user such as `no-reply@example.com`, with two-step
+   verification turned on and an app password generated for it (the account's security
+   settings, under two-step verification). Google issues app passwords only to accounts
+   with two-step verification; the password stands in for the account's at the relay's
+   login and carries no second step, which is what a service needs. Two-step verification
+   itself protects interactive sign-ins to the mailbox and the driver never meets it.
+2. **The relay service**, in the admin console under Gmail routing: the SMTP relay
+   service accepting mail from addresses in the organization's domains, with SMTP
+   authentication required and TLS required.
+3. **The secret**: the app password goes into the deployment's secret store as a pinned
+   version (bedrock refuses a release where the pin is missing). Rotating it is
+   generating a new app password and pinning the new version; nothing in the application
+   changes.
+
+The relay allows a sending address ten thousand messages a day, counted apart from the
+mailbox's own sending. A refused login comes back in the relay's words after the driver's
+sentence saying what the login takes; a refused recipient and a refused message likewise.
+A send is given thirty seconds (`Settings.Timeout`), dialing included. An organization
+that forbids app passwords has the relay's IP allowlist (a fixed outbound address per
+environment) or the Gmail API with domain-wide delegation as its alternatives; neither is
+built.
 
 ## Legacy session types
 
