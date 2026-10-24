@@ -64,6 +64,19 @@ func (r *RoleReconciler) RequireRoles(ctx context.Context, username accesstypes.
 	return nil
 }
 
+// RecognizesAny reports whether at least one of roleNames is a role the application
+// knows in a place the sync writes: whether RequireRoles would leave the user holding
+// a role. It reads the role catalog and writes nothing, so the core can refuse a
+// sign-in the directory's roles admit nowhere before anything else is written.
+func (r *RoleReconciler) RecognizesAny(ctx context.Context, roleNames []string) (bool, error) {
+	wanted, err := r.wantedRoles(ctx, roleNames)
+	if err != nil {
+		return false, err
+	}
+
+	return len(wanted) > 0, nil
+}
+
 // writeScopes returns the places the sync writes a membership: the global
 // partition, where a global role is held, and every tenant domain, where a
 // domain role is held. The sync asks ResolveRole in these two places only and

@@ -502,12 +502,13 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// An existing user signing in with an invitation accepts it too, and takes its
-	// address when they hold none.
+	// address when they hold none. The request names no username, as the Auth sends
+	// an external identity's: the grant is handed the linked user's.
 	alex := createUser(ctx, t, in.Driver, "alex@lakeside.edu")
 	alexIdentity := entra("oid-alex", "alex@lakeside.edu")
 	mustLink(ctx, t, in.Driver, alex.ID, alexIdentity)
 	alexLink := insertInvitation(ctx, t, in.Driver, "alex.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
-	alexReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: alex.Username, Identity: alexIdentity, Invitation: invitationOf(alexLink)}
+	alexReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: alexIdentity, Invitation: invitationOf(alexLink)}
 	if err := signInRequest(ctx, in, alexReq); err != nil {
 		t.Fatalf("sign-in of a linked user with an invitation error = %v", err)
 	}
@@ -571,6 +572,83 @@ func testInvitationDead(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if _, found := rec.recorded("accepted:" + name); found {
 		t.Error("the hook ran for a dead invitation, want nothing granted")
 	}
+}
+
+// assertInvitationKept fails unless link is still live, nothing was granted for it and
+// the sign-in did not accept it: what a sign-in that was refused or held before the
+// acceptance leaves behind.
+func assertInvitationKept(ctx context.Context, t *testing.T, in *AuthInstance, rec *acceptances, link *dbtype.MailLink, inv *sessioninfo.Invitation) {
+	t.Helper()
+
+	if _, err := in.Driver.MailLinkByToken(ctx, link.TokenHash, time.Now()); err != nil {
+		t.Errorf("MailLinkByToken() after the refused sign-in error = %v, want the invitation still live", err)
+	}
+	if _, found := rec.recorded("accepted:" + link.Email); found {
+		t.Error("the hook ran for a refused sign-in, want nothing granted")
+	}
+	if inv.Accepted {
+		t.Error("Invitation.Accepted = true after a refused sign-in, want false")
+	}
+}
+
+func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarness) {
+	const name = "pat.lee@lakeside.edu"
+	identity := entra("oid-pat", name)
+
+	// A sign-in held for the user's password (the standard rule's confirmation of a
+	// pre-created user with a password) has accepted nothing yet.
+	rec := newAcceptances()
+	held := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Accept: rec.hook})
+	passwordUser(ctx, t, held.Driver, name)
+	link := insertInvitation(ctx, t, held.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: identity, Invitation: invitationOf(link)}
+	var pending *signin.PendingSignInError
+	if err := signInRequest(ctx, held, req); !errors.As(err, &pending) {
+		t.Fatalf("sign-in of a pre-created password user error = %v, want a pending confirmation", err)
+	}
+	assertInvitationKept(ctx, t, held, rec, link, req.Invitation)
+
+	// A sign-in the account rule rejects keeps the invitation.
+	rejected := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accept: rec.hook,
+		Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+			return signin.Reject(""), nil
+		},
+	})
+	link = insertInvitation(ctx, t, rejected.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(2))
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: identity, Invitation: invitationOf(link)}
+	assertRefused(t, signInRequest(ctx, rejected, req), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected)
+	assertInvitationKept(ctx, t, rejected, rec, link, req.Invitation)
+
+	// An untrusted link from another connection to a password-less user is refused,
+	// and keeps the invitation. The rule names the user it is given once sam exists.
+	var samID ccc.UUID
+	crossing := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accept: rec.hook,
+		Resolve: func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+			return signin.Link(samID, false), nil
+		},
+	})
+	samID = createUser(ctx, t, crossing.Driver, "sam@lakeside.edu").ID
+	mustLink(ctx, t, crossing.Driver, samID, riverside("idp_sam"))
+	link = insertInvitation(ctx, t, crossing.Driver, "sam.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: lakeside("idp_sam2"), Invitation: invitationOf(link)}
+	assertRefused(t, signInRequest(ctx, crossing, req), sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
+	assertInvitationKept(ctx, t, crossing, rec, link, req.Invitation)
+
+	// A disabled user whose identity is linked is refused, and keeps the invitation:
+	// nothing is consumed and nothing granted for a sign-in that ends in no session.
+	disabled := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory, Accept: rec.hook})
+	gone := createUser(ctx, t, disabled.Driver, "gone@lakeside.edu")
+	goneIdentity := entra("oid-gone", "gone@lakeside.edu")
+	mustLink(ctx, t, disabled.Driver, gone.ID, goneIdentity)
+	if err := disabled.Driver.DeactivateUser(ctx, gone.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	link = insertInvitation(ctx, t, disabled.Driver, "gone.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(4))
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: goneIdentity, Invitation: invitationOf(link)}
+	assertRefused(t, signInRequest(ctx, disabled, req), sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled)
+	assertInvitationKept(ctx, t, disabled, rec, link, req.Invitation)
 }
 
 func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {

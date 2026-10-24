@@ -118,11 +118,16 @@ type Rules[Tx any] struct {
 // user holds no verified address, in the resolution transaction for an external
 // identity (so a user the invitation provisioned and the consumption commit together)
 // and in a transaction of its own for a password identity; once that has committed,
-// rules.Accept grants what the invitation names, outside any transaction. An
-// invitation that is no longer live is skipped and the sign-in goes on, unless the
-// invitation alone admitted the person (the invited-users-only rule), which is then a
-// refusal (invitation_expired) and provisions nothing; req.Invitation.Accepted reports
-// whether it was accepted, which a failed grant leaves false.
+// rules.Accept grants what the invitation names, outside any transaction. The
+// invitation is consumed only once the resolution has admitted the sign-in: the user
+// found, linked or provisioned, and enabled. A sign-in the account rules refuse or
+// hold for a confirmation, or a disabled user's, leaves the invitation standing,
+// nothing granted, so the person may sign in another way; a sign-in the policy then
+// denies leaves it accepted, and what the acceptance granted stands. An invitation
+// that is no longer live is skipped and the sign-in goes on, unless the invitation
+// alone admitted the person (the invited-users-only rule), which is then a refusal
+// (invitation_expired) and provisions nothing; req.Invitation.Accepted reports whether
+// it was accepted, which a failed grant leaves false.
 func SignIn[Tx any](
 	ctx context.Context, d Driver[Tx], id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) error {
@@ -176,10 +181,10 @@ func SignIn[Tx any](
 var errInvitationDead = errors.New("the invitation has expired or was already used")
 
 // consumeInvitation consumes the invitation req carries, if any, inside the
-// resolution's transaction, before the user is written, and reports whether it was
-// live. A dead invitation is reported dead and the sign-in goes on without it, unless
-// it alone admitted the person (byInvitation), which ends the transaction with
-// errInvitationDead.
+// resolution's transaction once it has admitted the sign-in (for a provisioned user,
+// before the row is written), and reports whether it was live. A dead invitation is
+// reported dead and the sign-in goes on without it, unless it alone admitted the
+// person (byInvitation), which ends the transaction with errInvitationDead.
 func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, byInvitation bool) (live bool, err error) {
 	inv := req.Invitation
 	if inv == nil {
@@ -322,9 +327,11 @@ func resolveIdentity[Tx any](
 }
 
 // resolveIn is one run of the resolution inside tx. A linked identity resolves to its
-// user and its LastUsedAt is touched. An unlinked one goes to the account rules, and
-// their answer is applied. The invitation the sign-in carries is then consumed for
-// the user found, in the same transaction; its grant follows the commit.
+// user, named on the request, and its LastUsedAt is touched. An unlinked one goes to
+// the account rules, and their answer is applied. The invitation the sign-in carries
+// is consumed for the user found, in the same transaction, once the resolution has
+// admitted the sign-in and not for a disabled user, who is refused once the sign-in
+// is decided; its grant follows the commit.
 func resolveIn[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) (source sessioninfo.UserSource, tenant string, stop, err error) {
@@ -334,7 +341,11 @@ func resolveIn[Tx any](
 	}
 	var live bool
 	if link != nil {
-		req.UserID = link.UserID
+		user, err := d.UserIn(ctx, tx, link.UserID)
+		if err != nil {
+			return "", "", nil, errors.Wrap(err, "Driver.UserIn()")
+		}
+		req.UserID, req.Username = link.UserID, user.Username
 		if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
 			return "", "", nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
 		}
@@ -342,20 +353,17 @@ func resolveIn[Tx any](
 			tenant = *link.Tenant
 		}
 		source = sessioninfo.UserExistingLink
-		if live, err = consumeInvitation(ctx, d, tx, req, false); err != nil {
-			return "", "", nil, err
+		if !user.Disabled {
+			if live, err = consumeInvitation(ctx, d, tx, req, false); err != nil {
+				return "", "", nil, err
+			}
 		}
 	} else {
 		res, byInvitation, stop, err := decideAccount(ctx, d, tx, req, rules.Account, rules.Standard)
 		if err != nil || stop != nil {
 			return "", "", stop, err
 		}
-		// The invitation is consumed before the user is written, so a dead one gives
-		// a provisioned user nothing: not its address, not its grant.
-		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation); err != nil {
-			return "", "", nil, err
-		}
-		source, tenant, stop, err = applyResolution(ctx, d, tx, req, res, live)
+		source, tenant, live, stop, err = applyResolution(ctx, d, tx, req, res, byInvitation)
 		if err != nil || stop != nil {
 			return "", "", stop, err
 		}
@@ -451,86 +459,125 @@ func standardRule[Tx any](
 }
 
 // applyResolution acts on the account rules' answer for an unlinked identity. A link
-// or a new user sets req.UserID (and req.Username for a new user) and reports how
-// the user was found and its tenant. A pending confirmation or a refusal is returned
-// as stop. invited says the sign-in carries a live invitation, whose address a new
-// user takes.
+// or a new user sets req.UserID and req.Username and reports how the user was found
+// and its tenant, and consumes the invitation the sign-in carries, if any, once the
+// user is linked or about to be written (live reports that it was): a refusal or a
+// pending confirmation, returned as stop, consumes nothing, and neither does a
+// disabled user, who is refused once the sign-in is decided. byInvitation says the
+// invitation alone admitted the person, so a dead one is a refusal.
 func applyResolution[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, invited bool,
-) (source sessioninfo.UserSource, tenant string, stop, err error) {
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool,
+) (source sessioninfo.UserSource, tenant string, live bool, stop, err error) {
 	if res == nil {
 		res = signin.Reject("")
 	}
 
 	switch res.Outcome() {
 	case signin.RejectIdentity:
-		return "", "", Refusal(res.Refusal(), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
+		return "", "", false, Refusal(res.Refusal(), sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected"), nil
 	case signin.LinkIdentity:
-		// The row is held until the transaction ends, so two link decisions for one
-		// user run one after the other and the second sees the first's link.
-		user, err := d.LockUserIn(ctx, tx, res.UserID())
-		if err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.LockUserIn()")
+		live, stop, err = linkUser(ctx, d, tx, req, res)
+		if err != nil || stop != nil {
+			return "", "", false, stop, err
 		}
-		if user.HasPassword && !res.Trusted() {
-			return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
-		}
-		if !user.HasPassword && !res.Trusted() {
-			crosses, err := linksAnotherConnection(ctx, d, tx, res.UserID(), req.Identity)
-			if err != nil {
-				return "", "", nil, err
-			}
-			if crosses {
-				return "", "", Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
-			}
-		}
-		if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
-		}
-		req.UserID = res.UserID()
 
-		return sessioninfo.UserNewLink, res.Tenant(), nil, nil
+		return sessioninfo.UserNewLink, res.Tenant(), live, nil, nil
 	case signin.ProvisionUser:
-		newUser := res.NewUser()
-		if newUser == nil {
-			return "", "", nil, errors.New("the account rule provisioned no user: signin.Provision was given nil")
-		}
-		req.Username = newUser.Username
-		insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled}
-		if invited {
-			if err := invitedAddress(ctx, d, tx, req, insert); err != nil {
-				return "", "", nil, err
-			}
-		}
-		id, err := d.InsertUserIn(ctx, tx, insert)
+		live, err = provisionUser(ctx, d, tx, req, res, byInvitation)
 		if err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.InsertUserIn()")
-		}
-		if err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant()); err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
-		}
-		req.UserID = id
-		if onProvisioned := res.OnProvisioned(); onProvisioned != nil {
-			if err := onProvisioned(ctx, id); err != nil {
-				return "", "", nil, errors.Wrap(err, "signin.Resolution.OnProvisioned()")
-			}
+			return "", "", false, nil, err
 		}
 
-		return sessioninfo.UserProvisioned, res.Tenant(), nil, nil
+		return sessioninfo.UserProvisioned, res.Tenant(), live, nil, nil
 	case signin.RequireConfirmation:
 		user, err := d.UserIn(ctx, tx, res.UserID())
 		if err != nil {
-			return "", "", nil, errors.Wrap(err, "Driver.UserIn()")
+			return "", "", false, nil, errors.Wrap(err, "Driver.UserIn()")
 		}
 
-		return "", "", &signin.PendingSignInError{
+		return "", "", false, &signin.PendingSignInError{
 			Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(res.UserID()), Username: user.Username, Tenant: res.Tenant(),
 		}, nil
 	case signin.ApplyStandardRule:
-		return "", "", nil, errors.New("the standard account rule answered signin.Standard: a standard rule decides the identity itself")
+		return "", "", false, nil, errors.New("the standard account rule answered signin.Standard: a standard rule decides the identity itself")
 	default:
-		return "", "", nil, errors.Newf("unknown account rule outcome %d", res.Outcome())
+		return "", "", false, nil, errors.Newf("unknown account rule outcome %d", res.Outcome())
 	}
+}
+
+// linkUser links the identity to the user the rule named (signin.LinkIdentity), names
+// the user on the request, and consumes the invitation the sign-in carries unless the
+// user is disabled. An untrusted link to a user with a password, or from a connection
+// a password-less user does not sign in through, is a refusal (stop) and links
+// nothing.
+func linkUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution) (live bool, stop, err error) {
+	// The row is held until the transaction ends, so two link decisions for one
+	// user run one after the other and the second sees the first's link.
+	user, err := d.LockUserIn(ctx, tx, res.UserID())
+	if err != nil {
+		return false, nil, errors.Wrap(err, "Driver.LockUserIn()")
+	}
+	if user.HasPassword && !res.Trusted() {
+		return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkRequiresConfirmation, "identity requires confirmation"), nil
+	}
+	if !user.HasPassword && !res.Trusted() {
+		crosses, err := linksAnotherConnection(ctx, d, tx, res.UserID(), req.Identity)
+		if err != nil {
+			return false, nil, err
+		}
+		if crosses {
+			return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
+		}
+	}
+	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
+		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
+	}
+	req.UserID, req.Username = res.UserID(), user.Username
+	if user.Disabled {
+		return false, nil, nil
+	}
+	live, err = consumeInvitation(ctx, d, tx, req, false)
+
+	return live, nil, err
+}
+
+// provisionUser writes the user the rule provisioned (signin.ProvisionUser), linked to
+// the identity, and runs the rule's OnProvisioned. The invitation the sign-in carries
+// is consumed before the row is written, so a dead one gives the new user nothing,
+// not its address and not its grant, and a live one's address goes on the row
+// (invitedAddress); a user provisioned disabled cannot accept and consumes nothing.
+func provisionUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool) (live bool, err error) {
+	newUser := res.NewUser()
+	if newUser == nil {
+		return false, errors.New("the account rule provisioned no user: signin.Provision was given nil")
+	}
+	req.Username = newUser.Username
+	insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled}
+	if !newUser.Disabled {
+		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation); err != nil {
+			return false, err
+		}
+	}
+	if live {
+		if err := invitedAddress(ctx, d, tx, req, insert); err != nil {
+			return false, err
+		}
+	}
+	id, err := d.InsertUserIn(ctx, tx, insert)
+	if err != nil {
+		return false, errors.Wrap(err, "Driver.InsertUserIn()")
+	}
+	if err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant()); err != nil {
+		return false, errors.Wrap(err, "Driver.LinkIdentityIn()")
+	}
+	req.UserID = id
+	if onProvisioned := res.OnProvisioned(); onProvisioned != nil {
+		if err := onProvisioned(ctx, id); err != nil {
+			return false, errors.Wrap(err, "signin.Resolution.OnProvisioned()")
+		}
+	}
+
+	return live, nil
 }
 
 // invitedAddress gives a user provisioned by a sign-in that carries a live invitation

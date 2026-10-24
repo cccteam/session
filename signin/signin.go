@@ -108,6 +108,13 @@ type Method struct {
 	// and refuses the sign-in (no_roles) when no recognized role results. It is nil
 	// when the method synchronizes no roles.
 	SyncRoles func(ctx context.Context, username string, roleNames []string) error
+	// RecognizesRoles reports whether SyncRoles would leave the user holding a role:
+	// at least one of roleNames is a role the application knows. The core asks it
+	// before the sign-in is resolved, so a person whose roles admit nothing is refused
+	// (no_roles) before anything is written or an invitation they carry is consumed.
+	// It is nil when the method synchronizes no roles or cannot tell beforehand;
+	// SyncRoles then refuses once the session stands.
+	RecognizesRoles func(ctx context.Context, roleNames []string) (bool, error)
 	// AdmitsAddress reports whether an identity with this email address could be
 	// admitted by the method, which the core asks before it sends an invitation to the
 	// address. It is nil when the method cannot tell, which admits.

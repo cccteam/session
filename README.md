@@ -664,8 +664,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   identity. No session start skips the policy; a support session is an impersonation.
 - **Role synchronization** (Azure, Google) reconciles the roles of the user the
   identity resolved to, from the roles the provider asserted at sign-in, whenever such a
-  sign-in establishes a session (including after a confirmation or MFA). A sign-in left
-  with no recognized role is refused (`no_roles`) and its session expired.
+  sign-in establishes a session (including after a confirmation or MFA). A sign-in
+  whose asserted roles the application recognizes none of is refused (`no_roles`)
+  before anything is resolved or written, so an invitation it carried stands; a role
+  store that fails once the session stands expires the session.
 - **Impersonation** works as on the other types. A user principal's session belongs to
   the impersonated user; a role principal's belongs to none. The session records an
   `impersonation` event whose connection is the actor.
@@ -841,7 +843,12 @@ proved they read the mailbox, and the account they sign in with is theirs.
 - **Accepting**: a sign-in that carries an invitation accepts it once the user is
   known, before the sign-in policy decides, so the policy sees the membership: the
   invitation is consumed, the user takes its address when they hold no verified one,
-  and the application's hook grants what it names. The hook is set with
+  and the application's hook grants what it names. Only a sign-in the resolution
+  admitted consumes it: one the account rules refuse or hold for a confirmation, one
+  the directory's roles refuse (`no_roles`), or a disabled user's leaves the
+  invitation standing with nothing granted, and the person may sign in another way;
+  once accepted, a sign-in the policy then denies leaves what the acceptance granted
+  in place. The hook is set with
   `auth.SetInvitationAccepted(func(ctx, userID, username, inv) error)` and runs once
   the transaction that consumed the invitation has committed (for an external
   identity, the resolution's own, so a user the invitation provisioned is committed
@@ -1401,7 +1408,7 @@ table is the wire contract:
 | `personal_account` | `RefusedPersonalAccount` | Entra: a Microsoft personal account under a registration that admits work or school accounts only. |
 | `email_not_verified` | `RefusedEmailNotVerified` | Google: the user's email address is not verified. |
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
-| `no_roles` | `RefusedNoRoles` | Role synchronization left the person with no recognized role, or a standard account rule saw a token asserting no application role and wrote nothing. |
+| `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
