@@ -13,6 +13,7 @@ import (
 	"github.com/cccteam/session/internal/sessioncore"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -333,9 +334,13 @@ type InvitationRequest struct {
 // Invite sends an invitation to req.Email: a link to the login page that stands for
 // MailSettings.InvitationTimeout, which whoever follows it accepts by signing in or
 // signing up. The request is the same whether an account holds the address or not;
-// only the invitee's path differs, and the caller does not learn which. The
-// invitation is returned as stored; a message that could not be sent is an error and
-// the invitation is withdrawn. It needs mail (WithMail).
+// only the invitee's path differs, and the caller does not learn which. An address
+// that no sign-in method the login page offers could admit (an address outside the
+// Google Workspaces a registration names, say, with no password method offered) is
+// refused with a message naming its domain, and nothing is stored or mailed, so the
+// sender learns now what the invitee would learn at the sign-in. The invitation is
+// returned as stored; a message that could not be sent is an error and the invitation
+// is withdrawn. It needs mail (WithMail).
 func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) (*sessioninfo.Invitation, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -347,6 +352,9 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	email, err := address(req.Email)
 	if err != nil {
 		return nil, err
+	}
+	if !p.auth.couldAdmitAddress(email) {
+		return nil, httpio.NewBadRequestMessagef("No sign-in method of this application accepts an address at %s.", signin.AddressDomain(email))
 	}
 	token, hash, err := linkToken()
 	if err != nil {

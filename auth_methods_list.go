@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"time"
 
@@ -225,7 +226,8 @@ func (m *methodsAnswer) withStanding(standing *standingInvitationAnswer) *method
 
 // advertise builds the methods answer from list, checking each entry against the
 // registry under the methods lock without closing registration: the first request
-// closes it, as for every handler.
+// closes it, as for every handler. The names listed are remembered as the methods the
+// login page offers (signInMethods.listed).
 func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	if list == nil || len(list.Methods) == 0 {
 		panic("session: Methods is given no sign-in method: list every method the login page offers, each with its label and the path its Login handler is mounted at")
@@ -258,6 +260,10 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		}
 		answer.Methods = append(answer.Methods, ad)
 	}
+	if a.methods.listed == nil {
+		a.methods.listed = make(map[string]bool, len(seen))
+	}
+	maps.Copy(a.methods.listed, seen)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)

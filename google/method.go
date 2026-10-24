@@ -235,10 +235,14 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // the slot is checked here again, so an authenticator that did not cannot admit an
 // account outside it. When groups is set, the callback maps the person's directory
 // groups to role names using the access token, which is used once and never stored.
+// An address is admitted when the slot admits its domain.
 func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
 		LoginURL: authn.LoginURL,
+		AdmitsAddress: func(email string) bool {
+			return workspaces.admitsAddress(signin.AddressDomain(email))
+		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := loginHint(r)
 			if err != nil {

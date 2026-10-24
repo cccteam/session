@@ -858,6 +858,21 @@ proved they read the mailbox, and the account they sign in with is theirs.
   user it provisioned stays, so the person's next attempt at the link finds it dead and
   an administrator invites again.
 
+An invitation is refused before anything is stored or mailed when no sign-in method the
+login page offers could admit the address, so the sender learns it now rather than the
+invitee at the sign-in: `Invite` answers a bad request reading `No sign-in method of
+this application accepts an address at <domain>.` The password method, when it is
+listed to `Methods`, admits any address, since the invited person creates an account
+with a password; a Google registration admits an address at a domain of its named
+Workspaces, any domain but `gmail.com` and `googlemail.com` under `AnyWorkspace`, and
+any under `AnyGoogleAccount`; a Microsoft Entra registration refuses only a personal
+account's address (`outlook.com`, `hotmail.com`, `live.com`, `msn.com`) unless it admits
+`PersonalAccounts`, since a tenant is not a domain; WorkOS and a method of your own that
+sets no `signin.Method.AdmitsAddress` cannot tell, which admits. Google puts the
+Workspace's primary domain in the `hd` claim, so an invitation to an address at a
+secondary domain of a Workspace whose primary domain alone is named is refused here
+although Google would admit the sign-in: name the secondary domain on the Workspace too.
+
 ### Sign-up
 
 When the password method is registered with `session.OpenSignUp()`, anyone may create

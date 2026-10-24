@@ -15,6 +15,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/mail"
@@ -329,6 +330,7 @@ func TestAuth_Invite(t *testing.T) {
 	t.Run("an invitation stores its row and mails a link to the login page that carries the token", authInviteCase1)
 	t.Run("a message that cannot be sent withdraws the invitation", authInviteCase2)
 	t.Run("an address that is not one, and an Auth without mail, are refused", authInviteCase3)
+	t.Run("an address no offered sign-in method could admit is refused, nothing stored or mailed", authInviteCase4)
 }
 
 func authInviteCase1(t *testing.T) {
@@ -387,6 +389,29 @@ func authInviteCase3(t *testing.T) {
 	plain := newAuthFixture(t, gomock.NewController(t))
 	if _, err := plain.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err == nil || !strings.Contains(err.Error(), "WithMail") {
 		t.Errorf("Invite() without mail error = %v, want the wiring named", err)
+	}
+}
+
+func authInviteCase4(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "lakeside.edu")})
+	// The page offers Google alone: the password method is registered for operators, not listed.
+	f.auth.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}}})
+
+	_, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <Pat@Elsewhere.Example>", Tenant: "lakeside"})
+	if want := "No sign-in method of this application accepts an address at elsewhere.example."; !httpio.HasBadRequest(err) || httpio.Message(err) != want {
+		t.Errorf("Invite() error = %v, want BadRequest %q", err, want)
+	}
+	if len(links.rows) != 0 || len(recorder.Messages()) != 0 {
+		t.Errorf("rows = %d, messages = %d after the refusal; want nothing stored or mailed", len(links.rows), len(recorder.Messages()))
+	}
+
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside"}); err != nil {
+		t.Fatalf("Invite() of an address Google admits error = %v", err)
+	}
+	if len(links.rows) != 1 || len(recorder.Messages()) != 1 {
+		t.Errorf("rows = %d, messages = %d; want the invitation stored and mailed", len(links.rows), len(recorder.Messages()))
 	}
 }
 
