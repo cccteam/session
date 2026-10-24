@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.8](https://github.com/cccteam/session/compare/v0.13.7...v0.13.8) (2026-10-24)
+
+
+### Features
+
+* an invitation is refused when no sign-in method the login page offers could admit the address, so the sender learns it instead of the invitee at the sign-in ([#298](https://github.com/cccteam/session/issues/298)) ([33b95c3](https://github.com/cccteam/session/commit/33b95c332e0a90bbaecb155db7fc863a32f16780))
+* both invitation answers name the registrations that could admit the invited address, so the login page offers only the buttons that can admit the invitee ([#298](https://github.com/cccteam/session/issues/298)) ([33b95c3](https://github.com/cccteam/session/commit/33b95c332e0a90bbaecb155db7fc863a32f16780))
+
+
+### Bug Fixes
+
+* a sign-in that is refused leaves the invitation it carried standing, and an invited sign-in through a linked identity hands the application's grant the user's name ([#298](https://github.com/cccteam/session/issues/298)) ([33b95c3](https://github.com/cccteam/session/commit/33b95c332e0a90bbaecb155db7fc863a32f16780))
+* the methods listing reports the invitation the browser carries, so the login page shows it again when a refused directory sign-in sends the browser back without the link's token ([#298](https://github.com/cccteam/session/issues/298)) ([33b95c3](https://github.com/cccteam/session/commit/33b95c332e0a90bbaecb155db7fc863a32f16780))
+
 ## [0.13.7](https://github.com/cccteam/session/compare/v0.13.6...v0.13.7) (2026-10-24)
 
 
