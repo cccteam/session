@@ -106,21 +106,20 @@ func (m *mailSettings) link(param, token string) string {
 }
 
 // goodFor renders how long a link is good for in everyday words: minutes under an
-// hour, whole hours under two days, days from there, each rounded to the nearest whole
-// unit and never under a minute. A person knows when the message reached them, so a
-// duration tells them whether the link still stands where a deadline in UTC would not.
+// hour, whole hours under two days, days from there. A part of a unit is dropped, so
+// the message never promises more than the link gives; under a minute reads as one. A
+// person knows when the message reached them, so a duration tells them whether the
+// link still stands where a deadline in UTC would not.
 func goodFor(d time.Duration) string {
 	const day = 24 * time.Hour
-	minutes := max(d.Round(time.Minute), time.Minute)
-	if minutes < time.Hour {
-		return count(int(minutes/time.Minute), "minute")
+	switch {
+	case d < time.Hour:
+		return count(int(max(d, time.Minute)/time.Minute), "minute")
+	case d < 2*day:
+		return count(int(d/time.Hour), "hour")
+	default:
+		return count(int(d/day), "day")
 	}
-	hours := d.Round(time.Hour)
-	if hours < 2*day {
-		return count(int(hours/time.Hour), "hour")
-	}
-
-	return count(int(d.Round(day)/day), "day")
 }
 
 // count renders n of unit in words: "1 hour", "6 hours".

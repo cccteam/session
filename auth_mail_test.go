@@ -263,18 +263,18 @@ func TestGoodFor(t *testing.T) {
 		{d: time.Minute, want: "1 minute"},
 		{d: 15 * time.Minute, want: "15 minutes"},
 		{d: 59*time.Minute + 20*time.Second, want: "59 minutes"},
-		{d: 59*time.Minute + 40*time.Second, want: "1 hour"},
+		{d: 59*time.Minute + 40*time.Second, want: "59 minutes"},
 		{d: time.Hour, want: "1 hour"},
 		{d: 89 * time.Minute, want: "1 hour"},
-		{d: 90 * time.Minute, want: "2 hours"},
+		{d: 90 * time.Minute, want: "1 hour"},
 		{d: 6 * time.Hour, want: "6 hours"},
 		{d: 24 * time.Hour, want: "24 hours"},
 		{d: 47 * time.Hour, want: "47 hours"},
-		{d: 47*time.Hour + 40*time.Minute, want: "2 days"},
+		{d: 47*time.Hour + 40*time.Minute, want: "47 hours"},
 		{d: 48 * time.Hour, want: "2 days"},
 		{d: 7 * 24 * time.Hour, want: "7 days"},
 		{d: 7*24*time.Hour + 11*time.Hour, want: "7 days"},
-		{d: 7*24*time.Hour + 13*time.Hour, want: "8 days"},
+		{d: 7*24*time.Hour + 13*time.Hour, want: "7 days"},
 	} {
 		t.Run(tt.d.String()+" reads as "+tt.want, func(t *testing.T) {
 			t.Parallel()
