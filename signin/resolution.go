@@ -34,10 +34,11 @@ type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSe
 // token asserting no application role (no_roles), both before any row is written; the
 // identity's sign-in name (Identity.SignInName: the user principal name on Entra, the
 // verified email on Google) is the username, and an identity without one is refused
-// (no_email). A pre-created user under that name, matched without regard to case, is
-// linked: after a password confirmation when the user has a password, outright when
-// the user has none and signs in through no other connection yet. The rules differ in
-// what happens to a person no user was created for.
+// (no_email). A pre-created user under that name, matched without regard to case, or
+// one who holds the identity's address verified when the method verified it
+// (Identity.EmailVerified), is linked: after a password confirmation when the user has
+// a password, outright when the user has none and signs in through no other connection
+// yet. The rules differ in what happens to a person no user was created for.
 type StandardAccountRule string
 
 const (
@@ -350,6 +351,12 @@ var (
 	// sessioninfo.RefusedIdentityRejected.
 	ErrLinkCrossConnection = errors.New(
 		"signin: an identity from another connection can't be linked to a user without a password unless the link is trusted")
+	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
+	// identity whose verified address another user already holds verified: that user
+	// is the person, and the standard rules match the person by the address before
+	// they provision, so the sign-in is refused rather than a second user made for one
+	// person. The code is sessioninfo.RefusedIdentityRejected.
+	ErrEmailHeld = errors.New("signin: the identity's verified email address belongs to another user")
 	// ErrGuestAccount is the cause when a standard account rule refused a guest of the
 	// directory (Identity.Guest). The code is sessioninfo.RefusedGuestAccount.
 	ErrGuestAccount = errors.New("signin: the identity is a guest of its directory, not a member")
