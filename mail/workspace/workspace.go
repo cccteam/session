@@ -74,8 +74,12 @@ type Settings struct {
 type Sender struct {
 	settings Settings
 	host     string
-	tls      *tls.Config
-	dial     func(ctx context.Context, address string) (net.Conn, error)
+	// hello is the name the driver introduces itself with (EHLO): the mailbox's domain.
+	// Google's relay closes the connection on a generic name such as "localhost", the Go
+	// client's default, and asks for the sender's domain or mail server's name instead.
+	hello string
+	tls   *tls.Config
+	dial  func(ctx context.Context, address string) (net.Conn, error)
 }
 
 // New builds the driver from a copy of the settings, refusing settings it cannot send
@@ -113,6 +117,7 @@ func New(given *Settings) (*Sender, error) {
 	return &Sender{
 		settings: settings,
 		host:     host,
+		hello:    settings.Mailbox[strings.LastIndex(settings.Mailbox, "@")+1:],
 		tls:      &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12},
 		dial: func(ctx context.Context, address string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "tcp", address)
@@ -120,8 +125,8 @@ func New(given *Settings) (*Sender, error) {
 	}, nil
 }
 
-// Send submits one message to the relay: dial, STARTTLS, log in as the mailbox, name the
-// From address as the sender, and hand the message over. The relay's refusals come back in its words, after the step that
+// Send submits one message to the relay: dial, introduce the mailbox's domain, STARTTLS,
+// log in as the mailbox, name the From address as the sender, and hand the message over. The relay's refusals come back in its words, after the step that
 // drew them.
 func (s *Sender) Send(ctx context.Context, msg mail.Message) error {
 	if err := msg.Validate(); err != nil {
@@ -147,6 +152,9 @@ func (s *Sender) Send(ctx context.Context, msg mail.Message) error {
 		return errors.Wrapf(err, "workspace: the relay %s did not greet", s.settings.Relay)
 	}
 	defer client.Close()
+	if err := client.Hello(s.hello); err != nil {
+		return errors.Wrapf(err, "workspace: the relay %s refused the introduction as %s", s.settings.Relay, s.hello)
+	}
 	if err := client.StartTLS(s.tls); err != nil {
 		return errors.Wrapf(err, "workspace: STARTTLS with the relay %s", s.settings.Relay)
 	}

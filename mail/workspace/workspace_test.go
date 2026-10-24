@@ -36,6 +36,7 @@ type relay struct {
 	rcpt      string
 	message   string
 	loginUser string
+	hello     string
 }
 
 func newRelay(t *testing.T, loginOK func(user, pass string) bool, rcptOK func(addr string) bool) *relay {
@@ -97,6 +98,14 @@ func (r *relay) serve(conn net.Conn) {
 		verb, arg, _ := strings.Cut(line, " ")
 		switch strings.ToUpper(verb) {
 		case "EHLO":
+			r.mu.Lock()
+			r.hello = arg
+			r.mu.Unlock()
+			if arg == "localhost" || !strings.Contains(arg, ".") {
+				// Google's relay drops a client that introduces itself with a generic name.
+				say("421 4.7.0 Try again later, closing connection.")
+				return
+			}
 			if secure {
 				say("250-relay.test")
 				say("250 AUTH PLAIN LOGIN")
@@ -244,6 +253,9 @@ func TestSender_Send(t *testing.T) {
 	defer r.mu.Unlock()
 	if r.loginUser != "no-reply@example.com" || r.from != "no-reply@example.com" || r.rcpt != "ada@example.net" {
 		t.Errorf("relay saw login %q, from %q, rcpt %q", r.loginUser, r.from, r.rcpt)
+	}
+	if r.hello != "example.com" {
+		t.Errorf("relay saw EHLO %q, want the mailbox's domain", r.hello)
 	}
 	for _, want := range []string{
 		"From: \"Harbor\" <no-reply@example.com>\r\n",
