@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.5](https://github.com/cccteam/session/compare/v0.13.4...v0.13.5) (2026-10-24)
+
+
+### Features
+
+* the Workspace mail driver sends from an address separate from the account it logs in with, so a no-reply alias serves as the sender ([#291](https://github.com/cccteam/session/issues/291)) ([76f30f3](https://github.com/cccteam/session/commit/76f30f3f97893cec1d701cb3d7b4ad1f93fe175f))
+
 ## [0.13.4](https://github.com/cccteam/session/compare/v0.13.3...v0.13.4) (2026-10-23)
 
 
