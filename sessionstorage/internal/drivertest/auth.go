@@ -239,6 +239,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
 		{name: "the standard account rules decide an unlinked identity by its sign-in name", run: testStandardAccountRules},
+		{name: "the standard account rules match a user by the identity's verified address when none is under the sign-in name, and no rule provisions a second user for a held address", run: testResolveByVerifiedAddress},
 		{name: "a custom account rule runs first and may leave the identity to the standard rule", run: testCustomRuleBeforeStandardRule},
 		{name: "the standard rule runs once: a linked identity signs in by its link, and the username is not renamed", run: testStandardRuleRunsOnce},
 		{name: "an untrusted link from another connection to a password-less user is refused; the same connection or a trusted link links", run: testLinkAcrossConnections},

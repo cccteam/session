@@ -206,10 +206,18 @@ DML what a later rule must read.
   `Config.Accounts`, which the library applies inside the sign-in's first transaction:
   - `signin.MembersOfDirectory` (the default): every member of the directory gets an
     account under their **sign-in name**, the user principal name on Entra and the
-    verified email on Google. A user the application pre-created under that name,
-    matched without regard to case, is linked instead: after a password confirmation
-    when the user has a password, outright when the user has none and signs in through
-    no other connection yet.
+    verified email on Google. A user the application pre-created is linked instead,
+    found by the username first and then by the address: the user under that name,
+    matched without regard to case, or else the user who holds the identity's address
+    verified, when the method verified the address (Google does, Entra does not), since
+    a person is one user whichever way they sign in. The link is made after a password
+    confirmation when the user has a password, outright when the user has none and
+    signs in through no other connection yet. An address a user holds unverified is a
+    reservation, not a match: the person is provisioned as a stranger, and the new
+    account holds no address until they verify one, the reserved address staying with
+    the account it was entered for. A registration's own rule that provisions a new
+    user for an identity whose verified address another user holds verified is refused
+    (`identity_rejected`): never a second user for one person.
   - `signin.InvitedUsersOnly`: the same matching, and no provisioning; a person no user
     was created for is refused (`not_invited`), unless the sign-in carries an
     invitation, which is then the account the rule asks for. The application creates the users
@@ -774,7 +782,10 @@ How an address gets onto a user:
   onto the user, verified at the time of the sign-in, when the user holds no verified
   address yet and no other user holds it (any method that asserts
   `Identity.EmailVerified` does the same; Entra does not, so an Entra user's address
-  stays a prefill until the person verifies it).
+  stays a prefill until the person verifies it). The other way round, a first Google
+  sign-in by a person whose address a user already holds verified is that user's: the
+  standard account rules match the user by the address once no user is under the
+  sign-in name (see "Storage and schema" above).
 - **An invitation or a sign-up proves it**: the account an invited person creates, or
   an existing account that accepts an invitation while holding no verified address,
   takes the invitation's address verified; a sign-up's account is created with its
@@ -1410,7 +1421,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: under the invited-users-only account rule, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |

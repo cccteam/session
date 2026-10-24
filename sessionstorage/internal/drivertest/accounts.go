@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/securehash"
 	"github.com/cccteam/httpio"
 	"github.com/cccteam/session/internal/dbtype"
 	"github.com/cccteam/session/sessioninfo"
@@ -19,6 +20,40 @@ func entra(subject, signInName string) *sessioninfo.Identity {
 	return &sessioninfo.Identity{
 		Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: subject, Email: signInName, SignInName: signInName,
 	}
+}
+
+// google is an external identity of the Google Workspace the registration names
+// lakeside that signs in under email, as the Google method reports a member: the
+// sign-in name is the address Google verified, and the Workspace is the organization.
+func google(subject, email string) *sessioninfo.Identity {
+	return &sessioninfo.Identity{
+		Method: sessioninfo.MethodGoogle, Connection: "lakeside", Subject: subject, Email: email, EmailVerified: true, SignInName: email, Organization: "lakeside",
+	}
+}
+
+// addressHolderName is the username of the user addressHolder creates: a name of the
+// application's choosing, not the address.
+const addressHolderName = "pat"
+
+// addressHolder creates a user named addressHolderName who holds email, verified when
+// verified says so, with a password when withPassword says so.
+func addressHolder(ctx context.Context, t *testing.T, d AuthDriver, email string, verified, withPassword bool) *dbtype.SessionUser {
+	t.Helper()
+
+	insert := &dbtype.InsertSessionUser{Username: addressHolderName, Email: &email, EmailVerified: verified}
+	if withPassword {
+		hash, err := securehash.New(securehash.Argon2()).Hash("password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		insert.PasswordHash = hash
+	}
+	user, err := d.CreateUser(ctx, insert, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q) error = %v", addressHolderName, err)
+	}
+
+	return user
 }
 
 // organizationOf is identity with the organization the method names, as the Entra
@@ -293,6 +328,178 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			tt.check(ctx, t, in.Driver, err, req, seeded)
 		})
 	}
+}
+
+func testResolveByVerifiedAddress(_ context.Context, t *testing.T, h *AuthHarness) {
+	const address = "pat.lee@lakeside.edu"
+	// The person's Google account, whose verified address is the sign-in name; the
+	// user the application created for the person (addressHolder) is named pat, not
+	// the address.
+	identity := func() *sessioninfo.Identity { return google("sub-pat", address) }
+
+	tests := []struct {
+		name string
+		// seed prepares the users before the sign-in and returns the one holding the
+		// address.
+		seed func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser
+		// identity signs in; nil is the Google identity.
+		identity *sessioninfo.Identity
+		check    func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser)
+	}{
+		{
+			name: "a user who holds the address verified and has a password must confirm with it; the confirmation links the identity to that user, and no second user is made",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, address, true, true)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, _ *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				t.Helper()
+				assertConfirmationPending(ctx, t, in.Driver, err, identity(), seeded, "lakeside")
+				assertNoUser(ctx, t, in.Driver, address)
+
+				// The confirmation links the identity to the user it waited on, as the
+				// Auth does, and the next sign-in is by the link.
+				if _, err := in.Driver.LinkIdentity(ctx, seeded.ID, identity(), "lakeside"); err != nil {
+					t.Fatalf("LinkIdentity() error = %v", err)
+				}
+				again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()}
+				if err := signInRequest(ctx, in, again); err != nil {
+					t.Fatalf("sign-in after the confirmation error = %v", err)
+				}
+				if again.UserID != seeded.ID || again.Username != addressHolderName || again.User.Source != sessioninfo.UserExistingLink {
+					t.Errorf("sign-in after the confirmation = user %v %q (%+v), want the linked user %v %q", again.UserID, again.Username, again.User, seeded.ID, addressHolderName)
+				}
+				assertNoUser(ctx, t, in.Driver, address)
+			},
+		},
+		{
+			name: "a user who holds the address verified, without a password and with no identity, is linked",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, address, true, false)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				t.Helper()
+				assertNewlyLinked(ctx, t, in.Driver, err, req, identity(), seeded, "lakeside")
+				assertNoUser(ctx, t, in.Driver, address)
+			},
+		},
+		{
+			name: "the address is matched without regard to case",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, "Pat.Lee@Lakeside.edu", true, false)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				assertNewlyLinked(ctx, t, in.Driver, err, req, identity(), seeded, "lakeside")
+			},
+		},
+		{
+			name: "a password-less user who holds the address verified and signs in through another connection is refused, as any untrusted link is",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				user := addressHolder(ctx, t, d, address, true, false)
+				mustLink(ctx, t, d, user.ID, lakeside("idp_pat"))
+
+				return user
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, _ *sessioninfo.NewSessionRequest, _ *dbtype.SessionUser) {
+				t.Helper()
+				assertRefused(t, err, sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
+				assertNoLink(ctx, t, in.Driver, identity())
+				assertNoUser(ctx, t, in.Driver, address)
+			},
+		},
+		{
+			name: "a password-less user who holds the address verified and signs in through the same connection is linked",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				user := addressHolder(ctx, t, d, address, true, false)
+				mustLink(ctx, t, d, user.ID, google("sub-pat-old", "old@lakeside.edu"))
+
+				return user
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				assertNewlyLinked(ctx, t, in.Driver, err, req, identity(), seeded, "lakeside")
+			},
+		},
+		{
+			name: "an address a user holds unverified matches no one: the person is provisioned as a stranger, without an address, and the entry stays with its user",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, address, false, false)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				t.Helper()
+				assertProvisioned(ctx, t, in.Driver, err, req, identity(), "lakeside")
+				assertEmail(t, "User() of the provisioned user", mustUser(ctx, t, in.Driver, req.UserID), nil, false)
+				assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
+			},
+		},
+		{
+			name:     "an address the method did not verify matches no one: the person is provisioned under the sign-in name, and the holder keeps the address",
+			identity: entra("oid-pat", address),
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, address, true, false)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				t.Helper()
+				assertProvisioned(ctx, t, in.Driver, err, req, entra("oid-pat", address), "tenant-1")
+				assertEmail(t, "User() of the provisioned user", mustUser(ctx, t, in.Driver, req.UserID), nil, false)
+				assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), true)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: signin.MembersOfDirectory})
+			seeded := tt.seed(ctx, t, in.Driver)
+			id := tt.identity
+			if id == nil {
+				id = identity()
+			}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: id.SignInName, Identity: id}
+
+			err := signInRequest(ctx, in, req)
+
+			tt.check(ctx, t, in, err, req, seeded)
+		})
+	}
+
+	// A registration's own rule may provision a user of its own choosing; the address
+	// another user holds verified decides the same way.
+	provisionChosen := func(context.Context, HookTx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
+		return signin.Provision(&signin.NewUser{Username: "chosen"}, nil, signin.Tenant("lakeside")), nil
+	}
+
+	t.Run("a rule that provisions a new user for an identity whose verified address another user holds verified is refused, and nothing is written", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: provisionChosen})
+		addressHolder(ctx, t, in.Driver, address, true, false)
+
+		err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()})
+
+		assertRefused(t, err, sessioninfo.RefusedIdentityRejected, signin.ErrEmailHeld)
+		assertNoUser(ctx, t, in.Driver, "chosen")
+		assertNoLink(ctx, t, in.Driver, identity())
+	})
+
+	t.Run("a rule that provisions a new user for an identity whose verified address a user holds unverified provisions it: the entry reserves nothing against a sign-in", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: provisionChosen})
+		seeded := addressHolder(ctx, t, in.Driver, address, false, false)
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()}
+
+		err := signInRequest(ctx, in, req)
+
+		if err != nil || req.Username != "chosen" || !req.User.Provisioned() {
+			t.Fatalf("sign-in = %v, user %q (%+v); want the rule's user provisioned", err, req.Username, req.User)
+		}
+		assertLinkedTo(ctx, t, in.Driver, identity(), req.UserID, "lakeside")
+		assertEmail(t, "User() of the provisioned user", mustUser(ctx, t, in.Driver, req.UserID), nil, false)
+		assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
+	})
 }
 
 func testCustomRuleBeforeStandardRule(_ context.Context, t *testing.T, h *AuthHarness) {

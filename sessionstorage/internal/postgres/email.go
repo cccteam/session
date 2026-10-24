@@ -159,7 +159,21 @@ func (s *SessionStorageDriver) ClaimVerifiedEmailIn(ctx context.Context, tx pgx.
 // UserByEmailIn reads the user holding email inside tx, verified or not, matched
 // without regard to case, or nil when there is none.
 func (s *SessionStorageDriver) UserByEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
-	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = casefold(normalize($1))`, s.userTable())
+	return s.userByEmailIn(ctx, tx, email, "")
+}
+
+// UserByVerifiedEmailIn reads the user who holds email as a verified address inside
+// tx, matched without regard to case, or nil when there is none; an address a user
+// holds unverified matches no one.
+func (s *SessionStorageDriver) UserByVerifiedEmailIn(ctx context.Context, tx pgx.Tx, email string) (*dbtype.User, error) {
+	return s.userByEmailIn(ctx, tx, email, `AND "EmailVerifiedAt" IS NOT NULL`)
+}
+
+// userByEmailIn reads the part of the user holding email that the sign-in decides on,
+// matched on the normalized address and narrowed by the clause more, or nil when
+// there is none.
+func (s *SessionStorageDriver) userByEmailIn(ctx context.Context, tx pgx.Tx, email, more string) (*dbtype.User, error) {
+	query := fmt.Sprintf(`SELECT "Id", "Username", "PasswordHash" IS NOT NULL, "Disabled" FROM %s WHERE "NormalizedEmail" = casefold(normalize($1)) %s`, s.userTable(), more)
 
 	var u dbtype.User
 	if err := tx.QueryRow(ctx, query, email).Scan(&u.ID, &u.Username, &u.HasPassword, &u.Disabled); err != nil {
