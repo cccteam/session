@@ -3,8 +3,8 @@ package session
 import (
 	"context"
 	"fmt"
-	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/cccteam/ccc/tracer"
@@ -117,6 +117,9 @@ type standingInvitationAnswer struct {
 	Tenant          string    `json:"tenant"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
+	// Methods are the names of the listed external registrations that could admit the
+	// invitation's address, empty when none could.
+	Methods []string `json:"methods"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -146,20 +149,22 @@ type pendingAnswer struct {
 // change route when the password method is listed. When the list names the invitation
 // routes and the browser carries a live invitation (the cookie Invitation().Open()
 // set), the invitation block also reports it under "standing": the address it was
-// sent to, its tenant, when it stops being accepted and whether an account created
-// from it takes the address as its username, so a page that arrives without the
-// mailed link's token, as it does when an external sign-in was refused and sent it
-// back, still shows the invitation. A browser without the cookie, or whose invitation
-// is no longer live, gets the block without it. The answer is public: route it beside
-// the login routes, behind StartSession and before ValidateSession, and it needs no
-// XSRF token.
+// sent to, its tenant, when it stops being accepted, whether an account created from
+// it takes the address as its username, and the names of the listed external
+// registrations that could admit the address (see Invitation().Open()), so a page
+// that arrives without the mailed link's token, as it does when an external sign-in
+// was refused and sent it back, still shows the invitation and hides the methods that
+// would refuse the person. A browser without the cookie, or whose invitation is no
+// longer live, gets the block without it. The answer is public: route it beside the
+// login routes, behind StartSession and before ValidateSession, and it needs no XSRF
+// token.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
 //	 "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
 //	 "changePassword": "/api/user/password",
 //	 "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-//	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false}}}
+//	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["google"]}}}
 //
 // Methods is called where the routes are wired, after every method is registered, and
 // panics on a wiring mistake, the way a registration does: an empty list, a method
@@ -191,7 +196,8 @@ func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 // block of the methods answer: the cookie Invitation().Open() set, read as the sign-in
 // handlers read it, and the store asked whether its link still stands. It is nil when
 // the browser carries no cookie and when the link is dead (expired, accepted or
-// revoked). usernameIsEmail is what Open() answers for the same invitation.
+// revoked). usernameIsEmail and methods are what Open() answers for the same
+// invitation.
 func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request) (*standingInvitationAnswer, error) {
 	if _, ok := invitationTokenHash(ctx); !ok {
 		// StartSession reads the cookie onto the context; a listing routed without it
@@ -206,7 +212,9 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, nil
 	}
 
-	return &standingInvitationAnswer{Email: inv.Email, Tenant: inv.Tenant, ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail()}, nil
+	return &standingInvitationAnswer{
+		Email: inv.Email, Tenant: inv.Tenant, ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
+	}, nil
 }
 
 // withStanding is the answer with standing reported in its invitation block: the
@@ -260,10 +268,11 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		}
 		answer.Methods = append(answer.Methods, ad)
 	}
-	if a.methods.listed == nil {
-		a.methods.listed = make(map[string]bool, len(seen))
+	for _, m := range list.Methods {
+		if !slices.Contains(a.methods.listed, m.Name) {
+			a.methods.listed = append(a.methods.listed, m.Name)
+		}
 	}
-	maps.Copy(a.methods.listed, seen)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)

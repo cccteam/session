@@ -2,6 +2,7 @@ package session
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/cccteam/session/azure"
@@ -121,6 +122,7 @@ func TestAuth_couldAdmitAddress(t *testing.T) {
 		{name: "the password method offered admits any address: the person creates an account", register: []func(a auth){password, googleWith(google.Workspace("lakeside", "lakeside.edu"))}, list: listing("password", "google"), email: "pat@elsewhere.example", want: true},
 		{name: "the password method registered, the page wired without a listing, counts as offered", register: []func(a auth){password}, email: "pat@elsewhere.example", want: true},
 		{name: "the password method registered but not listed does not admit", register: []func(a auth){password, googleWith(google.Workspace("lakeside", "lakeside.edu"))}, list: listing("google"), email: "pat@elsewhere.example"},
+		{name: "an external method registered but not listed does not admit", register: []func(a auth){googleWith(google.Workspace("lakeside", "lakeside.edu")), entraWith(azure.Tenant(tenantLake))}, list: listing("google"), email: "pat@riverside.edu"},
 		{name: "Google with a named Workspace admits its domain", register: []func(a auth){googleWith(google.Workspace("lakeside", "lakeside.edu"))}, email: "Pat@Lakeside.edu", want: true},
 		{name: "Google with a named Workspace refuses another domain", register: []func(a auth){googleWith(google.Workspace("lakeside", "lakeside.edu"))}, email: "pat@elsewhere.example"},
 		{name: "Google with any Workspace admits a domain outside the named ones", register: []func(a auth){googleWith(google.AnyWorkspace())}, email: "pat@elsewhere.example", want: true},
@@ -149,4 +151,24 @@ func TestAuth_couldAdmitAddress(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("the admitting registrations are named in the page's order, without the password method; sorted when the page was wired without a listing", func(t *testing.T) {
+		t.Parallel()
+		a := newBareAuth(t, gomock.NewController(t))
+		password(a)
+		googleWith(google.Workspace("lakeside", "lakeside.edu"))(a)
+		entraWith(azure.Tenant(tenantLake))(a)
+		bare(a)
+
+		if got, want := a.admittingMethodNames("pat@lakeside.edu"), []string{"bare", "entra", "google"}; !slices.Equal(got, want) {
+			t.Errorf("admittingMethodNames() without a listing = %v, want %v", got, want)
+		}
+		a.Methods(listing("password", "google", "entra"))
+		if got, want := a.admittingMethodNames("pat@lakeside.edu"), []string{"google", "entra"}; !slices.Equal(got, want) {
+			t.Errorf("admittingMethodNames() = %v, want the listed ones in the page's order %v", got, want)
+		}
+		if got := a.admittingMethodNames("pat@outlook.com"); got == nil || len(got) != 0 {
+			t.Errorf("admittingMethodNames() of an address none admits = %#v, want an empty list", got)
+		}
+	})
 }

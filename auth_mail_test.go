@@ -15,6 +15,7 @@ import (
 
 	"github.com/cccteam/ccc"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/signinflow"
@@ -22,6 +23,7 @@ import (
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -440,6 +442,58 @@ func TestAuth_Invitation(t *testing.T) {
 	t.Run("an invited person creates an account with a password: the address verified, the sign-in carrying the invitation", authInvitationCase3)
 	t.Run("a sign-up from an invitation refuses a short password, a missing username and a missing invitation", authInvitationCase4)
 	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
+	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
+}
+
+// directoryList is the login page of a directoryFixture: two Google Workspaces, then
+// the password method, with the invitation routes.
+var directoryList = &MethodList{
+	Methods: []AdvertisedMethod{
+		{Name: "google-riverside", Label: "Riverside", Path: "/api/user/google-riverside/login"},
+		{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
+		{Name: "password", Label: "Password", Path: "/api/user/password/login"},
+	},
+	ChangePassword: "/api/user/password",
+	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+}
+
+// newDirectoryFixture is a mail fixture whose login page lists two Google
+// registrations, one Workspace each, beside the password method, with an Entra
+// registration that is registered but not listed.
+func newDirectoryFixture(t *testing.T) (*authFixture, *mail.Recorder, *mailLinks) {
+	t.Helper()
+
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	for _, w := range []struct{ name, domain string }{{"lakeside", "lakeside.edu"}, {"riverside", "riverside.edu"}} {
+		google.SignIn(f.auth, "google-"+w.name, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + w.name + "/callback", Workspaces: google.Workspace(w.name, w.domain)})
+	}
+	azure.SignIn(f.auth, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+	f.auth.Methods(directoryList)
+
+	return f, recorder, links
+}
+
+func authInvitationCase6(t *testing.T) {
+	t.Parallel()
+	f, recorder, _ := newDirectoryFixture(t)
+	for i, tt := range []struct {
+		email string
+		want  []any
+	}{
+		{email: "pat@lakeside.edu", want: []any{"google-lakeside"}},
+		{email: "pat@elsewhere.example", want: []any{}},
+	} {
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: tt.email}); err != nil {
+			t.Fatalf("Invite(%s) error = %v", tt.email, err)
+		}
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": tokenIn(t, recorder.Messages()[i].Text, "invitation")}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Open() = %d %s, want 200", rr.Code, rr.Body.String())
+		}
+		if diff := cmp.Diff(tt.want, decoded(t, rr)["methods"]); diff != "" {
+			t.Errorf("Open() for %s: methods mismatch (-want +got):\n%s", tt.email, diff)
+		}
+	}
 }
 
 func authInvitationCase1(t *testing.T) {

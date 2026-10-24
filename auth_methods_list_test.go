@@ -208,7 +208,7 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 
 		want := map[string]any{
 			"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-			"standing": map[string]any{"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false},
+			"standing": map[string]any{"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{}},
 		}
 		if diff := cmp.Diff(want, invitationBlock(t, f, invitationList, cookies)); diff != "" {
 			t.Errorf("invitation block mismatch (-want +got):\n%s", diff)
@@ -250,6 +250,28 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 
 		if got := invitationBlock(t, f, list, cookies); got != nil {
 			t.Errorf("invitation block = %v, want none", got)
+		}
+	})
+
+	t.Run("the standing invitation names the listed registrations that could admit its address, as Open() does", func(t *testing.T) {
+		t.Parallel()
+		for _, tt := range []struct {
+			email string
+			want  []any
+		}{
+			{email: "pat@lakeside.edu", want: []any{"google-lakeside"}},
+			{email: "pat@elsewhere.example", want: []any{}},
+		} {
+			f, recorder, links := newDirectoryFixture(t)
+			if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: tt.email}); err != nil {
+				t.Fatalf("Invite(%s) error = %v", tt.email, err)
+			}
+			cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+
+			standing, _ := invitationBlock(t, f, directoryList, cookies)["standing"].(map[string]any)
+			if diff := cmp.Diff(tt.want, standing["methods"]); diff != "" {
+				t.Errorf("standing.methods for %s mismatch (-want +got):\n%s", tt.email, diff)
+			}
 		}
 	})
 

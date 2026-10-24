@@ -111,13 +111,16 @@ type InvitationHandlers struct {
 }
 
 // Open accepts {"token"}, the token the mailed link carried, and answers {"email",
-// "tenant", "expiresAt", "signUp", "usernameIsEmail"}: the address the invitation was
-// sent to, the tenant it seats the person in ("" for the application's global
-// surface), when it stops being accepted, whether the person may create an account
-// with a password here (the password method is registered), and whether that
-// account's username is the address. It sets the invitation cookie, so the sign-in
-// that follows carries the invitation. A token whose invitation is no longer live is
-// 404. Route it behind StartSession and ValidateXSRFToken.
+// "tenant", "expiresAt", "signUp", "usernameIsEmail", "methods"}: the address the
+// invitation was sent to, the tenant it seats the person in ("" for the application's
+// global surface), when it stops being accepted, whether the person may create an
+// account with a password here (the password method is registered), whether that
+// account's username is the address, and the names of the listed external
+// registrations that could admit the address (as the methods listing advertises
+// them; empty when none could), so the page hides the methods that would refuse the
+// person. It sets the invitation cookie, so the sign-in that follows carries the
+// invitation. A token whose invitation is no longer live is 404. Route it behind
+// StartSession and ValidateXSRFToken.
 func (h *InvitationHandlers) Open() http.HandlerFunc { return h.open }
 
 // Accept accepts the invitation the browser carries for the signed-in user: the
@@ -153,6 +156,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		ExpiresAt       time.Time `json:"expiresAt"`
 		SignUp          bool      `json:"signUp"`
 		UsernameIsEmail bool      `json:"usernameIsEmail"`
+		Methods         []string  `json:"methods"`
 	}
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -177,6 +181,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{
 			Email: link.Email, Tenant: link.Tenant, ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered(), UsernameIsEmail: methods.usernameIsEmail(),
+			Methods: a.admittingMethodNames(link.Email),
 		})
 	})
 }

@@ -503,7 +503,7 @@ the password method is listed.
   "changePassword": "/api/user/password",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false}},
+                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"]}},
   "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
   "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
 }
@@ -537,8 +537,10 @@ the password method is listed.
 - `invitation.standing` is the live invitation the browser carries, present when the
   invitation cookie that `open` set still names an invitation that stands: the address
   it was sent to, its tenant (`""` for the application's global surface), when it stops
-  being accepted, and whether an account created from it takes the address as its
-  username, as `Invitation().Open()` answered them. A page that arrives without the
+  being accepted, whether an account created from it takes the address as its
+  username, and the names of the listed external registrations that could admit the
+  address (`methods`, empty when none could), as `Invitation().Open()` answered them;
+  the page hides the methods not named. A page that arrives without the
   mailed link's token, as it does when an external sign-in was refused and sent the
   browser back with `?code=`, reads the invitation from here and keeps showing it. The
   block is absent when the browser carries no cookie, or its invitation is dead (used,
@@ -826,10 +828,13 @@ proved they read the mailbox, and the account they sign in with is theirs.
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
   `Invitation().Open()`, which answers `{"email", "tenant", "expiresAt", "signUp",
-  "usernameIsEmail"}` and sets an encrypted cookie holding the token, so the sign-in
-  that follows carries the invitation, an external round trip included. The page then
-  offers the sign-in methods, and, when `signUp` is true (the password method is
-  registered), an account with a password. While the cookie names an invitation that
+  "usernameIsEmail", "methods"}` and sets an encrypted cookie holding the token, so the
+  sign-in that follows carries the invitation, an external round trip included. The
+  page then offers the sign-in methods, and, when `signUp` is true (the password method
+  is registered), an account with a password. `methods` names the listed external
+  registrations that could admit the invitation's address, by the names the methods
+  listing advertises them under (`[]` when none could; the password method is never
+  among them), so the page hides the buttons that would refuse the invitee. While the cookie names an invitation that
   stands, the methods listing (`auth.Methods`) reports it as `invitation.standing`, so
   the page shows the invitation again when it comes back without the token, as after a
   refused external sign-in; see "What the login page is told".
