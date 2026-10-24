@@ -170,10 +170,10 @@ func (r *relay) serve(conn net.Conn) {
 	}
 }
 
-func (r *relay) sender(t *testing.T, settings Settings) *Sender {
+func (r *relay) sender(t *testing.T, settings *Settings) *Sender {
 	t.Helper()
 	settings.Relay = r.addr
-	s, err := New(&settings)
+	s, err := New(settings)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -235,7 +235,7 @@ func TestSender_Send(t *testing.T) {
 	t.Parallel()
 
 	r := newRelay(t, func(user, pass string) bool { return user == "no-reply@example.com" && pass == "abcd efgh ijkl mnop" }, func(addr string) bool { return addr != "nobody@example.net" })
-	s := r.sender(t, Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop", Name: "Harbor"})
+	s := r.sender(t, &Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop", Name: "Harbor"})
 	msg := mail.Message{To: "Ada Lovelace <ada@example.net>", Subject: "You are invited to Acme — Sie sind eingeladen", Text: "Hello Ada,\n\nFollow https://harbor.example.com/invitations/abc to join Acme.\n\n— Harbor"}
 	if err := s.Send(t.Context(), msg); err != nil {
 		t.Fatalf("Send() error = %v", err)
@@ -319,7 +319,7 @@ func TestSender_Send_refusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := r.sender(t, tt.settings)
+			s := r.sender(t, &tt.settings)
 			ctx := t.Context()
 			if tt.ctx != nil {
 				ctx = tt.ctx(t)
@@ -354,8 +354,8 @@ func TestNew_from(t *testing.T) {
 func TestSender_Send_from(t *testing.T) {
 	t.Parallel()
 
-	r := newRelay(t, func(user, pass string) bool { return user == "ops@example.com" && pass == "abcd efgh ijkl mnop" }, func(addr string) bool { return true })
-	s := r.sender(t, Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.org", Name: "Harbor"})
+	r := newRelay(t, func(user, pass string) bool { return user == "ops@example.com" && pass == "abcd efgh ijkl mnop" }, func(string) bool { return true })
+	s := r.sender(t, &Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.org", Name: "Harbor"})
 	if err := s.Send(t.Context(), mail.Message{To: "ada@example.net", Subject: "Hello", Text: "Hello Ada"}); err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
