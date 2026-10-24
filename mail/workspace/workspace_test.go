@@ -197,6 +197,7 @@ func TestNew(t *testing.T) {
 	}{
 		{name: "the defaults fill in", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop"}},
 		{name: "a mailbox that is not an address", settings: Settings{Mailbox: "no-reply", AppPassword: "x"}, wantErr: `the mailbox "no-reply" is not an address`},
+		{name: "a From that is not an address", settings: Settings{Mailbox: "ops@example.com", AppPassword: "x", From: "no-reply"}, wantErr: `the From address "no-reply" is not an address`},
 		{name: "no app password", settings: Settings{Mailbox: "no-reply@example.com"}, wantErr: "no app password"},
 		{name: "a relay without a port", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "x", Relay: "smtp-relay.gmail.com"}, wantErr: `the relay "smtp-relay.gmail.com" is not host:port`},
 	}
@@ -328,5 +329,39 @@ func TestSender_Send_refusals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNew_from(t *testing.T) {
+	t.Parallel()
+
+	s, err := New(Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.com"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := s.Describe(); got != "Google Workspace SMTP relay smtp-relay.gmail.com:587 as ops@example.com, from no-reply@example.com" {
+		t.Errorf("Describe() = %q", got)
+	}
+}
+
+// The From address differs from the mailbox: the relay sees the mailbox at the login and the
+// From address as the sender, and the message carries the From address, its domain on the id.
+func TestSender_Send_from(t *testing.T) {
+	t.Parallel()
+
+	r := newRelay(t, func(user, pass string) bool { return user == "ops@example.com" && pass == "abcd efgh ijkl mnop" }, func(addr string) bool { return true })
+	s := r.sender(t, Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.org", Name: "Harbor"})
+	if err := s.Send(t.Context(), mail.Message{To: "ada@example.net", Subject: "Hello", Text: "Hello Ada"}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.loginUser != "ops@example.com" || r.from != "no-reply@example.org" || r.rcpt != "ada@example.net" {
+		t.Errorf("relay saw login %q, from %q, rcpt %q", r.loginUser, r.from, r.rcpt)
+	}
+	for _, want := range []string{"From: \"Harbor\" <no-reply@example.org>\r\n", "@example.org>\r\n"} {
+		if !strings.Contains(r.message, want) {
+			t.Errorf("the message lacks %q:\n%s", want, r.message)
+		}
 	}
 }
