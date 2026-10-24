@@ -170,7 +170,7 @@ func (r *relay) serve(conn net.Conn) {
 	}
 }
 
-func (r *relay) sender(t *testing.T, settings Settings) *Sender {
+func (r *relay) sender(t *testing.T, settings *Settings) *Sender {
 	t.Helper()
 	settings.Relay = r.addr
 	s, err := New(settings)
@@ -197,6 +197,8 @@ func TestNew(t *testing.T) {
 	}{
 		{name: "the defaults fill in", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop"}},
 		{name: "a mailbox that is not an address", settings: Settings{Mailbox: "no-reply", AppPassword: "x"}, wantErr: `the mailbox "no-reply" is not an address`},
+		{name: "a From that is not an address", settings: Settings{Mailbox: "ops@example.com", AppPassword: "x", From: "no-reply"}, wantErr: `the From address "no-reply" is not an address`},
+		{name: "no settings", wantErr: "no settings"},
 		{name: "no app password", settings: Settings{Mailbox: "no-reply@example.com"}, wantErr: "no app password"},
 		{name: "a relay without a port", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "x", Relay: "smtp-relay.gmail.com"}, wantErr: `the relay "smtp-relay.gmail.com" is not host:port`},
 	}
@@ -204,7 +206,11 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s, err := New(tt.settings)
+			given := &tt.settings
+			if tt.name == "no settings" {
+				given = nil
+			}
+			s, err := New(given)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("New() error = %v, want %q", err, tt.wantErr)
@@ -229,7 +235,7 @@ func TestSender_Send(t *testing.T) {
 	t.Parallel()
 
 	r := newRelay(t, func(user, pass string) bool { return user == "no-reply@example.com" && pass == "abcd efgh ijkl mnop" }, func(addr string) bool { return addr != "nobody@example.net" })
-	s := r.sender(t, Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop", Name: "Harbor"})
+	s := r.sender(t, &Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop", Name: "Harbor"})
 	msg := mail.Message{To: "Ada Lovelace <ada@example.net>", Subject: "You are invited to Acme — Sie sind eingeladen", Text: "Hello Ada,\n\nFollow https://harbor.example.com/invitations/abc to join Acme.\n\n— Harbor"}
 	if err := s.Send(t.Context(), msg); err != nil {
 		t.Fatalf("Send() error = %v", err)
@@ -313,7 +319,7 @@ func TestSender_Send_refusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := r.sender(t, tt.settings)
+			s := r.sender(t, &tt.settings)
 			ctx := t.Context()
 			if tt.ctx != nil {
 				ctx = tt.ctx(t)
@@ -328,5 +334,39 @@ func TestSender_Send_refusals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNew_from(t *testing.T) {
+	t.Parallel()
+
+	s, err := New(&Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.com"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := s.Describe(); got != "Google Workspace SMTP relay smtp-relay.gmail.com:587 as ops@example.com, from no-reply@example.com" {
+		t.Errorf("Describe() = %q", got)
+	}
+}
+
+// The From address differs from the mailbox: the relay sees the mailbox at the login and the
+// From address as the sender, and the message carries the From address, its domain on the id.
+func TestSender_Send_from(t *testing.T) {
+	t.Parallel()
+
+	r := newRelay(t, func(user, pass string) bool { return user == "ops@example.com" && pass == "abcd efgh ijkl mnop" }, func(string) bool { return true })
+	s := r.sender(t, &Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.org", Name: "Harbor"})
+	if err := s.Send(t.Context(), mail.Message{To: "ada@example.net", Subject: "Hello", Text: "Hello Ada"}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.loginUser != "ops@example.com" || r.from != "no-reply@example.org" || r.rcpt != "ada@example.net" {
+		t.Errorf("relay saw login %q, from %q, rcpt %q", r.loginUser, r.from, r.rcpt)
+	}
+	for _, want := range []string{"From: \"Harbor\" <no-reply@example.org>\r\n", "@example.org>\r\n"} {
+		if !strings.Contains(r.message, want) {
+			t.Errorf("the message lacks %q:\n%s", want, r.message)
+		}
 	}
 }

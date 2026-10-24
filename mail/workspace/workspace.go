@@ -3,8 +3,11 @@
 // Google Cloud's compute products allow (they block port 25, the port a mail server of
 // our own would need), authenticated as one mailbox of the organization's Workspace
 // domain with an app password. Google carries delivery, reputation and signing from
-// there. The mailbox is the From address of every message, so an application sends as
-// one dedicated address, a no-reply mailbox as a rule.
+// there. The mailbox is the From address of every message unless the settings name
+// another: an organization sends as one dedicated address, a no-reply mailbox as a rule,
+// and that address may be an alias of the account that logs in, since the relay accepts
+// any From in the organization's domains once the login is a real account, while an
+// alias cannot log in itself.
 //
 // What the Workspace side needs, once per organization: the mailbox, with two-step
 // verification turned on and an app password generated for it (Google issues app
@@ -46,9 +49,14 @@ const DefaultTimeout = 30 * time.Second
 
 // Settings configures the driver.
 type Settings struct {
-	// Mailbox is the Workspace account the driver logs in to the relay as, and the
-	// address every message is from: no-reply@example.com.
+	// Mailbox is the Workspace account the driver logs in to the relay as, and, unless
+	// From names another address, the address every message is from:
+	// no-reply@example.com.
 	Mailbox string
+	// From is the address every message is from when it is not the mailbox: an alias of
+	// the mailbox, or another address of the organization's domains, which the relay
+	// accepts with the mailbox's login. Empty sends from the mailbox.
+	From string
 	// AppPassword is the mailbox's app password. It is a secret; the deployment reads it
 	// from its secret store, never from a file in the repository.
 	AppPassword string
@@ -70,11 +78,22 @@ type Sender struct {
 	dial     func(ctx context.Context, address string) (net.Conn, error)
 }
 
-// New builds the driver, refusing settings it cannot send with: a mailbox that is not an
-// address, no app password, a relay that is not host:port.
-func New(settings Settings) (*Sender, error) {
+// New builds the driver from a copy of the settings, refusing settings it cannot send
+// with: a mailbox or a From that is not an address, no app password, a relay that is not
+// host:port.
+func New(given *Settings) (*Sender, error) {
+	if given == nil {
+		return nil, errors.New("workspace: no settings")
+	}
+	settings := *given
 	if _, err := netmail.ParseAddress(settings.Mailbox); err != nil {
 		return nil, errors.Wrapf(err, "workspace: the mailbox %q is not an address", settings.Mailbox)
+	}
+	if settings.From == "" {
+		settings.From = settings.Mailbox
+	}
+	if _, err := netmail.ParseAddress(settings.From); err != nil {
+		return nil, errors.Wrapf(err, "workspace: the From address %q is not an address", settings.From)
 	}
 	if strings.TrimSpace(settings.AppPassword) == "" {
 		return nil, errors.New("workspace: no app password: the relay's login needs the mailbox's app password (two-step verification on the mailbox, then an app password generated for it)")
@@ -101,8 +120,8 @@ func New(settings Settings) (*Sender, error) {
 	}, nil
 }
 
-// Send submits one message to the relay: dial, STARTTLS, log in as the mailbox, and hand
-// the message over. The relay's refusals come back in its words, after the step that
+// Send submits one message to the relay: dial, STARTTLS, log in as the mailbox, name the
+// From address as the sender, and hand the message over. The relay's refusals come back in its words, after the step that
 // drew them.
 func (s *Sender) Send(ctx context.Context, msg mail.Message) error {
 	if err := msg.Validate(); err != nil {
@@ -138,8 +157,8 @@ func (s *Sender) Send(ctx context.Context, msg mail.Message) error {
 	if err != nil {
 		return errors.Wrapf(err, "workspace: the recipient %q is not an address", msg.To)
 	}
-	if err := client.Mail(s.settings.Mailbox); err != nil {
-		return errors.Wrapf(err, "workspace: the relay refused the sender %s", s.settings.Mailbox)
+	if err := client.Mail(s.settings.From); err != nil {
+		return errors.Wrapf(err, "workspace: the relay refused the sender %s", s.settings.From)
 	}
 	if err := client.Rcpt(to.Address); err != nil {
 		return errors.Wrapf(err, "workspace: the relay refused the recipient %s", to.Address)
@@ -164,12 +183,12 @@ func (s *Sender) Send(ctx context.Context, msg mail.Message) error {
 // write renders the message in RFC 5322 form: the headers, with the subject and the
 // display names encoded for any language, and the body as quoted-printable UTF-8.
 func (s *Sender) write(w io.Writer, to *netmail.Address, msg *mail.Message) error {
-	from := netmail.Address{Name: s.settings.Name, Address: s.settings.Mailbox}
+	from := netmail.Address{Name: s.settings.Name, Address: s.settings.From}
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
 		return errors.Wrap(err, "rand.Read()")
 	}
-	domain := s.settings.Mailbox[strings.LastIndex(s.settings.Mailbox, "@")+1:]
+	domain := s.settings.From[strings.LastIndex(s.settings.From, "@")+1:]
 	headers := []string{
 		"From: " + from.String(),
 		"To: " + to.String(),
@@ -194,8 +213,12 @@ func (s *Sender) write(w io.Writer, to *netmail.Address, msg *mail.Message) erro
 	return nil
 }
 
-// Describe says where the driver sends and as whom, for a startup log; the app password
-// is never part of it.
+// Describe says where the driver sends and as whom, with the From address when it is
+// not the mailbox, for a startup log; the app password is never part of it.
 func (s *Sender) Describe() string {
+	if s.settings.From != s.settings.Mailbox {
+		return fmt.Sprintf("Google Workspace SMTP relay %s as %s, from %s", s.settings.Relay, s.settings.Mailbox, s.settings.From)
+	}
+
 	return fmt.Sprintf("Google Workspace SMTP relay %s as %s", s.settings.Relay, s.settings.Mailbox)
 }
