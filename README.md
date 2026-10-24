@@ -953,21 +953,27 @@ product, so a mail server of our own is not an option there; the relay is Google
 route. The driver submits each message to `smtp-relay.gmail.com` on port 587 over TLS,
 which Cloud Run allows, logged in as one mailbox of the organization's Workspace domain
 with an app password, and Google carries delivery, reputation and signing from there.
-The mailbox is the From address of every message, a no-reply address as a rule.
+The mailbox is the From address of every message, a no-reply address as a rule; where
+the no-reply address is an alias of a real account rather than a mailbox of its own, the
+account logs in and `From` names the alias, since Google issues no login to an alias
+while the relay accepts any From address in the organization's domains once the login is
+a real account.
 
 ```go
 sender, err := workspace.New(workspace.Settings{
-	Mailbox:     "no-reply@example.com", // the Workspace account the relay is logged in to, and the From address
-	AppPassword: settings.MailAppPassword, // the mailbox's app password, from the secret store
+	Mailbox:     "ops@example.com",        // the Workspace account the relay is logged in to
+	From:        "no-reply@example.com",   // the address every message is from; empty is the mailbox
+	AppPassword: settings.MailAppPassword, // the account's app password, from the secret store
 	Name:        "Harbor",                 // the display name beside the address
 })
 ```
 
 What the Workspace side needs, once per organization:
 
-1. **The mailbox**, a Workspace user such as `no-reply@example.com`, with two-step
-   verification turned on and an app password generated for it (the account's security
-   settings, under two-step verification). Google issues app passwords only to accounts
+1. **The mailbox**, a Workspace user such as `no-reply@example.com`, or a real account
+   with `no-reply@example.com` as one of its alias addresses, with two-step verification
+   turned on and an app password generated for it (the account's security settings,
+   under two-step verification). Google issues app passwords only to accounts
    with two-step verification; the password stands in for the account's at the relay's
    login and carries no second step, which is what a service needs. Two-step verification
    itself protects interactive sign-ins to the mailbox and the driver never meets it.
