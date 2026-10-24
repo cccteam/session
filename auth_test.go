@@ -2521,7 +2521,8 @@ func TestAuth_ValidateSession(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		session    *sessioninfo.SessionData
+		userID     ccc.NullUUID
+		imp        *sessioninfo.Impersonation
 		user       *sessionstorage.SessionUser
 		userErr    error
 		wantNext   bool
@@ -2529,24 +2530,24 @@ func TestAuth_ValidateSession(t *testing.T) {
 		wantStatus int
 		wantCode   sessioninfo.LoginRefusalCode
 	}{
-		{name: "a session is admitted with the user it belongs to, loaded by UserId", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}, wantNext: true, wantUser: userID},
-		{name: "a session whose user is disabled is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantStatus: http.StatusUnauthorized},
-		{name: "a session whose user is gone is refused", session: session(ccc.NullUUIDFromUUID(userID), nil), userErr: httpio.NewNotFoundMessage("gone"), wantStatus: http.StatusUnauthorized},
-		{name: "a session that belongs to no user (a pending identity's row) is refused", session: session(ccc.NullUUID{}, nil), wantStatus: http.StatusUnauthorized},
+		{name: "a session is admitted with the user it belongs to, loaded by UserId", userID: ccc.NullUUIDFromUUID(userID), imp: nil, user: &sessionstorage.SessionUser{ID: userID, Username: "pat"}, wantNext: true, wantUser: userID},
+		{name: "a session whose user is disabled is refused", userID: ccc.NullUUIDFromUUID(userID), imp: nil, user: &sessionstorage.SessionUser{ID: userID, Username: "pat", Disabled: true}, wantStatus: http.StatusUnauthorized},
+		{name: "a session whose user is gone is refused", userID: ccc.NullUUIDFromUUID(userID), imp: nil, userErr: httpio.NewNotFoundMessage("gone"), wantStatus: http.StatusUnauthorized},
+		{name: "a session that belongs to no user (a pending identity's row) is refused", userID: ccc.NullUUID{}, imp: nil, wantStatus: http.StatusUnauthorized},
 		{
-			name:     "a foreign actor's role-principal impersonation has no user to load",
-			session:  session(ccc.NullUUID{}, &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin", Principal: accesstypes.RolePrincipal("Viewer"), ExpiresAt: time.Now().Add(time.Hour)}),
+			name:   "a foreign actor's role-principal impersonation has no user to load",
+			userID: ccc.NullUUID{}, imp: &sessioninfo.Impersonation{Actor: "alice", ActorRealm: "admin", Principal: accesstypes.RolePrincipal("Viewer"), ExpiresAt: time.Now().Add(time.Hour)},
 			wantNext: true,
 		},
 		{
-			name:       "a user who must change their password is refused with the code until the change",
-			session:    session(ccc.NullUUIDFromUUID(userID), nil),
+			name:   "a user who must change their password is refused with the code until the change",
+			userID: ccc.NullUUIDFromUUID(userID), imp: nil,
 			user:       &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordChangeRequired: true},
 			wantStatus: http.StatusForbidden, wantCode: sessioninfo.RefusedPasswordChangeRequired,
 		},
 		{
-			name:     "an impersonation of a user who must change their password is the actor's and is not held to the mark",
-			session:  session(ccc.NullUUIDFromUUID(userID), &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("pat"), ExpiresAt: time.Now().Add(time.Hour)}),
+			name:   "an impersonation of a user who must change their password is the actor's and is not held to the mark",
+			userID: ccc.NullUUIDFromUUID(userID), imp: &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("pat"), ExpiresAt: time.Now().Add(time.Hour)},
 			user:     &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordChangeRequired: true},
 			wantNext: true, wantUser: userID,
 		},
@@ -2556,7 +2557,10 @@ func TestAuth_ValidateSession(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 			f := newAuthFixture(t, ctrl)
-			f.store.EXPECT().Session(gomock.Any(), sessionID).Return(tt.session, nil)
+			// The row is built here, not with the table: a row older than five seconds
+			// makes the handler refresh its activity, a call this test does not expect, and
+			// the parallel subtests can start that long after the table was assembled.
+			f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(tt.userID, tt.imp), nil)
 			if tt.user != nil || tt.userErr != nil {
 				f.store.EXPECT().User(gomock.Any(), userID).Return(tt.user, tt.userErr)
 			}
