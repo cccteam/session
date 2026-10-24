@@ -3,6 +3,7 @@ package azure
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cccteam/httpio"
@@ -28,6 +29,10 @@ const (
 	endpointCommon        = "common"
 	endpointConsumers     = "consumers"
 )
+
+// personalDomains are the domains of Microsoft personal accounts, the consumer
+// tenant's, which only PersonalAccounts admits.
+var personalDomains = []string{"outlook.com", "hotmail.com", "live.com", "msn.com"}
 
 // tenantIDPattern is the shape of a tenant id: a GUID.
 var tenantIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -179,6 +184,15 @@ func (s TenantSet) admits(tid string) (organization string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// admitsAddress reports whether the set could admit an account whose email address is
+// at domain, which the core asks before it sends an invitation there. A tenant is not
+// a domain, so the only address the set can judge is a personal account's, refused
+// unless the set admits personal accounts; every other address is admitted, since the
+// domains of a tenant's accounts are not known here.
+func (s TenantSet) admitsAddress(domain string) bool {
+	return s.personal || !slices.ContainsFunc(personalDomains, func(d string) bool { return strings.EqualFold(d, domain) })
 }
 
 // refusal is the refusal of a token of tenant tid the set does not admit: a personal

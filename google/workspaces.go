@@ -1,6 +1,7 @@
 package google
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -15,6 +16,10 @@ const AnyAccountConnection = "accounts.google.com"
 // anyWorkspaceAccount is the hd hint that asks Google's account chooser for any
 // Workspace account, sent when a registration admits more than one domain.
 const anyWorkspaceAccount = "*"
+
+// personalDomains are the domains of Google accounts outside any Workspace, which
+// AnyWorkspace does not admit and only AnyGoogleAccount does.
+var personalDomains = []string{"gmail.com", "googlemail.com"}
 
 // WorkspaceSet is the organization slot of the Google method (Config.Workspaces): which
 // Google accounts a registration admits, and the connection each identity link carries.
@@ -169,6 +174,27 @@ func (s WorkspaceSet) connectionFor(hd string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// admitsAddress reports whether the set could admit an account whose email address is
+// at domain, which the core asks before it sends an invitation there: a domain of a
+// named Workspace, any domain but a personal account's under AnyWorkspace, any domain
+// under AnyGoogleAccount. Domain names are compared without regard to case. Google
+// puts the Workspace's primary domain in the hd claim, so an operator who names the
+// primary domain only and invites an address at a secondary domain of the same
+// Workspace is refused here although Google would admit the sign-in: they add the
+// secondary domain to the Workspace.
+func (s WorkspaceSet) admitsAddress(domain string) bool {
+	if s.anyAccount {
+		return true
+	}
+	for _, w := range s.named {
+		if slices.ContainsFunc(w.domains, func(d string) bool { return strings.EqualFold(d, domain) }) {
+			return true
+		}
+	}
+
+	return s.anyWorkspace && !slices.ContainsFunc(personalDomains, func(d string) bool { return strings.EqualFold(d, domain) })
 }
 
 // hdHint is the hd parameter of the authorization request, and whether one is sent: the

@@ -1327,6 +1327,12 @@ func TestAuth_AzureCallback(t *testing.T) {
 	resolved := func(req *sessioninfo.NewSessionRequest) {
 		req.UserID, req.Username = userID, "pat"
 	}
+	// recognizeEditor makes Editor a role the application knows, in every tenant
+	// domain: the sign-in passes the role check that runs before the store is asked.
+	recognizeEditor := func(roles *mock_signin.MockUserRoleManager) {
+		roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil).AnyTimes()
+		roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil).AnyTimes()
+	}
 
 	tests := []struct {
 		name    string
@@ -1360,23 +1366,33 @@ func TestAuth_AzureCallback(t *testing.T) {
 					resolved(req)
 				}, nil)
 				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
-				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil)
-				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil)
+				// Once before the store is asked, once at the reconciliation.
+				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil).Times(2)
+				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil).Times(2)
 				roles.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("pat"), []accesstypes.Role{"Editor"}).Return(nil)
 			},
 			wantLocation: "/next",
 			wantSession:  true,
 		},
 		{
-			name:   "role sync that leaves no recognized role refuses the sign-in and expires the session it had inserted",
+			name:   "a directory asserting no role the application knows is refused before any user is resolved or anything written",
+			claims: claims,
+			prepare: func(_ *authFixture, roles *mock_signin.MockUserRoleManager) {
+				roles.EXPECT().ResolveRole(gomock.Any(), gomock.Any(), "Editor").Return(accesstypes.Role(""), false, nil).Times(2)
+			},
+			wantLocation: "/login?code=no_roles",
+		},
+		{
+			name:   "a role store that fails once the session stands ends the sign-in and expires the session it had inserted",
 			claims: claims,
 			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
 				f.expectSignIn(sessionID, resolved, nil)
-				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
-				roles.EXPECT().ResolveRole(gomock.Any(), gomock.Any(), "Editor").Return(accesstypes.Role(""), false, nil).Times(2)
+				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil).AnyTimes()
+				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil).AnyTimes()
+				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(nil, errors.New("role store down"))
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},
-			wantLocation: "/login?code=no_roles",
+			wantLocation: "/login?code=internal_error",
 		},
 		{
 			name:   "a guest of the tenant is marked on the identity, and a refusal by the standard rule sends its code to the login page",
@@ -1384,7 +1400,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 			wantIdentity: &azure.Identity{
 				TenantID: tenantLake, Organization: tenantLake, ObjectID: "oid-9", PreferredUsername: "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com", Guest: true, Roles: []string{"Editor"},
 			},
-			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
+				recognizeEditor(roles)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					if !req.Identity.Guest || req.Identity.SignInName != "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com" {
 						t.Errorf("SignIn() identity = %+v, want a guest under its preferred username", req.Identity)
@@ -1418,7 +1435,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "an identity waiting for its user's password becomes a pending identity, and no roles are touched",
 			claims: claims,
-			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
+				recognizeEditor(roles)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return errors.Wrap(&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: ccc.NullUUIDFromUUID(userID), Username: "pat"}, "db.InsertSession()")
 				})
@@ -1430,7 +1448,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "a resolver's refusal sends its code to the login page",
 			claims: claims,
-			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
+				recognizeEditor(roles)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "identity rejected")
 				})
@@ -1440,7 +1459,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 		{
 			name:   "a link the store refuses across connections sends identity_rejected to the login page",
 			claims: claims,
-			prepare: func(f *authFixture, _ *mock_signin.MockUserRoleManager) {
+			prepare: func(f *authFixture, roles *mock_signin.MockUserRoleManager) {
+				recognizeEditor(roles)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link")
 				})

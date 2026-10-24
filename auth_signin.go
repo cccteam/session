@@ -87,6 +87,13 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		CustomData:            at.customData,
 	}
 
+	// A sign-in the directory's roles admit nowhere is refused here, before the store
+	// resolves, writes or consumes anything: a refused person keeps the invitation
+	// they carried.
+	if err := a.admitRoles(ctx, at); err != nil {
+		return nil, err
+	}
+
 	// The invitation the browser opened, if any, goes with the sign-in: the store
 	// accepts it once the user is known.
 	inv, err := a.invitationOf(ctx)
@@ -173,9 +180,34 @@ func (a *Auth[S, U, Tx]) notifySignedIn(ctx context.Context, signedIn *SignedIn)
 	}
 }
 
+// admitRoles refuses, before anything is resolved, written or consumed, a sign-in
+// whose method synchronizes roles and recognizes none of the role names the directory
+// asserted (no_roles): the refusal SyncRoles makes once the session stands, made here
+// so that a refused person keeps the invitation they carried. A method that cannot
+// tell beforehand (no RecognizesRoles) is still refused by SyncRoles.
+func (a *Auth[S, U, Tx]) admitRoles(ctx context.Context, at *signInAttempt) error {
+	if at.roleNames == nil {
+		return nil
+	}
+	m, ok := a.registered().external[at.registration]
+	if !ok || m.RecognizesRoles == nil {
+		return nil
+	}
+	recognized, err := m.RecognizesRoles(ctx, at.roleNames)
+	if err != nil {
+		return errors.Wrap(err, "signin.Method.RecognizesRoles()")
+	}
+	if !recognized {
+		return signinflow.Refusal("", sessioninfo.RefusedNoRoles, signin.ErrNoRoles, "Unauthorized: user has no roles")
+	}
+
+	return nil
+}
+
 // afterInsert runs once the session row exists and req carries the resolved user.
 // It refuses a completion that resolved to a different user, and reconciles the
-// method's roles.
+// method's roles; the roles were checked before the sign-in was resolved
+// (admitRoles), so a refusal here is a method that could not tell beforehand.
 func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) error {
 	if at.expectUserID.Valid && req.UserID != at.expectUserID.UUID {
 		return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity no longer resolves to the user it was pending for")

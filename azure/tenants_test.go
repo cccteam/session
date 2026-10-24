@@ -316,3 +316,34 @@ func TestRefuseShape(t *testing.T) {
 		})
 	}
 }
+
+func TestTenantSet_admitsAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenants TenantSet
+		domain  string
+		want    bool
+	}{
+		{name: "one tenant admits a work address, whose tenant it cannot tell", tenants: Tenant(tenantLake), domain: "lakeside.edu", want: true},
+		{name: "one tenant refuses a personal account at outlook.com", tenants: Tenant(tenantLake), domain: "outlook.com"},
+		{name: "one tenant refuses hotmail.com", tenants: Tenant(tenantLake), domain: "hotmail.com"},
+		{name: "one tenant refuses live.com", tenants: Tenant(tenantLake), domain: "live.com"},
+		{name: "one tenant refuses msn.com", tenants: Tenant(tenantLake), domain: "msn.com"},
+		{name: "the personal domains are matched without regard to case", tenants: Tenants(Tenant(tenantLake), AnyTenant()), domain: "Outlook.COM"},
+		{name: "any tenant refuses a personal account", tenants: AnyTenant(), domain: "outlook.com"},
+		{name: "personal accounts admit a personal account", tenants: PersonalAccounts(), domain: "outlook.com", want: true},
+		{name: "personal accounts admit a work address too, whose tenant they cannot tell", tenants: PersonalAccounts(), domain: "lakeside.edu", want: true},
+		{name: "listed tenants beside personal accounts admit a personal account", tenants: Tenants(NamedTenant(tenantLake, "lakeside"), PersonalAccounts()), domain: "hotmail.com", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.tenants.admitsAddress(tt.domain); got != tt.want {
+				t.Errorf("admitsAddress(%q) = %v, want %v", tt.domain, got, tt.want)
+			}
+		})
+	}
+}

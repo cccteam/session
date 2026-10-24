@@ -130,3 +130,38 @@ func TestRefuseShape(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkspaceSet_admitsAddress(t *testing.T) {
+	t.Parallel()
+
+	listed := Workspaces(Workspace("lakeside", "lakeside.edu", "lakeside.org"), Workspace("riverside", "riverside.edu"))
+
+	tests := []struct {
+		name       string
+		workspaces WorkspaceSet
+		domain     string
+		want       bool
+	}{
+		{name: "a named Workspace's domain is admitted", workspaces: listed, domain: "riverside.edu", want: true},
+		{name: "a Workspace's second domain is admitted", workspaces: listed, domain: "lakeside.org", want: true},
+		{name: "domains are matched without regard to case", workspaces: listed, domain: "Lakeside.EDU", want: true},
+		{name: "a domain outside the named Workspaces is refused", workspaces: listed, domain: "elsewhere.example"},
+		{name: "a personal account's domain is refused by named Workspaces", workspaces: listed, domain: "gmail.com"},
+		{name: "any Workspace admits a domain outside the named ones", workspaces: Workspaces(listed, AnyWorkspace()), domain: "elsewhere.example", want: true},
+		{name: "any Workspace refuses gmail.com, an account outside every Workspace", workspaces: AnyWorkspace(), domain: "gmail.com"},
+		{name: "any Workspace refuses googlemail.com", workspaces: AnyWorkspace(), domain: "googlemail.com"},
+		{name: "the personal domains are matched without regard to case", workspaces: AnyWorkspace(), domain: "GMail.com"},
+		{name: "any Google account admits a personal account's domain", workspaces: AnyGoogleAccount(), domain: "gmail.com", want: true},
+		{name: "any Google account admits any domain", workspaces: AnyGoogleAccount(), domain: "elsewhere.example", want: true},
+		{name: "the zero value admits no one", domain: "lakeside.edu"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.workspaces.admitsAddress(tt.domain); got != tt.want {
+				t.Errorf("admitsAddress(%q) = %v, want %v", tt.domain, got, tt.want)
+			}
+		})
+	}
+}

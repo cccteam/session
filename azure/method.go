@@ -290,11 +290,15 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // the preferred username, its organization the tenant as tenants names it. The
 // authenticator checks the token's issuer against its tenant and the tenant against
 // the slot; both are checked here again, so an authenticator that did not cannot admit
-// a tenant outside it. When roles is set, the token's roles claim is reconciled.
+// a tenant outside it. When roles is set, the token's roles claim is reconciled. An
+// address is admitted unless it is a personal account's and the slot admits none.
 func method(authn Authenticator, roles *signin.RoleReconciler, authority string, tenants TenantSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodAzure,
 		LoginURL: authn.LoginURL,
+		AdmitsAddress: func(email string) bool {
+			return tenants.admitsAddress(signin.AddressDomain(email))
+		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, _ *http.Request, returnURL string) (string, error) {
 			return authn.AuthCodeURL(ctx, w, returnURL)
 		},
@@ -336,6 +340,9 @@ func method(authn Authenticator, roles *signin.RoleReconciler, authority string,
 	if roles != nil {
 		m.SyncRoles = func(ctx context.Context, username string, roleNames []string) error {
 			return roles.RequireRoles(ctx, accesstypes.User(username), roleNames)
+		}
+		m.RecognizesRoles = func(ctx context.Context, roleNames []string) (bool, error) {
+			return roles.RecognizesAny(ctx, roleNames)
 		}
 	}
 

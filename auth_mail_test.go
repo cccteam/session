@@ -14,13 +14,19 @@ import (
 	"time"
 
 	"github.com/cccteam/ccc"
+	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
+	"github.com/cccteam/session/azure"
+	"github.com/cccteam/session/google"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/mail"
+	"github.com/cccteam/session/mock/mock_azure"
+	"github.com/cccteam/session/mock/mock_signin"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -329,6 +335,7 @@ func TestAuth_Invite(t *testing.T) {
 	t.Run("an invitation stores its row and mails a link to the login page that carries the token", authInviteCase1)
 	t.Run("a message that cannot be sent withdraws the invitation", authInviteCase2)
 	t.Run("an address that is not one, and an Auth without mail, are refused", authInviteCase3)
+	t.Run("an address no offered sign-in method could admit is refused, nothing stored or mailed", authInviteCase4)
 }
 
 func authInviteCase1(t *testing.T) {
@@ -390,6 +397,29 @@ func authInviteCase3(t *testing.T) {
 	}
 }
 
+func authInviteCase4(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "lakeside.edu")})
+	// The page offers Google alone: the password method is registered for operators, not listed.
+	f.auth.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}}})
+
+	_, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <Pat@Elsewhere.Example>", Tenant: "lakeside"})
+	if want := "No sign-in method of this application accepts an address at elsewhere.example."; !httpio.HasBadRequest(err) || httpio.Message(err) != want {
+		t.Errorf("Invite() error = %v, want BadRequest %q", err, want)
+	}
+	if len(links.rows) != 0 || len(recorder.Messages()) != 0 {
+		t.Errorf("rows = %d, messages = %d after the refusal; want nothing stored or mailed", len(links.rows), len(recorder.Messages()))
+	}
+
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside"}); err != nil {
+		t.Fatalf("Invite() of an address Google admits error = %v", err)
+	}
+	if len(links.rows) != 1 || len(recorder.Messages()) != 1 {
+		t.Errorf("rows = %d, messages = %d; want the invitation stored and mailed", len(links.rows), len(recorder.Messages()))
+	}
+}
+
 // invitationCookies opens the invitation link.last for the browser and returns the
 // cookies it set.
 func invitationCookies(t *testing.T, f *authFixture, links *mailLinks, token string) []*http.Cookie {
@@ -415,6 +445,109 @@ func TestAuth_Invitation(t *testing.T) {
 	t.Run("an invited person creates an account with a password: the address verified, the sign-in carrying the invitation", authInvitationCase3)
 	t.Run("a sign-up from an invitation refuses a short password, a missing username and a missing invitation", authInvitationCase4)
 	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
+	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
+}
+
+func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	f, recorder, links := newMailFixture(t, ctrl)
+	hookCalls := 0
+	f.auth.SetInvitationAccepted(func(context.Context, ccc.UUID, string, *sessioninfo.Invitation) error {
+		hookCalls++
+
+		return nil
+	})
+	// The directory asserts a role the application does not know: the sign-in is
+	// refused with no_roles. The mocked store expects no SignIn: nothing is written.
+	roles := mock_signin.NewMockUserRoleManager(ctrl)
+	roles.EXPECT().ResolveRole(gomock.Any(), gomock.Any(), "Nobody").Return(accesstypes.Role(""), false, nil).AnyTimes()
+	authn := mock_azure.NewMockAuthenticator(ctrl)
+	authn.EXPECT().LoginURL().Return("/login").AnyTimes()
+	authn.EXPECT().Verify(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ http.ResponseWriter, _ *http.Request, claims any) (string, string, error) {
+			raw := `{"iss":"` + entraIssuer(tenantLake) + `","tid":"` + tenantLake + `","oid":"oid-pat","preferred_username":"pat@lakeside.edu","email":"pat@lakeside.edu","roles":["Nobody"]}`
+			if err := json.Unmarshal([]byte(raw), claims); err != nil {
+				t.Fatal(err)
+			}
+
+			return "/next", "sid", nil
+		})
+	entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(roles), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+		t.Fatal(err)
+	}
+	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+
+	rr := f.serve(entra.Callback(), http.MethodGet, "/azure/callback?code=c&state=s", nil, cookies)
+
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/login?code=no_roles" {
+		t.Errorf("callback = %d %q, want 302 /login?code=no_roles", rr.Code, rr.Header().Get("Location"))
+	}
+	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil {
+		t.Errorf("the refused sign-in wrote the invitation cookie %+v, want it left alone", c)
+	}
+	if hookCalls != 0 {
+		t.Errorf("the invitation hook ran %d times for a refused sign-in, want never", hookCalls)
+	}
+	if live, err := f.auth.API().Invitations(context.Background()); err != nil || len(live) != 1 {
+		t.Errorf("Invitations() after the refused sign-in = %v, %v; want the one still standing", live, err)
+	}
+	standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+	if standing["email"] != "pat@lakeside.edu" {
+		t.Errorf("the methods listing after the refused sign-in reports standing = %v, want pat's invitation", standing)
+	}
+}
+
+// directoryList is the login page of a directoryFixture: two Google Workspaces, then
+// the password method, with the invitation routes.
+var directoryList = &MethodList{
+	Methods: []AdvertisedMethod{
+		{Name: "google-riverside", Label: "Riverside", Path: "/api/user/google-riverside/login"},
+		{Name: "google-lakeside", Label: "Lakeside", Path: "/api/user/google-lakeside/login"},
+		{Name: "password", Label: "Password", Path: "/api/user/password/login"},
+	},
+	ChangePassword: "/api/user/password",
+	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+}
+
+// newDirectoryFixture is a mail fixture whose login page lists two Google
+// registrations, one Workspace each, beside the password method, with an Entra
+// registration that is registered but not listed.
+func newDirectoryFixture(t *testing.T) (*authFixture, *mail.Recorder, *mailLinks) {
+	t.Helper()
+
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	for _, w := range []struct{ name, domain string }{{"lakeside", "lakeside.edu"}, {"riverside", "riverside.edu"}} {
+		google.SignIn(f.auth, "google-"+w.name, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/" + w.name + "/callback", Workspaces: google.Workspace(w.name, w.domain)})
+	}
+	azure.SignIn(f.auth, "lakeside-entra", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/entra/callback"})
+	f.auth.Methods(directoryList)
+
+	return f, recorder, links
+}
+
+func authInvitationCase6(t *testing.T) {
+	t.Parallel()
+	f, recorder, _ := newDirectoryFixture(t)
+	for i, tt := range []struct {
+		email string
+		want  []any
+	}{
+		{email: "pat@lakeside.edu", want: []any{"google-lakeside"}},
+		{email: "pat@elsewhere.example", want: []any{}},
+	} {
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: tt.email}); err != nil {
+			t.Fatalf("Invite(%s) error = %v", tt.email, err)
+		}
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": tokenIn(t, recorder.Messages()[i].Text, "invitation")}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Open() = %d %s, want 200", rr.Code, rr.Body.String())
+		}
+		if diff := cmp.Diff(tt.want, decoded(t, rr)["methods"]); diff != "" {
+			t.Errorf("Open() for %s: methods mismatch (-want +got):\n%s", tt.email, diff)
+		}
+	}
 }
 
 func authInvitationCase1(t *testing.T) {

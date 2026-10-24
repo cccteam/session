@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -70,6 +72,9 @@ type signInMethods[Tx any] struct {
 	// registered holds the names of every registration, the password method's being
 	// its method name.
 	registered map[string]bool
+	// listed holds the names Methods was given, the methods the login page offers, in
+	// the page's order; nil when the application wired its page without Methods.
+	listed []string
 	// hasher and autoUpgrade are the password method's settings. They keep their
 	// defaults when it is not registered, since user management still hashes
 	// passwords.
@@ -108,6 +113,54 @@ func (m *signInMethods[Tx]) usernameIsEmail() bool {
 // openSignUp reports whether the password method offers sign-up.
 func (m *signInMethods[Tx]) openSignUp() bool {
 	return m.password != nil && m.password.OpenSignUp
+}
+
+// offeredNames are the names of the methods the login page offers, in the order it
+// shows them: the listing's when the application wrote one with Methods, every
+// registration's, sorted, when it wired the page without one.
+func (m *signInMethods[Tx]) offeredNames() []string {
+	if m.listed != nil {
+		return m.listed
+	}
+
+	return slices.Sorted(maps.Keys(m.registered))
+}
+
+// offered reports whether the method registered under name is offered on the login
+// page (offeredNames).
+func (m *signInMethods[Tx]) offered(name string) bool {
+	return slices.Contains(m.offeredNames(), name)
+}
+
+// admittingMethodNames are the names of the external registrations the login page
+// offers that could admit an identity with this email address, in the page's order:
+// those whose method admits the address or cannot tell (a nil AdmitsAddress). The
+// invitation answers carry them, so the page hides the buttons that would refuse the
+// invitee. The password method is never among them; the answers tell its presence
+// apart. The list is empty, never nil, when no such registration could admit the
+// address.
+func (a *Auth[S, U, Tx]) admittingMethodNames(email string) []string {
+	m := a.registered()
+	names := []string{}
+	for _, name := range m.offeredNames() {
+		if ext, ok := m.external[name]; ok && (ext.AdmitsAddress == nil || ext.AdmitsAddress(email)) {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+// couldAdmitAddress reports whether a sign-in method the login page offers could admit
+// an identity with this email address, which an invitation about to be sent to it
+// asks: the password method, since the invited person then creates an account with a
+// password, or an external registration that admits the address or cannot tell
+// (admittingMethodNames). An Auth with no method at all admits, having nothing to
+// judge by.
+func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
+	m := a.registered()
+
+	return len(m.registered) == 0 || m.offered(string(sessioninfo.MethodPassword)) || len(a.admittingMethodNames(email)) > 0
 }
 
 // init sets the methods of a new Auth over storage, before any registration: the

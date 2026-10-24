@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/sessioninfo"
@@ -107,6 +108,17 @@ type Method struct {
 	// and refuses the sign-in (no_roles) when no recognized role results. It is nil
 	// when the method synchronizes no roles.
 	SyncRoles func(ctx context.Context, username string, roleNames []string) error
+	// RecognizesRoles reports whether SyncRoles would leave the user holding a role:
+	// at least one of roleNames is a role the application knows. The core asks it
+	// before the sign-in is resolved, so a person whose roles admit nothing is refused
+	// (no_roles) before anything is written or an invitation they carry is consumed.
+	// It is nil when the method synchronizes no roles or cannot tell beforehand;
+	// SyncRoles then refuses once the session stands.
+	RecognizesRoles func(ctx context.Context, roleNames []string) (bool, error)
+	// AdmitsAddress reports whether an identity with this email address could be
+	// admitted by the method, which the core asks before it sends an invitation to the
+	// address. It is nil when the method cannot tell, which admits.
+	AdmitsAddress func(email string) bool
 }
 
 // Verified is the result of a method's completed round trip.
@@ -151,6 +163,17 @@ func Register[Tx any](core Core[Tx], reg *Registration[Tx]) Handlers {
 	}
 
 	return core.RegisterExternal(reg)
+}
+
+// AddressDomain is the domain of an email address, lowercased: what follows its last
+// @, or "" when it has none. A method's AdmitsAddress judges an address by it.
+func AddressDomain(email string) string {
+	i := strings.LastIndex(email, "@")
+	if i < 0 {
+		return ""
+	}
+
+	return strings.ToLower(email[i+1:])
 }
 
 // RoleNames returns names, or an empty list for nil. A role-synchronizing method always
