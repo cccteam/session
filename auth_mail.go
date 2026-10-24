@@ -194,7 +194,8 @@ func (m *mailSettings) addressHeldMessage(to string) mail.Message {
 		Subject: fmt.Sprintf("Your email address and %s", app),
 		Text: fmt.Sprintf(`This address already belongs to a %s account, and someone just tried to add it to a different one. Nothing was changed: an address can belong to one account only.
 
-If that was you, you have two %s accounts, and this address can be on only one of them. Sign in to the account it is on now. If you would rather use it on the other account, change the address on this one first, then add it there.
+If that was you, you have two %s accounts, and this address can be on only one of them. Sign in to the account it is on now.
+If you would rather use it on the other account, change the address on this one first, then add it there.
 
 Didn't do this?
 If you did not try to add this address, ignore this message. Nothing changes.
