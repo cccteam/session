@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.6](https://github.com/cccteam/session/compare/v0.13.5...v0.13.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* the Workspace mail driver introduces itself to the relay with the mailbox's domain, which Google's relay requires ([#293](https://github.com/cccteam/session/issues/293)) ([9ac192f](https://github.com/cccteam/session/commit/9ac192fe9a1d92657e55a6f4598f304073ba6820))
+
 ## [0.13.5](https://github.com/cccteam/session/compare/v0.13.4...v0.13.5) (2026-10-24)
 
 
