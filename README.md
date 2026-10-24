@@ -944,8 +944,12 @@ address a person adds or changes, and the link a password sign-up starts from. I
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),
-and every message is from the one address the driver is configured to send as. Tests
-use `mail.Recorder`, a sender that keeps what it was asked to send.
+and every message is from the one address the driver is configured to send as. A message
+reads as instructions: what the person did, the link to open and how long it is good for
+(`LinkTimeout` or `InvitationTimeout`, said as a duration such as "6 hours", since the
+person knows when the message reached them), then, under headings of their own, what to
+do if it was not them and a word to keep the link to themselves. Tests use
+`mail.Recorder`, a sender that keeps what it was asked to send.
 
 The first driver is the Google Workspace SMTP relay, `session/mail/workspace`. Google
 Cloud has no outbound mail service of its own and blocks port 25 from every compute

@@ -23,9 +23,11 @@ import (
 // The mail the Auth sends: an invitation, the verification of an address a person
 // adds, and the link a sign-up starts from. Each is one plain-text message with one
 // link in it, to the login page with the link's token as a query parameter, which the
-// page posts back to the route that completes the step. The library writes to the
-// mail.Sender interface and knows nothing of the mail system behind it; see "Sending
-// mail" in the README.
+// page posts back to the route that completes the step. A message reads as
+// instructions: what the person did, the link to open and how long it is good for,
+// then, under headings of their own, what to do if it was not them and a word to keep
+// the link to themselves. The library writes to the mail.Sender interface and knows
+// nothing of the mail system behind it; see "Sending mail" in the README.
 
 // MailSettings is how the Auth sends mail: through sender, as the application, with
 // links to its login page.
@@ -103,75 +105,145 @@ func (m *mailSettings) link(param, token string) string {
 	return m.settings.LoginURL + sep + param + "=" + url.QueryEscape(token)
 }
 
-// until renders a deadline for a message.
-func until(t time.Time) string {
-	return t.UTC().Format("Monday, 2 January 2006 at 15:04 UTC")
+// goodFor renders how long a link is good for in everyday words: minutes under an
+// hour, whole hours under two days, days from there, each rounded to the nearest whole
+// unit and never under a minute. A person knows when the message reached them, so a
+// duration tells them whether the link still stands where a deadline in UTC would not.
+func goodFor(d time.Duration) string {
+	const day = 24 * time.Hour
+	minutes := max(d.Round(time.Minute), time.Minute)
+	if minutes < time.Hour {
+		return count(int(minutes/time.Minute), "minute")
+	}
+	hours := d.Round(time.Hour)
+	if hours < 2*day {
+		return count(int(hours/time.Hour), "hour")
+	}
+
+	return count(int(d.Round(day)/day), "day")
 }
 
-// invitationMessage is the mail an invitation sends.
-func (m *mailSettings) invitationMessage(to, token string, expiresAt time.Time) mail.Message {
+// count renders n of unit in words: "1 hour", "6 hours".
+func count(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+
+	return fmt.Sprintf("%d %ss", n, unit)
+}
+
+// invitationMessage is the mail an invitation sends: the invitation, the link that
+// accepts it and how long the link is good for (lifetime), then what to do if no
+// invitation was expected and a word to keep the link to oneself.
+func (m *mailSettings) invitationMessage(to, token string, lifetime time.Duration) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("You are invited to %s", app),
-		Text: fmt.Sprintf("You have been invited to %s.\n\nFollow this link to accept the invitation:\n%s\n\n"+
-			"The link is good until %s. If you did not expect this invitation, ignore this message; nothing changes.\n",
-			app, m.link("invitation", token), until(expiresAt)),
+		Text: fmt.Sprintf(`You are invited to %s.
+
+To accept the invitation, open this link:
+%s
+
+The link is good for %s.
+
+Didn't expect this?
+If you were not expecting an invitation, ignore this message. Nothing changes.
+
+Keep the link to yourself
+Anyone who opens the link can accept the invitation in your place. Don't forward it.
+`, app, m.link("invitation", token), goodFor(lifetime)),
 	}
 }
 
-// verificationMessage is the mail that verifies an address a signed-in person adds.
-func (m *mailSettings) verificationMessage(to, token string, expiresAt time.Time) mail.Message {
+// verificationMessage is the mail that confirms an address a signed-in person adds. It
+// takes for granted that they added it: sign in, open the link, and the link is good
+// for lifetime; then what to do if it was not them and a word to keep the link to
+// themselves.
+func (m *mailSettings) verificationMessage(to, token string, lifetime time.Duration) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("Confirm your email address for %s", app),
-		Text: fmt.Sprintf("Someone asked to add this address to their %s account.\n\n"+
-			"If that was you, sign in to %s and follow this link to confirm the address:\n%s\n\n"+
-			"The link is good until %s. If you did not ask for this, ignore this message; nothing changes.\n",
-			app, app, m.link("verify", token), until(expiresAt)),
+		Text: fmt.Sprintf(`You added this address to your %s account.
+
+To confirm it, sign in to %s and open this link:
+%s
+
+The link is good for %s. Until you confirm, nothing changes on your account.
+
+Didn't do this?
+If you did not add this address, ignore this message. Nothing changes.
+
+Keep the link to yourself
+The link confirms the address for whoever opens it while signed in. Don't forward it.
+`, app, app, m.link("verify", token), goodFor(lifetime)),
 	}
 }
 
 // addressHeldMessage is the mail sent when a signed-in person adds an address that
-// another account already holds: the screen says nothing, the mailbox's owner learns.
+// another account already holds: the screen says nothing, the mailbox's owner learns
+// and is pointed at the account that has the address, then told what to do if it was
+// not them.
 func (m *mailSettings) addressHeldMessage(to string) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("Your email address and %s", app),
-		Text: fmt.Sprintf("Someone asked to add this address to another %s account, but it already belongs to an account.\n\n"+
-			"If that was you, sign in to the account that has it. If you did not ask for this, ignore this message; nothing changes.\n", app),
+		Text: fmt.Sprintf(`Someone tried to add this address to another %s account, but it already belongs to an account.
+
+If that was you, sign in to the account that has it.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`, app),
 	}
 }
 
-// signUpMessage is the mail a sign-up starts from.
-func (m *mailSettings) signUpMessage(to, token string, expiresAt time.Time) mail.Message {
+// signUpMessage is the mail a sign-up starts from: the link to open and choose a
+// password at and how long it is good for (lifetime), then what to do if no account
+// was asked for and a word to keep the link to oneself.
+func (m *mailSettings) signUpMessage(to, token string, lifetime time.Duration) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("Finish creating your %s account", app),
-		Text: fmt.Sprintf("Follow this link to finish creating your %s account:\n%s\n\n"+
-			"The link is good until %s. If you did not ask for an account, ignore this message; nothing changes.\n",
-			app, m.link("signUp", token), until(expiresAt)),
+		Text: fmt.Sprintf(`You asked to create a %s account with this address.
+
+To finish, open this link and choose your password:
+%s
+
+The link is good for %s.
+
+Didn't do this?
+If you did not ask for an account, ignore this message. Nothing changes.
+
+Keep the link to yourself
+Anyone who opens the link can create the account in your place. Don't forward it.
+`, app, m.link("signUp", token), goodFor(lifetime)),
 	}
 }
 
 // accountExistsMessage is the mail sent when a sign-up names an address an account
-// already holds: the person is pointed at their account by mail, and the screen says
-// nothing.
+// already holds: the person is pointed at their account by mail and told what to do if
+// it was not them, and the screen says nothing.
 func (m *mailSettings) accountExistsMessage(to string) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("You already have a %s account", app),
-		Text: fmt.Sprintf("Someone asked to create a %s account with this address, but there is already an account for it.\n\n"+
-			"Sign in to %s to use it. If you forgot how, ask your administrator. If you did not ask for this, ignore this message; nothing changes.\n", app, app),
+		Text: fmt.Sprintf(`You asked to create a %s account with this address, but there is already an account for it.
+
+Sign in to %s to use it. If you forgot how, ask your administrator.
+
+Didn't do this?
+If you did not ask for an account, ignore this message. Nothing changes.
+`, app, app),
 	}
 }
 
