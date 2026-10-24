@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.9](https://github.com/cccteam/session/compare/v0.13.8...v0.13.9) (2026-10-24)
+
+
+### Features
+
+* an external sign-in resolves to the user who holds its verified address when no user is under the sign-in name, is held for the password confirmation when that user has one, and is never provisioned as a second user over an address another user holds ([#300](https://github.com/cccteam/session/issues/300)) ([5d577a8](https://github.com/cccteam/session/commit/5d577a84f5a59debbe9f2415308e68fdaffb16d7))
+
 ## [0.13.8](https://github.com/cccteam/session/compare/v0.13.7...v0.13.8) (2026-10-24)
 
 
