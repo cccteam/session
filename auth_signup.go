@@ -109,12 +109,13 @@ func (a *Auth[S, U, Tx]) startSignUp(ctx context.Context, email string) error {
 	if err != nil {
 		return err
 	}
-	link := &sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: bare, ExpiresAt: time.Now().Add(m.settings.LinkTimeout)}
+	lifetime := m.settings.LinkTimeout
+	link := &sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: bare, ExpiresAt: time.Now().Add(lifetime)}
 	if err := a.storage.InsertMailLink(ctx, link); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 
-	return a.send(ctx, m.signUpMessage(bare, token, link.ExpiresAt))
+	return a.send(ctx, m.signUpMessage(bare, token, lifetime))
 }
 
 // signUpOpen is SignUp().Open().

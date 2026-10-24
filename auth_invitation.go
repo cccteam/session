@@ -352,14 +352,15 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	if err != nil {
 		return nil, err
 	}
+	lifetime := m.settings.InvitationTimeout
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
-		ExpiresAt: time.Now().Add(m.settings.InvitationTimeout),
+		ExpiresAt: time.Now().Add(lifetime),
 	}
 	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
-	if err := p.auth.send(ctx, m.invitationMessage(email, token, link.ExpiresAt)); err != nil {
+	if err := p.auth.send(ctx, m.invitationMessage(email, token, lifetime)); err != nil {
 		if rerr := p.auth.storage.RevokeMailLink(ctx, link.ID); rerr != nil {
 			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
 		}

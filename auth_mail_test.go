@@ -22,6 +22,7 @@ import (
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/sessionstorage/mock/mock_sessionstorage"
 	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -157,6 +158,129 @@ func tokenIn(t *testing.T, body, param string) string {
 	}
 
 	return m[1]
+}
+
+func TestMailSettings_Messages(t *testing.T) {
+	t.Parallel()
+
+	m := &mailSettings{settings: testMail}
+	for _, tt := range []struct {
+		name string
+		got  mail.Message
+		want mail.Message
+	}{
+		{
+			name: "an invitation: the instruction and link, how long it is good for, then what to do if it was not expected and to keep the link",
+			got:  m.invitationMessage("pat@lakeside.edu", "tok_1", 7*24*time.Hour),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "You are invited to Harbor", Text: `You are invited to Harbor.
+
+To accept the invitation, open this link:
+https://harbor.test/login?invitation=tok_1
+
+The link is good for 7 days.
+
+Didn't expect this?
+If you were not expecting an invitation, ignore this message. Nothing changes.
+
+Keep the link to yourself
+Anyone who opens the link can accept the invitation in your place. Don't forward it.
+`},
+		},
+		{
+			name: "an address confirmation takes for granted the person added the address",
+			got:  m.verificationMessage("pat@lakeside.edu", "tok_2", 6*time.Hour),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Confirm your email address for Harbor", Text: `You added this address to your Harbor account.
+
+To confirm it, open this link:
+https://harbor.test/login?verify=tok_2
+
+The link is good for 6 hours.
+
+Didn't do this?
+If you did not add this address, ignore this message. Nothing changes.
+`},
+		},
+		{
+			name: "an address another account holds: no link, the account that has it, and what to do if it was not them",
+			got:  m.addressHeldMessage("pat@lakeside.edu"),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your email address and Harbor", Text: `This address already belongs to a Harbor account, and someone just tried to add it to a different one. Nothing was changed: an address can belong to one account only.
+
+If that was you, you have two Harbor accounts, and this address can be on only one of them. Sign in to the account it is on now.
+If you would rather use it on the other account, change the address on this one first, then add it there.
+
+Didn't do this?
+If you did not try to add this address, ignore this message. Nothing changes.
+`},
+		},
+		{
+			name: "a sign-up link: open it and choose a password, how long it is good for, then the two notices",
+			got:  m.signUpMessage("new@lakeside.edu", "tok_3", 6*time.Hour),
+			want: mail.Message{To: "new@lakeside.edu", Subject: "Finish creating your Harbor account", Text: `You asked to create a Harbor account with this address.
+
+To finish, open this link and choose your password:
+https://harbor.test/login?signUp=tok_3
+
+The link is good for 6 hours.
+
+Didn't do this?
+If you did not ask for an account, ignore this message. Nothing changes.
+
+Keep the link to yourself
+Anyone who opens the link can create the account in your place. Don't forward it.
+`},
+		},
+		{
+			name: "an account that already exists: no link, sign in instead, and what to do if it was not them",
+			got:  m.accountExistsMessage("pat@lakeside.edu"),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "You already have a Harbor account", Text: `You asked to create a Harbor account with this address, but there is already an account for it.
+
+Sign in to Harbor to use it. If you forgot how, ask your administrator.
+
+Didn't do this?
+If you did not ask for an account, ignore this message. Nothing changes.
+`},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(tt.want, tt.got); diff != "" {
+				t.Errorf("message mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGoodFor(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{d: 10 * time.Second, want: "1 minute"},
+		{d: time.Minute, want: "1 minute"},
+		{d: 15 * time.Minute, want: "15 minutes"},
+		{d: 59*time.Minute + 20*time.Second, want: "59 minutes"},
+		{d: 59*time.Minute + 40*time.Second, want: "59 minutes"},
+		{d: time.Hour, want: "1 hour"},
+		{d: 89 * time.Minute, want: "1 hour"},
+		{d: 90 * time.Minute, want: "1 hour"},
+		{d: 6 * time.Hour, want: "6 hours"},
+		{d: 24 * time.Hour, want: "24 hours"},
+		{d: 47 * time.Hour, want: "47 hours"},
+		{d: 47*time.Hour + 40*time.Minute, want: "47 hours"},
+		{d: 48 * time.Hour, want: "2 days"},
+		{d: 7 * 24 * time.Hour, want: "7 days"},
+		{d: 7*24*time.Hour + 11*time.Hour, want: "7 days"},
+		{d: 7*24*time.Hour + 13*time.Hour, want: "7 days"},
+	} {
+		t.Run(tt.d.String()+" reads as "+tt.want, func(t *testing.T) {
+			t.Parallel()
+			if got := goodFor(tt.d); got != tt.want {
+				t.Errorf("goodFor(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
 }
 
 // decoded is the JSON object a response carries.
@@ -517,7 +641,7 @@ func authEmailCase3(t *testing.T) {
 		}
 	}
 	msgs := recorder.Messages()
-	if len(msgs) != 3 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to an account") {
+	if len(msgs) != 3 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to a Harbor account") {
 		t.Errorf("messages = %+v, want three notices to the holder", msgs)
 	}
 	if len(links.rows) != 0 {

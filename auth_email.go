@@ -116,15 +116,16 @@ func (a *Auth[S, U, Tx]) sendVerification(ctx context.Context, user *sessioninfo
 	if err != nil {
 		return err
 	}
+	lifetime := m.settings.LinkTimeout
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkVerification, Email: bare, UserID: ccc.NullUUIDFromUUID(user.ID),
-		ExpiresAt: time.Now().Add(m.settings.LinkTimeout),
+		ExpiresAt: time.Now().Add(lifetime),
 	}
 	if err := a.storage.InsertMailLink(ctx, link); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 
-	return a.send(ctx, m.verificationMessage(bare, token, link.ExpiresAt))
+	return a.send(ctx, m.verificationMessage(bare, token, lifetime))
 }
 
 // emailVerify is Email().Verify().
