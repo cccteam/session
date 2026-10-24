@@ -157,9 +157,10 @@ Anyone who opens the link can accept the invitation in your place. Don't forward
 }
 
 // verificationMessage is the mail that confirms an address a signed-in person adds. It
-// takes for granted that they added it: sign in, open the link, and the link is good
-// for lifetime; then what to do if it was not them and a word to keep the link to
-// themselves.
+// takes for granted that they added it: open the link (the page asks for the sign-in
+// itself when none stands), and the link is good for lifetime; then what to do if it
+// was not them. The link works only for the account that added the address, so there
+// is no word about keeping it private.
 func (m *mailSettings) verificationMessage(to, token string, lifetime time.Duration) mail.Message {
 	app := m.settings.Application
 
@@ -168,17 +169,14 @@ func (m *mailSettings) verificationMessage(to, token string, lifetime time.Durat
 		Subject: fmt.Sprintf("Confirm your email address for %s", app),
 		Text: fmt.Sprintf(`You added this address to your %s account.
 
-To confirm it, sign in to %s and open this link:
+To confirm it, open this link:
 %s
 
-The link is good for %s. Until you confirm, nothing changes on your account.
+The link is good for %s.
 
 Didn't do this?
 If you did not add this address, ignore this message. Nothing changes.
-
-Keep the link to yourself
-The link confirms the address for whoever opens it while signed in. Don't forward it.
-`, app, app, m.link("verify", token), goodFor(lifetime)),
+`, app, m.link("verify", token), goodFor(lifetime)),
 	}
 }
 

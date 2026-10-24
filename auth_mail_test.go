@@ -191,16 +191,13 @@ Anyone who opens the link can accept the invitation in your place. Don't forward
 			got:  m.verificationMessage("pat@lakeside.edu", "tok_2", 6*time.Hour),
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "Confirm your email address for Harbor", Text: `You added this address to your Harbor account.
 
-To confirm it, sign in to Harbor and open this link:
+To confirm it, open this link:
 https://harbor.test/login?verify=tok_2
 
-The link is good for 6 hours. Until you confirm, nothing changes on your account.
+The link is good for 6 hours.
 
 Didn't do this?
 If you did not add this address, ignore this message. Nothing changes.
-
-Keep the link to yourself
-The link confirms the address for whoever opens it while signed in. Don't forward it.
 `},
 		},
 		{
