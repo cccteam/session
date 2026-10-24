@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.7](https://github.com/cccteam/session/compare/v0.13.6...v0.13.7) (2026-10-24)
+
+
+### Bug Fixes
+
+* the mailed messages read as instructions, say how long the link lasts, and end with what to do if it was not you ([#295](https://github.com/cccteam/session/issues/295)) ([c66e96f](https://github.com/cccteam/session/commit/c66e96fd324d86247a85023fca1cc5805c164fb9))
+* the session validation test builds each session row inside its subtest ([#296](https://github.com/cccteam/session/issues/296)) ([265e06c](https://github.com/cccteam/session/commit/265e06cca666cd4b8dd50fc4dce8097720bce992))
+
 ## [0.13.6](https://github.com/cccteam/session/compare/v0.13.5...v0.13.6) (2026-10-24)
 
 
