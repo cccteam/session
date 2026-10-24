@@ -49,6 +49,10 @@ type Driver[Tx any] interface {
 	// regard to case as the users table's normalized username is, or nil when there is
 	// none.
 	UserByUsernameIn(ctx context.Context, tx Tx, username string) (*dbtype.User, error)
+	// UserByVerifiedEmailIn reads the user who holds email as a verified address,
+	// matched without regard to case as the users table's normalized address is, or
+	// nil when there is none; an address a user holds unverified matches no one.
+	UserByVerifiedEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
 	// InsertUserIn writes a new user row and returns its ID. A taken username ends the
 	// transaction with a UsernameConflict.
 	InsertUserIn(ctx context.Context, tx Tx, user *dbtype.InsertSessionUser) (ccc.UUID, error)
@@ -414,11 +418,12 @@ func decideAccount[Tx any](
 // Every standard rule refuses a guest of the directory, a token asserting no
 // application role when the method synchronizes roles, and an identity without a
 // sign-in name, before any row is written. A pre-created user under the sign-in name,
-// matched without regard to case, is confirmed with its password when it has one and
-// linked when it has none (applyResolution refuses the link when such a user already
-// signs in through another connection). A person no user was created for is
-// provisioned under the sign-in name, or refused by the invited-users-only rule unless
-// the sign-in carries an invitation, which that rule takes as the account it asks for.
+// matched without regard to case, or one who holds the identity's verified address
+// (preCreatedUser), is confirmed with its password when it has one and linked when it
+// has none (applyResolution refuses the link when such a user already signs in through
+// another connection). A person no user was created for is provisioned under the
+// sign-in name, or refused by the invited-users-only rule unless the sign-in carries
+// an invitation, which that rule takes as the account it asks for.
 func standardRule[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rule signin.StandardAccountRule, tenant string,
 ) (res *signin.Resolution, byInvitation bool, stop, err error) {
@@ -431,9 +436,9 @@ func standardRule[Tx any](
 		return nil, false, Refusal("", sessioninfo.RefusedNoEmail, signin.ErrNoSignInName, "the identity carries no sign-in name"), nil
 	}
 
-	user, err := d.UserByUsernameIn(ctx, tx, req.Identity.SignInName)
+	user, err := preCreatedUser(ctx, d, tx, req.Identity)
 	if err != nil {
-		return nil, false, nil, errors.Wrap(err, "Driver.UserByUsernameIn()")
+		return nil, false, nil, err
 	}
 	switch {
 	case user != nil && user.HasPassword:
@@ -456,6 +461,29 @@ func standardRule[Tx any](
 	default:
 		return nil, false, nil, errors.Newf("unknown standard account rule %q", string(rule))
 	}
+}
+
+// preCreatedUser finds the user an unlinked identity belongs to, before any row is
+// written: the user under the identity's sign-in name, matched without regard to case,
+// or else the user who holds the identity's address verified, when the method verified
+// the address (Identity.EmailVerified; Google does, Entra does not). A person is one
+// user whichever way they sign in, and an address counts once the person has proven
+// it: an address the method did not verify, or one a user holds unverified, matches no
+// one. nil when there is neither.
+func preCreatedUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity) (*dbtype.User, error) {
+	user, err := d.UserByUsernameIn(ctx, tx, identity.SignInName)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByUsernameIn()")
+	}
+	if user != nil || !identity.EmailVerified || identity.Email == "" {
+		return user, nil
+	}
+	user, err = d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+
+	return user, nil
 }
 
 // applyResolution acts on the account rules' answer for an unlinked identity. A link
@@ -483,9 +511,9 @@ func applyResolution[Tx any](
 
 		return sessioninfo.UserNewLink, res.Tenant(), live, nil, nil
 	case signin.ProvisionUser:
-		live, err = provisionUser(ctx, d, tx, req, res, byInvitation)
-		if err != nil {
-			return "", "", false, nil, err
+		live, stop, err = provisionUser(ctx, d, tx, req, res, byInvitation)
+		if err != nil || stop != nil {
+			return "", "", false, stop, err
 		}
 
 		return sessioninfo.UserProvisioned, res.Tenant(), live, nil, nil
@@ -542,42 +570,73 @@ func linkUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo
 }
 
 // provisionUser writes the user the rule provisioned (signin.ProvisionUser), linked to
-// the identity, and runs the rule's OnProvisioned. The invitation the sign-in carries
-// is consumed before the row is written, so a dead one gives the new user nothing,
-// not its address and not its grant, and a live one's address goes on the row
-// (invitedAddress); a user provisioned disabled cannot accept and consumes nothing.
-func provisionUser[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool) (live bool, err error) {
+// the identity, and runs the rule's OnProvisioned. An identity whose verified address
+// another user holds verified is refused instead (stop; see addressHeld). The
+// invitation the sign-in carries is consumed before the row is written, so a dead one
+// gives the new user nothing, not its address and not its grant, and a live one's
+// address goes on the row (invitedAddress); a user provisioned disabled cannot accept
+// and consumes nothing.
+func provisionUser[Tx any](
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, byInvitation bool,
+) (live bool, stop, err error) {
 	newUser := res.NewUser()
 	if newUser == nil {
-		return false, errors.New("the account rule provisioned no user: signin.Provision was given nil")
+		return false, nil, errors.New("the account rule provisioned no user: signin.Provision was given nil")
+	}
+	if stop, err = addressHeld(ctx, d, tx, req.Identity); err != nil || stop != nil {
+		return false, stop, err
 	}
 	req.Username = newUser.Username
 	insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled}
 	if !newUser.Disabled {
 		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation); err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 	if live {
 		if err := invitedAddress(ctx, d, tx, req, insert); err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 	id, err := d.InsertUserIn(ctx, tx, insert)
 	if err != nil {
-		return false, errors.Wrap(err, "Driver.InsertUserIn()")
+		return false, nil, errors.Wrap(err, "Driver.InsertUserIn()")
 	}
 	if err := d.LinkIdentityIn(ctx, tx, id, req.Identity, res.Tenant()); err != nil {
-		return false, errors.Wrap(err, "Driver.LinkIdentityIn()")
+		return false, nil, errors.Wrap(err, "Driver.LinkIdentityIn()")
 	}
 	req.UserID = id
 	if onProvisioned := res.OnProvisioned(); onProvisioned != nil {
 		if err := onProvisioned(ctx, id); err != nil {
-			return false, errors.Wrap(err, "signin.Resolution.OnProvisioned()")
+			return false, nil, errors.Wrap(err, "signin.Resolution.OnProvisioned()")
 		}
 	}
 
-	return live, nil
+	return live, nil, nil
+}
+
+// addressHeld refuses the provisioning of a new user for an identity whose verified
+// address another user already holds verified: that user is the person. The standard
+// rules match the person by the address before they provision (preCreatedUser), so a
+// rule that still provisions would make a second user for one person, and one
+// without an address, since the address is held. The refusal is identity_rejected
+// with signin.ErrEmailHeld as its cause, which names the holder for the log. An
+// address the method did not verify, or one a user holds unverified, holds nothing
+// against the provisioning.
+func addressHeld[Tx any](ctx context.Context, d Driver[Tx], tx Tx, identity *sessioninfo.Identity) (stop, err error) {
+	if !identity.EmailVerified || identity.Email == "" {
+		return nil, nil
+	}
+	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return nil, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+	if holder == nil {
+		return nil, nil
+	}
+	cause := fmt.Errorf("%w: the verified address %s belongs to user %s (%s)", signin.ErrEmailHeld, identity.Email, holder.Username, holder.ID)
+
+	return Refusal("", sessioninfo.RefusedIdentityRejected, cause, "identity rejected"), nil
 }
 
 // invitedAddress gives a user provisioned by a sign-in that carries a live invitation
