@@ -203,9 +203,9 @@ If you did not add this address, ignore this message. Nothing changes.
 		{
 			name: "an address another account holds: no link, the account that has it, and what to do if it was not them",
 			got:  m.addressHeldMessage("pat@lakeside.edu"),
-			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your email address and Harbor", Text: `Someone tried to add this address to another Harbor account, but it already belongs to an account.
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your email address and Harbor", Text: `This address already belongs to a Harbor account, and someone just tried to add it to a different one. Nothing was changed: an address can belong to one account only.
 
-If that was you, sign in to the account that has it.
+If that was you, you have two Harbor accounts. Sign in to the one this address already belongs to.
 
 Didn't do this?
 If you did not try to add this address, ignore this message. Nothing changes.
@@ -640,7 +640,7 @@ func authEmailCase3(t *testing.T) {
 		}
 	}
 	msgs := recorder.Messages()
-	if len(msgs) != 3 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to an account") {
+	if len(msgs) != 3 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to a Harbor account") {
 		t.Errorf("messages = %+v, want three notices to the holder", msgs)
 	}
 	if len(links.rows) != 0 {

@@ -182,21 +182,23 @@ If you did not add this address, ignore this message. Nothing changes.
 
 // addressHeldMessage is the mail sent when a signed-in person adds an address that
 // another account already holds: the screen says nothing, the mailbox's owner learns
-// and is pointed at the account that has the address, then told what to do if it was
-// not them.
+// what happened (the address belongs to one account, someone tried to add it to a
+// different one, nothing changed), is told that if it was them they have two accounts
+// and should sign in to the one the address belongs to, then what to do if it was not
+// them.
 func (m *mailSettings) addressHeldMessage(to string) mail.Message {
 	app := m.settings.Application
 
 	return mail.Message{
 		To:      to,
 		Subject: fmt.Sprintf("Your email address and %s", app),
-		Text: fmt.Sprintf(`Someone tried to add this address to another %s account, but it already belongs to an account.
+		Text: fmt.Sprintf(`This address already belongs to a %s account, and someone just tried to add it to a different one. Nothing was changed: an address can belong to one account only.
 
-If that was you, sign in to the account that has it.
+If that was you, you have two %s accounts. Sign in to the one this address already belongs to.
 
 Didn't do this?
 If you did not try to add this address, ignore this message. Nothing changes.
-`, app),
+`, app, app),
 	}
 }
 
