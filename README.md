@@ -960,7 +960,7 @@ while the relay accepts any From address in the organization's domains once the 
 a real account.
 
 ```go
-sender, err := workspace.New(workspace.Settings{
+sender, err := workspace.New(&workspace.Settings{
 	Mailbox:     "ops@example.com",        // the Workspace account the relay is logged in to
 	From:        "no-reply@example.com",   // the address every message is from; empty is the mailbox
 	AppPassword: settings.MailAppPassword, // the account's app password, from the secret store

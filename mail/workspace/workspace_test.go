@@ -173,7 +173,7 @@ func (r *relay) serve(conn net.Conn) {
 func (r *relay) sender(t *testing.T, settings Settings) *Sender {
 	t.Helper()
 	settings.Relay = r.addr
-	s, err := New(settings)
+	s, err := New(&settings)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -198,6 +198,7 @@ func TestNew(t *testing.T) {
 		{name: "the defaults fill in", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "abcd efgh ijkl mnop"}},
 		{name: "a mailbox that is not an address", settings: Settings{Mailbox: "no-reply", AppPassword: "x"}, wantErr: `the mailbox "no-reply" is not an address`},
 		{name: "a From that is not an address", settings: Settings{Mailbox: "ops@example.com", AppPassword: "x", From: "no-reply"}, wantErr: `the From address "no-reply" is not an address`},
+		{name: "no settings", wantErr: "no settings"},
 		{name: "no app password", settings: Settings{Mailbox: "no-reply@example.com"}, wantErr: "no app password"},
 		{name: "a relay without a port", settings: Settings{Mailbox: "no-reply@example.com", AppPassword: "x", Relay: "smtp-relay.gmail.com"}, wantErr: `the relay "smtp-relay.gmail.com" is not host:port`},
 	}
@@ -205,7 +206,11 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s, err := New(tt.settings)
+			given := &tt.settings
+			if tt.name == "no settings" {
+				given = nil
+			}
+			s, err := New(given)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("New() error = %v, want %q", err, tt.wantErr)
@@ -335,7 +340,7 @@ func TestSender_Send_refusals(t *testing.T) {
 func TestNew_from(t *testing.T) {
 	t.Parallel()
 
-	s, err := New(Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.com"})
+	s, err := New(&Settings{Mailbox: "ops@example.com", AppPassword: "abcd efgh ijkl mnop", From: "no-reply@example.com"})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

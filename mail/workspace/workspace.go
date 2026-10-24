@@ -78,9 +78,14 @@ type Sender struct {
 	dial     func(ctx context.Context, address string) (net.Conn, error)
 }
 
-// New builds the driver, refusing settings it cannot send with: a mailbox or a From that
-// is not an address, no app password, a relay that is not host:port.
-func New(settings Settings) (*Sender, error) {
+// New builds the driver from a copy of the settings, refusing settings it cannot send
+// with: a mailbox or a From that is not an address, no app password, a relay that is not
+// host:port.
+func New(given *Settings) (*Sender, error) {
+	if given == nil {
+		return nil, errors.New("workspace: no settings")
+	}
+	settings := *given
 	if _, err := netmail.ParseAddress(settings.Mailbox); err != nil {
 		return nil, errors.Wrapf(err, "workspace: the mailbox %q is not an address", settings.Mailbox)
 	}
