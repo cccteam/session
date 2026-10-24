@@ -502,7 +502,8 @@ the password method is listed.
   "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
   "changePassword": "/api/user/password",
   "usernameIsEmail": true,
-  "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up"},
+  "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
+                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false}},
   "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
   "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
 }
@@ -533,6 +534,15 @@ the password method is listed.
   registered with `OpenSignUp`. The page opens a link it was sent to with
   `?invitation=`, `?verify=` or `?signUp=` by posting the token to the block's `open`
   (or `verify`) path; see "Invitations", "Users and their email address" and "Sign-up".
+- `invitation.standing` is the live invitation the browser carries, present when the
+  invitation cookie that `open` set still names an invitation that stands: the address
+  it was sent to, its tenant (`""` for the application's global surface), when it stops
+  being accepted, and whether an account created from it takes the address as its
+  username, as `Invitation().Open()` answered them. A page that arrives without the
+  mailed link's token, as it does when an external sign-in was refused and sent the
+  browser back with `?code=`, reads the invitation from here and keeps showing it. The
+  block is absent when the browser carries no cookie, or its invitation is dead (used,
+  revoked or expired).
 
 `Methods` is called after every method is registered and panics on a wiring mistake,
 as a registration does: an empty list, a method that is not registered on the `Auth`,
@@ -819,7 +829,10 @@ proved they read the mailbox, and the account they sign in with is theirs.
   "usernameIsEmail"}` and sets an encrypted cookie holding the token, so the sign-in
   that follows carries the invitation, an external round trip included. The page then
   offers the sign-in methods, and, when `signUp` is true (the password method is
-  registered), an account with a password.
+  registered), an account with a password. While the cookie names an invitation that
+  stands, the methods listing (`auth.Methods`) reports it as `invitation.standing`, so
+  the page shows the invitation again when it comes back without the token, as after a
+  refused external sign-in; see "What the login page is told".
 - **Accepting**: a sign-in that carries an invitation accepts it once the user is
   known, before the sign-in policy decides, so the policy sees the membership: the
   invitation is consumed, the user takes its address when they hold no verified one,

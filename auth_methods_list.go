@@ -1,9 +1,12 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/cccteam/ccc/tracer"
 	"github.com/cccteam/httpio"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/sessioninfo"
@@ -100,6 +103,19 @@ type invitationAnswer struct {
 	Open   string `json:"open"`
 	Accept string `json:"accept"`
 	SignUp string `json:"signUp,omitempty"`
+	// Standing is the live invitation the browser carries, absent when it carries
+	// none or its link is dead.
+	Standing *standingInvitationAnswer `json:"standing,omitempty"`
+}
+
+// standingInvitationAnswer is the invitation the browser carries, as the invitation
+// block of a methods answer reports it: what Invitation().Open() answered when the
+// page opened it, less what the block already says.
+type standingInvitationAnswer struct {
+	Email           string    `json:"email"`
+	Tenant          string    `json:"tenant"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	UsernameIsEmail bool      `json:"usernameIsEmail"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -126,14 +142,23 @@ type pendingAnswer struct {
 // method its name, the method behind it, how it starts (a form for the password
 // method, a redirect for an external one), its label and its path, in the list's
 // order, the pending sign-in routes when the list names them, and the password
-// change route when the password method is listed. The answer is public: route it
-// beside the login routes, behind StartSession and before ValidateSession, and it
-// needs no XSRF token.
+// change route when the password method is listed. When the list names the invitation
+// routes and the browser carries a live invitation (the cookie Invitation().Open()
+// set), the invitation block also reports it under "standing": the address it was
+// sent to, its tenant, when it stops being accepted and whether an account created
+// from it takes the address as its username, so a page that arrives without the
+// mailed link's token, as it does when an external sign-in was refused and sent it
+// back, still shows the invitation. A browser without the cookie, or whose invitation
+// is no longer live, gets the block without it. The answer is public: route it beside
+// the login routes, behind StartSession and before ValidateSession, and it needs no
+// XSRF token.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
 //	 "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
-//	 "changePassword": "/api/user/password"}
+//	 "changePassword": "/api/user/password",
+//	 "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
+//	                "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false}}}
 //
 // Methods is called where the routes are wired, after every method is registered, and
 // panics on a wiring mistake, the way a registration does: an empty list, a method
@@ -144,9 +169,58 @@ type pendingAnswer struct {
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
-	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, _ *http.Request) error {
-		return httpio.NewEncoder(w).Ok(answer)
+	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		if answer.Invitation == nil {
+			return httpio.NewEncoder(w).Ok(answer)
+		}
+
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		standing, err := a.standingInvitation(ctx, r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(answer.withStanding(standing))
 	}))
+}
+
+// standingInvitation is the live invitation the browser carries, for the invitation
+// block of the methods answer: the cookie Invitation().Open() set, read as the sign-in
+// handlers read it, and the store asked whether its link still stands. It is nil when
+// the browser carries no cookie and when the link is dead (expired, accepted or
+// revoked). usernameIsEmail is what Open() answers for the same invitation.
+func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request) (*standingInvitationAnswer, error) {
+	if _, ok := invitationTokenHash(ctx); !ok {
+		// StartSession reads the cookie onto the context; a listing routed without it
+		// reads the cookie here.
+		ctx = a.withInvitationCookie(ctx, r)
+	}
+	inv, err := a.invitationOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if inv == nil {
+		return nil, nil
+	}
+
+	return &standingInvitationAnswer{Email: inv.Email, Tenant: inv.Tenant, ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail()}, nil
+}
+
+// withStanding is the answer with standing reported in its invitation block: the
+// answer itself when there is nothing to report, otherwise a copy, since the answer
+// built at wiring is shared by every request.
+func (m *methodsAnswer) withStanding(standing *standingInvitationAnswer) *methodsAnswer {
+	if standing == nil {
+		return m
+	}
+	answer := *m
+	invitation := *m.Invitation
+	invitation.Standing = standing
+	answer.Invitation = &invitation
+
+	return &answer
 }
 
 // advertise builds the methods answer from list, checking each entry against the

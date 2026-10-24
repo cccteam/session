@@ -1,14 +1,17 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
+	"github.com/cccteam/session/mail"
 	"github.com/cccteam/session/signin"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -144,6 +147,130 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/methods", http.NoBody))
 		if !a.methods.inUse.Load() {
 			t.Error("the first request through Methods() did not close registration")
+		}
+	})
+}
+
+// invitationList is a list naming the password method and the invitation routes.
+var invitationList = &MethodList{
+	Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+	ChangePassword: "/api/user/password",
+	Invitation:     InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
+}
+
+// openedInvitation invites pat into lakeside and opens the invitation in the browser,
+// returning the cookies the browser then carries.
+func openedInvitation(t *testing.T, f *authFixture, links *mailLinks) []*http.Cookie {
+	t.Helper()
+
+	recorder, ok := f.auth.settings.mail.sender.(*mail.Recorder)
+	if !ok {
+		t.Fatal("the fixture's mail is not a recorder")
+	}
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+
+	return invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
+}
+
+// invitationBlock serves the methods listing to a browser carrying cookies, through
+// StartSession as the application routes it, and returns the answer's invitation block.
+func invitationBlock(t *testing.T, f *authFixture, list *MethodList, cookies []*http.Cookie) map[string]any {
+	t.Helper()
+
+	rr := f.serve(f.auth.Methods(list), http.MethodGet, "/api/user/methods", nil, cookies)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Methods() status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	block, _ := decoded(t, rr)["invitation"].(map[string]any)
+
+	return block
+}
+
+func TestAuth_MethodsStandingInvitation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a browser without the invitation cookie gets the invitation block without a standing invitation", func(t *testing.T) {
+		t.Parallel()
+		f, _, _ := newMailFixture(t, gomock.NewController(t))
+
+		want := map[string]any{"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up"}
+		if diff := cmp.Diff(want, invitationBlock(t, f, invitationList, nil)); diff != "" {
+			t.Errorf("invitation block mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a browser carrying a live invitation is told it: the address, the tenant, when it expires and whether the username is the address", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		cookies := openedInvitation(t, f, links)
+
+		want := map[string]any{
+			"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
+			"standing": map[string]any{"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false},
+		}
+		if diff := cmp.Diff(want, invitationBlock(t, f, invitationList, cookies)); diff != "" {
+			t.Errorf("invitation block mismatch (-want +got):\n%s", diff)
+		}
+		if got := invitationBlock(t, f, invitationList, nil); got["standing"] != nil {
+			t.Errorf("a request without the cookie after one with it got %v, want no standing invitation: the answer is not shared between requests", got["standing"])
+		}
+	})
+
+	t.Run("where the password method declares the username as the address, the standing invitation says so, as Open() does", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+		cookies := openedInvitation(t, f, links)
+
+		standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+		if standing["usernameIsEmail"] != true {
+			t.Errorf("standing = %v, want usernameIsEmail true", standing)
+		}
+	})
+
+	t.Run("a browser whose invitation is dead gets the block without it", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		cookies := openedInvitation(t, f, links)
+		if err := f.auth.API().RevokeInvitation(context.Background(), links.last(t).ID); err != nil {
+			t.Fatalf("RevokeInvitation() error = %v", err)
+		}
+
+		if got := invitationBlock(t, f, invitationList, cookies); got["standing"] != nil {
+			t.Errorf("invitation block = %v, want no standing invitation for a revoked one", got)
+		}
+	})
+
+	t.Run("a listing without the invitation routes reports no invitation, cookie or not", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		cookies := openedInvitation(t, f, links)
+		list := &MethodList{Methods: invitationList.Methods, ChangePassword: invitationList.ChangePassword}
+
+		if got := invitationBlock(t, f, list, cookies); got != nil {
+			t.Errorf("invitation block = %v, want none", got)
+		}
+	})
+
+	t.Run("the listing reads the cookie itself when it is routed without StartSession", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		cookies := openedInvitation(t, f, links)
+
+		r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/user/methods", http.NoBody)
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		rr := httptest.NewRecorder()
+		f.auth.Methods(invitationList).ServeHTTP(rr, r)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Methods() status = %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		block, _ := decoded(t, rr)["invitation"].(map[string]any)
+		standing, _ := block["standing"].(map[string]any)
+		if standing["email"] != "pat@lakeside.edu" {
+			t.Errorf("standing = %v, want pat's invitation", standing)
 		}
 	})
 }
