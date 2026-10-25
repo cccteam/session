@@ -11,7 +11,12 @@ import (
 // impersonationSpanAttributes renders the record's evidence as span attributes, under
 // the same keys the log entry carries.
 func impersonationSpanAttributes(imp *sessioninfo.Impersonation) []attribute.KeyValue {
-	attrs := imp.Attributes()
+	return spanAttributes(imp.Attributes())
+}
+
+// spanAttributes renders evidence attributes as span attributes, under the same keys
+// the log entry carries.
+func spanAttributes(attrs []sessioninfo.Attribute) []attribute.KeyValue {
 	kvs := make([]attribute.KeyValue, 0, len(attrs))
 	for _, a := range attrs {
 		kvs = append(kvs, attribute.String(a.Key, a.Value))

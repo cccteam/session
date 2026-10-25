@@ -190,6 +190,11 @@ linters:
       - linters:
           - tagliatelle
         path: internal/workos/|internal/e2e/auth_test\.go
+      # The OAuth device authorization and token endpoints' wire format is snake_case
+      # (RFC 8628, RFC 6749).
+      - linters:
+          - tagliatelle
+        path: auth_device\.go|auth_device_test\.go|internal/e2e/auth_tokens_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
@@ -210,6 +215,12 @@ linters:
           - gosec
         path: internal/workos/client\.go
         text: G117
+      # G101 reads the tokens table's column list, which names TokenHash, as a hardcoded
+      # credential: it is a column list.
+      - linters:
+          - gosec
+        path: sessionstorage/internal/(spanner|postgres)/tokens\.go
+        text: G101
       # G101 reads the password change route (MethodList.ChangePassword, "changePassword"
       # in the methods answer) assigned a literal path in a test as a hardcoded
       # credential: it is a path.

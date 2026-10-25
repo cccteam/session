@@ -40,6 +40,8 @@ func TestTableNameSettersValidate(t *testing.T) {
 		{name: "SetOIDCUserTableName", set: (*SessionStorageDriver).SetOIDCUserTableName, get: func(s *SessionStorageDriver) string { return s.oidcUserTableName }},
 		{name: "SetIdentitiesTableName", set: (*SessionStorageDriver).SetIdentitiesTableName, get: func(s *SessionStorageDriver) string { return s.identitiesTableName }},
 		{name: "SetPendingSignInsTableName", set: (*SessionStorageDriver).SetPendingSignInsTableName, get: func(s *SessionStorageDriver) string { return s.pendingTableName }},
+		{name: "SetTokensTableName", set: (*SessionStorageDriver).SetTokensTableName, get: func(s *SessionStorageDriver) string { return s.tokensTableName }},
+		{name: "SetDeviceCodesTableName", set: (*SessionStorageDriver).SetDeviceCodesTableName, get: func(s *SessionStorageDriver) string { return s.deviceCodesTableName }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

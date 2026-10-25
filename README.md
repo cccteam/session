@@ -25,6 +25,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `OIDC User Anchor`: the legacy Azure type's durable user record, keyed by the immutable `(tid, oid)` claim pair; an Auth session's users are `SessionUsers` records for every method. See the "OIDC user anchor" section.
 - `Login Refusal Codes`: A refused sign-in returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
 - `Attempt limiting`: The password method limits failed attempts per name, known or not, in memory and in the store, and refuses an attempt past the limit with `too_many_attempts` and the wait; an after-sign-in hook is told of every session a sign-in establishes. See the "Attempt limiting and the after-sign-in hook" section.
+- `Machine outlets and bearer tokens`: a URL space of the application a program calls with a bearer token the Auth issued, never a cookie; the tokens a signed-in person issues for a program of their own, and the access and refresh tokens a command-line client obtains through the device flow (RFC 8628) with the person's approval. See the "Machine outlets and bearer tokens" section.
 
 Every session type is generic over two data axes, custom session data and custom user
 data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
@@ -442,6 +443,16 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 ### Routes
 
 ```go
+// A machine outlet and the device flow's public endpoints sit outside StartSession:
+// a bearer token is the credential there, no cookie is read or written.
+droids := session.RegisterMachineOutlet(auth, "droids")
+r.Route("/api/droids", func(r chi.Router) {
+    r.Use(droids.ValidateToken)
+    // …the outlet's routes
+})
+r.Post("/api/oauth/device/authorize", auth.Device().Authorize()) // client_id, outlet
+r.Post("/api/oauth/token", auth.Device().Token())                // grant_type device_code | refresh_token
+
 r.Use(auth.StartSession, auth.SetXSRFToken)
 r.Get("/api/user/authenticated", auth.Authenticated())
 r.Get("/api/user/sso/login", sso.Login())       // ?organization=…&returnUrl=…
@@ -475,6 +486,12 @@ r.Group(func(r chi.Router) {
         r.Post("/api/user/invitation/accept", auth.Invitation().Accept()) // the signed-in person accepts
         r.Post("/api/user/email", auth.Email().Add())                     // {"email"}: mails the verification link
         r.Post("/api/user/email/verify", auth.Email().Verify())           // {"token"}
+        r.Get("/api/user/tokens", auth.ApplicationTokens().List())        // the person's tokens
+        r.Post("/api/user/tokens", auth.ApplicationTokens().Create())     // {"name", "outlet", "expiresIn"}: the secret, once
+        r.Post("/api/user/tokens/revoke", auth.ApplicationTokens().Revoke()) // {"id"}
+        r.Get("/api/user/device", auth.Device().Lookup())                 // ?userCode=: which client asks, for which outlet
+        r.Post("/api/user/device/approve", auth.Device().Approve())       // {"userCode"}
+        r.Post("/api/user/device/deny", auth.Device().Deny())             // {"userCode"}
         // …protected routes
     })
 })
@@ -483,6 +500,8 @@ r.Group(func(r chi.Router) {
 The invitation, email and sign-up handlers are described under "Invitations", "Users
 and their email address" and "Sign-up" below; the groups that send mail (`Email()`,
 `SignUp()`) panic at wiring on an `Auth` without `WithMail`.
+The machine outlet, the token page and the device flow are described under "Machine
+outlets and bearer tokens" below.
 
 The pending handlers and the API's pending methods read the pending identity
 `StartSession` found, so they must run behind it; the POSTs belong behind
@@ -679,6 +698,11 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 - **Impersonation** works as on the other types. A user principal's session belongs to
   the impersonated user; a role principal's belongs to none. The session records an
   `impersonation` event whose connection is the actor.
+- **A request on a machine outlet** is bound to the person whose bearer token it
+  carries the same way: the user is loaded on every request and refused when missing
+  or disabled, the session data's `ID` is the token's, its one auth event is `token`
+  with the token's kind as its connection, and `sessioninfo.TokenFromCtx(ctx)` names
+  the token. See "Machine outlets and bearer tokens".
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
   `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
   the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
@@ -986,6 +1010,97 @@ auth.SetSignedInHook(func(ctx context.Context, s *session.SignedIn) error {
 
 A nil hook, a second hook, or a hook set once the `Auth` is in use panics, as
 `SetSignInPolicy` does: set it after `NewAuth` and before serving.
+
+### Machine outlets and bearer tokens
+
+A machine outlet is a URL space of the application whose requests carry a bearer token
+the Auth issued, never a session cookie: the surface a command-line tool or an
+integration calls. The Auth issues the tokens two ways, and one middleware binds each
+request on the outlet to the token's person the way `ValidateSession` binds a browser
+request to its user. The outlet names the application chooses, the pages that issue and
+approve tokens and what each outlet serves are the application's; the library issues,
+stores, validates and revokes.
+
+**Registering an outlet.** `session.RegisterMachineOutlet(auth, name)` registers the
+outlet and returns it; tokens are issued only for registered outlets, and a token is
+accepted only on the outlet it was issued for. Register every outlet after `NewAuth` and
+before serving, as sign-in methods are registered: a name that is empty or not an
+identifier (letters, digits, hyphens, underscores), a name registered twice, or an
+outlet registered once the Auth is in use panics. Route the outlet outside
+`StartSession` and wire `outlet.ValidateToken` on it (see "Routes").
+
+**What `ValidateToken` does.** It reads `Authorization: Bearer <token>`, finds the token
+by its hash, requires it live (not expired, not revoked), of a bearer kind (an
+application or access token, never a refresh token) and issued for this outlet, loads
+its person as `ValidateSession` loads a session's user (missing or disabled: refused;
+under the password change mark: 403 with `password_change_required`, as everywhere),
+and binds the request: `sessioninfo.UserFromCtx`, `sessioninfo.DataFromCtx` (the
+session data's `ID` is the token's id, `AuthenticatedAt` its issue, `AuthEvents` one
+`token` event whose connection is the token's kind, `Token` the
+`*sessioninfo.TokenInfo`), `sessioninfo.PrincipalFromCtx` through the Auth's principal
+resolver as for a session, and `sessioninfo.TokenFromCtx` for the token itself. The
+request's log entry, every line logged within it and its span carry `token.id`,
+`token.kind` and `token.name` (an application token) or `token.client` (an access
+token), beside `username` and `enduser.id`. A refusal is 401 with
+`WWW-Authenticate: Bearer realm="<outlet>"`, and `error="invalid_token"` when a token
+was presented (RFC 6750). No cookie is read or written and no XSRF token is checked: a
+bearer token is nothing a browser sends on its own. The token's `LastUsedAt` moves at
+most once a minute.
+
+**Application tokens** are what a signed-in person issues for a program of their own.
+`auth.ApplicationTokens()` has the page's handlers, behind `ValidateSession` and
+`ValidateXSRFToken`: `Create()` takes `{"name", "outlet", "expiresIn"}` (`expiresIn`
+in seconds, optional, at most the Auth's application token lifetime) and answers
+`{"id", "token", "name", "outlet", "expiresAt"}` where `token` is the secret, shown
+this once and stored only as its hash; `List()` answers the person's live tokens,
+newest first, as `[{"id", "kind", "name", "outlet", "clientId", "createdAt",
+"expiresAt", "lastUsedAt"}]` (the application tokens and the device grants' tokens,
+never a secret); `Revoke()` takes `{"id"}` and revokes that token of theirs, a device
+grant's with its family (404 when the token is not theirs or not live). The API has
+`CreateApplicationToken`, `Tokens`, `RevokeToken` and `RevokeUserTokens` (every live
+token of a person, for an operator taking their access away; a disabled person's
+tokens are refused on their next request anyway, since the person is loaded on every
+request, and a deleted person's are deleted with them).
+
+**The device flow** (RFC 8628) is how a command-line client obtains tokens with a
+person's approval and no password of its own. The client posts `client_id` and
+`outlet` to `auth.Device().Authorize()` (form-encoded or JSON; public, outside
+`StartSession`) and is told `{"device_code", "user_code", "verification_uri",
+"verification_uri_complete", "expires_in", "interval"}`; it shows the person the user
+code (`XXXX-XXXX`, letters only) and the verification URI, and polls
+`auth.Device().Token()` with `grant_type=urn:ietf:params:oauth:grant-type:device_code`
+and the `device_code` every `interval` seconds. The person, signed in to the
+application as always, opens the verification page (`WithDeviceVerificationURL`,
+default `/device`; the application's page, which reads `?userCode=`), which asks
+`auth.Device().Lookup()` (`?userCode=`, behind `ValidateSession`) which client asks for
+which outlet and posts `{"userCode"}` to `Approve()` or `Deny()` (behind
+`ValidateSession` and `ValidateXSRFToken`); one decision stands. The next poll answers
+`{"access_token", "token_type": "Bearer", "expires_in", "refresh_token"}`, once; until
+then, and otherwise, it answers 400 with the RFC's codes: `authorization_pending`,
+`slow_down` (polled before the interval passed), `access_denied`, `expired_token`,
+`invalid_grant` (unknown, redeemed, rotated or revoked), `invalid_request`,
+`unsupported_grant_type`. The two public endpoints speak the RFC's wire format
+(snake_case, `Cache-Control: no-store`), so a standard client library drives them.
+
+The access token is what the client presents on the outlet; when it expires the client
+posts `grant_type=refresh_token` with the `refresh_token` to the token endpoint and
+receives the next pair. A refresh rotates: the pair presented is revoked and the next
+is issued in the same family, for the same person, outlet and client. A refresh token
+presented again after its exchange is a reuse (a stolen copy, or a client that lost
+the answer): the whole family is revoked, so the holder of the current pair loses it
+too, and the answer is `invalid_grant`; the client signs in again. The API has
+`StartDeviceAuthorization`, `RedeemDeviceCode`, `RefreshTokens`, `PendingDevice`,
+`ApproveDevice` and `DenyDevice`.
+
+**Lifetimes and storage.** `WithTokenLifetimes(access, refresh, applicationMax)`
+(default an hour, thirty days, a year), `WithDeviceCodeLifetime(lifetime,
+pollInterval)` (default ten minutes, five seconds) and `WithDeviceVerificationURL(path)`
+(default `/device`, a path in the application). Tokens and device authorizations live
+in `SessionTokens` and `SessionDeviceCodes` (the shipped migrations `000007` on Spanner
+and `000006` on PostgreSQL; `WithTokensTableName`, `WithDeviceCodesTableName`), keyed
+by the hash of the secret, with the person, the outlet, the kind, the family, the
+name or client, the issue, expiry, last use and revocation (`revoked`, `rotated`,
+`reuse`, `user`); a person's rows go with the person.
 
 ## Sending mail
 

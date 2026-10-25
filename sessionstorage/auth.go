@@ -108,6 +108,53 @@ type AuthStore[Tx any] interface {
 	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
 	// a user that has no password.
 	UnlinkIdentity(ctx context.Context, identityID ccc.UUID) error
+	// SetTokensTableName sets the name of the tokens table (SessionTokens).
+	SetTokensTableName(name string) error
+	// SetDeviceCodesTableName sets the name of the device codes table
+	// (SessionDeviceCodes).
+	SetDeviceCodesTableName(name string) error
+	// InsertToken inserts a token: created at the database's time, unused and not
+	// revoked, whatever t carries.
+	InsertToken(ctx context.Context, t *Token) error
+	// Token returns the token holding tokenHash that is live now: not revoked and not
+	// expired. Any other is NotFound.
+	Token(ctx context.Context, tokenHash []byte) (*Token, error)
+	// Tokens lists the live tokens of a user, newest first.
+	Tokens(ctx context.Context, userID ccc.UUID) ([]*Token, error)
+	// TouchToken moves a live token's LastUsedAt to the database's time; a token that
+	// is not live is left as it is.
+	TouchToken(ctx context.Context, id ccc.UUID) error
+	// RevokeUserToken revokes the live token id of userID with reason: the token
+	// alone, or its whole family when it has one. A token that is not live, or not the
+	// user's, is NotFound.
+	RevokeUserToken(ctx context.Context, userID, id ccc.UUID, reason TokenRevocation) error
+	// RevokeUserTokens revokes every live token of a user with reason.
+	RevokeUserTokens(ctx context.Context, userID ccc.UUID, reason TokenRevocation) error
+	// ExchangeRefreshToken rotates the live refresh token holding tokenHash, in one
+	// transaction: it is revoked as rotated and access and refresh are inserted in its
+	// family, as its user, for its outlet and client, which the store fills in on the
+	// two. A token that is not a live refresh token is NotFound; one already rotated is
+	// a reuse, its whole family is revoked, and the error is ErrTokenReuse.
+	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, access, refresh *Token) error
+	// InsertDeviceCode inserts a device authorization: created at the database's time
+	// and pending, whatever d carries.
+	InsertDeviceCode(ctx context.Context, d *DeviceCode) error
+	// DeviceCode returns the device authorization userCode names that is pending now:
+	// not decided, not consumed, not expired. Any other is NotFound.
+	DeviceCode(ctx context.Context, userCode string) (*DeviceCode, error)
+	// ApproveDeviceCode records that userID approved the pending device code id. A
+	// code that is not pending is NotFound, so one decision stands.
+	ApproveDeviceCode(ctx context.Context, id, userID ccc.UUID) error
+	// DenyDeviceCode records that the person denied the pending device code id. A code
+	// that is not pending is NotFound.
+	DenyDeviceCode(ctx context.Context, id ccc.UUID) error
+	// RedeemDeviceCode is the client's poll of the device code holding deviceCodeHash,
+	// in one transaction: an approved code is consumed, once, and access and refresh
+	// are inserted as the approving user's for the code's outlet and client, which the
+	// store fills in on the two; a pending code polled before interval passed since the
+	// last poll is slow_down and nothing is written; otherwise the status says what
+	// the client learned. A code that is not there or was consumed is NotFound.
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token) (*DeviceCode, DeviceCodeStatus, error)
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time. The Auth calls
@@ -229,6 +276,52 @@ type SignInAttemptLimit = dbtype.SignInAttemptLimit
 // PendingSignIn is a sign-in held in the pending sign-ins table until its confirmation
 // or MFA step.
 type PendingSignIn = dbtype.PendingSignIn
+
+// Token is a row of the tokens table: one bearer credential of a machine outlet. See
+// dbtype.Token.
+type Token = dbtype.Token
+
+// TokenKind is what a token is: an application token a person issued, or the access
+// or refresh token of a device grant.
+type TokenKind = dbtype.TokenKind
+
+// The token kinds.
+const (
+	TokenApplication = dbtype.TokenApplication
+	TokenAccess      = dbtype.TokenAccess
+	TokenRefresh     = dbtype.TokenRefresh
+)
+
+// TokenRevocation says why a token was revoked.
+type TokenRevocation = dbtype.TokenRevocation
+
+// The token revocations.
+const (
+	TokenRevokedByHand   = dbtype.TokenRevokedByHand
+	TokenRevokedRotated  = dbtype.TokenRevokedRotated
+	TokenRevokedReuse    = dbtype.TokenRevokedReuse
+	TokenRevokedWithUser = dbtype.TokenRevokedWithUser
+)
+
+// ErrTokenReuse is the error of a refresh exchange given a token already rotated: the
+// family is revoked.
+var ErrTokenReuse = dbtype.ErrTokenReuse
+
+// DeviceCode is a row of the device codes table: one device authorization a
+// command-line client started. See dbtype.DeviceCode.
+type DeviceCode = dbtype.DeviceCode
+
+// DeviceCodeStatus is what a client's poll of its device code learned.
+type DeviceCodeStatus = dbtype.DeviceCodeStatus
+
+// The device code statuses.
+const (
+	DevicePending  = dbtype.DevicePending
+	DeviceSlowDown = dbtype.DeviceSlowDown
+	DeviceApproved = dbtype.DeviceApproved
+	DeviceDenied   = dbtype.DeviceDenied
+	DeviceExpired  = dbtype.DeviceExpired
+)
 
 var (
 	_ AuthStore[pgx.Tx]                             = (*Auth[pgx.Tx])(nil)
@@ -676,4 +769,170 @@ func (a *Auth[Tx]) ClearSignInAttempts(ctx context.Context, name string) error {
 	}
 
 	return nil
+}
+
+// SetTokensTableName implements AuthStore.
+func (a *Auth[Tx]) SetTokensTableName(name string) error {
+	if err := a.db.SetTokensTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetTokensTableName()")
+	}
+
+	return nil
+}
+
+// SetDeviceCodesTableName implements AuthStore.
+func (a *Auth[Tx]) SetDeviceCodesTableName(name string) error {
+	if err := a.db.SetDeviceCodesTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetDeviceCodesTableName()")
+	}
+
+	return nil
+}
+
+// InsertToken implements AuthStore.
+func (a *Auth[Tx]) InsertToken(ctx context.Context, t *Token) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.InsertToken(ctx, t); err != nil {
+		return errors.Wrap(err, "db.InsertToken()")
+	}
+
+	return nil
+}
+
+// Token implements AuthStore.
+func (a *Auth[Tx]) Token(ctx context.Context, tokenHash []byte) (*Token, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	t, err := a.db.TokenByHash(ctx, tokenHash, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.TokenByHash()")
+	}
+
+	return t, nil
+}
+
+// Tokens implements AuthStore.
+func (a *Auth[Tx]) Tokens(ctx context.Context, userID ccc.UUID) ([]*Token, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	tokens, err := a.db.TokensByUser(ctx, userID, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.TokensByUser()")
+	}
+
+	return tokens, nil
+}
+
+// TouchToken implements AuthStore.
+func (a *Auth[Tx]) TouchToken(ctx context.Context, id ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.TouchToken(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.TouchToken()")
+	}
+
+	return nil
+}
+
+// RevokeUserToken implements AuthStore.
+func (a *Auth[Tx]) RevokeUserToken(ctx context.Context, userID, id ccc.UUID, reason TokenRevocation) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RevokeUserToken(ctx, userID, id, time.Now(), reason); err != nil {
+		return errors.Wrap(err, "db.RevokeUserToken()")
+	}
+
+	return nil
+}
+
+// RevokeUserTokens implements AuthStore.
+func (a *Auth[Tx]) RevokeUserTokens(ctx context.Context, userID ccc.UUID, reason TokenRevocation) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RevokeUserTokens(ctx, userID, reason); err != nil {
+		return errors.Wrap(err, "db.RevokeUserTokens()")
+	}
+
+	return nil
+}
+
+// ExchangeRefreshToken implements AuthStore.
+func (a *Auth[Tx]) ExchangeRefreshToken(ctx context.Context, tokenHash []byte, access, refresh *Token) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.ExchangeRefreshToken(ctx, tokenHash, time.Now(), access, refresh); err != nil {
+		return errors.Wrap(err, "db.ExchangeRefreshToken()")
+	}
+
+	return nil
+}
+
+// InsertDeviceCode implements AuthStore.
+func (a *Auth[Tx]) InsertDeviceCode(ctx context.Context, d *DeviceCode) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.InsertDeviceCode(ctx, d); err != nil {
+		return errors.Wrap(err, "db.InsertDeviceCode()")
+	}
+
+	return nil
+}
+
+// DeviceCode implements AuthStore.
+func (a *Auth[Tx]) DeviceCode(ctx context.Context, userCode string) (*DeviceCode, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	d, err := a.db.DeviceCodeByUserCode(ctx, userCode, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.DeviceCodeByUserCode()")
+	}
+
+	return d, nil
+}
+
+// ApproveDeviceCode implements AuthStore.
+func (a *Auth[Tx]) ApproveDeviceCode(ctx context.Context, id, userID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.ApproveDeviceCode(ctx, id, userID, time.Now()); err != nil {
+		return errors.Wrap(err, "db.ApproveDeviceCode()")
+	}
+
+	return nil
+}
+
+// DenyDeviceCode implements AuthStore.
+func (a *Auth[Tx]) DenyDeviceCode(ctx context.Context, id ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.DenyDeviceCode(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.DenyDeviceCode()")
+	}
+
+	return nil
+}
+
+// RedeemDeviceCode implements AuthStore.
+func (a *Auth[Tx]) RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token) (code *DeviceCode, status DeviceCodeStatus, err error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	d, status, err := a.db.RedeemDeviceCode(ctx, deviceCodeHash, time.Now(), interval, access, refresh)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "db.RedeemDeviceCode()")
+	}
+
+	return d, status, nil
 }

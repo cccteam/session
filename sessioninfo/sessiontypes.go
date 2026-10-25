@@ -54,6 +54,10 @@ type SessionData struct {
 	// AuthEvents lists how the session was authenticated, oldest first. It is empty
 	// unless the storage is configured with an auth events table.
 	AuthEvents []AuthEvent
+	// Token is the bearer token that authenticated a request on a machine outlet; nil
+	// for a browser session. Such a request has no session row: the token stands in
+	// for one, its id as the session id and its issue as the authentication.
+	Token *TokenInfo
 }
 
 // EstablishedBy returns how the session was established: its first auth event, the
