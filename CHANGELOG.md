@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.10](https://github.com/cccteam/session/compare/v0.13.9...v0.13.10) (2026-10-25)
+
+
+### Features
+
+* machine outlets take bearer tokens the Auth issues: a person's application tokens, and the access and refresh tokens a command-line client obtains through the device flow (RFC 8628) with the person's approval ([#302](https://github.com/cccteam/session/issues/302)) ([669dc31](https://github.com/cccteam/session/commit/669dc31936559f1657106548f337ef31be771769))
+* the request's log entry and span name the token that authenticated a machine-outlet request (token.id, token.kind, token.name or token.client), and a refresh rotates the pair while a reuse revokes the family ([#302](https://github.com/cccteam/session/issues/302)) ([669dc31](https://github.com/cccteam/session/commit/669dc31936559f1657106548f337ef31be771769))
+
 ## [0.13.9](https://github.com/cccteam/session/compare/v0.13.8...v0.13.9) (2026-10-24)
 
 
