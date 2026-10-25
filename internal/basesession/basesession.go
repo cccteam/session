@@ -195,29 +195,45 @@ func (s *BaseSession) validateSession(ctx context.Context, evidence trace.Span) 
 		}
 	}
 
-	// Store session info in context
-	ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessInfo)
+	return s.Establish(ctx, evidence, sessInfo)
+}
 
-	if err := s.resolvePrincipal(ctx, sessInfo); err != nil {
+// Establish puts the validated session in ctx, resolves its principal, and stamps the
+// request's evidence on the evidence span and on the request's log entry and every
+// line logged within it: the end user, an impersonation's attributes, a token's
+// attributes, and the principal a resolver changed. ValidateSession calls it once the
+// cookie's session row has been checked; a machine outlet's token validation calls it
+// with the session its token stands in for.
+func (s *BaseSession) Establish(ctx context.Context, evidence trace.Span, sessData *sessioninfo.SessionData) (context.Context, error) {
+	ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, sessData)
+
+	if err := s.resolvePrincipal(ctx, sessData); err != nil {
 		return ctx, err
 	}
 
 	// enduser.id is the OpenTelemetry convention for the authenticated end user: the
 	// session's effective identity, on every validated request.
-	evidence.SetAttributes(attribute.String(attrEndUserID, sessInfo.Username))
+	evidence.SetAttributes(attribute.String(attrEndUserID, sessData.Username))
 
-	// Add user to logging context — and, for an impersonated session, the evidence
-	// attributes on the request entry and every line logged within it; likewise the
-	// principal when a resolver changed it.
-	l := logger.FromCtx(ctx).AddRequestAttribute("username", sessInfo.Username)
-	attrs := l.WithAttributes().AddAttribute("username", sessInfo.Username)
-	if imp := sessInfo.Impersonation; imp != nil {
+	// Add user to logging context — and, for an impersonated session or a token, the
+	// evidence attributes on the request entry and every line logged within it;
+	// likewise the principal when a resolver changed it.
+	l := logger.FromCtx(ctx).AddRequestAttribute("username", sessData.Username)
+	attrs := l.WithAttributes().AddAttribute("username", sessData.Username)
+	if imp := sessData.Impersonation; imp != nil {
 		for _, a := range imp.Attributes() {
 			l = l.AddRequestAttribute(a.Key, a.Value)
 			attrs = attrs.AddAttribute(a.Key, a.Value)
 		}
 	}
-	if p := sessInfo.Principal; p != (accesstypes.Principal{}) {
+	if tok := sessData.Token; tok != nil {
+		for _, a := range tok.Attributes() {
+			l = l.AddRequestAttribute(a.Key, a.Value)
+			attrs = attrs.AddAttribute(a.Key, a.Value)
+		}
+		evidence.SetAttributes(spanAttributes(tok.Attributes())...)
+	}
+	if p := sessData.Principal; p != (accesstypes.Principal{}) {
 		kind, name := principalKindName(p)
 		l.AddRequestAttribute(sessioninfo.AttrPrincipalKind, kind).AddRequestAttribute(sessioninfo.AttrPrincipal, name)
 		attrs = attrs.AddAttribute(sessioninfo.AttrPrincipalKind, kind).AddAttribute(sessioninfo.AttrPrincipal, name)

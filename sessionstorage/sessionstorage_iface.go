@@ -259,6 +259,36 @@ type db interface {
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeMailLink marks the live mail link id consumed at now; NotFound when it is not live.
 	RevokeMailLink(ctx context.Context, id ccc.UUID, now time.Time) error
+	// SetTokensTableName sets the name of the tokens table.
+	SetTokensTableName(name string) error
+	// SetDeviceCodesTableName sets the name of the device codes table.
+	SetDeviceCodesTableName(name string) error
+	// InsertToken inserts t.
+	InsertToken(ctx context.Context, t *dbtype.Token) error
+	// TokenByHash returns the token holding tokenHash that is live at now, or NotFound.
+	TokenByHash(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.Token, error)
+	// TokensByUser lists the tokens of userID that are live at now, newest first.
+	TokensByUser(ctx context.Context, userID ccc.UUID, now time.Time) ([]*dbtype.Token, error)
+	// TouchToken moves the LastUsedAt of the live token id to the database's time.
+	TouchToken(ctx context.Context, id ccc.UUID, now time.Time) error
+	// RevokeUserToken revokes the live token id of userID, its family with it; NotFound when it is not live or not the user's.
+	RevokeUserToken(ctx context.Context, userID, id ccc.UUID, now time.Time, reason dbtype.TokenRevocation) error
+	// RevokeUserTokens revokes every live token of userID.
+	RevokeUserTokens(ctx context.Context, userID ccc.UUID, reason dbtype.TokenRevocation) error
+	// ExchangeRefreshToken rotates the live refresh token holding tokenHash into access and refresh, in one transaction;
+	// NotFound when it is not live, dbtype.ErrTokenReuse (the family revoked) when it was rotated before.
+	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
+	// InsertDeviceCode inserts d.
+	InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error
+	// DeviceCodeByUserCode returns the device code userCode names that is pending at now, or NotFound.
+	DeviceCodeByUserCode(ctx context.Context, userCode string, now time.Time) (*dbtype.DeviceCode, error)
+	// ApproveDeviceCode records userID's approval of the pending device code id; NotFound when it is not pending.
+	ApproveDeviceCode(ctx context.Context, id, userID ccc.UUID, now time.Time) error
+	// DenyDeviceCode records the denial of the pending device code id; NotFound when it is not pending.
+	DenyDeviceCode(ctx context.Context, id ccc.UUID, now time.Time) error
+	// RedeemDeviceCode is the client's poll of the device code holding deviceCodeHash: an approved code is consumed once
+	// and access and refresh inserted; otherwise the status says what the client learned. NotFound when there is none.
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is the username.
 	SetUsernameIsEmail(same bool)
 	// UsernameIsEmail reports whether the address is the username.

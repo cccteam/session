@@ -38,6 +38,12 @@ type authSettings struct {
 	// invitationCookie names the cookie that carries an opened invitation into the
 	// sign-in.
 	invitationCookie string
+	// tokens are the settings of the machine outlets' tokens and the device flow.
+	tokens tokenSettings
+	// tokensTable and deviceCodesTable name the group's tables; nil keeps the store's
+	// defaults.
+	tokensTable      *string
+	deviceCodesTable *string
 }
 
 // authOption is an Auth settings option.
@@ -168,6 +174,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
+		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
+		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 	} {
 		if table.name == nil {
 			continue
@@ -250,7 +258,7 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")
 	}
 
-	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName, invitationCookie: defaultInvitationCookieName}
+	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName, invitationCookie: defaultInvitationCookieName, tokens: defaultTokenSettings()}
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		switch o := opt.(type) {
@@ -267,6 +275,9 @@ func NewAuth[SessionData, UserData, Tx any](
 		if err := settings.mail.validate(); err != nil {
 			return nil, err
 		}
+	}
+	if err := settings.tokens.validate(); err != nil {
+		return nil, err
 	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err

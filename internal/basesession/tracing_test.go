@@ -322,3 +322,57 @@ func TestBaseSession_EmitImpersonationEvent_SpanEvent(t *testing.T) {
 		t.Errorf("event attributes mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestBaseSession_Establish_TokenEvidence(t *testing.T) {
+	t.Parallel()
+	exporter := spanRecorder()
+
+	tokenID := ccc.Must(ccc.NewUUID())
+	tests := []struct {
+		name     string
+		token    *sessioninfo.TokenInfo
+		resolver func(context.Context) (accesstypes.Principal, error)
+		want     map[string]string
+	}{
+		{
+			name:  "an application token stamps its id, kind and name with enduser.id",
+			token: &sessioninfo.TokenInfo{ID: tokenID, Kind: sessioninfo.TokenKindApplication, Name: "laptop", Outlet: "droids"},
+			want: map[string]string{
+				attrEndUserID: "bob@partner.org", sessioninfo.AttrTokenID: tokenID.String(), sessioninfo.AttrTokenKind: "application", sessioninfo.AttrTokenName: "laptop",
+			},
+		},
+		{
+			name:     "an access token stamps its client, and a resolver that changes the subject adds the principal",
+			token:    &sessioninfo.TokenInfo{ID: tokenID, Kind: sessioninfo.TokenKindAccess, ClientID: "corral", Outlet: "droids"},
+			resolver: func(context.Context) (accesstypes.Principal, error) { return accesstypes.RolePrincipal("Editor"), nil },
+			want: map[string]string{
+				attrEndUserID: "bob@partner.org", sessioninfo.AttrTokenID: tokenID.String(), sessioninfo.AttrTokenKind: "access", sessioninfo.AttrTokenClient: "corral",
+				sessioninfo.AttrPrincipalKind: "Role", sessioninfo.AttrPrincipal: "Editor",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &BaseSession{SessionTimeout: time.Minute, Storage: mock_sessionstorage.NewMockBaseStore(gomock.NewController(t)), PrincipalResolver: tt.resolver}
+			id := ccc.Must(ccc.NewUUID())
+			session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Username: "bob@partner.org", UpdatedAt: time.Now()}, Token: tt.token}
+
+			ctx, evidence := otel.Tracer("test").Start(context.Background(), "server "+id.String())
+			ctx, err := s.Establish(ctx, evidence, session)
+			evidence.End()
+			if err != nil {
+				t.Fatalf("Establish() error = %v", err)
+			}
+			if got, ok := sessioninfo.TokenFromCtx(ctx); !ok || got != tt.token {
+				t.Errorf("TokenFromCtx() = %+v, %v; want the session's token", got, ok)
+			}
+			if tt.resolver != nil {
+				if got := sessioninfo.PrincipalFromCtx(ctx); got != accesstypes.RolePrincipal("Editor") {
+					t.Errorf("PrincipalFromCtx() = %v, want the resolver's", got)
+				}
+			}
+			assertSpanAttributes(t, exporter, "server "+id.String(), tt.want)
+		})
+	}
+}

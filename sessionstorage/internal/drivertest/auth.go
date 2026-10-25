@@ -58,6 +58,24 @@ type AuthDriver interface {
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
 	RevokeMailLink(ctx context.Context, id ccc.UUID, now time.Time) error
+	SetTokensTableName(name string) error
+	SetDeviceCodesTableName(name string) error
+	InsertToken(ctx context.Context, t *dbtype.Token) error
+	TokenByHash(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.Token, error)
+	TokensByUser(ctx context.Context, userID ccc.UUID, now time.Time) ([]*dbtype.Token, error)
+	TouchToken(ctx context.Context, id ccc.UUID, now time.Time) error
+	RevokeUserToken(ctx context.Context, userID, id ccc.UUID, now time.Time, reason dbtype.TokenRevocation) error
+	RevokeUserTokens(ctx context.Context, userID ccc.UUID, reason dbtype.TokenRevocation) error
+	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
+	InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error
+	DeviceCodeByUserCode(ctx context.Context, userCode string, now time.Time) (*dbtype.DeviceCode, error)
+	ApproveDeviceCode(ctx context.Context, id, userID ccc.UUID, now time.Time) error
+	DenyDeviceCode(ctx context.Context, id ccc.UUID, now time.Time) error
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
+	// TokenState and DeviceCodeState read a row whatever its state: the suite's look
+	// at what the live reads no longer return.
+	TokenState(ctx context.Context, tokenHash []byte) (*dbtype.Token, error)
+	DeviceCodeState(ctx context.Context, deviceCodeHash []byte) (*dbtype.DeviceCode, error)
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -290,6 +308,12 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an invitation that died is skipped by a member's sign-in and refuses an invited-only one, provisioning nothing", run: testInvitationDead},
 		{name: "a failing invitation hook ends the sign-in and leaves the invitation and the user untouched", run: testInvitationHookFails},
 		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand", run: testInvitationAcceptedByHand},
+		{name: "a token is read back by its hash with everything it carried, and a user's live tokens are listed newest first", run: testTokenRoundTrip},
+		{name: "a token is touched at the database's time, revoked once by its user alone, its family with it, and every token of a user at once", run: testTokenTouchAndRevoke},
+		{name: "an expired token is neither read, listed, touched nor revoked", run: testTokenExpired},
+		{name: "a refresh exchange rotates the token in its family, and a rotated token presented again revokes the family", run: testRefreshExchange},
+		{name: "a device code is pending until approved or denied, holds the client to its interval, and is redeemed once for the approver's tokens", run: testDeviceCodeLifecycle},
+		{name: "a user's tokens and device codes go with the user", run: testTokensCascade},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1,0 +1,4 @@
+BEGIN;
+DROP TABLE IF EXISTS "SessionDeviceCodes";
+DROP TABLE IF EXISTS "SessionTokens";
+COMMIT;

@@ -97,6 +97,9 @@ type signInMethods[Tx any] struct {
 	// password is the password method's registration, nil until it is registered: its
 	// username shape and whether it offers sign-up.
 	password *sessioncore.PasswordSettings
+	// outlets holds the names of the registered machine outlets (RegisterMachineOutlet),
+	// the only outlets tokens are issued for and accepted on.
+	outlets map[string]bool
 }
 
 // passwordRegistered reports whether the password method is registered.
@@ -171,6 +174,7 @@ func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.autoUpgrade = true
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
 	m.external = make(map[string]*externalMethod[Tx])
+	m.outlets = make(map[string]bool)
 	m.compare = func(hash *securehash.Hash, password string) (bool, error) {
 		return m.hasher.Compare(hash, password)
 	}
