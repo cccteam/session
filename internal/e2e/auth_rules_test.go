@@ -122,23 +122,31 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	if shape.googleRule {
 		googleRule = h.googleResolver
 	}
-	googleIssuerMu.Lock()
-	issuer := google.IssuerURL
-	google.IssuerURL = googleIDP.Server.URL
-	workspace := google.SignIn(auth, "google", googleRule, &google.Config{
-		RoleSync: google.DisableRoleSync(), Workspaces: shape.workspaces, Accounts: shape.googleAccounts,
-		ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
-	})
-	google.IssuerURL = issuer
-	googleIssuerMu.Unlock()
+	// A registration that synchronizes roles stands alone on its Auth, so the Google
+	// method is registered beside the Entra one only where the Entra one leaves the
+	// roles to the application.
+	var workspace *google.Method
+	if !shape.entraRoles {
+		googleIssuerMu.Lock()
+		issuer := google.IssuerURL
+		google.IssuerURL = googleIDP.Server.URL
+		workspace = google.SignIn(auth, "google", googleRule, &google.Config{
+			RoleSync: google.DisableRoleSync(), Workspaces: shape.workspaces, Accounts: shape.googleAccounts,
+			ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
+		})
+		google.IssuerURL = issuer
+		googleIssuerMu.Unlock()
+	}
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
 		r.Get("/entra/login", entra.Login())
 		r.Get("/entra/callback", entra.Callback())
 		r.Get("/entra/logout", entra.FrontChannelLogout())
-		r.Get("/google/login", workspace.Login())
-		r.Get("/google/callback", workspace.Callback())
+		if workspace != nil {
+			r.Get("/google/login", workspace.Login())
+			r.Get("/google/callback", workspace.Callback())
+		}
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)

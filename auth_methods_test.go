@@ -1,13 +1,16 @@
 package session
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/workos"
+	"github.com/cccteam/session/mock/mock_signin"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/signin"
 	gomock "go.uber.org/mock/gomock"
@@ -171,4 +174,70 @@ func TestAuth_couldAdmitAddress(t *testing.T) {
 			t.Errorf("admittingMethodNames() of an address none admits = %#v, want an empty list", got)
 		}
 	})
+}
+
+// TestAuth_syncingMethodStandsAlone pins the rule that a registration whose directory
+// writes the roles stands alone on its Auth, in both orders: a syncing registration beside
+// a registered method, and any method beside a syncing registration, each refused at
+// registration naming the two ways out; a syncing registration alone, and several methods
+// that leave the roles to the application, are registered.
+func TestAuth_syncingMethodStandsAlone(t *testing.T) {
+	t.Parallel()
+
+	type auth = *Auth[NoCustomData, NoCustomData, mockTx]
+	syncingGoogle := func(name string) func(a auth) {
+		return func(a auth) {
+			google.SignIn(a, name, resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lab", "lab.example")})
+		}
+	}
+	syncingEntra := func(name string) func(a auth) {
+		return func(a auth) {
+			azure.SignIn(a, name, resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
+		}
+	}
+	plainGoogle := func(name string) func(a auth) {
+		return func(a auth) {
+			google.SignIn(a, name, resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lab", "lab.example")})
+		}
+	}
+	password := func(a auth) { PasswordSignIn(a) }
+
+	tests := []struct {
+		name     string
+		register []func(a auth)
+		wantHas  string
+	}{
+		{name: "a syncing registration alone", register: []func(a auth){syncingGoogle("google")}},
+		{name: "a password and two registrations that leave the roles to the application", register: []func(a auth){password, plainGoogle("google"), plainGoogle("sign-up")}},
+		{name: "a syncing registration after the password method", register: []func(a auth){password, syncingGoogle("google")}, wantHas: `the google sign-in method "google" synchronizes roles and is registered beside password: a registration that synchronizes roles stands alone`},
+		{name: "the password method after a syncing registration", register: []func(a auth){syncingGoogle("google"), password}, wantHas: `the password sign-in method "password" is registered beside "google", whose directory writes the roles of everyone on this Auth`},
+		{name: "a registration after a syncing one of another directory", register: []func(a auth){syncingEntra("entra"), plainGoogle("google")}, wantHas: `the google sign-in method "google" is registered beside "entra"`},
+		{name: "a syncing registration after a plain one", register: []func(a auth){plainGoogle("google"), syncingEntra("entra")}, wantHas: `the azure sign-in method "entra" synchronizes roles and is registered beside google`},
+		{name: "two syncing registrations", register: []func(a auth){syncingEntra("entra"), syncingGoogle("google")}, wantHas: `the google sign-in method "google" is registered beside "entra"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := newBareAuth(t, gomock.NewController(t))
+
+			var recovered any
+			for _, register := range tt.register {
+				if recovered = registrationPanic(func() { register(a) }); recovered != nil {
+					break
+				}
+			}
+
+			switch {
+			case tt.wantHas == "" && recovered != nil:
+				t.Fatalf("registration panicked with %v, want none", recovered)
+			case tt.wantHas != "" && recovered == nil:
+				t.Fatalf("registration did not panic, want a panic containing %q", tt.wantHas)
+			case tt.wantHas != "" && !strings.Contains(fmt.Sprint(recovered), tt.wantHas):
+				t.Errorf("panic = %v, want it to contain %q", recovered, tt.wantHas)
+			}
+			if tt.wantHas != "" && !strings.Contains(fmt.Sprint(recovered), "DisableRoleSync") {
+				t.Errorf("panic = %v, want it to name DisableRoleSync as the other way out", recovered)
+			}
+		})
+	}
 }

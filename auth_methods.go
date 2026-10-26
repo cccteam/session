@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -72,6 +73,13 @@ type signInMethods[Tx any] struct {
 	// registered holds the names of every registration, the password method's being
 	// its method name.
 	registered map[string]bool
+	// syncing is the name of the registration whose directory writes the roles of
+	// everyone on the Auth (its Method's SyncRoles is set), "" when none does. Such a
+	// registration stands alone: role authority is the Auth's, not a registration's,
+	// so a second method beside it would be a second authority over the same users
+	// (a person it provisions holds nothing, and the surface refuses to seat them
+	// because the directory will not). refuseBeside holds the rule both ways.
+	syncing string
 	// listed holds the names Methods was given, the methods the login page offers, in
 	// the page's order; nil when the application wired its page without Methods.
 	listed []string
@@ -263,6 +271,31 @@ func (a *Auth[S, U, Tx]) refuseRegistration(name string, method sessioninfo.Auth
 	}
 }
 
+// refuseBeside holds the rule that a registration whose directory writes the roles
+// stands alone on its Auth, in both orders of registration: the method being registered
+// synchronizes roles (syncs) and another method is registered already, or a syncing
+// registration is registered already and any method follows. Role authority is the
+// Auth's, not a registration's: the Auth is one users table, one role file and one
+// administration surface, so when a directory writes the roles it writes them for
+// everyone in the table, and a second way in would be a second authority over the same
+// people (a person it provisions holds nothing at their first sign-in, and the
+// administration surface refuses to seat them because the directory will not). Two
+// populations with two authorities are two Auths. Both messages name the two ways out.
+func (a *Auth[S, U, Tx]) refuseBeside(name string, method sessioninfo.AuthMethod, syncs bool) {
+	if a.methods.syncing != "" {
+		panic(fmt.Sprintf("session: the %s sign-in method %q is registered beside %q, whose directory writes the roles of everyone on this Auth: "+
+			"a registration that synchronizes roles stands alone. Register %q on an Auth of its own, or construct %q with DisableRoleSync so the application assigns the roles",
+			method, name, a.methods.syncing, name, a.methods.syncing))
+	}
+	if syncs && len(a.methods.registered) > 0 {
+		others := slices.Sorted(maps.Keys(a.methods.registered))
+		panic(fmt.Sprintf("session: the %s sign-in method %q synchronizes roles and is registered beside %s: "+
+			"a registration that synchronizes roles stands alone, since its directory writes the roles of everyone on the Auth. "+
+			"Register it on an Auth of its own, or construct it with DisableRoleSync so the application assigns the roles",
+			method, name, strings.Join(others, ", ")))
+	}
+}
+
 // register registers the password method and returns its handlers.
 func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	if a == nil {
@@ -273,6 +306,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	defer a.methods.mu.Unlock()
 
 	a.refuseRegistration(reg.name, reg.method, reg.err)
+	a.refuseBeside(reg.name, reg.method, false)
 	if reg.password.OpenSignUp && a.settings.mail == nil {
 		panic("session: the password method is registered with OpenSignUp on an Auth without mail: a sign-up starts from a link mailed to the person, so pass WithMail to NewAuth")
 	}
@@ -290,8 +324,9 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 // name and returns its handlers. It implements signin.Core: the method packages (azure,
 // google; workos under internal until v0.13.1) reach it through signin.Register, so an application never calls it
 // directly. It panics on a registration rule, as refuseRegistration documents, when
-// the registration has neither a standard account rule nor a custom one, and when it
-// names a standard rule that does not exist.
+// the registration has neither a standard account rule nor a custom one, when it
+// names a standard rule that does not exist, and when a registration that synchronizes
+// roles would stand beside another method, as refuseBeside documents.
 func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.Handlers {
 	if a == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil *Auth: pass the Auth NewAuth returned", reg.Method))
@@ -315,6 +350,10 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	m, err := reg.Build(a.cookies.ForRegistration(reg.Name))
 	if err != nil {
 		panic(fmt.Errorf("session: the %s sign-in method: %w", reg.Method, err))
+	}
+	a.refuseBeside(reg.Name, reg.Method, m.SyncRoles != nil)
+	if m.SyncRoles != nil {
+		a.methods.syncing = reg.Name
 	}
 	a.methods.registered[reg.Name] = true
 	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, standard: reg.StandardRule, rule: reg.AccountRule}
