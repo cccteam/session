@@ -191,10 +191,10 @@ linters:
           - tagliatelle
         path: internal/workos/|internal/e2e/auth_test\.go
       # The OAuth device authorization and token endpoints' wire format is snake_case
-      # (RFC 8628, RFC 6749).
+      # (RFC 8628, RFC 6749), on the server and in the deviceflow client.
       - linters:
           - tagliatelle
-        path: auth_device\.go|auth_device_test\.go|internal/e2e/auth_tokens_test\.go
+        path: auth_device\.go|auth_device_test\.go|deviceflow/|internal/e2e/auth_tokens_test\.go
       # G124 only accepts literal secure attribute values. These cookie writers take
       # HttpOnly/SameSite from the caller by design, and Secure is switched by the
       # insecurecookie build tag via SecureCookie().
@@ -228,6 +228,18 @@ linters:
           - gosec
         path: _test\.go
         text: G101
+      # G101 reads the deviceflow client's constant for the token endpoint's path
+      # (tokenPath, "/oauth/token") as a hardcoded credential: it is a path.
+      - linters:
+          - gosec
+        path: deviceflow/deviceflow\.go
+        text: G101
+      # The deviceflow client's tokens file is where a program keeps its pair, with the
+      # person's mode; marshaling the tokens into it is the file's purpose.
+      - linters:
+          - gosec
+        path: deviceflow/store\.go
+        text: G117
       # The legacy package is the deprecated surface itself: it is built from the storage
       # pieces that leave with it.
       - linters:
