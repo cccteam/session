@@ -57,15 +57,18 @@ func outletWhoami(w http.ResponseWriter, r *http.Request) {
 }
 
 // newTokenApp is an application with password sign-in, the droids and robots outlets,
-// the device flow at a one-second poll interval and the token page, over be.
-func newTokenApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *tokenApp[Tx] {
+// the device flow at a one-second poll interval and the token page, over be, with
+// opts beside.
+func newTokenApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opts ...session.AuthOption) *tokenApp[Tx] {
 	t.Helper()
 
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
-		session.WithDeviceCodeLifetime(10*time.Minute, time.Second))
+		append([]session.AuthOption{
+			session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
+			session.WithDeviceCodeLifetime(10*time.Minute, time.Second),
+		}, opts...)...)
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

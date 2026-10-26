@@ -25,7 +25,7 @@ The Session repository is designed to handle the management of user sessions, in
 - `OIDC User Anchor`: the legacy Azure type's durable user record, keyed by the immutable `(tid, oid)` claim pair; an Auth session's users are `SessionUsers` records for every method. See the "OIDC user anchor" section.
 - `Login Refusal Codes`: A refused sign-in returns the browser to the login page with a code, never with text; the page maps the code to a sentence it holds itself. See the "Login refusal codes" section.
 - `Attempt limiting`: The password method limits failed attempts per name, known or not, in memory and in the store, and refuses an attempt past the limit with `too_many_attempts` and the wait; an after-sign-in hook is told of every session a sign-in establishes. See the "Attempt limiting and the after-sign-in hook" section.
-- `Machine outlets and bearer tokens`: a URL space of the application a program calls with a bearer token the Auth issued, never a cookie; the tokens a signed-in person issues for a program of their own, and the access and refresh tokens a command-line client obtains through the device flow (RFC 8628) with the person's approval. See the "Machine outlets and bearer tokens" section.
+- `Machine outlets and bearer tokens`: a URL space of the application a program calls with a bearer token the Auth issued, never a cookie; the tokens a signed-in person issues for a program of their own, and the access and refresh tokens a command-line client obtains through the device flow (RFC 8628) with the person's approval, and the `session/deviceflow` package a command-line program signs in with. See the "Machine outlets and bearer tokens" section.
 
 Every session type is generic over two data axes, custom session data and custom user
 data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
@@ -1101,6 +1101,49 @@ and `000006` on PostgreSQL; `WithTokensTableName`, `WithDeviceCodesTableName`), 
 by the hash of the secret, with the person, the outlet, the kind, the family, the
 name or client, the issue, expiry, last use and revocation (`revoked`, `rotated`,
 `reuse`, `user`); a person's rows go with the person.
+
+#### From a command line
+
+A command-line program signs in to an outlet with the `session/deviceflow` package and
+calls the outlet as the person who approved it: `Login` runs the device flow once,
+`Client` calls the outlet, `Logout` forgets the sign-in.
+
+```go
+cfg := &deviceflow.Config{
+    Server: "https://app.example.com", // the application, as a browser reaches it
+    Outlet: "droids",                  // the machine outlet
+    Prefix: "/api",                    // where its public endpoints sit: /api/oauth/device/authorize, /api/oauth/token (default "/" + Outlet)
+    Client: "corral",                  // the program's name, shown to the person who approves it
+}
+if err := deviceflow.Login(ctx, cfg); err != nil { // "Open https://app.example.com/device?userCode=BCDF-GHJK and approve the code BCDF-GHJK."
+    …                                              // errors.Is: deviceflow.ErrDenied, deviceflow.ErrExpired; a *deviceflow.Error otherwise
+}
+client, err := deviceflow.Client(cfg) // an *http.Client: Authorization: Bearer … on every request
+resp, err := client.Do(req)           // errors.Is(err, deviceflow.ErrSignedOut): nothing stored, or the refresh refused; Login again
+_ = deviceflow.Logout(cfg)
+```
+
+`Login` asks the application for a device authorization, tells the person which
+address to open and which code to approve (`Config.Prompt`; by default two sentences
+on standard error, the address with the code filled in and when the code expires),
+polls the token endpoint at the interval the application names, five seconds longer
+after each `slow_down`, until the person decides, and stores the pair: `ErrDenied` when
+they deny it, `ErrExpired` when the code expires first, a `*deviceflow.Error` with the
+code and description for any other refusal. The pair is kept in `tokens.json` under
+`Config.Dir`, by default the program's own directory in the person's configuration
+directory (`os.UserConfigDir()` joined with `Client`: `~/.config/corral` on Linux), the
+directory `0700` and the file `0600`, keyed by server and outlet, so one program keeps
+its sign-ins to several applications in one place. `Client` returns an `http.Client`
+that puts the stored access token on every request, refreshes the pair first when the
+token expires within a minute, and, when the outlet refuses the token with
+`invalid_token`, refreshes and sends the request once more if its body can be sent
+again (none, or `GetBody` set). Every refresh holds `tokens.lock` beside the tokens
+file, and a process that finds the pair already rotated by another uses what it finds:
+a refresh token is presented once, never twice, since a second presentation revokes the
+grant. A request with no stored pair, or whose refresh the application refuses, fails
+with `ErrSignedOut`; the program calls `Login` again. `Logout` forgets the stored pair
+and calls nothing on the application: the person revokes the grant on their token page
+when they want it gone there too.
 
 ## Sending mail
 
