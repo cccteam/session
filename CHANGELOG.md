@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.11](https://github.com/cccteam/session/compare/v0.13.10...v0.13.11) (2026-10-26)
+
+
+### Features
+
+* a command-line program signs in to a machine outlet through the device flow: the deviceflow package runs the flow, keeps the pair in the person's config and refreshes it ([#304](https://github.com/cccteam/session/issues/304)) ([6b0a5a9](https://github.com/cccteam/session/commit/6b0a5a9002d8ee4f3f7935e5956b14ecd717e127))
+
 ## [0.13.10](https://github.com/cccteam/session/compare/v0.13.9...v0.13.10) (2026-10-25)
 
 
