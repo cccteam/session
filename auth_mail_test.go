@@ -154,6 +154,17 @@ func newMailFixture(t *testing.T, ctrl *gomock.Controller, passwordOptions ...Pa
 	return f, recorder, expectMailLinks(f)
 }
 
+// newMailFixtureWithoutPassword is the mail fixture with no password method: the Auth a
+// registration that synchronizes roles stands alone on.
+func newMailFixtureWithoutPassword(t *testing.T, ctrl *gomock.Controller) (*authFixture, *mail.Recorder, *mailLinks) {
+	t.Helper()
+
+	recorder := &mail.Recorder{}
+	f := newAuthFixtureWithoutPassword(t, ctrl, WithMail(recorder, testMail))
+
+	return f, recorder, expectMailLinks(f)
+}
+
 // tokenIn is the token the link in body carries under param.
 func tokenIn(t *testing.T, body, param string) string {
 	t.Helper()
@@ -451,7 +462,8 @@ func TestAuth_Invitation(t *testing.T) {
 func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
 	t.Parallel()
 	ctrl := gomock.NewController(t)
-	f, recorder, links := newMailFixture(t, ctrl)
+	// The directory writes the roles, so its registration stands alone on the Auth.
+	f, recorder, links := newMailFixtureWithoutPassword(t, ctrl)
 	hookCalls := 0
 	f.auth.SetInvitationAccepted(func(context.Context, ccc.UUID, string, *sessioninfo.Invitation) error {
 		hookCalls++
@@ -493,7 +505,9 @@ func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
 	if live, err := f.auth.API().Invitations(context.Background()); err != nil || len(live) != 1 {
 		t.Errorf("Invitations() after the refused sign-in = %v, %v; want the one still standing", live, err)
 	}
-	standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+	// The listing names the Auth's one method, the directory's registration.
+	directoryList := &MethodList{Methods: []AdvertisedMethod{{Name: "azure", Label: "Lakeside", Path: "/api/user/azure/login"}}, Invitation: InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept"}}
+	standing, _ := invitationBlock(t, f, directoryList, cookies)["standing"].(map[string]any)
 	if standing["email"] != "pat@lakeside.edu" {
 		t.Errorf("the methods listing after the refused sign-in reports standing = %v, want pat's invitation", standing)
 	}

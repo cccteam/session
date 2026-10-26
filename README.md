@@ -427,6 +427,16 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
 - **A registration without an account rule**: a WorkOS registration with a nil `rule`
   (WorkOS has no standard rule), or a registration naming a standard rule that does not
   exist.
+- **A registration that synchronizes roles beside any other method**, in either order
+  of registration. Role authority is the `Auth`'s, not a registration's: the `Auth` is
+  one users table, one role file and one administration surface, so when a directory
+  writes the roles it writes them for everyone in the table, and a second way in would
+  be a second authority over the same people (a person it provisions holds nothing at
+  their first sign-in, and the administration surface refuses to seat them because the
+  directory will not). A registration with `RoleSync` stands alone on its `Auth`; two
+  populations with two authorities are two `Auth`s. The refusal names the two ways out:
+  an `Auth` of its own for the registration, or `DisableRoleSync` so the application
+  assigns the roles.
 - **A misconfigured method**: Azure or Google without its role sync slot, or with a slot
   missing its manager (or, for Google, its group prefix or lookup); an Azure
   registration without its `Tenants`, a tenant id that is not a GUID, Microsoft's
@@ -1264,6 +1274,14 @@ methods that synchronize: `azure.Config.RoleSync` takes `signin.RoleSync(manager
 `session.RoleSync` and `session.DisableRoleSync` are the same functions under the root
 package's name. A registration without its slot is refused (see "Registering sign-in
 methods").
+
+A registration that synchronizes roles stands alone on its `Auth`: no password method
+and no other registration beside it, in either order of registration, or the `Auth`
+refuses the registration. The directory is then the authority for everyone the `Auth`
+holds, and the first sign-in through it seats the person in the roles the directory
+names, with nothing to seed. An application whose people come in two ways with two
+authorities (staff on the directory's groups, members the application seats) keeps two
+`Auth`s, one per population.
 
 ```go
 entra := azure.SignIn(auth, "azure", nil, &azure.Config{
