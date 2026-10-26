@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.12](https://github.com/cccteam/session/compare/v0.13.11...v0.13.12) (2026-10-26)
+
+
+### Features
+
+* a registration that synchronizes roles stands alone on its Auth; registering it beside another method, or any method beside it, is refused with the two ways out ([#306](https://github.com/cccteam/session/issues/306)) ([aeb6303](https://github.com/cccteam/session/commit/aeb63030c6b718dd2423ce1d9bc330bd065b731b))
+
 ## [0.13.11](https://github.com/cccteam/session/compare/v0.13.10...v0.13.11) (2026-10-26)
 
 
