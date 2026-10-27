@@ -13,10 +13,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/cccteam/ccc"
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/session"
 	"github.com/cccteam/session/azure"
@@ -47,6 +49,34 @@ var (
 type tenantRoles struct {
 	mu   sync.Mutex
 	held map[accesstypes.User]accesstypes.RoleCollection
+	// seated is what the directory seat hook granted, by username.
+	seated map[string][]signin.DirectorySeat
+}
+
+// seat is the directory seat hook: it grants each seat as a membership in its tenant,
+// as the application's hook does over its membership store, and records what was
+// granted.
+func (r *tenantRoles) seat(_ context.Context, _ ccc.UUID, username string, seats []signin.DirectorySeat) error {
+	for _, s := range seats {
+		r.grant(username, accesstypes.DomainPolicyScope(s.Tenant), s.Role)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.seated == nil {
+		r.seated = make(map[string][]signin.DirectorySeat)
+	}
+	r.seated[username] = append(r.seated[username], seats...)
+
+	return nil
+}
+
+// seatsOf reads the seats the hook granted username, nil for none.
+func (r *tenantRoles) seatsOf(username string) []signin.DirectorySeat {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Clone(r.seated[username])
 }
 
 // grant gives user the roles in scope.
@@ -111,6 +141,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	auth.SetSignInPolicy(signin.TenantPolicy(roles, be.rows.tenantDeclaration, opts...).Then(h.signInPolicy))
+	auth.SetDirectoryAdmission(be.rows.directoryLookup, roles, roles.seat)
 
 	password := session.PasswordSignIn(auth)
 	entra := azure.SignIn(auth, "entra", nil, &azure.Config{
@@ -234,6 +265,14 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			name: "the application's own rule is asked after the tenant policy allows, and its answer is the decision; it is not asked after the tenant policy denies",
 			run:  seamTenantChainedRule[Tx],
 		},
+		{
+			name: "a stranger from a directory a tenant declares with a default seat is created and seated with it before the policy decides, through either method, and reaches the tenant; a second tenant declaring the directory without a seat gives nothing; a second sign-in seats nothing more",
+			run:  seamDirectoryDefaultSeat[Tx],
+		},
+		{
+			name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and no account is created, though the registration admits members of the directory; a directory no tenant declares falls to the registration's rule",
+			run:  seamDirectoryInvitationOnly[Tx],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -241,6 +280,67 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 
 			tt.run(t.Context(), t, be)
 		})
+	}
+}
+
+// seamDirectoryDefaultSeat is the scenario "a stranger from a directory a tenant declares with a default seat is created and seated with it".
+func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantApp(ctx, t, be)
+	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideWorkspace, lakesideEntra)
+	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideWorkspace, "Member")
+	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideEntra, "Member")
+	a.db.declareTenant(ctx, t, tenantRiverside, false, lakesideWorkspace)
+	want := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member"}}
+
+	// The Workspace stranger: created, seated in lakeside alone (riverside declares
+	// the directory without a seat), and admitted by the policy on that membership.
+	workspace := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, workspace, "pat@lakeside.edu")
+	if got := a.roles.seatsOf("pat@lakeside.edu"); !slices.Equal(got, want) {
+		t.Errorf("seats granted to the Workspace stranger = %v, want %v", got, want)
+	}
+
+	// The Entra stranger, the same through the other method.
+	entra := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, entra, azureClaims(azureTenant, "oid-sam", "sam@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, entra, "sam@lakeside.edu")
+	if got := a.roles.seatsOf("sam@lakeside.edu"); !slices.Equal(got, want) {
+		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, want)
+	}
+
+	// A second sign-in finds the link and seats nothing more.
+	again := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, again, googleClaims("sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	if got := a.roles.seatsOf("pat@lakeside.edu"); !slices.Equal(got, want) {
+		t.Errorf("seats granted after a second sign-in = %v, want the first sign-in's alone %v", got, want)
+	}
+}
+
+// seamDirectoryInvitationOnly is the scenario "a stranger from a directory a tenant declares with no default seat is refused with invitation_only".
+func seamDirectoryInvitationOnly[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newTenantApp(ctx, t, be)
+	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideWorkspace)
+
+	// The registration admits members of the directory; the tenant's declaration
+	// decides first, and writes nothing.
+	stranger := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, stranger, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"invitation_only"}})
+	stranger.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if a.db.hasUser(ctx, t, "pat@lakeside.edu") {
+		t.Error("an account was created for the refused stranger, want none: invitation only writes nothing")
+	}
+	if got := a.roles.seatsOf("pat@lakeside.edu"); got != nil {
+		t.Errorf("seats granted to the refused stranger = %v, want none", got)
+	}
+
+	// A directory no tenant declares falls to the registration's rule: the stranger
+	// from the other Entra tenant is provisioned as a member of the directory, then
+	// refused by the policy as a member of no tenant, and the account stays.
+	other := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, other, azureClaims(riversideTenant, "oid-sam", "sam@riverside.edu")), "/login", url.Values{"code": {"no_tenant"}})
+	if !a.db.hasUser(ctx, t, "sam@riverside.edu") {
+		t.Error("the member of an undeclared directory was not provisioned, want the registration's rule applied as before")
 	}
 }
 
@@ -348,8 +448,12 @@ func seamTenantChainedRule[Tx any](ctx context.Context, t *testing.T, be backend
 		t.Errorf("the application's own rule was asked %d times after the tenant policy allowed, want once", got)
 	}
 
+	// A stranger from a directory no tenant declares (the lakeside declaration would
+	// refuse them by invitation only before any policy ran) is provisioned by the
+	// registration's rule and denied by the tenant policy, which the own rule never
+	// sees.
 	stranger := a.browser(t)
-	assertRedirect(t, a.entraSignIn(ctx, stranger, azureClaims(azureTenant, "oid-new", "new@lakeside.edu")), "/login", url.Values{"code": {"no_tenant"}})
+	assertRedirect(t, a.entraSignIn(ctx, stranger, azureClaims(riversideTenant, "oid-new", "new@riverside.edu")), "/login", url.Values{"code": {"no_tenant"}})
 	if got := asked.Load(); got != 1 {
 		t.Errorf("the application's own rule was asked %d times in all, want still once: it is not asked after the tenant policy denies", got)
 	}

@@ -211,6 +211,11 @@ const (
 	// RefusedNotInvited is the code for an identity that is not linked yet and matches
 	// no pre-created user, under the invited-users-only account rule.
 	RefusedNotInvited LoginRefusalCode = "not_invited"
+	// RefusedInvitationOnly is the code for an identity that is not linked yet and
+	// matches no pre-created user, from a directory a tenant declares with no default
+	// seat: the tenant admits its people by invitation, the sign-in carried none, and
+	// no account is created.
+	RefusedInvitationOnly LoginRefusalCode = "invitation_only"
 	// RefusedInvitationExpired is the code for a sign-in that an invitation alone
 	// admitted, under the invited-users-only account rule, whose invitation had expired
 	// or been used by the time the sign-in accepted it.

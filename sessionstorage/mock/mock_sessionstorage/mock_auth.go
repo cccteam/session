@@ -19,7 +19,6 @@ import (
 	signinflow "github.com/cccteam/session/internal/signinflow"
 	sessioninfo "github.com/cccteam/session/sessioninfo"
 	sessionstorage "github.com/cccteam/session/sessionstorage"
-	signin "github.com/cccteam/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -876,18 +875,18 @@ func (mr *MockAuthStoreMockRecorder[Tx]) SetUsernameIsEmail(same any) *gomock.Ca
 }
 
 // SignIn mocks base method.
-func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx], accept signinflow.InvitationAcceptor) (ccc.UUID, error) {
+func (m *MockAuthStore[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[Tx]) (ccc.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SignIn", ctx, req, rule, standard, policy, accept)
+	ret := m.ctrl.Call(m, "SignIn", ctx, req, rules)
 	ret0, _ := ret[0].(ccc.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SignIn indicates an expected call of SignIn.
-func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rule, standard, policy, accept any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) SignIn(ctx, req, rules any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rule, standard, policy, accept)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignIn", reflect.TypeOf((*MockAuthStore[Tx])(nil).SignIn), ctx, req, rules)
 }
 
 // SignInAttempts mocks base method.

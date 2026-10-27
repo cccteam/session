@@ -42,6 +42,8 @@ type appDB interface {
 	// declareTenant writes tenant's declaration: the directories it admits its people
 	// through, and whether through those only.
 	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
+	// seatDirectory gives one of tenant's declared directories a default seat.
+	seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role)
 }
 
 // appRows reads and writes the application's own tables in a sign-in's transaction, the
@@ -56,10 +58,14 @@ type appRows[Tx any] struct {
 	// tenantDeclaration reads tenant's declaration for the tenant policy, nil when the
 	// tenant declares nothing.
 	tenantDeclaration func(ctx context.Context, tx Tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error)
+	// directoryLookup reads every tenant's declaration of directory for a stranger's
+	// first sign-in, each with its default seat.
+	directoryLookup func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
 }
 
 // renderDirectories renders directories as the TenantDeclarations row keeps them:
-// method:connection, comma-separated.
+// method:connection, comma-separated, a default seat as =role after the connection
+// (withSeat).
 func renderDirectories(directories []signin.Directory) string {
 	parts := make([]string, 0, len(directories))
 	for _, d := range directories {
@@ -76,11 +82,39 @@ func parseDirectories(rendered string) []signin.Directory {
 	}
 	var directories []signin.Directory
 	for part := range strings.SplitSeq(rendered, ",") {
-		method, connection, _ := strings.Cut(part, ":")
+		method, rest, _ := strings.Cut(part, ":")
+		connection, _, _ := strings.Cut(rest, "=")
 		directories = append(directories, signin.Directory{Method: sessioninfo.AuthMethod(method), Connection: connection})
 	}
 
 	return directories
+}
+
+// withSeat returns rendered with directory's default seat set to seat.
+func withSeat(rendered string, directory signin.Directory, seat accesstypes.Role) string {
+	key := string(directory.Method) + ":" + directory.Connection
+	parts := strings.Split(rendered, ",")
+	for i, part := range parts {
+		if entry, _, _ := strings.Cut(part, "="); entry == key {
+			parts[i] = key + "=" + string(seat)
+		}
+	}
+
+	return strings.Join(parts, ",")
+}
+
+// declaredIn reads tenant's declaration of directory from renderDirectories' form: the
+// tenant with the directory's default seat when the tenant declares it, nothing
+// otherwise.
+func declaredIn(tenant, rendered string, directory signin.Directory) []signin.DeclaredDirectory {
+	key := string(directory.Method) + ":" + directory.Connection
+	for part := range strings.SplitSeq(rendered, ",") {
+		if entry, seat, _ := strings.Cut(part, "="); entry == key {
+			return []signin.DeclaredDirectory{{Tenant: accesstypes.Domain(tenant), DefaultSeat: accesstypes.Role(seat)}}
+		}
+	}
+
+	return nil
 }
 
 // storeTables are the auth events and impersonation tables every Auth store in these
@@ -152,6 +186,26 @@ var postgresBackend = backend[pgx.Tx]{
 
 			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
 		},
+		directoryLookup: func(ctx context.Context, tx pgx.Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+			rows, err := tx.Query(ctx, `SELECT "Tenant", "Directories" FROM "TenantDeclarations" ORDER BY "Tenant"`)
+			if err != nil {
+				return nil, errors.Wrap(err, "pgx.Tx.Query()")
+			}
+			defer rows.Close()
+			var declared []signin.DeclaredDirectory
+			for rows.Next() {
+				var tenant, directories string
+				if err := rows.Scan(&tenant, &directories); err != nil {
+					return nil, errors.Wrap(err, "pgx.Rows.Scan()")
+				}
+				declared = append(declared, declaredIn(tenant, directories, directory)...)
+			}
+			if err := rows.Err(); err != nil {
+				return nil, errors.Wrap(err, "pgx.Rows.Err()")
+			}
+
+			return declared, nil
+		},
 	},
 }
 
@@ -212,6 +266,18 @@ func (db postgresDB) declareTenant(ctx context.Context, t *testing.T, tenant str
 		ON CONFLICT ("Tenant") DO UPDATE SET "Directories" = EXCLUDED."Directories", "DirectoryOnly" = EXCLUDED."DirectoryOnly"`,
 		tenant, renderDirectories(directories), directoryOnly); err != nil {
 		t.Fatalf("declare the tenant: %v", err)
+	}
+}
+
+func (db postgresDB) seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role) {
+	t.Helper()
+
+	var directories string
+	if err := db.QueryRow(ctx, `SELECT "Directories" FROM "TenantDeclarations" WHERE "Tenant" = $1`, tenant).Scan(&directories); err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE "TenantDeclarations" SET "Directories" = $2 WHERE "Tenant" = $1`, tenant, withSeat(directories, directory, seat)); err != nil {
+		t.Fatalf("seat the directory: %v", err)
 	}
 }
 
@@ -282,6 +348,23 @@ var spannerBackend = backend[*spanner.ReadWriteTransaction]{
 			}
 
 			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
+		},
+		directoryLookup: func(ctx context.Context, tx *spanner.ReadWriteTransaction, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+			var declared []signin.DeclaredDirectory
+			err := tx.Read(ctx, "TenantDeclarations", spanner.AllKeys(), []string{"Tenant", "Directories"}).Do(func(row *spanner.Row) error {
+				var tenant, directories string
+				if err := row.Columns(&tenant, &directories); err != nil {
+					return errors.Wrap(err, "spanner.Row.Columns()")
+				}
+				declared = append(declared, declaredIn(tenant, directories, directory)...)
+
+				return nil
+			})
+			if err != nil {
+				return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+			}
+
+			return declared, nil
 		},
 	},
 }
@@ -359,5 +442,25 @@ func (db spannerDB) declareTenant(ctx context.Context, t *testing.T, tenant stri
 	m := spanner.InsertOrUpdate("TenantDeclarations", []string{"Tenant", "Directories", "DirectoryOnly"}, []any{tenant, renderDirectories(directories), directoryOnly})
 	if _, err := db.Apply(ctx, []*spanner.Mutation{m}); err != nil {
 		t.Fatalf("declare the tenant: %v", err)
+	}
+}
+
+func (db spannerDB) seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role) {
+	t.Helper()
+
+	row, err := db.Single().ReadRow(ctx, "TenantDeclarations", spanner.Key{tenant}, []string{"Directories", "DirectoryOnly"})
+	if err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	var (
+		directories   string
+		directoryOnly bool
+	)
+	if err := row.Columns(&directories, &directoryOnly); err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	m := spanner.InsertOrUpdate("TenantDeclarations", []string{"Tenant", "Directories", "DirectoryOnly"}, []any{tenant, withSeat(directories, directory, seat), directoryOnly})
+	if _, err := db.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("seat the directory: %v", err)
 	}
 }

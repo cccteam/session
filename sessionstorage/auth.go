@@ -86,18 +86,17 @@ type AuthStore[Tx any] interface {
 	CreateSession(ctx context.Context, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// SignIn establishes the session of a sign-in that carries a verified identity
 	// (req.Identity) and returns its ID. An external identity resolves to its user by its
-	// link, or by the account rules when it has none: rule, the registration's own,
-	// when it is set, and standard, the registration's standard rule, when rule is nil
-	// or answers signin.Standard; a password identity names its user in req.UserID.
-	// policy then decides, and the session is inserted with its auth events and custom
-	// session data. The sign-in runs in two transactions that each commit unless a hook
-	// or the storage fails: a refusal (a *sessioninfo.LoginRefusal) or a wait (a
-	// *signin.PendingSignInError) keeps the hooks' own writes and writes no session. See
-	// the README's "Storage and schema".
-	SignIn(
-		ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx],
-		accept signinflow.InvitationAcceptor,
-	) (ccc.UUID, error)
+	// link, or by the account rules when it has none: rules.Account, the registration's
+	// own, when it is set, and rules.Standard, the registration's standard rule, when
+	// the former is nil or answers signin.Standard, the tenants' declarations of the
+	// directory deciding a stranger first when rules.Directories is set; a password
+	// identity names its user in req.UserID. rules.Policy then decides, and the
+	// session is inserted with its auth events and custom session data. The sign-in
+	// runs in two transactions that each commit unless a hook or the storage fails: a
+	// refusal (a *sessioninfo.LoginRefusal) or a wait (a *signin.PendingSignInError)
+	// keeps the hooks' own writes and writes no session. See the README's "Storage and
+	// schema".
+	SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules SignInRules[Tx]) (ccc.UUID, error)
 	// Identity returns the link for (method, connection, subject), or a NotFound error.
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
@@ -366,11 +365,23 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 	return &Auth[pgx.Tx]{userStorage: userStorage{sessionStorage: sessionStorage{db: driver}}, flow: driver, custom: postgresCustomData{driver}}
 }
 
+// SignInRules are the application's rules a sign-in runs under, handed to
+// AuthStore.SignIn: the registration's own account rule (nil for none) and its standard
+// rule ("" for none), the sign-in policy (nil for none), the invitation acceptor (nil
+// for none), and a tenanted application's reader of the tenants' directory
+// declarations with the hook that seats a stranger they admit (both nil for none).
+type SignInRules[Tx any] struct {
+	Account     signin.AccountRule[Tx]
+	Standard    signin.StandardAccountRule
+	Policy      signin.Policy[Tx]
+	Accept      signinflow.InvitationAcceptor
+	Directories signin.DirectoryReader[Tx]
+	Roles       signin.UserRoleManager
+	Seat        signinflow.DirectorySeater
+}
+
 // SignIn implements AuthStore.
-func (a *Auth[Tx]) SignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[Tx], standard signin.StandardAccountRule, policy signin.Policy[Tx],
-	accept signinflow.InvitationAcceptor,
-) (ccc.UUID, error) {
+func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionRequest, rules SignInRules[Tx]) (ccc.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -380,7 +391,11 @@ func (a *Auth[Tx]) SignIn(
 	}
 	session := &dbtype.InsertSession{Username: req.Username}
 
-	if err := signinflow.SignIn(ctx, a.flow, id, session, req, signinflow.Rules[Tx]{Account: rule, Standard: standard, Policy: policy, Accept: accept}); err != nil {
+	flowRules := signinflow.Rules[Tx]{
+		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
+		Directories: rules.Directories, Roles: rules.Roles, Seat: rules.Seat,
+	}
+	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 	}
 

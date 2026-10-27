@@ -419,11 +419,9 @@ func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id ccc.UUID
 // resolution by setting its user. stop then answers as the driver would, with the error
 // that stops the sign-in; nil answers id.
 func (f *authFixture) expectSignIn(id ccc.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
-	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(
-			_ context.Context, req *sessioninfo.NewSessionRequest, rule signin.AccountRule[mockTx], standard signin.StandardAccountRule, policy signin.Policy[mockTx],
-			accept signinflow.InvitationAcceptor,
-		) (ccc.UUID, error) {
+	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (ccc.UUID, error) {
+			rule, standard, policy, accept := rules.Account, rules.Standard, rules.Policy, rules.Accept
 			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept}
 			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
 				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
@@ -2505,7 +2503,14 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	userID := ccc.Must(ccc.NewUUID())
 	sessionID := ccc.Must(ccc.NewUUID())
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
-	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Nil(), signin.StandardAccountRule(""), gomock.Nil(), gomock.Nil()).Return(sessionID, nil)
+	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (ccc.UUID, error) {
+			if rules.Account != nil || rules.Standard != "" || rules.Policy != nil || rules.Accept != nil || rules.Directories != nil || rules.Seat != nil {
+				t.Errorf("SignIn() given rules = %+v, want none: the Auth has no policy and no hooks", rules)
+			}
+
+			return sessionID, nil
+		})
 	// A session the application starts is a sign-in: the user's last sign-in moves.
 	store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
 
