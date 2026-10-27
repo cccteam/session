@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.13](https://github.com/cccteam/session/compare/v0.13.12...v0.13.13) (2026-10-27)
+
+
+### Features
+
+* a tenant's declaration of a directory decides a stranger's first sign-in: a default seat admits and seats them, no seat refuses them by invitation only (invitation_only), and a person the tenant already seated is admitted ([#308](https://github.com/cccteam/session/issues/308)) ([d766792](https://github.com/cccteam/session/commit/d766792216ebdaeefceaabd7177c6f06fe59a62b))
+
 ## [0.13.12](https://github.com/cccteam/session/compare/v0.13.11...v0.13.12) (2026-10-26)
 
 
