@@ -142,6 +142,7 @@ type Resolution struct {
 	tenant        string
 	trusted       bool
 	refusal       sessioninfo.LoginRefusalCode
+	seats         []DirectorySeat
 }
 
 // ResolutionOption refines a Link, Provision, Confirm or Standard resolution.
@@ -152,6 +153,17 @@ type ResolutionOption func(r *Resolution)
 // for the Google Workspace) unless Standard is given another.
 func Tenant(tenant string) ResolutionOption {
 	return func(r *Resolution) { r.tenant = tenant }
+}
+
+// Seats grants seats to the user a Provision resolution creates, once the resolution
+// has committed, through the Auth's directory seat hook
+// (session.Auth.SetDirectoryAdmission): the default seats of the directories the
+// tenants declared, which the standard rules add themselves, or a custom rule's own.
+// A resolution that carries seats on an Auth with no hook fails the sign-in.
+func Seats(seats ...DirectorySeat) ResolutionOption {
+	return func(r *Resolution) {
+		r.seats = append(r.seats, seats...)
+	}
 }
 
 // Reject refuses the sign-in with code, or sessioninfo.RefusedIdentityRejected when
@@ -245,6 +257,12 @@ func (r *Resolution) OnProvisioned() func(ctx context.Context, userID ccc.UUID) 
 // Tenant is the tenant key the resolution stores on the link.
 func (r *Resolution) Tenant() string {
 	return r.tenant
+}
+
+// Seats are the seats a Provision resolution grants once it has committed, none for
+// none.
+func (r *Resolution) Seats() []DirectorySeat {
+	return r.seats
 }
 
 // Trusted reports whether a Link resolution may link a user that has a password.
@@ -370,6 +388,11 @@ var (
 	// ErrNotInvited is the cause when the invited-users-only rule matched no
 	// pre-created user. The code is sessioninfo.RefusedNotInvited.
 	ErrNotInvited = errors.New("signin: no user was created for the identity's sign-in name")
+	// ErrInvitationOnly is the cause when a standard account rule refused a stranger
+	// from a directory a tenant declares with no default seat: the tenant admits its
+	// people by invitation, the sign-in carried none, and nothing is provisioned. The
+	// code is sessioninfo.RefusedInvitationOnly.
+	ErrInvitationOnly = errors.New("signin: the tenant that declares the directory admits its people by invitation only")
 	// ErrInvitationExpired is the cause when the invitation a sign-in carried, which
 	// alone admitted the person under the invited-users-only rule, had expired or been
 	// used by the time the sign-in accepted it; nothing is provisioned. The code is

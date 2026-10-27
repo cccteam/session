@@ -20,6 +20,34 @@ type Directory struct {
 	Connection string
 }
 
+// DeclaredDirectory is one tenant's declaration of a directory, as a DirectoryReader
+// answers it for a stranger's first sign-in: the tenant, and the default seat the
+// tenant gives a person its directory vouched for, the role the sign-in seats them
+// with in the tenant, or "" when the tenant admits its people by invitation only.
+type DeclaredDirectory struct {
+	Tenant      accesstypes.Domain
+	DefaultSeat accesstypes.Role
+}
+
+// DirectoryReader reads every tenant's declaration of a directory for a stranger's
+// first sign-in, in the sign-in's first transaction, typed to the storage's
+// transaction like the other hooks: the tenants that declare the directory the
+// identity came through, each with its default seat. A directory some tenant declares
+// belongs to that tenant, and its declaration decides the stranger before the
+// registration's account rule does; a directory no tenant declares, an empty answer,
+// falls to the registration's rule as it would without the reader. Spanner may retry
+// the transaction, so the reader must not have side effects outside it. Set it on
+// the Auth with SetDirectoryAdmission, beside the hook that seats the person.
+type DirectoryReader[Tx any] func(ctx context.Context, tx Tx, directory Directory) ([]DeclaredDirectory, error)
+
+// DirectorySeat is a seat a first sign-in grants: a role in a tenant, the default seat
+// of a directory the tenant declared, written by the application's hook once the
+// user is committed.
+type DirectorySeat struct {
+	Tenant accesstypes.Domain
+	Role   accesstypes.Role
+}
+
 // TenantDeclaration is what a tenant declares about who may enter it: the directories
 // its people come through, and whether they come through those only. It is
 // configuration data of the tenant, kept by the application and read for the library
@@ -125,6 +153,13 @@ type tenantPolicy[Tx any] struct {
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
 // ErrDirectoryOnly). A role store or reader error fails the sign-in (internal_error).
 // A nil roles or declarations is a wiring mistake and panics.
+//
+// A stranger, a person no user was created for, never reaches the policy as such: the
+// account rules decide them first, and in a tenanted application the tenants'
+// declarations decide before the registration's rule, through the directory reader
+// and seat hook set with session.Auth.SetDirectoryAdmission (DirectoryReader): a
+// default seat admits and seats the person, so the policy then finds the membership,
+// and a declaration without one refuses them by invitation only.
 func TenantPolicy[Tx any](roles UserRoleManager, declarations DeclarationReader[Tx], opts ...TenantPolicyOption) Policy[Tx] {
 	if roles == nil {
 		panic("signin: TenantPolicy was given no role store: pass the access library's user manager")

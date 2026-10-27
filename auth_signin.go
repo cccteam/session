@@ -112,7 +112,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		rule, standard = m.rule, m.standard
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
-		id, err := a.storage.SignIn(ctx, req, rule, standard, a.policy, a.acceptInvitation)
+		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
+			Account: rule, Standard: standard, Policy: a.policy, Accept: a.acceptInvitation,
+			Directories: a.directories, Roles: a.directoryRoles, Seat: a.directorySeated,
+		})
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
 		}

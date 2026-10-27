@@ -226,6 +226,13 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// acceptInvitation is the application's invitation acceptor, nil for none.
 	acceptInvitation signinflow.InvitationAcceptor
 	userRenamed      UserRenamedHook
+	// directories reads the tenants' declarations of a directory for a stranger's
+	// first sign-in, directoryRoles is the role store the person's memberships are
+	// read from, and directorySeated seats the person they admit; all nil for none.
+	// Set by SetDirectoryAdmission before the Auth is in use.
+	directories     signin.DirectoryReader[Tx]
+	directoryRoles  signin.UserRoleManager
+	directorySeated signinflow.DirectorySeater
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
 }
@@ -522,6 +529,56 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 
 		return nil
 	}))
+}
+
+// DirectorySeatedHook is the application's half of a directory's default seat: it
+// seats the user a first sign-in provisioned, named by id and by username (the key an
+// application's memberships are held under), with seats, the default seats of the
+// directories the tenants declared for the identity's connection, once the
+// resolution that created the user has committed and before the sign-in policy
+// decides, so the policy sees the memberships. It runs outside any transaction, once,
+// for the reason InvitationAcceptedHook does. A hook that fails ends the sign-in with
+// its error; the user stays, holding nothing, and the person's next sign-in finds
+// them pre-created and links.
+type DirectorySeatedHook = func(ctx context.Context, userID ccc.UUID, username string, seats []signin.DirectorySeat) error
+
+// SetDirectoryAdmission sets what a tenanted application gives a first sign-in
+// through a directory by a person no user was created for: reader, which reads
+// every tenant's declaration of the directory the identity came through
+// (signin.DirectoryReader); roles, the role store the person's memberships are read
+// from (signin.UserRoleManager, the access library's user manager the tenant policy
+// reads too); and hook, which seats the person with the default seats the
+// declarations name. With them the standard account rules ask the tenants first: a
+// directory some tenant declares belongs to that tenant, and its declaration decides
+// before the registration's own rule. A person who already holds a membership under
+// the sign-in name in a declaring tenant, or as the application's staff, is that
+// tenant's person and is admitted; a default seat admits a stranger with it; and a
+// declaration naming none refuses a stranger by invitation only (invitation_only,
+// unless the sign-in carries an invitation), with no account created. A directory no
+// tenant declares falls to the registration's rule as without them. Set the three
+// after NewAuth and before serving the first request; a nil reader, roles or hook, a
+// second call, or a call once the Auth is in use is a wiring mistake and panics, as
+// SetSignInPolicy does.
+func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], roles signin.UserRoleManager, hook DirectorySeatedHook) {
+	if reader == nil {
+		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
+	}
+	if roles == nil {
+		panic("session: SetDirectoryAdmission was given no role store: pass the access library's user manager")
+	}
+	if hook == nil {
+		panic("session: SetDirectoryAdmission was given no hook: pass the application's hook that seats the person")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the directory admission was set after the Auth served a request: set it before serving")
+	}
+	if a.directories != nil {
+		panic("session: the directory admission was set twice: one Auth has one")
+	}
+	a.directories, a.directoryRoles, a.directorySeated = reader, roles, hook
 }
 
 // SetXSRFToken sets the XSRF token.

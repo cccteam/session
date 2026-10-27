@@ -227,6 +227,21 @@ DML what a later rule must read.
     It is for public applications and refused on a registration that serves one
     organization.
 
+  In a tenanted application the **tenants' declarations decide a stranger first**.
+  With `auth.SetDirectoryAdmission(directoryLookup, userManager, seatHook)` (see "The
+  tenant policy"), a person no user was created for, from a directory some tenant
+  declares, is decided by that tenant's declaration before the registration's rule is
+  reached. A person who already holds a membership under the sign-in name in a
+  declaring tenant, or as the application's staff, is that tenant's person, seated
+  ahead of their first sign-in, and is provisioned under the sign-in name. A
+  declaration naming a **default seat** admits a stranger, who is provisioned and
+  seated with it in every tenant naming one, through the hook, once the resolution
+  has committed. A declaration naming none admits strangers by invitation only, the
+  invitation the sign-in carries being the account as under
+  `signin.InvitedUsersOnly`, and without one the sign-in is refused
+  (`invitation_only`) and nothing is written. A directory no tenant declares falls to
+  the registration's rule as above.
+
   Every standard rule writes nothing for a guest of the directory (an Entra B2B guest,
   refused with `guest_account`: a guest's preferred username is an address the
   directory did not verify), for a token asserting no application role when the method
@@ -356,6 +371,26 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   connection id) and whether its people come through those **only**
   (`DirectoryOnly`). A tenant that declares nothing (a nil declaration) admits its
   people by password and through no directory.
+- **A first sign-in through a directory by a person no user was created for** is
+  decided before the policy, by the account rules, and in a tenanted application by
+  the tenants' declarations first, through
+  `auth.SetDirectoryAdmission(directoryLookup, userManager, seatHook)`.
+  `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads every tenant's declaration
+  of the directory the identity came through, each with its **default seat**
+  (`signin.DeclaredDirectory`: the tenant and the role, `""` for none), in the
+  sign-in's first transaction; `userManager` is the role store above, read for the
+  memberships the person already holds; `seatHook`, a `session.DirectorySeatedHook`,
+  seats the person with the seats the declarations name (`signin.DirectorySeat`),
+  once the user is committed and before the policy decides, outside any transaction,
+  as the invitation hook does. A declared directory belongs to its tenant. A person
+  who already holds a role in a declaring tenant, or as staff, is admitted as that
+  tenant's person, seated ahead of their first sign-in. A default seat admits and
+  seats a stranger, so rule 3 below then finds the membership. A declaration naming
+  none refuses a stranger by invitation only (`invitation_only`), with no account
+  created, unless the sign-in carries an invitation. A directory no tenant declares
+  falls to the registration's account rule. Without the three, a stranger is the
+  registration's rule's alone, and an open-sign-up registration gives them an account
+  holding nothing.
 
 The rules, in order, once the user is known:
 
@@ -902,7 +937,9 @@ proved they read the mailbox, and the account they sign in with is theirs.
   of the session store can carry, and which the Spanner emulator, allowing one
   read-write transaction at a time, would deadlock inside one. Under the
   invited-users-only account rule the invitation is the account the rule asks for: a
-  stranger who carries one is provisioned under their sign-in name. A person already
+  stranger who carries one is provisioned under their sign-in name, and so is a
+  stranger from a directory a tenant declares with no default seat
+  (`SetDirectoryAdmission`). A person already
   signed in accepts with `Invitation().Accept()` (behind `ValidateSession`); an
   invited person creates an account with a password through `Invitation().SignUp()`
   (`{"password", "username"}`), which creates the user with the invitation's address
@@ -1599,6 +1636,7 @@ table is the wire contract:
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
 | `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
+| `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: under the invited-users-only account rule, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
