@@ -74,6 +74,11 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// An identity whose connection attests to a second factor records the
+	// attestation after the sign-in's own event, so the policy and the session see it.
+	if at.events == nil && at.identity.Attestation != sessioninfo.NotAttested {
+		at.events = identityEvents(at.identity)
+	}
 	req := &sessioninfo.NewSessionRequest{
 		Reason:                at.reason,
 		Username:              at.username,
@@ -114,7 +119,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (ccc.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Standard: standard, Policy: a.policy, Accept: a.acceptInvitation,
-			Directories: a.directories, Roles: a.directoryRoles, Seat: a.directorySeated,
+			Directories: a.directories, Roles: a.directoryRoles, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf,
 		})
 		if err != nil {
 			return ccc.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -147,6 +152,12 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		if err != nil {
 			return nil, err
 		}
+		// A browser whose trusted device did not stand in for the factor carries a
+		// dead one: the cookie goes, and the factor it is about to give may set a
+		// new one.
+		if wait.Reason == sessioninfo.PendingMFA {
+			a.forgetTrustedCookie(ctx, w)
+		}
 
 		return &signInOutcome{pending: pending}, nil
 	}
@@ -154,22 +165,25 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		return nil, err
 	}
 
+	events := signedInEvents(at, req)
 	a.endPending(ctx, w, at)
 	a.endInvitation(ctx, w, req.Invitation)
+	a.touchTrustedDevice(ctx, events)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
-	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: signedInEvents(at)})
+	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 
 	return &signInOutcome{sessionID: id, userID: req.UserID}, nil
 }
 
-// signedInEvents are the auth events the session of at recorded: the events it
-// carried, or its identity's method when it carried none.
-func signedInEvents(at *signInAttempt) []sessioninfo.AuthEvent {
-	if at.events == nil {
+// signedInEvents are the auth events the session of at recorded: the events the
+// store inserted (req.AuthEvents, which the sign-in flow may have extended with a
+// trusted-device event), or the identity's method when the request carried none.
+func signedInEvents(at *signInAttempt, req *sessioninfo.NewSessionRequest) []sessioninfo.AuthEvent {
+	if len(req.AuthEvents) == 0 {
 		return []sessioninfo.AuthEvent{identityEvent(at.identity)}
 	}
 
-	return slices.Clone(at.events)
+	return slices.Clone(req.AuthEvents)
 }
 
 // notifySignedIn calls the SignedInHook, once the session stands. An error is logged,
@@ -626,6 +640,18 @@ func namesItsUser(identity *sessioninfo.Identity) bool {
 // database's when the event is stored.
 func identityEvent(identity *sessioninfo.Identity) sessioninfo.AuthEvent {
 	return sessioninfo.AuthEvent{Method: identity.Method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR)}
+}
+
+// identityEvents returns the auth events of a sign-in with identity: the sign-in's
+// own, then the attestation the identity's connection makes, when it makes one, under
+// the same connection and with the provider's evidence.
+func identityEvents(identity *sessioninfo.Identity) []sessioninfo.AuthEvent {
+	events := []sessioninfo.AuthEvent{identityEvent(identity)}
+	if method := identity.Attestation.Method(); method != "" {
+		events = append(events, sessioninfo.AuthEvent{Method: method, Connection: identity.Connection, IDPAMR: slices.Clone(identity.IDPAMR)})
+	}
+
+	return events
 }
 
 // validateEvents refuses an auth event without a method.

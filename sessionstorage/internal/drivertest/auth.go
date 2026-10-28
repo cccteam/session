@@ -76,6 +76,20 @@ type AuthDriver interface {
 	// at what the live reads no longer return.
 	TokenState(ctx context.Context, tokenHash []byte) (*dbtype.Token, error)
 	DeviceCodeState(ctx context.Context, deviceCodeHash []byte) (*dbtype.DeviceCode, error)
+	SetFactorCodesTableName(name string) error
+	SetTrustedDevicesTableName(name string) error
+	InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error
+	FactorCodeByPending(ctx context.Context, pendingID ccc.UUID, now time.Time) (*dbtype.FactorCode, error)
+	RecordFactorCodeAttempt(ctx context.Context, id ccc.UUID, now time.Time) (int, error)
+	ConsumeFactorCode(ctx context.Context, id ccc.UUID, now time.Time) error
+	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	TouchTrustedDevice(ctx context.Context, id ccc.UUID, now time.Time) error
+	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
+	RevokeTrustedDevices(ctx context.Context, userID ccc.UUID) error
+	// FactorCodeState and TrustedDeviceState read a row whatever its state.
+	FactorCodeState(ctx context.Context, id ccc.UUID) (*dbtype.FactorCode, error)
+	TrustedDeviceState(ctx context.Context, tokenHash []byte) (*dbtype.TrustedDevice, error)
 }
 
 // AuthSchema names the migration set an users database is prepared with.
@@ -344,6 +358,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a refresh exchange rotates the token in its family, and a rotated token presented again revokes the family", run: testRefreshExchange},
 		{name: "a device code is pending until approved or denied, holds the client to its interval, and is redeemed once for the approver's tokens", run: testDeviceCodeLifecycle},
 		{name: "a user's tokens and device codes go with the user", run: testTokensCascade},
+		{name: "a factor code is read back by its pending sign-in while it is live, the newest standing alone, and a new code consumes the earlier one", run: testFactorCodeRoundTrip},
+		{name: "a factor code counts the wrong codes entered against it and is consumed once; a dead code is neither read, counted nor consumed", run: testFactorCodeAttemptsAndConsume},
+		{name: "a trusted device is read back by its token hash while it is live, touched at the database's time, revoked once by its token and all at once by its user", run: testTrustedDeviceLifecycle},
+		{name: "a factor code goes with its pending sign-in and a trusted device with its user", run: testFactorsCascade},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

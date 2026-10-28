@@ -265,7 +265,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			if err != nil {
 				return nil, errors.Wrap(err, "oidc.Issuer()")
 			}
-			connection, ok := workspaces.connectionFor(id.HostedDomain)
+			connection, attests, ok := workspaces.entryFor(id.HostedDomain)
 			if !ok {
 				return nil, errNotWorkspaceMember()
 			}
@@ -273,7 +273,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodGoogle, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: emailVerified, Claims: rawClaims, IDPAMR: id.AMR,
-					Organization: connection,
+					Organization: connection, Attestation: sessioninfo.AttestationOf(id.AMR, attests),
 				},
 				ReturnURL: returnURL,
 				Issuer:    iss,

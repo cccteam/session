@@ -50,13 +50,18 @@ type TenantSet struct {
 	listed   []namedTenant
 	any      bool
 	personal bool
+	// attestsOpen records Attesting() called on a set with an open entry, which
+	// validate refuses: an open entry admits tenants the application does not
+	// administer.
+	attestsOpen bool
 }
 
 // namedTenant is one tenant the application lists, with the name it gives it, "" for
-// none.
+// none, and whether the application declares it as enforcing a second factor.
 type namedTenant struct {
-	id   string
-	name string
+	id      string
+	name    string
+	attests bool
 }
 
 // Tenant is one Microsoft Entra tenant, by its tenant id (the tid claim, a GUID): the
@@ -85,9 +90,32 @@ func Tenants(sets ...TenantSet) TenantSet {
 		union.listed = append(union.listed, s.listed...)
 		union.any = union.any || s.any
 		union.personal = union.personal || s.personal
+		union.attestsOpen = union.attestsOpen || s.attestsOpen
 	}
 
 	return union
+}
+
+// Attesting declares that the tenants listed in the set enforce a second factor at
+// every sign-in, which the application vouches for because it administers them (a
+// Conditional Access policy requiring multifactor authentication for every user): a
+// sign-in through one of them carries the attestation by declaration
+// (sessioninfo.AttestedByDeclaration), recorded as the session's
+// attested-by-declaration event, which satisfies the sign-in policy's RequireMFA
+// without a code. A token whose amr claim names mfa attests by evidence under every
+// shape, declared or not, since Entra asserts it only after its own multifactor
+// authentication; the declaration covers the sign-ins Entra admits under a policy that
+// asks for no second factor it would name. It is for listed tenants only: AnyTenant
+// and PersonalAccounts admit tenants the application does not administer, and a set
+// holding either is refused at registration; list the administered tenant beside the
+// open entry instead.
+func (s TenantSet) Attesting() TenantSet {
+	listed := make([]namedTenant, len(s.listed))
+	for i, t := range s.listed {
+		listed[i] = namedTenant{id: t.id, name: t.name, attests: true}
+	}
+
+	return TenantSet{listed: listed, any: s.any, personal: s.personal, attestsOpen: s.attestsOpen || s.open()}
 }
 
 // AnyTenant admits the work or school account of any Microsoft Entra tenant, and no
@@ -115,6 +143,10 @@ func (s TenantSet) validate() error {
 	if len(s.listed) == 0 && !s.any && !s.personal {
 		return errors.New("Tenants is required: azure.Tenant(id) for one tenant, azure.Tenants(...) for several, " +
 			"azure.AnyTenant() for any work or school account, azure.PersonalAccounts() for Microsoft personal accounts")
+	}
+	if s.attestsOpen {
+		return errors.New("Tenants: Attesting() declares the tenants the application administers; any tenant and personal accounts admit tenants it does not, " +
+			"so list the administered tenant beside the open entry: azure.Tenants(azure.Tenant(id).Attesting(), azure.AnyTenant())")
 	}
 	ids := map[string]bool{}
 	names := map[string]bool{}
@@ -184,6 +216,18 @@ func (s TenantSet) admits(tid string) (organization string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// attests reports whether the set declares tenant tid as enforcing a second factor
+// (Attesting()): a listed tenant so declared. An open entry never attests.
+func (s TenantSet) attests(tid string) bool {
+	for _, t := range s.listed {
+		if strings.EqualFold(t.id, tid) {
+			return t.attests
+		}
+	}
+
+	return false
 }
 
 // admitsAddress reports whether the set could admit an account whose email address is

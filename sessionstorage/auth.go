@@ -242,6 +242,36 @@ type AuthStore[Tx any] interface {
 	// RevokeMailLink consumes the live mail link id: an invitation withdrawn by hand.
 	// A link that is not live is NotFound.
 	RevokeMailLink(ctx context.Context, id ccc.UUID) error
+	// SetFactorCodesTableName sets the name of the factor codes table.
+	SetFactorCodesTableName(name string) error
+	// SetTrustedDevicesTableName sets the name of the trusted devices table.
+	SetTrustedDevicesTableName(name string) error
+	// InsertFactorCode consumes the earlier live codes of c's pending sign-in and
+	// inserts c, in one transaction, so one code stands for a pending sign-in at a
+	// time; it gives c its ID.
+	InsertFactorCode(ctx context.Context, c *FactorCode) error
+	// FactorCode returns the live code of pendingID, or NotFound.
+	FactorCode(ctx context.Context, pendingID ccc.UUID) (*FactorCode, error)
+	// RecordFactorCodeAttempt counts a wrong code against the live code id and
+	// returns the count; NotFound when it is not live.
+	RecordFactorCodeAttempt(ctx context.Context, id ccc.UUID) (int, error)
+	// ConsumeFactorCode marks the live code id consumed, by a conditional update, so
+	// a code is used once; NotFound when it is not live.
+	ConsumeFactorCode(ctx context.Context, id ccc.UUID) error
+	// InsertTrustedDevice inserts d, giving it its ID.
+	InsertTrustedDevice(ctx context.Context, d *TrustedDevice) error
+	// TrustedDevice returns the device holding tokenHash that is live (not revoked,
+	// not expired), or NotFound.
+	TrustedDevice(ctx context.Context, tokenHash []byte) (*TrustedDevice, error)
+	// TouchTrustedDevice moves the LastUsedAt of the live device id to the database's
+	// time.
+	TouchTrustedDevice(ctx context.Context, id ccc.UUID) error
+	// RevokeTrustedDevice revokes the live device holding tokenHash; NotFound when it
+	// is not live.
+	RevokeTrustedDevice(ctx context.Context, tokenHash []byte) error
+	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
+	// administrator's reset of the person's factors.
+	RevokeTrustedDevices(ctx context.Context, userID ccc.UUID) error
 	// AcceptInvitation accepts inv for user userID in one transaction: the
 	// invitation is consumed and the user's address is set from it when the user
 	// holds no verified address, in one transaction; once it has committed, accept,
@@ -275,6 +305,14 @@ type SignInAttemptLimit = dbtype.SignInAttemptLimit
 // PendingSignIn is a sign-in held in the pending sign-ins table until its confirmation
 // or MFA step.
 type PendingSignIn = dbtype.PendingSignIn
+
+// FactorCode is a row of the factor codes table: one code the library mailed for a
+// pending sign-in's second factor. See "The second factor" in the README.
+type FactorCode = dbtype.FactorCode
+
+// TrustedDevice is a row of the trusted devices table: a browser the person asked to
+// be remembered after a second factor. See "The second factor" in the README.
+type TrustedDevice = dbtype.TrustedDevice
 
 // Token is a row of the tokens table: one bearer credential of a machine outlet. See
 // dbtype.Token.
@@ -378,6 +416,9 @@ type SignInRules[Tx any] struct {
 	Directories signin.DirectoryReader[Tx]
 	Roles       signin.UserRoleManager
 	Seat        signinflow.DirectorySeater
+	// TrustedDevice reports whether the browser signing in is a trusted device of
+	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
+	TrustedDevice signinflow.TrustedDeviceCheck
 }
 
 // SignIn implements AuthStore.
@@ -393,7 +434,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
-		Directories: rules.Directories, Roles: rules.Roles, Seat: rules.Seat,
+		Directories: rules.Directories, Roles: rules.Roles, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return ccc.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -545,6 +586,145 @@ func (a *Auth[Tx]) RevokeMailLink(ctx context.Context, id ccc.UUID) error {
 
 	if err := a.db.RevokeMailLink(ctx, id, time.Now()); err != nil {
 		return errors.Wrap(err, "db.RevokeMailLink()")
+	}
+
+	return nil
+}
+
+// SetFactorCodesTableName implements AuthStore.
+func (a *Auth[Tx]) SetFactorCodesTableName(name string) error {
+	if err := a.db.SetFactorCodesTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetFactorCodesTableName()")
+	}
+
+	return nil
+}
+
+// SetTrustedDevicesTableName implements AuthStore.
+func (a *Auth[Tx]) SetTrustedDevicesTableName(name string) error {
+	if err := a.db.SetTrustedDevicesTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetTrustedDevicesTableName()")
+	}
+
+	return nil
+}
+
+// InsertFactorCode implements AuthStore.
+func (a *Auth[Tx]) InsertFactorCode(ctx context.Context, c *FactorCode) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return errors.Wrap(err, "ccc.NewUUID()")
+	}
+	c.ID = id
+	if err := a.db.InsertFactorCode(ctx, c, time.Now()); err != nil {
+		return errors.Wrap(err, "db.InsertFactorCode()")
+	}
+
+	return nil
+}
+
+// FactorCode implements AuthStore.
+func (a *Auth[Tx]) FactorCode(ctx context.Context, pendingID ccc.UUID) (*FactorCode, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	c, err := a.db.FactorCodeByPending(ctx, pendingID, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.FactorCodeByPending()")
+	}
+
+	return c, nil
+}
+
+// RecordFactorCodeAttempt implements AuthStore.
+func (a *Auth[Tx]) RecordFactorCodeAttempt(ctx context.Context, id ccc.UUID) (int, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	attempts, err := a.db.RecordFactorCodeAttempt(ctx, id, time.Now())
+	if err != nil {
+		return 0, errors.Wrap(err, "db.RecordFactorCodeAttempt()")
+	}
+
+	return attempts, nil
+}
+
+// ConsumeFactorCode implements AuthStore.
+func (a *Auth[Tx]) ConsumeFactorCode(ctx context.Context, id ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.ConsumeFactorCode(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.ConsumeFactorCode()")
+	}
+
+	return nil
+}
+
+// InsertTrustedDevice implements AuthStore.
+func (a *Auth[Tx]) InsertTrustedDevice(ctx context.Context, d *TrustedDevice) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	id, err := ccc.NewUUID()
+	if err != nil {
+		return errors.Wrap(err, "ccc.NewUUID()")
+	}
+	d.ID = id
+	if err := a.db.InsertTrustedDevice(ctx, d); err != nil {
+		return errors.Wrap(err, "db.InsertTrustedDevice()")
+	}
+
+	return nil
+}
+
+// TrustedDevice implements AuthStore.
+func (a *Auth[Tx]) TrustedDevice(ctx context.Context, tokenHash []byte) (*TrustedDevice, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	d, err := a.db.TrustedDeviceByToken(ctx, tokenHash, time.Now())
+	if err != nil {
+		return nil, errors.Wrap(err, "db.TrustedDeviceByToken()")
+	}
+
+	return d, nil
+}
+
+// TouchTrustedDevice implements AuthStore.
+func (a *Auth[Tx]) TouchTrustedDevice(ctx context.Context, id ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.TouchTrustedDevice(ctx, id, time.Now()); err != nil {
+		return errors.Wrap(err, "db.TouchTrustedDevice()")
+	}
+
+	return nil
+}
+
+// RevokeTrustedDevice implements AuthStore.
+func (a *Auth[Tx]) RevokeTrustedDevice(ctx context.Context, tokenHash []byte) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RevokeTrustedDevice(ctx, tokenHash, time.Now()); err != nil {
+		return errors.Wrap(err, "db.RevokeTrustedDevice()")
+	}
+
+	return nil
+}
+
+// RevokeTrustedDevices implements AuthStore.
+func (a *Auth[Tx]) RevokeTrustedDevices(ctx context.Context, userID ccc.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RevokeTrustedDevices(ctx, userID); err != nil {
+		return errors.Wrap(err, "db.RevokeTrustedDevices()")
 	}
 
 	return nil

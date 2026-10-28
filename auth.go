@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -44,6 +45,13 @@ type authSettings struct {
 	// defaults.
 	tokensTable      *string
 	deviceCodesTable *string
+	// factors are the settings of the second factor the library runs: the email
+	// code and the trusted devices.
+	factors factorSettings
+	// factorCodesTable and trustedDevicesTable name the group's tables; nil keeps
+	// the store's defaults.
+	factorCodesTable    *string
+	trustedDevicesTable *string
 }
 
 // authOption is an Auth settings option.
@@ -137,6 +145,18 @@ func WithInvitationCookieName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.invitationCookie = name }}
 }
 
+// WithFactorCodesTableName sets the name of the group's factor codes table. (default:
+// SessionFactorCodes)
+func WithFactorCodesTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.factorCodesTable = &name }}
+}
+
+// WithTrustedDevicesTableName sets the name of the group's trusted devices table.
+// (default: SessionTrustedDevices)
+func WithTrustedDevicesTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.trustedDevicesTable = &name }}
+}
+
 // SignedIn is a session a sign-in established, as the SignedInHook receives it.
 type SignedIn struct {
 	// SessionID is the new session's ID.
@@ -176,6 +196,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
+		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
+		{option: "WithTrustedDevicesTableName", name: settings.trustedDevicesTable, set: storage.SetTrustedDevicesTableName},
 	} {
 		if table.name == nil {
 			continue
@@ -223,6 +245,8 @@ type Auth[SessionData, UserData, Tx any] struct {
 	pendingCookies *internalcookie.Client
 	// invitationCookies writes and reads the invitation cookie.
 	invitationCookies *internalcookie.Client
+	// trustedCookies writes and reads the trusted device cookie.
+	trustedCookies *internalcookie.Client
 	// acceptInvitation is the application's invitation acceptor, nil for none.
 	acceptInvitation signinflow.InvitationAcceptor
 	userRenamed      UserRenamedHook
@@ -265,7 +289,10 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, errors.New("the OIDC user anchor (WithOIDCUsers) is OIDC-only: Auth users are SessionUsers records, and external identities link to them")
 	}
 
-	settings := authSettings{pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName, invitationCookie: defaultInvitationCookieName, tokens: defaultTokenSettings()}
+	settings := authSettings{
+		pendingTimeout: defaultPendingTimeout, pendingCookie: defaultPendingCookieName, invitationCookie: defaultInvitationCookieName, tokens: defaultTokenSettings(),
+		factors: defaultFactorSettings,
+	}
 	var cookieOpts []internalcookie.Option
 	for _, opt := range options {
 		switch o := opt.(type) {
@@ -286,6 +313,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err := settings.tokens.validate(); err != nil {
 		return nil, err
 	}
+	if err := settings.factors.validate(); err != nil {
+		return nil, err
+	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
 	}
@@ -294,19 +324,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err != nil {
 		return nil, err
 	}
-	if settings.pendingCookie == "" || settings.pendingCookie == cookieClient.CookieName {
-		return nil, errors.Newf("the pending cookie name %q must be set and differ from the session cookie name", settings.pendingCookie)
-	}
-	pendingCookies, err := internalcookie.NewCookieClient(cookieKey, append(cookieOpts, internalcookie.WithCookieName(settings.pendingCookie))...)
+	cookies, err := newAuthCookies(cookieKey, cookieClient.CookieName, cookieOpts, &settings)
 	if err != nil {
-		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
-	}
-	if settings.invitationCookie == "" || settings.invitationCookie == cookieClient.CookieName || settings.invitationCookie == settings.pendingCookie {
-		return nil, errors.Newf("the invitation cookie name %q must be set and differ from the session and pending cookie names", settings.invitationCookie)
-	}
-	invitationCookies, err := internalcookie.NewCookieClient(cookieKey, append(cookieOpts, internalcookie.WithCookieName(settings.invitationCookie))...)
-	if err != nil {
-		return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+		return nil, err
 	}
 
 	a := &Auth[SessionData, UserData, Tx]{
@@ -314,12 +334,46 @@ func NewAuth[SessionData, UserData, Tx any](
 		storage:           storage,
 		settings:          settings,
 		cookies:           cookieClient,
-		pendingCookies:    pendingCookies,
-		invitationCookies: invitationCookies,
+		pendingCookies:    cookies.pending,
+		invitationCookies: cookies.invitation,
+		trustedCookies:    cookies.trusted,
 	}
 	a.methods.init(storage)
 
 	return a, nil
+}
+
+// authCookies are the cookie clients of the Auth's own cookies, beside the session's.
+type authCookies struct {
+	pending, invitation, trusted *internalcookie.Client
+}
+
+// newAuthCookies builds the clients of the pending, invitation and trusted device
+// cookies under the session's cookie key and options, refusing a name that is empty
+// or that another of the four cookies has.
+func newAuthCookies(cookieKey, sessionCookie string, opts []internalcookie.Option, settings *authSettings) (*authCookies, error) {
+	names := []struct {
+		what, name string
+	}{
+		{what: "pending", name: settings.pendingCookie},
+		{what: "invitation", name: settings.invitationCookie},
+		{what: "trusted device", name: settings.factors.trustedCookie},
+	}
+	taken := map[string]bool{sessionCookie: true}
+	clients := make([]*internalcookie.Client, 0, len(names))
+	for _, n := range names {
+		if n.name == "" || taken[n.name] {
+			return nil, errors.Newf("the %s cookie name %q must be set and differ from the session cookie name and the Auth's other cookie names", n.what, n.name)
+		}
+		taken[n.name] = true
+		client, err := internalcookie.NewCookieClient(cookieKey, append(slices.Clone(opts), internalcookie.WithCookieName(n.name))...)
+		if err != nil {
+			return nil, errors.Wrap(err, "cookie.NewCookieClient()")
+		}
+		clients = append(clients, client)
+	}
+
+	return &authCookies{pending: clients[0], invitation: clients[1], trusted: clients[2]}, nil
 }
 
 // SetSignInPolicy sets the application's sign-in rule: asked once a sign-in's user is
@@ -491,10 +545,11 @@ func (a *Auth[S, U, Tx]) Logout() http.HandlerFunc {
 
 // StartSession restores or initializes the session. It also makes the browser's
 // pending identity, if any, available to the Pending handlers and the AuthAPI pending
-// methods.
+// methods, and the invitation and the trusted device the browser carries to the
+// sign-in.
 func (a *Auth[S, U, Tx]) StartSession(next http.Handler) http.Handler {
 	return a.serving(a.baseSession.StartSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := a.withInvitationCookie(a.withPendingCookie(r), r)
+		ctx := a.withTrustedDeviceCookie(a.withInvitationCookie(a.withPendingCookie(r), r), r)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})))
 }
@@ -606,12 +661,65 @@ type PendingHandlers struct {
 	status              http.HandlerFunc
 	confirmWithPassword http.HandlerFunc
 	cancel              http.HandlerFunc
+	sendCode            http.HandlerFunc
+	verifyCode          http.HandlerFunc
+	enrollEmail         http.HandlerFunc
+	requireMail         func(group string)
 }
 
-// Status returns {"reason", "email", "expiresAt", "returnUrl"} for the current pending
-// identity. It answers 404 when there is none, and 401 with {"message", "code":
+// Status returns {"reason", "email", "expiresAt", "returnUrl"[, "factors"]} for the
+// current pending identity, and for one that waits for MFA and may take the library's
+// email code, the code's state under "emailCode": the masked address the code goes to
+// ("codeEmail"), whether one is standing ("codeSent", "codeExpiresAt") and whether
+// the user must first give an address ("enrollEmail"); see "The second factor" in the
+// README. It answers 404 when there is none, and 401 with {"message", "code":
 // "pending_expired"} when it has expired.
 func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
+
+// SendCode mails the pending identity's user a one-time code for the second factor,
+// to the address the user holds, and answers {"codeEmail", "codeSent",
+// "codeExpiresAt"}: the masked address and when the code stops being accepted. A code
+// already standing is replaced. It answers 409 when the pending identity does not
+// wait for MFA, when the sign-in policy does not accept the email code, or when the
+// user holds no address (the page then asks for one and posts it to EnrollEmail());
+// an address sent three codes within fifteen minutes is refused with
+// too_many_attempts and the wait. Route it behind StartSession and
+// ValidateXSRFToken; it panics at wiring on an Auth without mail.
+func (h *PendingHandlers) SendCode() http.HandlerFunc {
+	h.requireMail("Pending().SendCode()")
+
+	return h.sendCode
+}
+
+// VerifyCode accepts {"code", "rememberDevice"} and completes the pending identity
+// when code is the one sent: the session starts under a new ID, recording the
+// sign-in's events and an email-code event, and the address the code went to is
+// written on the user verified when it was not. With rememberDevice the browser is
+// remembered as a trusted device of the user for the trusted device period, so its
+// next sign-ins skip the factor. It answers as the password login does:
+// {"mfaIsRequired": false}, or the policy's next wait. A wrong code is 401 with
+// {"code": "invalid_code"} and the code stands with one fewer attempt; a code entered
+// while none stands, because none was sent or the one sent expired, was used or took
+// its last attempt, is 401 with {"code": "code_expired"}, and the page asks for a new
+// one. Route it as SendCode.
+func (h *PendingHandlers) VerifyCode() http.HandlerFunc {
+	h.requireMail("Pending().VerifyCode()")
+
+	return h.verifyCode
+}
+
+// EnrollEmail accepts {"email"} from a pending identity whose user holds no address,
+// and mails that address the code as SendCode does; the address is written on the
+// user, verified, when the code is entered. It answers as SendCode does, and 409 when
+// the user already holds an address: the code goes there, and an administrator
+// changes it. An address another account holds is answered as sent and told so by
+// mail to that address, as the add-address step does, so the screen reveals nothing.
+// Route it as SendCode.
+func (h *PendingHandlers) EnrollEmail() http.HandlerFunc {
+	h.requireMail("Pending().EnrollEmail()")
+
+	return h.enrollEmail
+}
 
 // ConfirmWithPassword accepts {"password"}. On success it links the pending identity to
 // its user and starts the session. It answers {"mfaIsRequired": bool}. When the
@@ -629,6 +737,10 @@ func (a *Auth[S, U, Tx]) Pending() *PendingHandlers {
 		status:              a.serving(a.pendingStatus()),
 		confirmWithPassword: a.serving(a.pendingConfirm()),
 		cancel:              a.serving(a.pendingCancel()),
+		sendCode:            a.serving(a.pendingSendCode()),
+		verifyCode:          a.serving(a.pendingVerifyCode()),
+		enrollEmail:         a.serving(a.pendingEnrollEmail()),
+		requireMail:         a.requireMail,
 	}
 }
 

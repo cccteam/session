@@ -33,12 +33,18 @@ type WorkspaceSet struct {
 	named        []namedWorkspace
 	anyWorkspace bool
 	anyAccount   bool
+	// attestsOpen records Attesting() called on a set with an open entry, which
+	// validate refuses: an open entry admits organizations the application does not
+	// administer.
+	attestsOpen bool
 }
 
-// namedWorkspace is one Workspace the application names, with the domains it owns.
+// namedWorkspace is one Workspace the application names, with the domains it owns,
+// and whether the application declares it as enforcing a second factor.
 type namedWorkspace struct {
 	name    string
 	domains []string
+	attests bool
 }
 
 // Workspace is one Google Workspace organization: name is the application's own name
@@ -63,9 +69,30 @@ func Workspaces(sets ...WorkspaceSet) WorkspaceSet {
 		union.named = append(union.named, s.named...)
 		union.anyWorkspace = union.anyWorkspace || s.anyWorkspace
 		union.anyAccount = union.anyAccount || s.anyAccount
+		union.attestsOpen = union.attestsOpen || s.attestsOpen
 	}
 
 	return union
+}
+
+// Attesting declares that the Workspaces named in the set enforce a second factor at
+// every sign-in, which the application vouches for because it administers them (the
+// Workspace's 2-Step Verification enforcement): a sign-in through one of them carries
+// the attestation by declaration (sessioninfo.AttestedByDeclaration), recorded as the
+// session's attested-by-declaration event, which satisfies the sign-in policy's
+// RequireMFA without a code. Google puts no evidence of a second factor in its tokens,
+// so the declaration is the only way a Google sign-in attests. It is for named
+// Workspaces only: AnyWorkspace and AnyGoogleAccount admit organizations the
+// application does not administer, and a set holding either is refused at
+// registration; name the administered Workspace beside the open entry instead,
+// google.Workspaces(google.Workspace("ccc", "example.com").Attesting(), google.AnyGoogleAccount()).
+func (s WorkspaceSet) Attesting() WorkspaceSet {
+	named := make([]namedWorkspace, len(s.named))
+	for i, w := range s.named {
+		named[i] = namedWorkspace{name: w.name, domains: w.domains, attests: true}
+	}
+
+	return WorkspaceSet{named: named, anyWorkspace: s.anyWorkspace, anyAccount: s.anyAccount, attestsOpen: s.attestsOpen || s.open()}
 }
 
 // AnyWorkspace admits an account of any Google Workspace organization: a token with any
@@ -96,6 +123,10 @@ func (s WorkspaceSet) validate() error {
 	if len(s.named) == 0 && !s.anyWorkspace && !s.anyAccount {
 		return errors.New("Workspaces is required: google.Workspace(name, domains...) for one Workspace, google.Workspaces(...) for several, " +
 			"google.AnyWorkspace() for any Workspace account, google.AnyGoogleAccount() for any Google account")
+	}
+	if s.attestsOpen {
+		return errors.New("Workspaces: Attesting() declares the Workspaces the application administers; any Workspace and any Google account admit organizations it does not, " +
+			"so name the administered Workspace beside the open entry: google.Workspaces(google.Workspace(name, domains...).Attesting(), google.AnyGoogleAccount())")
 	}
 	names := map[string]bool{}
 	domains := map[string]string{}
@@ -157,23 +188,32 @@ func (s WorkspaceSet) one() (namedWorkspace, bool) {
 // under AnyGoogleAccount. Domain names are compared without regard to case. An account
 // outside a Workspace carries no hd claim and reaches AnyGoogleAccount only.
 func (s WorkspaceSet) connectionFor(hd string) (string, bool) {
+	connection, _, ok := s.entryFor(hd)
+
+	return connection, ok
+}
+
+// entryFor is connectionFor with whether the entry that admits the account is a
+// Workspace declared Attesting(): a named Workspace the application administers. The
+// open entries never attest.
+func (s WorkspaceSet) entryFor(hd string) (connection string, attests, ok bool) {
 	if hd != "" {
 		for _, w := range s.named {
 			for _, d := range w.domains {
 				if strings.EqualFold(hd, d) {
-					return w.name, true
+					return w.name, w.attests, true
 				}
 			}
 		}
 		if s.anyWorkspace {
-			return strings.ToLower(hd), true
+			return strings.ToLower(hd), false, true
 		}
 	}
 	if s.anyAccount {
-		return AnyAccountConnection, true
+		return AnyAccountConnection, false, true
 	}
 
-	return "", false
+	return "", false, false
 }
 
 // admitsAddress reports whether the set could admit an account whose email address is

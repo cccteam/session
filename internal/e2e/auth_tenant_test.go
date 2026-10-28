@@ -355,7 +355,9 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	b := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "pat@lakeside.edu")
-	assertEventsSeen(t, v, "azure:"+azureTenant)
+	// The fake Entra asserts mfa in every token: the session records the evidence
+	// after the sign-in's own event.
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
 
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
 }

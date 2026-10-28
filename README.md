@@ -16,8 +16,9 @@ The Session repository is designed to handle the management of user sessions, in
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
+- `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted by whoever signs in or signs up at it; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
-- `Mail`: one interface the invitation, verification and sign-up flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
+- `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -51,7 +52,8 @@ executes DML on Spanner.
 (a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, a user's `CreatedAt` and
 `LastSignInAt`, an auth event's `OccurredAt`, an impersonation record's `StartedAt` and
 `EndedAt`, an identity link's `CreatedAt` and `LastUsedAt`, a pending sign-in's
-`CreatedAt` and `ConsumedAt`, the OIDC user anchor's `CreatedAt` and `UpdatedAt`) is
+`CreatedAt` and `ConsumedAt`, a factor code's and a trusted device's time columns, the
+OIDC user anchor's `CreatedAt` and `UpdatedAt`) is
 written with the database's time, never
 the application's: Spanner's commit timestamp, PostgreSQL's transaction time (`now()`).
 A host clock that runs ahead of the database's therefore cannot be refused, and the
@@ -76,8 +78,9 @@ the username, the password hash and `Disabled`, the password change mark
 "Users and the forced password change"). The shipped `000002_SessionUsers` migration
 creates them; a users table named per group takes the same DDL under its name. The
 auth set adds the email address columns `Email`, `NormalizedEmail` and
-`EmailVerifiedAt` (`SessionUserEmail`) and the mail links table (`SessionMailLinks`);
-see "Users and their email address" for the two shapes the address columns take.
+`EmailVerifiedAt` (`SessionUserEmail`), the mail links table (`SessionMailLinks`) and
+the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`); see "Users
+and their email address" for the two shapes the address columns take.
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -131,11 +134,12 @@ first sign-in (see "Storage and schema").
 
 ### Storage and schema
 
-Each auth group owns eight tables: sessions and users (the base migrations,
-`schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts and
-mail links (the auth migrations, `schema/*/auth/migrations`, which also add `UserId`,
-`AuthenticatedAt`, `ProviderSessionId` and `ProviderSessionIssuer` to the sessions
-table and the email address columns to the users table), and impersonations
+Each auth group owns ten tables: sessions and users (the base migrations,
+`schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts,
+mail links, factor codes and trusted devices (the auth migrations,
+`schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
+`ProviderSessionId` and `ProviderSessionIssuer` to the sessions table and the email
+address columns to the users table), and impersonations
 (`schema/*/impersonation/migrations`) if you use it. Which set to apply depends on
 where the group starts:
 
@@ -169,7 +173,8 @@ long as their session rows.
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
 `WithIdentitiesTableName`, `WithPendingSignInsTableName`,
-`WithSignInAttemptsTableName` and `WithMailLinksTableName` on `NewAuth`, and
+`WithSignInAttemptsTableName`, `WithMailLinksTableName`, `WithFactorCodesTableName`
+and `WithTrustedDevicesTableName` on `NewAuth`, and
 `NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. A table name
 must be a plain identifier (a letter or underscore, then up to 127 letters, digits or
 underscores): the store refuses any other, and the constructor reports it under the
@@ -195,10 +200,13 @@ DML what a later rule must read.
   answers for every method, and for a session the application starts for a user it
   authenticated itself (`StartAuthenticatedSession`), once the user is known, with
   `signin.Allow()`, `signin.Deny(code)` or
-  `signin.RequireMFA(factors...)`. The factors are the methods the application's MFA
-  step may record when it completes the sign-in (`"email-otp"`, `"totp"`): the pending
-  status and the `PendingHook` report them, and `CompletePending` refuses any other;
-  none accepts any. An application whose users belong to tenants sets the library's
+  `signin.RequireMFA(factors...)`. The factors are the methods the step may record
+  when it completes the sign-in: the library's own, `sessioninfo.MethodEmailCode`, or
+  the application's (`"totp"`); the pending status and the `PendingHook` report them,
+  and `CompletePending` refuses any other; none accepts any. A `RequireMFA` is
+  satisfied without a step by a second factor the sign-in already carries: the
+  attestation its connection makes, or a trusted device of the user; see "The second
+  factor". An application whose users belong to tenants sets the library's
   **tenant policy** (`signin.TenantPolicy`), with its own rule chained after it when it
   has one; see "The tenant policy".
 - The **account rules** decide an identity's first sign-in: an identity that is not
@@ -508,7 +516,10 @@ r.Get("/api/user/methods", auth.Methods(&session.MethodList{ // what the login p
         {Name: "password", Label: "Password", Path: "/api/user/session"},
         {Name: "workos", Label: "Single sign-on", Path: "/api/user/sso/login"},
     },
-    Pending:    session.PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
+    Pending: session.PendingRoutes{
+        Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel",
+        SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
+    },
     Invitation: session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
     Email:      session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
     SignUp:     session.SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
@@ -518,7 +529,10 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/session", password.Login())
     r.Post("/api/user/pending/confirm", auth.Pending().ConfirmWithPassword())
     r.Post("/api/user/pending/cancel", auth.Pending().Cancel())
-    r.Post("/api/user/mfa", app.CompleteMFA) // checks the app's code, then auth.API().CompletePending
+    r.Post("/api/user/pending/code", auth.Pending().SendCode())          // mails the sign-in code
+    r.Post("/api/user/pending/code/verify", auth.Pending().VerifyCode()) // {"code", "rememberDevice"}
+    r.Post("/api/user/pending/email", auth.Pending().EnrollEmail())      // {"email"}: a user without an address gives one
+    r.Post("/api/user/mfa", app.CompleteMFA) // an MFA step of the application's own: checks its code, then auth.API().CompletePending
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
@@ -543,8 +557,10 @@ r.Group(func(r chi.Router) {
 ```
 
 The invitation, email and sign-up handlers are described under "Invitations", "Users
-and their email address" and "Sign-up" below; the groups that send mail (`Email()`,
-`SignUp()`) panic at wiring on an `Auth` without `WithMail`.
+and their email address" and "Sign-up" below, and the sign-in code's under "The second
+factor"; the groups that send mail (`Email()`, `SignUp()`, the pending handlers
+`SendCode()`, `VerifyCode()` and `EnrollEmail()`) panic at wiring on an `Auth` without
+`WithMail`.
 The machine outlet, the token page and the device flow are described under "Machine
 outlets and bearer tokens" below.
 
@@ -571,7 +587,8 @@ the password method is listed.
     {"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/session"},
     {"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/api/user/sso/login"}
   ],
-  "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
+  "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel",
+              "sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email"},
   "changePassword": "/api/user/password",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
@@ -591,7 +608,10 @@ the password method is listed.
 - `label` is the application's wording for the method.
 - `path`, the pending paths and `changePassword` are the application's: the list is
   written where the routes are wired, so the paths the page is told are the paths the
-  router serves. A registered method the list leaves out is not offered.
+  router serves. A registered method the list leaves out is not offered. The pending
+  block's `sendCode`, `verifyCode` and `enrollEmail` are the sign-in code's routes,
+  named together or not at all (`PendingRoutes`); a page told them runs the library's
+  second factor (see "The second factor") when a sign-in waits for it.
 - `changePassword` is the path of the password method's `ChangeUserPassword` handler,
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
@@ -650,16 +670,20 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   writes the `Location` header with exactly that value. Percent-encode a non-ASCII path
   before passing it. A WorkOS `Login()` without `organization` is also 400, and its callback refuses a profile from another organization than the login requested (`organization_mismatch`).
 - `pending` is the login page's routing marker. The page reads the pending identity from
-  `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"]}`, `404` when
+  `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"][, "emailCode"]}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
+  `emailCode` is the sign-in code's state, present for an MFA wait that may take it on
+  an `Auth` that sends mail (see "The second factor").
 - **Confirmation** (`reason` `confirmation`): the page asks for the existing user's
   password and posts `{"password"}` to `Pending().ConfirmWithPassword()`: `200
   {"mfaIsRequired": false}` (linked, the hook called, signed in; go to `returnUrl`),
   `200 {"mfaIsRequired": true}` (linked, but the policy wants MFA: the pending identity
   remains with reason `mfa`), `401` for a wrong password (the pending identity remains),
   `409` when the pending identity waits for MFA instead.
-- **MFA** (`reason` `mfa`): the application runs its own step and calls
-  `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "email-otp"})`, which
+- **MFA** (`reason` `mfa`): the page runs the library's step, the sign-in code
+  (`Pending().SendCode()`, `VerifyCode()`; see "The second factor"), or the
+  application runs its own and calls
+  `auth.API().CompletePending(ctx, w, sessioninfo.AuthEvent{Method: "totp"})`, which
   starts the session (the user is resolved afresh and must be the one it waited on, and
   the policy decides again with the step's events on the request, so a tenant disabled
   or switched to require SSO during the wait is honored: a `RequireMFA` the events
@@ -714,6 +738,89 @@ and the other answers `pending_expired`. No session row exists until the sign-in
 completes, so nothing of a pending identity ever validates as a session. Expired and
 consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 
+### The second factor
+
+Every session carries a second factor when the sign-in policy asks for one: the policy
+answers `signin.RequireMFA(sessioninfo.MethodEmailCode)` for every sign-in (or
+`RequireMFA()`, which accepts any factor), and the library satisfies it one of three
+ways, in this order, before it holds the sign-in. The requirement is the policy's, so
+an application that wants no second factor sets none, and one whose rule varies by
+person or tenant writes the rule; what a connection can vouch for is the
+registration's, below, since it is a property of the sign-in method, not of the tenant
+the person reaches.
+
+1. **The connection attests.** A sign-in's connection says what it can about a second
+   factor (`sessioninfo.Identity.Attestation`), and the Auth records it as the
+   session's second auth event, right after the sign-in's, under the same connection:
+   - **By evidence**: the token's `amr` claim names `mfa` (RFC 8176), which Microsoft
+     Entra asserts after its own multifactor authentication. The event is
+     `attested-by-evidence`, with the `amr` values. Google puts no such evidence in its
+     tokens.
+   - **By declaration**: the registration declares the directory as one that enforces
+     a second factor, because the application administers it and knows it does (a
+     Workspace's 2-Step Verification enforcement, a tenant's Conditional Access policy):
+     `google.Workspace("ccc", "example.com").Attesting()`,
+     `azure.Tenant(id).Attesting()`. The event is `attested-by-declaration`. The
+     declaration is for named Workspaces and listed tenants only; `AnyWorkspace`,
+     `AnyGoogleAccount`, `AnyTenant` and `PersonalAccounts` admit organizations the
+     application does not administer and are refused with it, so name the
+     administered one beside the open entry:
+     `google.Workspaces(google.Workspace("ccc", "example.com").Attesting(), google.AnyGoogleAccount())`.
+   An attested sign-in satisfies any `RequireMFA`, the application's own factors
+   included, and is never held. A password never attests.
+2. **The browser is a trusted device.** A person who entered the code may ask for the
+   browser to be remembered (`rememberDevice`): the Auth keeps a row in the trusted
+   devices table with the hash of an opaque token, and the browser the encrypted
+   `auth-trusted` cookie with the token, for `WithTrustedDevicePeriod` (30 days). A
+   sign-in from that browser by that user satisfies a `RequireMFA` that accepts the
+   email code (no factor named, or `MethodEmailCode` among them) and records a
+   `trusted-device` event in the step's place; a `RequireMFA` for the application's
+   own factors alone is the application's step to run. A cookie naming a dead device,
+   or another user's, is no device, and is deleted when the sign-in is held.
+3. **The sign-in code.** Otherwise the sign-in waits as a pending identity with reason
+   `mfa` and the policy's factors, and the login page runs the step when the factors
+   include the email code: `Pending().Status()` reports `emailCode` with the masked
+   address the code goes to (`codeEmail`, `p•••@example.com`), whether a code stands
+   (`codeSent`, `codeExpiresAt`) and whether the user must first give an address
+   (`enrollEmail`); the page posts to `Pending().SendCode()`, which mails the user a
+   six-digit code good for `WithEmailCodeTimeout` (10 minutes), then
+   `{"code", "rememberDevice"}` to `Pending().VerifyCode()`, which completes the
+   sign-in as `CompletePending` does with an `email-code` event, in a new session. A
+   wrong code is `401 {"code": "invalid_code"}` and the code stands with one fewer
+   attempt; the fifth wrong code kills it, as its expiry does, and a code entered while
+   none stands (none sent, or the one sent died) is `401 {"code": "code_expired"}`, so
+   the page asks for a new one, which replaces the old. An address is sent three codes
+   within fifteen minutes and the fourth is refused with `too_many_attempts` and the
+   wait, as a link is. The code goes to the address the user holds, verified or not:
+   an address an operator entered is proven by the code as a link would prove it, and
+   the user holds it verified once the code is entered. A user who holds no address
+   gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
+   the user verified when its code is entered; an address another account holds is
+   answered as sent and told so by mail to that address, as the add-address step does,
+   so the screen reveals nothing. The `AuthAPI` offers the same as `SendEmailCode`,
+   `EnrollEmail` and `VerifyEmailCode`.
+
+A code mailed to the mailbox of the account that just signed in adds little against a
+stolen password that opens that mailbox too: for a directory, the attestation is the
+answer, and the code is for the password method and for directories the application
+neither administers nor gets evidence from.
+
+**The administrator's reset.** `AuthAPI.ResetFactors(ctx, userID)` forgets every
+browser the person asked to be remembered, so their next sign-in from any of them asks
+for the factor; a signed-in person forgets their own browser with
+`ForgetTrustedDevice`. The email code itself has nothing to reset: a person who lost
+their mailbox is given a new address by an operator (`SetSessionUserEmail`),
+unverified, and the next code proves it. Recovery codes are not offered. Live sessions
+are not touched by the reset; `DestroyUserSessions` ends them.
+
+**What the tables hold.** A code is a row of `SessionFactorCodes`: the pending sign-in
+it was sent for, the address, the code's hash salted by the pending sign-in, the wrong
+attempts, and when it was created, expires and was consumed; one code stands for a
+pending sign-in at a time, and the codes go with the pending sign-in. A trusted device
+is a row of `SessionTrustedDevices`: the user, the token's hash, and when it was
+created, expires, was last used and revoked; the devices go with the user. Expired and
+consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
+
 ### Every session
 
 - **The session ID is regenerated** at every sign-in, confirmation and MFA completion:
@@ -729,8 +836,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   provisioned included) and the application's rows, and `req.User` says how the
   user was found. A pending identity has no session row, so it has no custom data.
 - **Each session records how it was authenticated** in `SessionAuthEvents`: the sign-in
-  method (with its connection and the IdP's `amr`), then any `link-confirmation` and MFA
-  steps. `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
+  method (with its connection and the IdP's `amr`), the attestation its connection
+  makes (`attested-by-evidence`, `attested-by-declaration`), then any
+  `link-confirmation`, `trusted-device` and MFA steps (`email-code`, or the
+  application's own). `AuthAPI.StartAuthenticatedSession(ctx, w, userID, events)` starts a session the
   application authenticated itself, recording its events; it is decided like a login:
   the sign-in policy answers, a Deny refuses it and a RequireMFA holds it as a pending
   identity. No session start skips the policy; a support session is an impersonation.
@@ -1194,9 +1303,10 @@ when they want it gone there too.
 
 ## Sending mail
 
-The library sends mail for the flows that need a link in someone's mailbox: the
-invitation a tenant's administrator sends to an address, the link that verifies an
-address a person adds or changes, and the link a password sign-up starts from. It writes
+The library sends mail for the flows that need a link or a code in someone's mailbox:
+the invitation a tenant's administrator sends to an address, the link that verifies an
+address a person adds or changes, the link a password sign-up starts from, and the
+sign-in code of the second factor. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),
@@ -1409,6 +1519,11 @@ standard rules store as the tenant key of the links they make
 - **Personal accounts**, `azure.PersonalAccounts()`: Microsoft personal accounts
   (outlook.com, hotmail.com, Xbox), which Microsoft issues from one consumer tenant
   (`azure.ConsumerTenantID`), alone or beside any tenant or listed tenants.
+- **A tenant that attests**, `azure.Tenant(id).Attesting()`: the application
+  administers the tenant and declares that it enforces a second factor at every
+  sign-in, so a sign-in through it carries the attestation by declaration and is never
+  held for the library's code; a token whose `amr` names `mfa` attests by evidence
+  under every shape. The declaration is for listed tenants; see "The second factor".
 
 Several tenants, any tenant and personal accounts are served through Microsoft's shared
 endpoints (`organizations`, `consumers` or `common`, as the shape calls for), whose
@@ -1496,6 +1611,13 @@ connection written on the identity link:
   `google.AnyAccountConnection`. The OAuth client's consent screen must be *External*
   and published for accounts outside your own Workspace to reach the callback;
   *Internal* restricts it to your Workspace.
+- **A Workspace that attests**, `google.Workspace("ccc", "example.com").Attesting()`:
+  the application administers the Workspace and declares that it enforces a second
+  factor at every sign-in (2-Step Verification enforcement), so a sign-in through it
+  carries the attestation by declaration and is never held for the library's code.
+  Google puts no evidence of a second factor in its tokens, so the declaration is the
+  only way a Google sign-in attests; it is for named Workspaces, and the one to name
+  beside an open entry. See "The second factor".
 
 A first sign-in through an open entry (any Workspace, any Google account) cannot take
 members of the directory, which would sign up the world: the registration takes
@@ -1647,7 +1769,9 @@ table is the wire contract:
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
-| `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
+| `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own, or a fourth sign-in code or link to one address within fifteen minutes; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
+| `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |
+| `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used or took its last attempt; the page asks for a new one. |
 
 **The resolver rule.** A custom session data resolver's error decides the code by its
 shape. A `sessioninfo.LoginRefusal` (`sessioninfo.NewLoginRefusal(code, cause)`) answers

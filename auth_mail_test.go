@@ -247,6 +247,22 @@ Anyone who opens the link can create the account in your place. Don't forward it
 `},
 		},
 		{
+			name: "a sign-in code: the code spaced for reading, how long it is good for, then what to do if no sign-in was started and to keep the code",
+			got:  m.codeMessage("pat@lakeside.edu", "483920", 10*time.Minute),
+			want: mail.Message{To: "pat@lakeside.edu", Subject: "Your Harbor sign-in code is 483 920", Text: `Your sign-in code for Harbor is:
+
+483 920
+
+Enter it on the sign-in page. The code is good for 10 minutes.
+
+Didn't do this?
+If you did not start a sign-in, ignore this message and change your password: someone else has it.
+
+Keep the code to yourself
+Nobody from Harbor will ask you for it. Don't share it.
+`},
+		},
+		{
 			name: "an account that already exists: no link, sign in instead, and what to do if it was not them",
 			got:  m.accountExistsMessage("pat@lakeside.edu"),
 			want: mail.Message{To: "pat@lakeside.edu", Subject: "You already have a Harbor account", Text: `You asked to create a Harbor account with this address, but there is already an account for it.

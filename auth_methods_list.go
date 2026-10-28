@@ -79,11 +79,16 @@ type AdvertisedMethod struct {
 }
 
 // PendingRoutes are the paths of the pending sign-in handlers, as a MethodList names
-// them.
+// them: Status, Confirm and Cancel together, and the email code's SendCode, VerifyCode
+// and EnrollEmail together or not at all, which the page needs when a sign-in waits
+// for the library's second factor (see "The second factor" in the README).
 type PendingRoutes struct {
-	Status  string
-	Confirm string
-	Cancel  string
+	Status      string
+	Confirm     string
+	Cancel      string
+	SendCode    string
+	VerifyCode  string
+	EnrollEmail string
 }
 
 // methodsAnswer is what Methods writes.
@@ -137,9 +142,12 @@ type signUpAnswer struct {
 
 // pendingAnswer is the pending block of a methods answer.
 type pendingAnswer struct {
-	Status  string `json:"status"`
-	Confirm string `json:"confirm"`
-	Cancel  string `json:"cancel"`
+	Status      string `json:"status"`
+	Confirm     string `json:"confirm"`
+	Cancel      string `json:"cancel"`
+	SendCode    string `json:"sendCode,omitempty"`
+	VerifyCode  string `json:"verifyCode,omitempty"`
+	EnrollEmail string `json:"enrollEmail,omitempty"`
 }
 
 // Methods answers the login page with the sign-in methods it offers: for each listed
@@ -274,7 +282,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		}
 	}
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
-	answer.Pending = pendingAnswerOf(list.Pending)
+	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
@@ -348,8 +356,8 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 }
 
 // pendingAnswerOf validates the pending routes: none, or all three as canonical paths.
-func pendingAnswerOf(p PendingRoutes) *pendingAnswer {
-	if p == (PendingRoutes{}) {
+func pendingAnswerOf(p *PendingRoutes) *pendingAnswer {
+	if *p == (PendingRoutes{}) {
 		return nil
 	}
 	for _, path := range []string{p.Status, p.Confirm, p.Cancel} {
@@ -357,8 +365,16 @@ func pendingAnswerOf(p PendingRoutes) *pendingAnswer {
 			panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name the status, confirm and cancel paths together, each a canonical path in the application, or none", p))
 		}
 	}
+	if p.SendCode != "" || p.VerifyCode != "" || p.EnrollEmail != "" {
+		for _, path := range []string{p.SendCode, p.VerifyCode, p.EnrollEmail} {
+			if !advertisedPath(path) {
+				panic(fmt.Sprintf("session: Methods is given the pending routes %+v: name the send-code, verify-code and enroll-email paths together, "+
+					"each a canonical path in the application, or none of the three", *p))
+			}
+		}
+	}
 
-	return &pendingAnswer{Status: p.Status, Confirm: p.Confirm, Cancel: p.Cancel}
+	return &pendingAnswer{Status: p.Status, Confirm: p.Confirm, Cancel: p.Cancel, SendCode: p.SendCode, VerifyCode: p.VerifyCode, EnrollEmail: p.EnrollEmail}
 }
 
 // advertisedPath reports whether p is a path the page can be sent to: a canonical path

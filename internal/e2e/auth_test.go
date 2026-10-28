@@ -19,6 +19,7 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/workos"
+	"github.com/cccteam/session/mail"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -203,6 +204,8 @@ type authApp[Tx any] struct {
 	server *httptest.Server
 	api    *session.AuthAPI[appSessionData, appUserData, Tx]
 	hooks  *hooks[Tx]
+	// mail keeps what the Auth sent, for the scenarios that read a code out of it.
+	mail *mail.Recorder
 }
 
 // withCustomData attaches the application's custom session and user data to store
@@ -241,6 +244,7 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		r.Use(auth.ValidateXSRFToken)
 		r.Post("/pending/confirm", auth.Pending().ConfirmWithPassword())
 		r.Post("/pending/cancel", auth.Pending().Cancel())
+		routesWithMail(r, auth)
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.
 		r.Post("/mfa", func(w http.ResponseWriter, r *http.Request) {
@@ -293,6 +297,20 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 	})
 }
 
+// routesWithMail mounts the pending handlers that send mail, the library's second
+// factor, on an Auth given mail; an Auth without mail offers none of them.
+func routesWithMail[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserData, Tx]) {
+	defer func() {
+		// The handlers panic at wiring on an Auth without mail, as the README says;
+		// such an Auth mounts none of them.
+		_ = recover()
+	}()
+	sendCode := auth.Pending().SendCode()
+	r.Post("/pending/code/send", sendCode)
+	r.Post("/pending/code/verify", auth.Pending().VerifyCode())
+	r.Post("/pending/email", auth.Pending().EnrollEmail())
+}
+
 // sessionView is GET /whoami's answer: the validated session as the application sees
 // it.
 type sessionView struct {
@@ -326,8 +344,10 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 
 	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
+	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
+		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -351,7 +371,10 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 				{Name: "password", Label: "Password", Path: "/login"},
 				{Name: "workos", Label: "Single sign-on", Path: "/sso/login"},
 			},
-			Pending:        session.PendingRoutes{Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel"},
+			Pending: session.PendingRoutes{
+				Status: "/pending", Confirm: "/pending/confirm", Cancel: "/pending/cancel",
+				SendCode: "/pending/code/send", VerifyCode: "/pending/code/verify", EnrollEmail: "/pending/email",
+			},
 			ChangePassword: "/password",
 		}))
 	})
@@ -359,7 +382,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
-	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h}
+	return &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder}
 }
 
 // browser is a user agent of an Auth app.
@@ -680,6 +703,18 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamConfirmThenMFA[Tx],
 		},
 		{
+			name: "a policy that requires the email code holds the password sign-in; the code mailed to the user's address completes it, a wrong code counts, a remembered browser skips the factor next time until the reset, and a copied cookie completes nothing",
+			run:  seamEmailCode[Tx],
+		},
+		{
+			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified once the code is entered",
+			run:  seamEmailCodeEnrollment[Tx],
+		},
+		{
+			name: "five wrong codes kill the code sent, a new one is sent in its place, and a code is refused where the policy accepts another factor",
+			run:  seamEmailCodeLimits[Tx],
+		},
+		{
 			name: "a refused WorkOS sign-in returns to the login page with its code only and leaves no session or pending identity",
 			run:  seamWorkOSRefused[Tx],
 		},
@@ -759,7 +794,10 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 			map[string]any{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/login"},
 			map[string]any{"name": "workos", "method": "workos", "kind": "redirect", "label": "Single sign-on", "path": "/sso/login"},
 		},
-		"pending":        map[string]any{"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel"},
+		"pending": map[string]any{
+			"status": "/pending", "confirm": "/pending/confirm", "cancel": "/pending/cancel",
+			"sendCode": "/pending/code/send", "verifyCode": "/pending/code/verify", "enrollEmail": "/pending/email",
+		},
 		"changePassword": "/password",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
