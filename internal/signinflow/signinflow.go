@@ -99,6 +99,17 @@ type InvitationAcceptor func(ctx context.Context, userID ccc.UUID, username stri
 // pre-created and links.
 type DirectorySeater func(ctx context.Context, userID ccc.UUID, username string, seats []signin.DirectorySeat) error
 
+// TrustedDeviceCheck reports whether the browser signing in is a trusted device of
+// userID: a device the person asked to be remembered after a second factor, named by
+// the trusted device cookie and live in the trusted devices table. The Auth supplies
+// it with the cookie's token on the context, and it answers at once, without a read,
+// for a browser that carries none. It is asked once the user is known and before the
+// decision's transaction opens, since it reads the store on its own (Spanner refuses
+// a read inside another transaction), and its yes records a trusted-device event on
+// the session in the step's place when the sign-in policy holds the sign-in for MFA
+// and admits a trusted device.
+type TrustedDeviceCheck func(ctx context.Context, userID ccc.UUID) (bool, error)
+
 // Rules are the application's rules a sign-in runs under.
 type Rules[Tx any] struct {
 	// Account is the registration's own account rule, nil for none, and Standard the
@@ -116,6 +127,9 @@ type Rules[Tx any] struct {
 	Directories signin.DirectoryReader[Tx]
 	Roles       signin.UserRoleManager
 	Seat        DirectorySeater
+	// TrustedDevice reports whether the browser is a trusted device of the user, nil
+	// for none; see decideSignIn.
+	TrustedDevice TrustedDeviceCheck
 }
 
 // SignIn establishes session id for a request that carries a verified identity, in two
@@ -205,7 +219,26 @@ func SignIn[Tx any](
 		}
 	}
 
-	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy)
+	trusted, err := trustedDevice(ctx, resolved.UserID, rules.TrustedDevice)
+	if err != nil {
+		return err
+	}
+
+	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted)
+}
+
+// trustedDevice asks check, nil for none, whether the browser is a trusted device of
+// userID, outside any transaction.
+func trustedDevice(ctx context.Context, userID ccc.UUID, check TrustedDeviceCheck) (bool, error) {
+	if check == nil {
+		return false, nil
+	}
+	ok, err := check(ctx, userID)
+	if err != nil {
+		return false, errors.Wrap(err, "TrustedDeviceCheck()")
+	}
+
+	return ok, nil
 }
 
 // errInvitationDead ends the resolution transaction of a sign-in that its invitation
@@ -832,7 +865,7 @@ func invitedAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessi
 // A refusal or an MFA wait is returned after the policy's own writes commit.
 func decideAndInsert[Tx any](
 	ctx context.Context, d Driver[Tx], id ccc.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest,
-	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx],
+	source sessioninfo.UserSource, tenant string, policy signin.Policy[Tx], trusted bool,
 ) error {
 	base := *req
 	var v verdict
@@ -850,7 +883,7 @@ func decideAndInsert[Tx any](
 		if policy != nil {
 			decide = func(ctx context.Context) (*signin.Decision, error) { return policy(ctx, tx, req) }
 		}
-		v, err = decideSignIn(ctx, req, user, decide)
+		v, err = decideSignIn(ctx, req, user, decide, trusted)
 		if err != nil {
 			return err
 		}
@@ -890,8 +923,17 @@ func (v verdict) err() error {
 // decide when it is non-nil and the policy applies to req.Reason. The verdict is a
 // refusal, an MFA wait or the go-ahead; the transaction commits on each. err is the
 // policy's error, which rolls the transaction back.
+//
+// A RequireMFA answer is satisfied without a wait by a second factor the sign-in
+// already carries: at an MFA completion, the step's events (completionSatisfies); at
+// any sign-in, an attestation event, the sign-in's connection vouching for a second
+// factor by evidence or by declaration (see sessioninfo.Attestation); and, where the
+// answer admits one (no factor named, or the library's email code among them), a
+// trusted device of the user the browser presents (trusted, checked before the
+// transaction), which records a trusted-device event on the session in the step's
+// place. Otherwise the sign-in waits for the factor.
 func decideSignIn(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error),
+	ctx context.Context, req *sessioninfo.NewSessionRequest, user *dbtype.User, decide func(ctx context.Context) (*signin.Decision, error), trusted bool,
 ) (verdict, error) {
 	if user.Disabled {
 		return verdict{stop: Refusal("", sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled, "User disabled")}, nil
@@ -915,6 +957,14 @@ func decideSignIn(
 		return verdict{}, nil
 	case signin.HoldForMFA:
 		if req.Reason == sessioninfo.ReasonStepUp && completionSatisfies(decision.Factors(), req.AuthEvents) {
+			return verdict{}, nil
+		}
+		if attested(req.AuthEvents) {
+			return verdict{}, nil
+		}
+		if trusted && admitsTrustedDevice(decision.Factors()) {
+			req.AuthEvents = append(dbtype.InitialAuthEvents(req, nil), sessioninfo.AuthEvent{Method: sessioninfo.MethodTrustedDevice})
+
 			return verdict{}, nil
 		}
 		pending := &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: ccc.NullUUIDFromUUID(req.UserID), Username: user.Username, Factors: decision.Factors()}
@@ -970,6 +1020,20 @@ func completionSatisfies(factors []sessioninfo.AuthMethod, events []sessioninfo.
 	}
 
 	return false
+}
+
+// attested reports whether events carry an attestation: the sign-in's connection
+// vouched for a second factor, by evidence or by declaration.
+func attested(events []sessioninfo.AuthEvent) bool {
+	return slices.ContainsFunc(events, func(e sessioninfo.AuthEvent) bool { return e.Method.Attests() })
+}
+
+// admitsTrustedDevice reports whether a RequireMFA answer naming factors is satisfied
+// by a trusted device: when it names no factor, or the library's email code is among
+// them, since a device is trusted after that code. An answer naming the application's
+// own factors only is the application's step to run.
+func admitsTrustedDevice(factors []sessioninfo.AuthMethod) bool {
+	return len(factors) == 0 || slices.Contains(factors, sessioninfo.MethodEmailCode)
 }
 
 // Refusal returns a refused sign-in's error. It carries code (or fallback when code is

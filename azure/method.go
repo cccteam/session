@@ -324,7 +324,7 @@ func method(authn Authenticator, roles *signin.RoleReconciler, authority string,
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
 					Method: sessioninfo.MethodAzure, Connection: id.TenantID, Subject: id.ObjectID, Email: id.Email, Claims: rawClaims, IDPAMR: id.AMR,
-					SignInName: id.PreferredUsername, Guest: id.Guest, Organization: organization,
+					SignInName: id.PreferredUsername, Guest: id.Guest, Organization: organization, Attestation: sessioninfo.AttestationOf(id.AMR, tenants.attests(id.TenantID)),
 				},
 				ReturnURL:         returnURL,
 				ProviderSessionID: id.SessionID,

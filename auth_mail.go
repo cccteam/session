@@ -247,6 +247,34 @@ If you did not ask for an account, ignore this message. Nothing changes.
 	}
 }
 
+// codeMessage is the mail the second factor sends: the one-time code, how long it is
+// good for (lifetime), then what to do if no sign-in was started and a word to keep
+// the code to oneself. The code is spaced in the middle for reading.
+func (m *mailSettings) codeMessage(to, code string, lifetime time.Duration) mail.Message {
+	app := m.settings.Application
+	spaced := code
+	if len(code) == emailCodeLength {
+		spaced = code[:emailCodeLength/2] + " " + code[emailCodeLength/2:]
+	}
+
+	return mail.Message{
+		To:      to,
+		Subject: fmt.Sprintf("Your %s sign-in code is %s", app, spaced),
+		Text: fmt.Sprintf(`Your sign-in code for %s is:
+
+%s
+
+Enter it on the sign-in page. The code is good for %s.
+
+Didn't do this?
+If you did not start a sign-in, ignore this message and change your password: someone else has it.
+
+Keep the code to yourself
+Nobody from %s will ask you for it. Don't share it.
+`, app, spaced, goodFor(lifetime), app),
+	}
+}
+
 // mailOf returns the Auth's mail settings, or an error for an Auth without mail.
 func (a *Auth[S, U, Tx]) mailOf() (*mailSettings, error) {
 	if a.settings.mail == nil {

@@ -289,6 +289,28 @@ type db interface {
 	// RedeemDeviceCode is the client's poll of the device code holding deviceCodeHash: an approved code is consumed once
 	// and access and refresh inserted; otherwise the status says what the client learned. NotFound when there is none.
 	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
+	// SetFactorCodesTableName sets the name of the factor codes table.
+	SetFactorCodesTableName(name string) error
+	// SetTrustedDevicesTableName sets the name of the trusted devices table.
+	SetTrustedDevicesTableName(name string) error
+	// InsertFactorCode consumes the earlier codes of c's pending sign-in that are live at now and inserts c, in one transaction.
+	InsertFactorCode(ctx context.Context, c *dbtype.FactorCode, now time.Time) error
+	// FactorCodeByPending returns the newest code of pendingID that is live at now, or NotFound.
+	FactorCodeByPending(ctx context.Context, pendingID ccc.UUID, now time.Time) (*dbtype.FactorCode, error)
+	// RecordFactorCodeAttempt counts a wrong code against the code id that is live at now and returns the count; NotFound when it is not live.
+	RecordFactorCodeAttempt(ctx context.Context, id ccc.UUID, now time.Time) (int, error)
+	// ConsumeFactorCode marks the live code id consumed at now by a conditional update; NotFound when it is not live.
+	ConsumeFactorCode(ctx context.Context, id ccc.UUID, now time.Time) error
+	// InsertTrustedDevice inserts d.
+	InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error
+	// TrustedDeviceByToken returns the device holding tokenHash that is live at now, or NotFound.
+	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.TrustedDevice, error)
+	// TouchTrustedDevice moves the LastUsedAt of the live device id to the database's time.
+	TouchTrustedDevice(ctx context.Context, id ccc.UUID, now time.Time) error
+	// RevokeTrustedDevice revokes the live device holding tokenHash; NotFound when it is not live.
+	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
+	// RevokeTrustedDevices revokes every device of userID that is not revoked yet.
+	RevokeTrustedDevices(ctx context.Context, userID ccc.UUID) error
 	// SetUsernameIsEmail declares the users table in the shape where the address is the username.
 	SetUsernameIsEmail(same bool)
 	// UsernameIsEmail reports whether the address is the username.

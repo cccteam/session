@@ -233,7 +233,9 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				b := a.browser(t)
 				assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
 				v := b.view(ctx)
-				assertEventsSeen(t, v, "azure:"+azureTenant)
+				// The fake Entra asserts mfa in every token: the session records the
+				// evidence after the sign-in's own event.
+				assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
 				a.hooks.set(func(*hooks[Tx]) { user = ccc.Must(ccc.UUIDFromString(v.UserID)) })
 
 				// Pat has no password, so a Google identity reaches the Azure-provisioned user

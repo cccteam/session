@@ -1369,7 +1369,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := &sessioninfo.Identity{
 						Method: sessioninfo.MethodAzure, Connection: tenantLake, Subject: "oid-1", Email: "pat@lakeside.edu", IDPAMR: []string{"pwd", "mfa"},
-						SignInName: "p.lee@lakeside.edu", Organization: tenantLake,
+						SignInName: "p.lee@lakeside.edu", Organization: tenantLake, Attestation: sessioninfo.AttestedByEvidence,
 					}
 					if diff := cmp.Diff(want, req.Identity, cmpopts.IgnoreFields(sessioninfo.Identity{}, "Claims")); diff != "" || req.Reason != sessioninfo.ReasonLogin || string(req.Claims) != claims || req.ProviderSessionID != "sid-1" || req.ProviderSessionIssuer != entraIssuer(tenantLake) {
 						t.Errorf("SignIn() request = %+v, mismatch (-want +got):\n%s", req, diff)

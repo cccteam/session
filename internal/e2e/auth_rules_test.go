@@ -314,6 +314,14 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesListedWorkspaces[Tx],
 		},
 		{
+			name: "a token whose amr names mfa attests by evidence, so a policy requiring the email code proceeds with an attested-by-evidence event; a token without it, and a Google sign-in, are held for the code",
+			run:  seamRulesAttestedByEvidence[Tx],
+		},
+		{
+			name: "a Workspace and a tenant declared Attesting() attest by declaration, so the policy proceeds with an attested-by-declaration event under the connection; evidence still wins where the token carries it",
+			run:  seamRulesAttestedByDeclaration[Tx],
+		},
+		{
 			name: "any Workspace, invited users only: a pre-created person signs in from a Workspace the application never named under its domain as connection, a stranger from another Workspace is refused with not_invited, and an account outside any Workspace is refused",
 			run:  seamRulesAnyWorkspace[Tx],
 		},
@@ -334,7 +342,9 @@ func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be bac
 	b := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "p.lee@lakeside.edu")), "/home", url.Values{})
 	v := signedInAs(ctx, t, b, "p.lee@lakeside.edu")
-	assertEventsSeen(t, v, "azure:"+azureTenant)
+	// The fake Entra asserts mfa in every token: the session records the evidence
+	// after the sign-in's own event.
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
 	assertOneLink(t, a.links(ctx, t, v.UserID), azureTenant, azureTenant)
 
 	// The identity is linked: the next sign-in goes through the link, and the
@@ -368,7 +378,7 @@ func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be ba
 	if v.UserID != pat.String() || v.Username != "pat@lakeside.edu" {
 		t.Errorf("confirmed session = user %s %q, want %s %q", v.UserID, v.Username, pat, "pat@lakeside.edu")
 	}
-	assertEventsSeen(t, v, "azure:"+azureTenant, "link-confirmation")
+	assertEventsSeen(t, v, "azure:"+azureTenant, "attested-by-evidence:"+azureTenant, "link-confirmation")
 	assertOneLink(t, a.links(ctx, t, pat.String()), azureTenant, azureTenant)
 
 	k := a.browser(t)
@@ -562,9 +572,11 @@ func seamRulesPolicyEveryStart[Tx any](ctx context.Context, t *testing.T, be bac
 		t.Error("the account the rule provisioned is gone, want it kept: the policy decides sessions, not accounts")
 	}
 
+	// A token asserting the password alone: nothing attests, so the policy's
+	// RequireMFA holds the sign-in (one asserting mfa would satisfy it).
 	mfa := a.browser(t)
 	mfa.prime(ctx)
-	assertRedirect(t, a.entraSignIn(ctx, mfa, azureClaims(azureTenant, "oid-m", "mfa@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	assertRedirect(t, a.entraSignIn(ctx, mfa, passwordOnlyClaims(azureTenant, "oid-m", "mfa@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
 	if status, body := mfa.do(ctx, http.MethodPost, "/mfa", nil); status != http.StatusUnauthorized || !strings.Contains(string(body), "sign-in denied") {
 		t.Errorf("MFA completion the policy denies = %d %s, want 401 with the policy's refusal", status, body)
 	}
@@ -574,6 +586,85 @@ func seamRulesPolicyEveryStart[Tx any](ctx context.Context, t *testing.T, be bac
 	if _, err := a.api.StartAuthenticatedSession(ctx, httptest.NewRecorder(), kiosk, []sessioninfo.AuthEvent{{Method: "kiosk"}}); sessioninfo.LoginRefusalCodeOf(err) != "api_denied" {
 		t.Errorf("StartAuthenticatedSession() error = %v, want the policy's refusal api_denied", err)
 	}
+}
+
+// requireEmailCodeTx is the policy of an application whose every session carries a
+// second factor, for the rules app: the library's email code, which an attestation
+// stands in for.
+func requireEmailCodeTx(*sessioninfo.NewSessionRequest) *signin.Decision {
+	return signin.RequireMFA(sessioninfo.MethodEmailCode)
+}
+
+// passwordOnlyClaims are azureClaims whose amr names the password alone: Entra ran no
+// second factor.
+func passwordOnlyClaims(tid, oid, username string) map[string]any {
+	claims := azureClaims(tid, oid, username)
+	claims["amr"] = []string{"pwd"}
+
+	return claims
+}
+
+// seamRulesAttestedByEvidence is the scenario "a token whose amr names mfa attests by evidence".
+func seamRulesAttestedByEvidence[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(signin.MembersOfDirectory))
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
+
+	// Entra asserts mfa: the sign-in is never held, and the session records the
+	// evidence after the sign-in's own event, under the same connection.
+	attested := a.browser(t)
+	attested.prime(ctx)
+	assertRedirect(t, a.entraSignIn(ctx, attested, azureClaims(azureTenant, "oid-a", "ann@lakeside.edu")), "/home", url.Values{})
+	assertEventsSeen(t, signedInAs(ctx, t, attested, "ann@lakeside.edu"), "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+
+	// Entra asserts the password alone: nothing vouches, the sign-in waits for the
+	// code, and the status names the factor.
+	held := a.browser(t)
+	held.prime(ctx)
+	assertRedirect(t, a.entraSignIn(ctx, held, passwordOnlyClaims(azureTenant, "oid-p", "pat@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	held.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if body := held.expect(ctx, http.StatusOK, http.MethodGet, "/pending", nil); !strings.Contains(string(body), `"factors":["email-code"]`) {
+		t.Errorf("pending status = %s, want the email code as the factor", body)
+	}
+
+	// Google puts no evidence in its token, and the Workspace is not declared: held.
+	undeclared := a.browser(t)
+	undeclared.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, undeclared, googleClaims("g-sub-sam", "sam@lakeside.edu")), "/login", url.Values{"pending": {"mfa"}, "returnUrl": {"/home"}})
+	undeclared.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+}
+
+// seamRulesAttestedByDeclaration is the scenario "a Workspace and a tenant declared Attesting() attest by declaration".
+func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, &rulesShape{
+		tenants: azure.Tenant(azureTenant).Attesting(), entraAccounts: signin.MembersOfDirectory,
+		workspaces: google.Workspace("lakeside", hostedDomain).Attesting(), googleAccounts: signin.MembersOfDirectory,
+	})
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
+
+	// The Workspace the application administers vouches for its people.
+	workspace := a.browser(t)
+	workspace.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("g-sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
+	assertEventsSeen(t, signedInAs(ctx, t, workspace, "sam@lakeside.edu"), "google:lakeside", "attested-by-declaration:lakeside")
+
+	// So does the tenant, where the token carries no evidence.
+	declared := a.browser(t)
+	declared.prime(ctx)
+	assertRedirect(t, a.entraSignIn(ctx, declared, passwordOnlyClaims(azureTenant, "oid-p", "pat@lakeside.edu")), "/home", url.Values{})
+	assertEventsSeen(t, signedInAs(ctx, t, declared, "pat@lakeside.edu"), "azure:"+azureTenant, "attested-by-declaration:"+azureTenant)
+
+	// Evidence in the token is recorded as such, declaration or not.
+	evidence := a.browser(t)
+	evidence.prime(ctx)
+	assertRedirect(t, a.entraSignIn(ctx, evidence, azureClaims(azureTenant, "oid-a", "ann@lakeside.edu")), "/home", url.Values{})
+	assertEventsSeen(t, signedInAs(ctx, t, evidence, "ann@lakeside.edu"), "azure:"+azureTenant, "attested-by-evidence:"+azureTenant)
+
+	// The declaration reaches the sign-in's events on the second sign-in too, through
+	// the link, and a session the SignedInHook is told of carries them.
+	again := a.browser(t)
+	again.prime(ctx)
+	assertRedirect(t, a.googleSignIn(ctx, again, googleClaims("g-sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
+	assertEventsSeen(t, again.view(ctx), "google:lakeside", "attested-by-declaration:lakeside")
 }
 
 // seamRulesLogoutAcrossTenants is the scenario "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, and refuses a request naming no issuer or an issuer outside the slot".

@@ -2,6 +2,7 @@ package sessioninfo
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/cccteam/ccc"
@@ -32,7 +33,87 @@ const (
 	// by ID, with no identity to resolve; the session's auth events say how the person
 	// authenticated. A pending identity held from such a start carries it.
 	MethodApplication AuthMethod = "application"
+	// MethodEmailCode records the library's own second factor: a one-time code mailed
+	// to the user's address and entered at the pending step (Pending().SendCode() and
+	// VerifyCode()). It has no connection.
+	MethodEmailCode AuthMethod = "email-code"
+	// MethodTrustedDevice records that a browser the person asked to be remembered
+	// after a second factor stood in for it: the trusted device cookie named a live
+	// device of the user. It has no connection.
+	MethodTrustedDevice AuthMethod = "trusted-device"
+	// MethodAttestedByEvidence records that the identity provider attested to a second
+	// factor in the sign-in's token (an amr claim naming mfa): the provider ran one at
+	// this sign-in. Its connection is the sign-in's and IDPAMR what the provider
+	// asserted.
+	MethodAttestedByEvidence AuthMethod = "attested-by-evidence"
+	// MethodAttestedByDeclaration records that the registration declares the sign-in's
+	// connection as a directory that enforces a second factor (Attesting() on the
+	// Google and Entra organization slots): the application administers the directory
+	// and vouches for it. Its connection is the sign-in's.
+	MethodAttestedByDeclaration AuthMethod = "attested-by-declaration"
 )
+
+// Attests reports whether m is an attestation event's method: the sign-in's connection
+// vouched for a second factor, by evidence or by declaration.
+func (m AuthMethod) Attests() bool {
+	return m == MethodAttestedByEvidence || m == MethodAttestedByDeclaration
+}
+
+// Attestation is what a sign-in's connection says about a second factor: nothing,
+// evidence or a declaration. A sign-in method sets it on the Identity it verifies, and
+// the Auth records it as the session's second auth event (MethodAttestedByEvidence or
+// MethodAttestedByDeclaration), which satisfies a sign-in policy's RequireMFA without a
+// step of the library's or the application's own. See "The second factor" in the
+// README.
+type Attestation string
+
+const (
+	// NotAttested is a sign-in no connection vouches for: a password, or a directory
+	// the application does not administer whose token carries no evidence.
+	NotAttested Attestation = ""
+	// AttestedByEvidence is a token whose amr claim names mfa: the identity provider
+	// ran a second factor at this sign-in.
+	AttestedByEvidence Attestation = "evidence"
+	// AttestedByDeclaration is a connection the registration declares as a directory
+	// that enforces a second factor (Attesting()), which the application administers.
+	AttestedByDeclaration Attestation = "declaration"
+)
+
+// Method is the auth method that records the attestation, "" for NotAttested.
+func (a Attestation) Method() AuthMethod {
+	switch a {
+	case AttestedByEvidence:
+		return MethodAttestedByEvidence
+	case AttestedByDeclaration:
+		return MethodAttestedByDeclaration
+	default:
+		return ""
+	}
+}
+
+// amrMFA is the amr value (RFC 8176) that says several factors were used: what
+// Microsoft Entra asserts for a sign-in that passed its multifactor authentication.
+const amrMFA = "mfa"
+
+// AttestationOf is the attestation of a sign-in whose token asserts amr, through a
+// connection the registration declares attesting (declared) or not: evidence when amr
+// names mfa (RFC 8176, what Entra asserts after its multifactor authentication),
+// whatever the declaration; the declaration otherwise when the connection is declared;
+// none when neither. Evidence is read from the one value that says several factors
+// were used, not from the values that name one method (otp, hwk), which say nothing
+// about a second.
+func AttestationOf(amr []string, declared bool) Attestation {
+	for _, m := range amr {
+		if strings.EqualFold(m, amrMFA) {
+			return AttestedByEvidence
+		}
+	}
+	if declared {
+		return AttestedByDeclaration
+	}
+
+	return NotAttested
+}
 
 // ThroughDirectory reports whether the method signs a person in through a directory:
 // Microsoft Entra ID, Google Workspace and WorkOS, whose identities carry the directory
@@ -94,6 +175,11 @@ type Identity struct {
 	// verify. The standard account rules refuse a guest; a custom rule decides for
 	// itself.
 	Guest bool
+	// Attestation is what the connection says about a second factor: evidence in the
+	// token, the registration's declaration, or nothing. The Auth records it as the
+	// session's second auth event, after the sign-in's, and a sign-in policy's
+	// RequireMFA is satisfied by it. A password identity never attests.
+	Attestation Attestation
 }
 
 // AuthEvent records one step that authenticated a session, such as the sign-in, a
@@ -241,4 +327,10 @@ const (
 	// tenant admits its people through their directories only, under the tenant
 	// policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedInvalidCode is the code for an email code that is not the one sent; the
+	// code sent stands, with one fewer attempt left.
+	RefusedInvalidCode LoginRefusalCode = "invalid_code"
+	// RefusedCodeExpired is the code for an email code entered after the one sent
+	// expired, was used, or took its last attempt; the page asks for a new one.
+	RefusedCodeExpired LoginRefusalCode = "code_expired"
 )
