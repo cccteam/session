@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.14](https://github.com/cccteam/session/compare/v0.13.13...v0.13.14) (2026-10-28)
+
+
+### Features
+
+* every session carries a second factor when the policy asks: a sign-in's attestation by evidence (an amr naming mfa) or by declaration (a Workspace or tenant declared Attesting()), a trusted device the person asked to be remembered, or the email code the library mails and verifies, with an administrator's reset ([d83a272](https://github.com/cccteam/session/commit/d83a272e64090351a6fedbfe162dc194b6de0af0))
+* the pending status reports the email code's state, the methods list names the code routes, and the session's auth events record the attestation (attested-by-evidence, attested-by-declaration), the trusted device and the code (email-code) ([d83a272](https://github.com/cccteam/session/commit/d83a272e64090351a6fedbfe162dc194b6de0af0))
+
 ## [0.13.13](https://github.com/cccteam/session/compare/v0.13.12...v0.13.13) (2026-10-27)
 
 
