@@ -10,10 +10,10 @@ retract (
 require (
 	aidanwoods.dev/go-paseto v1.6.0
 	cloud.google.com/go/spanner v1.96.1
-	github.com/cccteam/ccc v0.3.5
-	github.com/cccteam/ccc/accesstypes v0.6.1
-	github.com/cccteam/ccc/securehash v0.0.17
-	github.com/cccteam/ccc/tracer v0.3.0
+	github.com/cccteam/ccc v0.3.6
+	github.com/cccteam/ccc/accesstypes v0.7.0
+	github.com/cccteam/ccc/securehash v0.0.18
+	github.com/cccteam/ccc/tracer v0.3.1
 	github.com/cccteam/db-initiator v0.4.3
 	github.com/cccteam/httpio v0.7.22
 	github.com/cccteam/logger v0.1.30
@@ -35,7 +35,7 @@ require (
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/text v0.43.0
-	google.golang.org/api v0.304.0
+	google.golang.org/api v0.307.0
 	google.golang.org/grpc v1.84.0
 )
 
@@ -127,6 +127,6 @@ require (
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261005182115-fad411399dd8 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
