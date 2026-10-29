@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"maps"
 	"math/big"
 	"net/http"
 	"slices"
@@ -399,46 +400,107 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID ccc.UUID, 
 	}
 }
 
-// trustedCookieKey is the trusted device cookie's value holding the token.
-const trustedCookieKey cookie.Key = "trusted"
+// The trusted device cookie's value: one entry per user the browser was remembered
+// for, under trustedDevicesKey, keyed by the user's id (inside the encrypted value, so
+// nothing about who used the browser is readable from it), each holding the token and
+// when it was written. Two people who share a browser, or one person with two accounts,
+// are each remembered: a sign-in reads the signing-in user's entry alone and a held
+// sign-in drops that user's entry alone, so one person's remembering never forgets
+// another's. The browser holds at most trustedDevicesPerBrowser entries; remembering
+// one more drops the oldest. Releases before 0.13.17 wrote one bare token under
+// trustedCookieKey: such a cookie is still read, its token standing for whichever
+// user's device the row names, and it is rewritten in the new shape at the next
+// remembering or held sign-in.
+const (
+	trustedDevicesKey        cookie.Key = "devices"
+	trustedCookieKey         cookie.Key = "trusted"
+	trustedDevicesPerBrowser            = 5
+)
 
-// trustedCtxKey is the context key for the hash of the browser's trusted device
-// token, set by StartSession.
+// trustedEntry is one user's token in the trusted device cookie: the token, and when
+// the entry was written, which decides the oldest at the cap.
+type trustedEntry struct {
+	Token string `json:"token"`
+	At    int64  `json:"at"`
+}
+
+// trustedDevices is what the browser's trusted device cookie carries, as StartSession
+// read it: the entries by user id, and the bare token of the old shape, "" for none.
+type trustedDevices struct {
+	entries map[string]trustedEntry
+	legacy  string
+}
+
+// trustedCtxKey is the context key for the browser's trusted devices, set by
+// StartSession.
 type trustedCtxKey struct{}
 
-// withTrustedDeviceCookie returns ctx with the hash of the trusted device token from
-// the trusted device cookie, if the browser carries one.
+// withTrustedDeviceCookie returns ctx with the browser's trusted devices, if it carries
+// a trusted device cookie naming any.
 func (a *Auth[S, U, Tx]) withTrustedDeviceCookie(ctx context.Context, r *http.Request) context.Context {
 	cval, found, err := a.trustedCookies.Cookie().Read(r, a.settings.factors.trustedCookie)
 	if err != nil || !found {
 		return ctx
 	}
-	token, err := cval.GetString(trustedCookieKey)
-	if err != nil {
+	devices := &trustedDevices{entries: map[string]trustedEntry{}}
+	if err := cval.Get(trustedDevicesKey, &devices.entries); err != nil {
+		devices.entries = map[string]trustedEntry{}
+	}
+	if token, err := cval.GetString(trustedCookieKey); err == nil {
+		devices.legacy = token
+	}
+	if len(devices.entries) == 0 && devices.legacy == "" {
 		return ctx
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(raw) != trustedTokenSize {
-		logger.FromCtx(ctx).Warn("trusted device cookie ignored: not a device token")
 
-		return ctx
-	}
-
-	return context.WithValue(ctx, trustedCtxKey{}, hashPendingToken(raw))
+	return context.WithValue(ctx, trustedCtxKey{}, devices)
 }
 
-// trustedTokenHash returns the hash of the browser's trusted device token from ctx.
-func trustedTokenHash(ctx context.Context) ([]byte, bool) {
-	hash, ok := ctx.Value(trustedCtxKey{}).([]byte)
+// trustedDevicesOf returns the browser's trusted devices from ctx.
+func trustedDevicesOf(ctx context.Context) (*trustedDevices, bool) {
+	d, ok := ctx.Value(trustedCtxKey{}).(*trustedDevices)
 
-	return hash, ok
+	return d, ok
+}
+
+// trustedTokenHash is the hash of a token as the cookie carries it, nil when it is not
+// a device token.
+func trustedTokenHash(token string) []byte {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(raw) != trustedTokenSize {
+		return nil
+	}
+
+	return hashPendingToken(raw)
+}
+
+// trustedHashFor returns the hash of the token the browser carries for userID: the
+// user's entry, else the bare token of the old shape, whose user the row names and
+// trustedDeviceOf checks.
+func trustedHashFor(ctx context.Context, userID ccc.UUID) ([]byte, bool) {
+	d, ok := trustedDevicesOf(ctx)
+	if !ok {
+		return nil, false
+	}
+	if e, ok := d.entries[userID.String()]; ok {
+		if h := trustedTokenHash(e.Token); h != nil {
+			return h, true
+		}
+	}
+	if d.legacy != "" {
+		if h := trustedTokenHash(d.legacy); h != nil {
+			return h, true
+		}
+	}
+
+	return nil, false
 }
 
 // trustedDeviceOf is the sign-in flow's trusted device check: whether the browser
-// carries the token of a live trusted device of userID. A cookie naming a dead device,
-// or another user's, is no device.
+// carries, for userID, the token of a live trusted device of theirs. An entry naming a
+// dead device, or a bare token of another user's, is no device.
 func (a *Auth[S, U, Tx]) trustedDeviceOf(ctx context.Context, userID ccc.UUID) (bool, error) {
-	hash, ok := trustedTokenHash(ctx)
+	hash, ok := trustedHashFor(ctx, userID)
 	if !ok {
 		return false, nil
 	}
@@ -454,11 +516,11 @@ func (a *Auth[S, U, Tx]) trustedDeviceOf(ctx context.Context, userID ccc.UUID) (
 	return device.UserID == userID, nil
 }
 
-// touchTrustedDevice moves the last use of the browser's trusted device once it stood
-// in for the factor (events carry a trusted-device event). It is bookkeeping: a
-// failure is logged.
-func (a *Auth[S, U, Tx]) touchTrustedDevice(ctx context.Context, events []sessioninfo.AuthEvent) {
-	hash, ok := trustedTokenHash(ctx)
+// touchTrustedDevice moves the last use of the trusted device the browser carries for
+// userID once it stood in for the factor (events carry a trusted-device event). It is
+// bookkeeping: a failure is logged.
+func (a *Auth[S, U, Tx]) touchTrustedDevice(ctx context.Context, userID ccc.UUID, events []sessioninfo.AuthEvent) {
+	hash, ok := trustedHashFor(ctx, userID)
 	if !ok || !slices.ContainsFunc(events, func(e sessioninfo.AuthEvent) bool { return e.Method == sessioninfo.MethodTrustedDevice }) {
 		return
 	}
@@ -474,8 +536,11 @@ func (a *Auth[S, U, Tx]) touchTrustedDevice(ctx context.Context, events []sessio
 }
 
 // rememberDevice makes the browser a trusted device of userID for the trusted device
-// period: a row with the token's hash, and the cookie with the token. A failure is
-// logged; the session stands and the next sign-in asks for the factor again.
+// period: a row with the token's hash, and the user's entry in the cookie, beside the
+// other users' entries the browser carries (the oldest dropped at the cap; a bare token
+// of the old shape dropped, since the row it names is not this user's or is being
+// replaced). A failure is logged; the session stands and the next sign-in asks for the
+// factor again.
 func (a *Auth[S, U, Tx]) rememberDevice(ctx context.Context, w http.ResponseWriter, userID ccc.UUID) {
 	raw := make([]byte, trustedTokenSize)
 	if _, err := rand.Read(raw); err != nil {
@@ -490,18 +555,69 @@ func (a *Auth[S, U, Tx]) rememberDevice(ctx context.Context, w http.ResponseWrit
 
 		return
 	}
-	// Lax, so the cookie reaches the callback an external sign-in's provider
-	// redirects the browser to, where the sign-in is decided.
-	cval := cookie.NewValues().SetString(trustedCookieKey, base64.RawURLEncoding.EncodeToString(raw))
-	a.trustedCookies.Cookie().WritePersistentCookie(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain, true, http.SameSiteLaxMode, period, cval)
+	var carried map[string]trustedEntry
+	if d, ok := trustedDevicesOf(ctx); ok {
+		carried = d.entries
+	}
+	a.writeTrustedCookie(ctx, w, trustedEntriesWith(carried, userID, trustedEntry{Token: base64.RawURLEncoding.EncodeToString(raw), At: time.Now().Unix()}))
 }
 
-// forgetTrustedCookie deletes the trusted device cookie the browser carries, if any.
-func (a *Auth[S, U, Tx]) forgetTrustedCookie(ctx context.Context, w http.ResponseWriter) {
-	if _, ok := trustedTokenHash(ctx); !ok {
+// trustedEntriesWith returns the entries a browser carries with userID's entry set to
+// entry, the oldest other entries dropped so that at most trustedDevicesPerBrowser
+// remain. The browser's own map is left as it was.
+func trustedEntriesWith(carried map[string]trustedEntry, userID ccc.UUID, entry trustedEntry) map[string]trustedEntry {
+	entries := make(map[string]trustedEntry, len(carried)+1)
+	maps.Copy(entries, carried)
+	id := userID.String()
+	entries[id] = entry
+	for len(entries) > trustedDevicesPerBrowser {
+		oldest := ""
+		for other, e := range entries {
+			if other != id && (oldest == "" || e.At < entries[oldest].At) {
+				oldest = other
+			}
+		}
+		delete(entries, oldest)
+	}
+
+	return entries
+}
+
+// writeTrustedCookie writes the trusted device cookie holding entries, for the trusted
+// device period. Lax, so the cookie reaches the callback an external sign-in's
+// provider redirects the browser to, where the sign-in is decided.
+func (a *Auth[S, U, Tx]) writeTrustedCookie(ctx context.Context, w http.ResponseWriter, entries map[string]trustedEntry) {
+	cval := cookie.NewValues()
+	if err := cval.Set(trustedDevicesKey, entries); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "cookie.Values.Set()"))
+
 		return
 	}
-	a.trustedCookies.Cookie().Delete(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain)
+	a.trustedCookies.Cookie().WritePersistentCookie(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain, true, http.SameSiteLaxMode, a.settings.factors.trustedPeriod, cval)
+}
+
+// dropTrustedEntry takes userID's entry out of the trusted device cookie the browser
+// carries, and a bare token of the old shape with it, leaving the other users' entries
+// as they are: the cookie is rewritten without them, or deleted when nothing is left.
+// A browser carrying no entry for the user, and no bare token, is left alone.
+func (a *Auth[S, U, Tx]) dropTrustedEntry(ctx context.Context, w http.ResponseWriter, userID ccc.NullUUID) {
+	d, ok := trustedDevicesOf(ctx)
+	if !ok {
+		return
+	}
+	entries := maps.Clone(d.entries)
+	if userID.Valid {
+		delete(entries, userID.String())
+	}
+	if len(entries) == len(d.entries) && d.legacy == "" {
+		return
+	}
+	if len(entries) == 0 {
+		a.trustedCookies.Cookie().Delete(w, a.settings.factors.trustedCookie, a.trustedCookies.Domain)
+
+		return
+	}
+	a.writeTrustedCookie(ctx, w, entries)
 }
 
 // pendingSendCode is Pending().SendCode().
@@ -664,21 +780,27 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID ccc.UUID) e
 	return nil
 }
 
-// ForgetTrustedDevice forgets the browser of the current request as a trusted device:
-// its device is revoked and its cookie deleted, so the next sign-in from it asks for
-// the factor. A browser that is no trusted device is left as it is.
+// ForgetTrustedDevice forgets the browser of the current request as a trusted device of
+// the session's user: their device is revoked and their entry taken out of the cookie,
+// so their next sign-in from it asks for the factor; the other people the browser was
+// remembered for keep theirs. It reads the session StartSession validated, and a
+// browser that is no trusted device of the user is left as it is.
 func (p *AuthAPI[S, U, Tx]) ForgetTrustedDevice(ctx context.Context, w http.ResponseWriter) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	hash, ok := trustedTokenHash(ctx)
+	user, ok := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo)
+	if !ok || user == nil {
+		return errors.New("ForgetTrustedDevice: the context carries no session user")
+	}
+	hash, ok := trustedHashFor(ctx, user.ID)
 	if !ok {
 		return nil
 	}
 	if err := p.auth.storage.RevokeTrustedDevice(ctx, hash); err != nil && !httpio.HasNotFound(err) {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevice()")
 	}
-	p.auth.forgetTrustedCookie(ctx, w)
+	p.auth.dropTrustedEntry(ctx, w, ccc.NullUUID{UUID: user.ID, Valid: true})
 
 	return nil
 }

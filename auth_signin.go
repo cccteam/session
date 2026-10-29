@@ -153,10 +153,10 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 			return nil, err
 		}
 		// A browser whose trusted device did not stand in for the factor carries a
-		// dead one: the cookie goes, and the factor it is about to give may set a
-		// new one.
+		// dead one for this user: their entry goes, the other users' stay, and the
+		// factor the person is about to give may set a new one.
 		if wait.Reason == sessioninfo.PendingMFA {
-			a.forgetTrustedCookie(ctx, w)
+			a.dropTrustedEntry(ctx, w, wait.UserID)
 		}
 
 		return &signInOutcome{pending: pending}, nil
@@ -168,7 +168,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	events := signedInEvents(at, req)
 	a.endPending(ctx, w, at)
 	a.endInvitation(ctx, w, req.Invitation)
-	a.touchTrustedDevice(ctx, events)
+	a.touchTrustedDevice(ctx, req.UserID, events)
 	sessioncore.LogSessionStarted(ctx, req.Username, id)
 	a.notifySignedIn(ctx, &SignedIn{SessionID: id, UserID: req.UserID, Username: req.Username, Reason: at.reason, Events: events})
 

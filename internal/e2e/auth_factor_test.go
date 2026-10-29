@@ -209,6 +209,103 @@ func seamEmailCodeTrustedDevice[Tx any](ctx context.Context, t *testing.T, a *au
 	assertEventsSeen(t, b.view(ctx), "password", "email-code")
 }
 
+// loginAs posts a password login for username with the seed password and returns the
+// answer's status and whether MFA is required.
+func (b *browser) loginAs(ctx context.Context, username string) (status int, mfaIsRequired bool) {
+	b.t.Helper()
+
+	status, _, body := b.postLogin(ctx, username, seedPassword)
+	var answer struct {
+		MFAIsRequired bool `json:"mfaIsRequired"`
+	}
+	_ = json.Unmarshal(body, &answer)
+
+	return status, answer.MFAIsRequired
+}
+
+// seamTrustedDevicePerUser: two people share one browser. Each is remembered after the
+// code, and switching between them asks neither for it again (the cookie holds one
+// entry per user, and a sign-in reads the signing-in user's alone); a third person held
+// for the code on that browser forgets neither; a person who forgets the browser is
+// asked again while the other stays remembered.
+func seamTrustedDevicePerUser[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	pat := a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
+	sam := a.seedWithEmail(ctx, t, "sam@lakeside.edu", "sam@lakeside.edu")
+	a.seedWithEmail(ctx, t, "kim@lakeside.edu", "kim@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+
+	// remember signs username in through the code and has the browser remembered.
+	remember := func(username string) {
+		t.Helper()
+		b.prime(ctx)
+		if status, mfa := b.loginAs(ctx, username); status != http.StatusOK || !mfa {
+			t.Fatalf("%s: password login = %d (mfaIsRequired %v), want 200 requiring MFA", username, status, mfa)
+		}
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, username), "rememberDevice": true})
+		assertEventsSeen(t, b.view(ctx), "password", "email-code")
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	}
+	// withoutCode signs username in and expects the trusted device to stand in.
+	withoutCode := func(username string, id ccc.UUID) {
+		t.Helper()
+		b.prime(ctx)
+		if status, mfa := b.loginAs(ctx, username); status != http.StatusOK || mfa {
+			t.Fatalf("%s: password login from the remembered browser = %d (mfaIsRequired %v), want 200 with no MFA", username, status, mfa)
+		}
+		v := b.view(ctx)
+		if v.UserID != id.String() {
+			t.Errorf("%s: session user = %s, want %s", username, v.UserID, id)
+		}
+		assertEventsSeen(t, v, "password", "trusted-device")
+	}
+	// heldThenCancelled signs username in, expects the code step, and cancels it.
+	heldThenCancelled := func(username string) {
+		t.Helper()
+		b.prime(ctx)
+		if status, mfa := b.loginAs(ctx, username); status != http.StatusOK || !mfa {
+			t.Fatalf("%s: password login = %d (mfaIsRequired %v), want 200 requiring MFA", username, status, mfa)
+		}
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/cancel", nil)
+	}
+
+	// pat is remembered, then sam on the same browser: sam's remembering does not
+	// forget pat, and each signs in without the code from then on, in turn.
+	remember("pat@lakeside.edu")
+	remember("sam@lakeside.edu")
+	withoutCode("pat@lakeside.edu", pat)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	withoutCode("sam@lakeside.edu", sam)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	withoutCode("pat@lakeside.edu", pat)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+
+	// kim, never remembered here, is held for the code: pat and sam stay remembered.
+	heldThenCancelled("kim@lakeside.edu")
+	withoutCode("sam@lakeside.edu", sam)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	withoutCode("pat@lakeside.edu", pat)
+
+	// pat forgets the browser: pat is asked for the code again, sam is not.
+	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/forget-device", nil)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	heldThenCancelled("pat@lakeside.edu")
+	withoutCode("sam@lakeside.edu", sam)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+
+	// The administrator's reset of sam forgets sam's browsers and no one else's: pat,
+	// remembered again, is still remembered after it.
+	remember("pat@lakeside.edu")
+	if err := a.api.ResetFactors(ctx, sam); err != nil {
+		t.Fatalf("ResetFactors() error = %v", err)
+	}
+	heldThenCancelled("sam@lakeside.edu")
+	withoutCode("pat@lakeside.edu", pat)
+}
+
 func seamEmailCodeEnrollment[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 

@@ -786,8 +786,14 @@ the person reaches.
    sign-in from that browser by that user satisfies a `RequireMFA` that accepts the
    email code (no factor named, or `MethodEmailCode` among them) and records a
    `trusted-device` event in the step's place; a `RequireMFA` for the application's
-   own factors alone is the application's step to run. A cookie naming a dead device,
-   or another user's, is no device, and is deleted when the sign-in is held.
+   own factors alone is the application's step to run. The cookie holds one entry per
+   user, keyed by the user's id inside the encrypted value, so two people who share a
+   browser, or one person with two accounts, are each remembered: a sign-in reads the
+   signing-in user's entry alone, and a sign-in held for the code drops that user's
+   entry alone (it named a dead device, or none), leaving the others' as they are. A
+   browser holds at most five entries; remembering one more drops the oldest. A cookie
+   of the one-token shape earlier releases wrote is still read and is rewritten in
+   this shape at the next remembering.
 3. **The sign-in code.** Otherwise the sign-in waits as a pending identity with reason
    `mfa` and the policy's factors, and the login page runs the step when the factors
    include the email code: `Pending().Status()` reports `emailCode` with the masked
@@ -819,7 +825,8 @@ neither administers nor gets evidence from.
 **The administrator's reset.** `AuthAPI.ResetFactors(ctx, userID)` forgets every
 browser the person asked to be remembered, so their next sign-in from any of them asks
 for the factor; a signed-in person forgets their own browser with
-`ForgetTrustedDevice`. The email code itself has nothing to reset: a person who lost
+`ForgetTrustedDevice`, which revokes the session user's device and takes their entry out
+of the cookie, leaving the browser remembered for anyone else it was. The email code itself has nothing to reset: a person who lost
 their mailbox is given a new address by an operator (`SetSessionUserEmail`),
 unverified, and the next code proves it. Recovery codes are not offered. Live sessions
 are not touched by the reset; `DestroyUserSessions` ends them.
