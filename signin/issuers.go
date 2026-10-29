@@ -5,7 +5,9 @@ import "slices"
 // Issuers is the set of issuers a registration's tokens may come from. A sign-in's
 // provider session id is recorded under the issuer of the token that arrived
 // (Verified.Issuer), since a provider's session id is unique only within its issuer,
-// and a provider-initiated logout is scoped by one of the set. A registration serving
+// and a provider-initiated logout is scoped by the set: by the issuer the request
+// names, when it names one, else by the set's only issuer, or by whichever of the set
+// live sessions carry the id under (Entra sends the id alone). A registration serving
 // one organization has one issuer; one serving listed organizations has several; one
 // serving any organization has every well-formed issuer of its provider. A method
 // without an issuer has none.
@@ -13,7 +15,8 @@ type Issuers interface {
 	// Contains reports whether iss is one of the set. An empty string never is.
 	Contains(iss string) bool
 	// Only returns the set's single issuer when it has exactly one, which a logout
-	// request that names no issuer is scoped by.
+	// request that names no issuer is scoped by; a set with several has none, and such
+	// a request is scoped by the issuers of the set live sessions carry the id under.
 	Only() (string, bool)
 }
 
@@ -48,8 +51,8 @@ func (l issuerList) Only() (string, bool) {
 }
 
 // IssuersMatching returns the set of every issuer accept reports true for, such as
-// every tenant issuer of a provider. It has no single issuer, so a logout request
-// must name one.
+// every tenant issuer of a provider. It has no single issuer: a logout request naming
+// none is scoped by the issuers of the set live sessions carry the id under.
 func IssuersMatching(accept func(iss string) bool) Issuers {
 	return issuersMatching(accept)
 }

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -421,14 +422,17 @@ func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 // ValidateXSRFToken, and name its path to Methods (MethodList.ChangePassword).
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
 
-// frontChannelLogout handles a provider-initiated logout: it ends every session whose
-// sign-in carried the provider's session id the request names (?sid=) under the issuer
-// the request names (?iss=), which must be one the registration declares, or under the
-// registration's only issuer when the request names none, and answers 200. A request
-// without a sid, naming an issuer the registration does not declare, or naming none
-// when the registration serves several, is 400. The provider calls it in a frame, with
-// no session of its own, so it reads nothing from the browser: a known sid under a
-// declared issuer is the request's only credential.
+// frontChannelLogout handles a provider-initiated logout: it ends every live session
+// whose sign-in carried the provider's session id the request names (?sid=) under an
+// issuer the registration declares, and answers 200. A request naming an issuer (?iss=)
+// is scoped to it, and refused (400) when the registration does not declare it. A
+// request naming none is scoped to the registration's only issuer when it has one, and
+// when it serves several, to whichever of its issuers live sessions carry the id under:
+// a provider's session id is unique within the provider, and every issuer a registration
+// declares is that provider's. Entra sends the sid alone, and the OpenID front-channel
+// logout specification leaves iss optional. A request without a sid is 400. The
+// provider calls it in a frame, with no session of its own, so it reads nothing from
+// the browser: a known sid under a declared issuer is the request's only credential.
 func (a *Auth[S, U, Tx]) frontChannelLogout(issuers signin.Issuers) http.HandlerFunc {
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -440,20 +444,44 @@ func (a *Auth[S, U, Tx]) frontChannelLogout(issuers signin.Issuers) http.Handler
 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "missing sid query parameter")
 		}
 		iss := query.Get("iss")
-		switch {
-		case iss == "":
-			only, ok := issuers.Only()
-			if !ok {
-				return httpio.NewEncoder(w).BadRequestMessage(ctx, "missing iss query parameter: this registration serves several issuers")
-			}
-			iss = only
-		case !issuers.Contains(iss):
+		if iss != "" && !issuers.Contains(iss) {
 			return httpio.NewEncoder(w).BadRequestMessage(ctx, "iss does not name an issuer of this registration")
 		}
-		if err := a.storage.DestroySessionsByProviderSessionID(ctx, iss, sid); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySessionsByProviderSessionID()"))
+		scoped, err := a.logoutIssuers(ctx, issuers, iss, sid)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		for _, scopedIss := range scoped {
+			if err := a.storage.DestroySessionsByProviderSessionID(ctx, scopedIss, sid); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.DestroySessionsByProviderSessionID()"))
+			}
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
+}
+
+// logoutIssuers is the issuers a provider-initiated logout for sid is scoped to: the
+// declared issuer the request names, the registration's only issuer when the request
+// names none, or, for a registration serving several, the declared issuers live
+// sessions carry sid under.
+func (a *Auth[S, U, Tx]) logoutIssuers(ctx context.Context, issuers signin.Issuers, iss, sid string) ([]string, error) {
+	if iss != "" {
+		return []string{iss}, nil
+	}
+	if only, ok := issuers.Only(); ok {
+		return []string{only}, nil
+	}
+	recorded, err := a.storage.ProviderSessionIssuers(ctx, sid)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ProviderSessionIssuers()")
+	}
+	scoped := make([]string, 0, len(recorded))
+	for _, recordedIss := range recorded {
+		if issuers.Contains(recordedIss) {
+			scoped = append(scoped, recordedIss)
+		}
+	}
+
+	return scoped, nil
 }

@@ -229,6 +229,10 @@ type db interface {
 	// the provider's session id under issuer: both columns match, a session without an
 	// issuer never does.
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
+	// ProviderSessionIssuers lists the distinct issuers under which live sessions carry
+	// the provider's session id, for a provider-initiated logout that names no issuer. A
+	// session recorded without an issuer is left out: it is out of a logout's reach.
+	ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error)
 	// SetIdentitiesTableName sets the name of the identities table.
 	SetIdentitiesTableName(name string) error
 	// SetPendingSignInsTableName sets the name of the pending sign-ins table.

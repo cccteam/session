@@ -2,6 +2,7 @@ package drivertest
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,7 +17,8 @@ import (
 // session under that issuer and id: the sign-in's own, a regenerated one that kept
 // them, and an impersonation started from it (its record ends Logout). A session under
 // another issuer or another id, one without an id, and one with an id but no issuer (a
-// legacy session the upgrade carried over) stay.
+// legacy session the upgrade carried over) stay. The issuers live sessions carry an id
+// under are listed, for a logout that names no issuer; the issuerless session is not.
 
 func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
@@ -57,8 +59,18 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 		t.Errorf("Session() provider session of a sign-in without one = (%q, %q), want empty", sess.ProviderSessionID, sess.ProviderSessionIssuer)
 	}
 
+	if got, err := in.Driver.ProviderSessionIssuers(ctx, "sid-1"); err != nil || !slices.Equal(got, []string{lakeside, riverside}) {
+		t.Errorf("ProviderSessionIssuers(sid-1) = %v, %v; want [%s %s]: the issuers live sessions carry the id under, sorted, the issuerless session left out", got, err, lakeside, riverside)
+	}
+	if got, err := in.Driver.ProviderSessionIssuers(ctx, "sid-unknown"); err != nil || len(got) != 0 {
+		t.Errorf("ProviderSessionIssuers(sid-unknown) = %v, %v; want none", got, err)
+	}
+
 	if err := in.Driver.DestroySessionsByProviderSessionID(ctx, lakeside, "sid-1"); err != nil {
 		t.Fatalf("DestroySessionsByProviderSessionID() error = %v", err)
+	}
+	if got, err := in.Driver.ProviderSessionIssuers(ctx, "sid-1"); err != nil || !slices.Equal(got, []string{riverside}) {
+		t.Errorf("ProviderSessionIssuers(sid-1) after lakeside's logout = %v, %v; want [%s]: an expired session's issuer is no longer listed", got, err, riverside)
 	}
 
 	for _, tc := range []struct {

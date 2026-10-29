@@ -886,17 +886,22 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   (`signin.Registration.Issuers`; an Entra registration declares its one tenant's
   issuer, or the issuer of every tenant its `Tenants` slot admits), and a round trip from any other issuer is refused
   (`internal_error`). `azure.Method.FrontChannelLogout()` ends every live session under
-  the issuer the request names (`iss`), or the registration's only issuer when it names
-  none, and the `sid` it names, impersonations started from it included (their records
-  end `Logout`), answers 200, and 400 without a `sid`, with an `iss` the registration
-  does not declare, or without an `iss` when the registration serves several issuers;
-  it reads nothing from the browser, since Entra calls it in a frame, and a known `sid`
-  under a declared issuer is its only credential. A
-  session recorded with an id but no issuer (a legacy session the upgrade carried
-  over) is out of its reach until the person signs in again. Register its route as the
-  application's front-channel logout URL in Entra, outside `ValidateSession`. Sessions
-  of the same user under another `sid`, or signed in by a method that reports no
-  session id (password, Google, WorkOS), are not touched.
+  a declared issuer and the `sid` the request names, impersonations started from it
+  included (their records end `Logout`), and answers 200. Entra sends the `sid` alone:
+  a registration with one issuer scopes the request to it, and one serving several to
+  whichever of its issuers live sessions carry the `sid` under (a provider's session id
+  is unique within the provider, and every issuer a registration declares is the
+  provider's). A request naming an `iss` is scoped to it, and refused with 400 when the
+  registration does not declare it; a request without a `sid` is 400. The handler reads
+  nothing from the browser, since Entra calls it in a frame, and a known `sid` under a
+  declared issuer is its only credential. A session recorded with an id but no issuer
+  (a legacy session the upgrade carried over) is out of its reach until the person
+  signs in again. Register its route as the application's front-channel logout URL in
+  Entra, outside `ValidateSession`. An app registration takes one such URL, and the
+  handler reaches the sessions of its own `Auth`: an application whose several `Auth`s
+  should all end at Microsoft's sign-out registers one Entra application per `Auth`.
+  Sessions of the same user under another `sid`, or signed in by a method that reports
+  no session id (password, Google, WorkOS), are not touched.
 
 ### Users and the forced password change
 

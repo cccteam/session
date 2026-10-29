@@ -889,6 +889,21 @@ func (mr *MockdbMockRecorder) PendingSignInByToken(ctx, tokenHash, now any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingSignInByToken", reflect.TypeOf((*Mockdb)(nil).PendingSignInByToken), ctx, tokenHash, now)
 }
 
+// ProviderSessionIssuers mocks base method.
+func (m *Mockdb) ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProviderSessionIssuers", ctx, providerSessionID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ProviderSessionIssuers indicates an expected call of ProviderSessionIssuers.
+func (mr *MockdbMockRecorder) ProviderSessionIssuers(ctx, providerSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProviderSessionIssuers", reflect.TypeOf((*Mockdb)(nil).ProviderSessionIssuers), ctx, providerSessionID)
+}
+
 // RecordFactorCodeAttempt mocks base method.
 func (m *Mockdb) RecordFactorCodeAttempt(ctx context.Context, id ccc.UUID, now time.Time) (int, error) {
 	m.ctrl.T.Helper()

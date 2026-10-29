@@ -207,13 +207,18 @@ func (m *Method) Login() http.HandlerFunc { return m.login }
 func (m *Method) Callback() http.HandlerFunc { return m.callback }
 
 // FrontChannelLogout handles Microsoft-initiated logout. It ends every session whose
-// sign-in carried the sid the request names (?sid=) under the issuer it names (?iss=),
-// answers 200, and 400 without a sid. Register its URL as the application's
-// front-channel logout URL in Entra. Route it without ValidateSession: Entra calls it
-// in a frame, with no session of its own. A request naming an issuer of no tenant the
-// registration admits is refused with 400, and a registration serving several tenants
-// needs the iss Entra sends; a known sid under an admitted issuer is the request's only
-// credential, as the front-channel logout design has it.
+// sign-in carried the sid the request names (?sid=) under an issuer the registration
+// admits, answers 200, and 400 without a sid. Entra sends the sid alone: a registration
+// serving one tenant scopes the request to that tenant's issuer, and one serving
+// several to whichever admitted issuers live sessions carry the sid under. A request
+// that does name an issuer (?iss=) is scoped to it, and refused with 400 when no tenant
+// the registration admits has it. Register its URL as the application's front-channel
+// logout URL in Entra. Route it without ValidateSession: Entra calls it in a frame,
+// with no session of its own, and a known sid under an admitted issuer is the request's
+// only credential, as the front-channel logout design has it. An app registration takes
+// one such URL, and the handler reaches the sessions of its own Auth: an application
+// whose several Auths should all end at Microsoft's sign-out registers one Entra
+// application per Auth.
 func (m *Method) FrontChannelLogout() http.HandlerFunc { return m.frontChannelLogout }
 
 // claims are the ID token's claims the method reads.

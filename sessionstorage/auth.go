@@ -168,6 +168,11 @@ type AuthStore[Tx any] interface {
 	// asks; an impersonated session's record ends Logout. Both columns match: a session
 	// recorded without an issuer never does.
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
+	// ProviderSessionIssuers lists the distinct issuers under which live sessions carry
+	// the provider's session id, for a provider-initiated logout that names no issuer on
+	// a registration serving several: the handler ends the sessions under those the
+	// registration declares. A session recorded without an issuer is left out.
+	ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error)
 	// SetIdentitiesTableName sets the name of the identities table. (default: SessionIdentities)
 	SetIdentitiesTableName(name string) error
 	// SetPendingSignInsTableName sets the name of the pending sign-ins table. (default: SessionPendingSignIns)
@@ -917,6 +922,19 @@ func (a *Auth[Tx]) DestroySessionsByProviderSessionID(ctx context.Context, issue
 	}
 
 	return nil
+}
+
+// ProviderSessionIssuers implements AuthStore.
+func (a *Auth[Tx]) ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	issuers, err := a.db.ProviderSessionIssuers(ctx, providerSessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.ProviderSessionIssuers()")
+	}
+
+	return issuers, nil
 }
 
 // SetSignInAttemptsTableName implements AuthStore.
