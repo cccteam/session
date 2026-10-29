@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.18](https://github.com/cccteam/session/compare/v0.13.17...v0.13.18) (2026-10-29)
+
+
+### Features
+
+* a directory sign-in accepts an invitation only as the invited address; another address is refused with `invitation_address`, the invitation left standing ([#319](https://github.com/cccteam/session/issues/319)) ([4ee9727](https://github.com/cccteam/session/commit/4ee9727c349afb6fe59fc1d8f52107905a70f00d))
+* the invitation's Open answer and the methods answer's standing block carry `accountExists` and `hasPassword`, what account holds the invited address, so the login page can show the ways that accept it ([#319](https://github.com/cccteam/session/issues/319)) ([4ee9727](https://github.com/cccteam/session/commit/4ee9727c349afb6fe59fc1d8f52107905a70f00d))
+
 ## [0.13.17](https://github.com/cccteam/session/compare/v0.13.16...v0.13.17) (2026-10-29)
 
 
