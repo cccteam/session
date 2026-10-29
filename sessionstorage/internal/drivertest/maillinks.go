@@ -501,13 +501,13 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Error("the invitation's ConsumedAt = nil after the sign-in, want consumed")
 	}
 
-	// An existing user signing in with an invitation accepts it too, and takes its
-	// address when they hold none. The request names no username, as the Auth sends
-	// an external identity's: the grant is handed the linked user's.
+	// An existing user signing in with an invitation to their directory address accepts
+	// it too, and takes the address when they hold none. The request names no username,
+	// as the Auth sends an external identity's: the grant is handed the linked user's.
 	alex := createUser(ctx, t, in.Driver, "alex@lakeside.edu")
 	alexIdentity := entra("oid-alex", "alex@lakeside.edu")
 	mustLink(ctx, t, in.Driver, alex.ID, alexIdentity)
-	alexLink := insertInvitation(ctx, t, in.Driver, "alex.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
+	alexLink := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	alexReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: alexIdentity, Invitation: invitationOf(alexLink)}
 	if err := signInRequest(ctx, in, alexReq); err != nil {
 		t.Fatalf("sign-in of a linked user with an invitation error = %v", err)
@@ -515,23 +515,25 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if !alexReq.Invitation.Accepted {
 		t.Error("Invitation.Accepted = false for the linked user, want accepted")
 	}
-	assertEmail(t, "the linked user", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex.contact@lakeside.edu"), true)
-	assertAccepted(t, rec, "accepted:alex.contact@lakeside.edu", alex.ID.String()+" alex@lakeside.edu  Admin")
+	assertEmail(t, "the linked user", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
+	assertAccepted(t, rec, "accepted:alex@lakeside.edu", alex.ID.String()+" alex@lakeside.edu  Admin")
 
-	// An invitation to an address another user holds grants, but writes no address.
+	// An invitation to an address another user holds grants, but writes no address: the
+	// directory names the invited address for the person (unverified, so the
+	// provisioning is not refused for it) and the row is written without it.
 	if _, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "sam", Email: strPtr("taken@lakeside.edu")}, nil); err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 	takenLink := insertInvitation(ctx, t, in.Driver, "taken@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(3))
-	newIdentity := entra("oid-new", "new@lakeside.edu")
-	newReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "new@lakeside.edu", Identity: newIdentity, Invitation: invitationOf(takenLink)}
-	err = signInRequest(ctx, in, newReq)
-	assertProvisioned(ctx, t, in.Driver, err, newReq, newIdentity, "tenant-1")
-	if !newReq.Invitation.Accepted {
+	takenIdentity := entra("oid-taken", "taken@lakeside.edu")
+	takenReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "taken@lakeside.edu", Identity: takenIdentity, Invitation: invitationOf(takenLink)}
+	err = signInRequest(ctx, in, takenReq)
+	assertProvisioned(ctx, t, in.Driver, err, takenReq, takenIdentity, "tenant-1")
+	if !takenReq.Invitation.Accepted {
 		t.Error("Invitation.Accepted = false when the address is held elsewhere, want accepted")
 	}
-	assertEmail(t, "the user provisioned by an invitation to a held address", mustUser(ctx, t, in.Driver, newReq.UserID), nil, false)
-	assertAccepted(t, rec, "accepted:taken@lakeside.edu", newReq.UserID.String()+" new@lakeside.edu lakeside Coach")
+	assertEmail(t, "the user provisioned by an invitation to a held address", mustUser(ctx, t, in.Driver, takenReq.UserID), nil, false)
+	assertAccepted(t, rec, "accepted:taken@lakeside.edu", takenReq.UserID.String()+" taken@lakeside.edu lakeside Coach")
 }
 
 func testInvitationDead(ctx context.Context, t *testing.T, h *AuthHarness) {
@@ -631,7 +633,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	})
 	samID = createUser(ctx, t, crossing.Driver, "sam@lakeside.edu").ID
 	mustLink(ctx, t, crossing.Driver, samID, riverside("idp_sam"))
-	link = insertInvitation(ctx, t, crossing.Driver, "sam.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
+	link = insertInvitation(ctx, t, crossing.Driver, "idp_sam2@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: lakeside("idp_sam2"), Invitation: invitationOf(link)}
 	assertRefused(t, signInRequest(ctx, crossing, req), sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection)
 	assertInvitationKept(ctx, t, crossing, rec, link, req.Invitation)
@@ -645,10 +647,22 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	if err := disabled.Driver.DeactivateUser(ctx, gone.ID); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
-	link = insertInvitation(ctx, t, disabled.Driver, "gone.contact@lakeside.edu", "", []string{"Admin"}, tokenHash(4))
+	link = insertInvitation(ctx, t, disabled.Driver, "gone@lakeside.edu", "", []string{"Admin"}, tokenHash(4))
 	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: goneIdentity, Invitation: invitationOf(link)}
 	assertRefused(t, signInRequest(ctx, disabled, req), sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled)
 	assertInvitationKept(ctx, t, disabled, rec, link, req.Invitation)
+
+	// A directory sign-in as another address than the invited one is refused before
+	// anything is resolved, and keeps the invitation: it is accepted only as the invited
+	// address, by whoever the directory says holds it, so nothing is provisioned.
+	other := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: rec.hook})
+	link = insertInvitation(ctx, t, other.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(5))
+	kim := entra("oid-kim", "kim@lakeside.edu")
+	req = &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: kim, Invitation: invitationOf(link)}
+	assertRefused(t, signInRequest(ctx, other, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	assertInvitationKept(ctx, t, other, rec, link, req.Invitation)
+	assertNoUser(ctx, t, other.Driver, "kim@lakeside.edu")
+	assertNoLink(ctx, t, other.Driver, kim)
 }
 
 func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {

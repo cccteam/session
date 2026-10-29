@@ -36,6 +36,39 @@ import (
 type mailLinks struct {
 	mu   sync.Mutex
 	rows []*sessionstorage.MailLink
+	// accounts are the users the store reports as holding an address (UserByEmail),
+	// keyed by the address in lower case; none hold any until a test says so (holds).
+	accounts map[string]*sessionstorage.SessionUser
+	once     sync.Once
+}
+
+// holds makes the store report user as the account holding email.
+func (m *mailLinks) holds(email string, user *sessionstorage.SessionUser) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.accounts == nil {
+		m.accounts = map[string]*sessionstorage.SessionUser{}
+	}
+	m.accounts[strings.ToLower(email)] = user
+}
+
+// expectAccounts gives the fixture's store the users-by-address lookup the invitation
+// answers make (UserByEmail), answered from accounts, NotFound for an address none
+// holds; once per fixture, so a test may call it freely.
+func (m *mailLinks) expectAccounts(f *authFixture) {
+	m.once.Do(func() {
+		f.store.EXPECT().UserByEmail(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, email string) (*sessionstorage.SessionUser, error) {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if u := m.accounts[strings.ToLower(email)]; u != nil {
+				row := *u
+
+				return &row, nil
+			}
+
+			return nil, httpio.NewNotFoundMessage("no user holds the address")
+		}).AnyTimes()
+	})
 }
 
 // expectMailLinks gives the fixture's store a mail links table and returns it.
@@ -450,6 +483,7 @@ func authInviteCase4(t *testing.T) {
 // invitationCookies opens the invitation link.last for the browser and returns the
 // cookies it set.
 func invitationCookies(t *testing.T, f *authFixture, links *mailLinks, token string) []*http.Cookie {
+	links.expectAccounts(f)
 	t.Helper()
 
 	rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
@@ -559,7 +593,8 @@ func newDirectoryFixture(t *testing.T) (*authFixture, *mail.Recorder, *mailLinks
 
 func authInvitationCase6(t *testing.T) {
 	t.Parallel()
-	f, recorder, _ := newDirectoryFixture(t)
+	f, recorder, links := newDirectoryFixture(t)
+	links.expectAccounts(f)
 	for i, tt := range []struct {
 		email string
 		want  []any
@@ -583,6 +618,7 @@ func authInvitationCase6(t *testing.T) {
 func authInvitationCase1(t *testing.T) {
 	t.Parallel()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	links.expectAccounts(f)
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -592,6 +628,17 @@ func authInvitationCase1(t *testing.T) {
 	body := decoded(t, rr)
 	if rr.Code != http.StatusOK || body["email"] != "pat@lakeside.edu" || body["tenant"] != "lakeside" || body["signUp"] != true || body["usernameIsEmail"] != false {
 		t.Errorf("Open() = %d %s, want the invitation with sign-up offered", rr.Code, rr.Body.String())
+	}
+	if body["accountExists"] != false || body["hasPassword"] != false {
+		t.Errorf("Open() = %s, want accountExists false and hasPassword false while no account holds the address", rr.Body.String())
+	}
+	links.holds("pat@lakeside.edu", &sessionstorage.SessionUser{ID: ccc.Must(ccc.NewUUID()), Username: "pat", PasswordHash: hashed(t, "pw")})
+	if body := decoded(t, f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)); body["accountExists"] != true || body["hasPassword"] != true {
+		t.Errorf("Open() = %v, want accountExists true and hasPassword true once an account with a password holds the address", body)
+	}
+	links.holds("pat@lakeside.edu", &sessionstorage.SessionUser{ID: ccc.Must(ccc.NewUUID()), Username: "pat"})
+	if body := decoded(t, f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)); body["accountExists"] != true || body["hasPassword"] != false {
+		t.Errorf("Open() = %v, want accountExists true and hasPassword false for an account without a password", body)
 	}
 	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || !c.Expires.After(time.Now().Add(6*24*time.Hour)) {
 		t.Errorf("invitation cookie = %+v, want HttpOnly, Lax and persistent", c)
@@ -711,6 +758,7 @@ func authInvitationCase5(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t), UsernameIsEmail())
+	links.expectAccounts(f)
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err != nil {
 		t.Fatal(err)
 	}

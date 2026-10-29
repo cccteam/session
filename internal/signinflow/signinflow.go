@@ -150,7 +150,12 @@ type Rules[Tx any] struct {
 //
 // A sign-in that carries an invitation (req.Invitation) accepts it once the user is
 // known and before the policy decides, so the policy sees what the acceptance
-// granted: the invitation is consumed and the user's address is set from it when the
+// granted. An external identity accepts it only as the invited address: a directory
+// sign-in whose address is not the one the invitation was mailed to is refused before
+// anything is read or written (invitation_address), the invitation left standing for
+// the invited account; a password sign-in or sign-up is not held to the address, since
+// nothing on that path could prove it, and the link itself is what the person proved.
+// Accepting it consumes the invitation and sets the user's address from it when the
 // user holds no verified address, in the resolution transaction for an external
 // identity (so a user the invitation provisioned and the consumption commit together)
 // and in a transaction of its own for a password identity; once that has committed,
@@ -185,6 +190,9 @@ func SignIn[Tx any](
 	case dbtype.IsExternal(req.Identity):
 		if rules.Account == nil && rules.Standard == "" {
 			return errors.Newf("the %s sign-in method has neither a standard account rule nor a custom one", req.Identity.Method)
+		}
+		if stop := invitedAddressRefusal(req); stop != nil {
+			return stop
 		}
 		var (
 			seats []signin.DirectorySeat
@@ -225,6 +233,34 @@ func SignIn[Tx any](
 	}
 
 	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted)
+}
+
+// invitedAddressRefusal refuses an external sign-in that carries an invitation mailed
+// to another address: the directory's address, compared without regard to case and
+// surrounding space, must be the invited one, so an invitation is accepted through a
+// directory only by the account it was sent to, whoever holds the link. An identity
+// that asserts no address cannot match. Nothing is read or written: the invitation
+// stands and the login page, which still carries it, names the invited address. Nil
+// when the sign-in carries no invitation or the addresses agree.
+func invitedAddressRefusal(req *sessioninfo.NewSessionRequest) error {
+	inv := req.Invitation
+	if inv == nil {
+		return nil
+	}
+	if sameAddress(req.Identity.Email, inv.Email) {
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress,
+		fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email))
+}
+
+// sameAddress reports whether two addresses are one, without regard to case and
+// surrounding space; an empty address is nobody's and matches nothing.
+func sameAddress(a, b string) bool {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+
+	return a != "" && strings.EqualFold(a, b)
 }
 
 // trustedDevice asks check, nil for none, whether the browser is a trusted device of
@@ -572,7 +608,8 @@ func standardRule[Tx any](
 		return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), false, nil, nil
 	case signin.InvitedUsersOnly:
 		// The invitation the browser carries is the account the rule asks for: the
-		// person was invited by address, and whoever follows the link is the invitee.
+		// person was invited by address, and SignIn has already held the directory's
+		// address to the invited one.
 		if req.Invitation != nil {
 			return signin.Provision(&signin.NewUser{Username: req.Identity.SignInName}, nil, signin.Tenant(tenant)), true, nil, nil
 		}

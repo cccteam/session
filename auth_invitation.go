@@ -157,6 +157,10 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		SignUp          bool      `json:"signUp"`
 		UsernameIsEmail bool      `json:"usernameIsEmail"`
 		Methods         []string  `json:"methods"`
+		// AccountExists and HasPassword: whether an account already holds the invited
+		// address, and whether it signs in with a password (see standingInvitationAnswer).
+		AccountExists bool `json:"accountExists"`
+		HasPassword   bool `json:"hasPassword"`
 	}
 
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -178,12 +182,34 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		a.invitationCookies.Cookie().WritePersistentCookie(w, a.settings.invitationCookie, a.invitationCookies.Domain, true, http.SameSiteLaxMode,
 			time.Until(link.ExpiresAt), cval)
 		methods := a.registered()
+		exists, hasPassword, err := a.invitedAccount(ctx, link.Email)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Email: link.Email, Tenant: link.Tenant, ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered(), UsernameIsEmail: methods.usernameIsEmail(),
-			Methods: a.admittingMethodNames(link.Email),
+			Methods: a.admittingMethodNames(link.Email), AccountExists: exists, HasPassword: hasPassword,
 		})
 	})
+}
+
+// invitedAccount says whether an account already holds the invited address, verified
+// or not, and whether it signs in with a password. What the login page shows the
+// invitee turns on it: the password form for an account with one, the account form
+// where none holds the address, the directory buttons beside either. The link holder
+// may know it, since following the link proved they own the address.
+func (a *Auth[S, U, Tx]) invitedAccount(ctx context.Context, email string) (exists, hasPassword bool, err error) {
+	user, err := a.storage.UserByEmail(ctx, email)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "sessionstorage.AuthStore.UserByEmail()")
+	}
+
+	return true, user.PasswordHash != nil, nil
 }
 
 // liveLink returns the live link of kind that token names, or a NotFound error.

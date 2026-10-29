@@ -398,6 +398,11 @@ var (
 	// used by the time the sign-in accepted it; nothing is provisioned. The code is
 	// sessioninfo.RefusedInvitationExpired.
 	ErrInvitationExpired = errors.New("signin: the invitation has expired or was already used")
+	// ErrInvitationAddress is the cause when a directory sign-in carried an invitation
+	// mailed to another address: an invitation is accepted through a directory only as
+	// the invited address, so the sign-in is refused and the invitation left standing.
+	// The code is sessioninfo.RefusedInvitationAddress.
+	ErrInvitationAddress = errors.New("signin: the directory's address is not the one the invitation was mailed to")
 	// ErrSignInDenied is the cause when the sign-in policy returned DenySignIn or no
 	// decision. The code is the decision's, or sessioninfo.RefusedByPolicy. A refusal
 	// of the tenant policy carries its own cause beside it.
