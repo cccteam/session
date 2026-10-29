@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.16](https://github.com/cccteam/session/compare/v0.13.15...v0.13.16) (2026-10-29)
+
+
+### Bug Fixes
+
+* a front-channel logout naming no issuer on a Microsoft registration serving several tenants ends the sessions recorded under the registration's declared issuers, as Entra sends the session id alone, instead of answering 400 and leaving them open ([#315](https://github.com/cccteam/session/issues/315)) ([1788bfd](https://github.com/cccteam/session/commit/1788bfd8b38bbb2555e338f210f2c7fa6d445b88))
+
 ## [0.13.15](https://github.com/cccteam/session/compare/v0.13.14...v0.13.15) (2026-10-29)
 
 
