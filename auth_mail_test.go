@@ -43,24 +43,24 @@ type mailLinks struct {
 }
 
 // holds makes the store report user as the account holding email.
-func (l *mailLinks) holds(email string, user *sessionstorage.SessionUser) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.accounts == nil {
-		l.accounts = map[string]*sessionstorage.SessionUser{}
+func (m *mailLinks) holds(email string, user *sessionstorage.SessionUser) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.accounts == nil {
+		m.accounts = map[string]*sessionstorage.SessionUser{}
 	}
-	l.accounts[strings.ToLower(email)] = user
+	m.accounts[strings.ToLower(email)] = user
 }
 
 // expectAccounts gives the fixture's store the users-by-address lookup the invitation
 // answers make (UserByEmail), answered from accounts, NotFound for an address none
 // holds; once per fixture, so a test may call it freely.
-func (l *mailLinks) expectAccounts(f *authFixture) {
-	l.once.Do(func() {
+func (m *mailLinks) expectAccounts(f *authFixture) {
+	m.once.Do(func() {
 		f.store.EXPECT().UserByEmail(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, email string) (*sessionstorage.SessionUser, error) {
-			l.mu.Lock()
-			defer l.mu.Unlock()
-			if u := l.accounts[strings.ToLower(email)]; u != nil {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if u := m.accounts[strings.ToLower(email)]; u != nil {
 				row := *u
 
 				return &row, nil
