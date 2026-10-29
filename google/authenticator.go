@@ -3,14 +3,17 @@ package google
 import (
 	"context"
 	"net/http"
+
+	"github.com/cccteam/session/signin"
 )
 
 // Authenticator defines the interface for authenticating users via OpenID Connect.
 type Authenticator interface {
 	// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
-	// authentication process. loginHint is the account Google is asked to pick (the
-	// login_hint parameter), or "" for none.
-	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL, loginHint string) (string, error)
+	// authentication process. options carry the login page's hints: the account Google
+	// is asked to pick (login_hint) and whether it shows its account chooser
+	// (prompt=select_account).
+	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string, options signin.LoginOptions) (string, error)
 
 	// Verify performs the necessary verification and processing of the OIDC callback
 	// request, including the hosted-domain (hd claim) and verified-email checks.

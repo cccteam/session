@@ -81,8 +81,9 @@ func (o *OIDC) LoginURL() string {
 	return o.loginURL
 }
 
-// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string) (string, error) {
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
+// authentication process. The login options are accepted and unused: nothing is chosen.
+func (o *OIDC) AuthCodeURL(_ context.Context, w http.ResponseWriter, returnURL string, _ signin.LoginOptions) (string, error) {
 	cval := cookie.NewValues().SetString(internalcookie.ReturnURL, returnURL)
 
 	o.cookies.WriteStateCookie(w, cval)

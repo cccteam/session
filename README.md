@@ -120,8 +120,8 @@ each with its `SignIn` function and `Config`.
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
-| `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
-| `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=`, `?prompt=select_account` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
+| `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
 | `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
@@ -669,6 +669,17 @@ password login and the pending handlers answer JSON. `<LoginURL>` is the method'
   with **400**, and the callback sanitizes it again, falling back to `/`. The callback
   writes the `Location` header with exactly that value. Percent-encode a non-ASCII path
   before passing it. A WorkOS `Login()` without `organization` is also 400, and its callback refuses a profile from another organization than the login requested (`organization_mismatch`).
+- `prompt=select_account` on a Google or Entra `Login()` asks the provider for its
+  account chooser (its `prompt=select_account`), so a provider holding one signed-in
+  account does not sign that account in again without asking. The login page sends it
+  after a refusal, so a person refused with the wrong account picks another instead
+  of being sent round the same loop, and under "Use a different account"; it sends
+  nothing on an ordinary visit, where the single-account person is signed in without a
+  click. Any other `prompt` value is refused with **400**. A provider that reports an
+  error on the callback instead of a code (`error=access_denied` when the person
+  cancelled at its chooser or consent screen) is refused `token_exchange_failed`
+  without an exchange, after the state check, so the page is always reached with a
+  code and a login page that forwards to the provider on its own can never loop.
 - `pending` is the login page's routing marker. The page reads the pending identity from
   `Pending().Status()`: `200 {"reason", "email", "expiresAt", "returnUrl"[, "factors"][, "emailCode"]}`, `404` when
   there is none, `401 {"code": "pending_expired"}` once it has expired or been used.
@@ -1492,6 +1503,12 @@ B2B guest, whose `idp` claim names another provider than the issuer or whose nam
 carries `#EXT#`) is marked on the identity (`Identity.Guest`) and refused by the
 standard rules (`guest_account`); a rule of the application's own decides for itself.
 
+`Login` accepts `?returnUrl=` (a path in the application) and `?prompt=select_account`,
+passed to Microsoft as its `prompt` so it shows its account chooser even when it holds
+one signed-in account it would otherwise take without asking; the login page sends it
+after a refusal and under "Use a different account". Any other `prompt` value is
+refused with 400.
+
 ### Which accounts may sign in
 
 `Config.Tenants` is required and says which Microsoft Entra tenants' accounts a
@@ -1650,6 +1667,17 @@ page (the person types their email, the page picks the registration) skips the c
 whatever the registration's shape. It is a hint and is never read back; the
 identity comes from the verified token. A hint longer than 254 characters, or carrying
 spaces or control characters, is refused with 400.
+
+The opposite is wanted after a refusal: Google holding one signed-in account of the
+hinted domain signs it in again without asking, so a person refused with the wrong
+account (`not_invited`, say) would be sent round the same loop on every press of the
+button. `Login` accepts `?prompt=select_account` and passes it to Google as its
+`prompt`, which makes Google show its account chooser whatever it holds; the login
+page sends it after a refusal and under "Use a different account", and nothing on an
+ordinary visit. Any other `prompt` value is refused with 400. A person who cancels at
+the chooser comes back to the callback with `error=access_denied`, which is refused
+`token_exchange_failed` before any exchange (see "The redirect and response
+contract").
 
 ### The group naming convention
 

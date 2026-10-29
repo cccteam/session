@@ -190,7 +190,12 @@ func refuseShape(tenants TenantSet, roleSync signin.RoleSyncConfig, accounts sig
 }
 
 // Login redirects to Microsoft. It accepts ?returnUrl=, which must be a path in this
-// application; any other value is refused with 400.
+// application; any other value is refused with 400. It also accepts
+// ?prompt=select_account, passed to Microsoft as its prompt so it shows its account
+// chooser even when it holds one signed-in account it would otherwise take without
+// asking: a login page sends it after a refusal, so a person refused with the wrong
+// account can pick another instead of being sent round the same loop, and under "Use
+// a different account". Any other prompt value is refused with 400.
 func (m *Method) Login() http.HandlerFunc { return m.login }
 
 // Callback completes the provider round trip, resolves the identity and applies the
@@ -299,8 +304,13 @@ func method(authn Authenticator, roles *signin.RoleReconciler, authority string,
 		AdmitsAddress: func(email string) bool {
 			return tenants.admitsAddress(signin.AddressDomain(email))
 		},
-		Begin: func(ctx context.Context, w http.ResponseWriter, _ *http.Request, returnURL string) (string, error) {
-			return authn.AuthCodeURL(ctx, w, returnURL)
+		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
+			chooser, err := signin.SelectAccount(r)
+			if err != nil {
+				return "", errors.Wrap(err, "signin.SelectAccount()")
+			}
+
+			return authn.AuthCodeURL(ctx, w, returnURL, signin.LoginOptions{SelectAccount: chooser})
 		},
 		Complete: func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*signin.Verified, error) {
 			var rawClaims json.RawMessage

@@ -16,6 +16,7 @@ import (
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
 )
 
 const testClientID = "test-client-id"
@@ -48,7 +49,7 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 
 	ctx := t.Context()
 	rec := httptest.NewRecorder()
-	rawURL, err := o.AuthCodeURL(ctx, rec, "/app")
+	rawURL, err := o.AuthCodeURL(ctx, rec, "/app", signin.LoginOptions{})
 	if err != nil {
 		t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 	}
@@ -185,6 +186,21 @@ func TestOIDC_Verify(t *testing.T) {
 			tokenStatus: http.StatusInternalServerError,
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
+			wantCode:    sessioninfo.RefusedTokenExchange,
+		},
+		{
+			name:        "the provider's error answer is refused before any exchange",
+			tokenClaims: goodClaims,
+			tokenStatus: http.StatusInternalServerError,
+			mutateReq: func(r *http.Request) {
+				q := r.URL.Query()
+				q.Del("code")
+				q.Set("error", "access_denied")
+				q.Set("error_description", "The person canceled at the chooser")
+				r.URL.RawQuery = q.Encode()
+			},
+			wantErr:     true,
+			wantErrPart: "The provider did not complete the sign-in",
 			wantCode:    sessioninfo.RefusedTokenExchange,
 		},
 		{
@@ -455,4 +471,38 @@ func TestOIDC_Verify_KeyRotation(t *testing.T) {
 		t.Fatalf("Verify() under a key the provider never published error = %v, want %s", err, sessioninfo.RefusedIDTokenVerification)
 	}
 	fetches(3, "after a token under an unknown key id: one refresh, then refused")
+}
+
+// TestOIDC_AuthCodeURL_SelectAccount: a request for the account chooser rides to
+// Microsoft as prompt=select_account, and nothing rides otherwise.
+func TestOIDC_AuthCodeURL_SelectAccount(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name          string
+		selectAccount bool
+		wantPrompt    string
+	}{
+		{name: "a request for the chooser rides as prompt=select_account", selectAccount: true, wantPrompt: "select_account"},
+		{name: "no request sends no prompt"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := oidctest.NewFakeEntra(t, testClientID)
+			o := newVerifier(t, idp, Tenant(tenantLake), "lakeside")
+
+			rawURL, err := o.AuthCodeURL(t.Context(), httptest.NewRecorder(), "/app", signin.LoginOptions{SelectAccount: tt.selectAccount})
+			if err != nil {
+				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
+			}
+			authURL, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatalf("url.Parse() error = %v", err)
+			}
+			if got, has := authURL.Query()["prompt"]; has != (tt.wantPrompt != "") || (has && got[0] != tt.wantPrompt) {
+				t.Errorf("prompt parameter = %v, want %q (present %v)", got, tt.wantPrompt, tt.wantPrompt != "")
+			}
+		})
+	}
 }

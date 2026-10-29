@@ -176,7 +176,12 @@ func refuseShape(workspaces WorkspaceSet, roleSync RoleSyncConfig, accounts sign
 // person types their email before choosing how to sign in, skips the chooser whatever
 // the registration's domain count. It is a hint and is never read back; the identity
 // comes from the verified ID token. A hint longer than an email address can be (254
-// characters), or carrying spaces or control characters, is refused with 400.
+// characters), or carrying spaces or control characters, is refused with 400. And it
+// accepts ?prompt=select_account, passed to Google as its prompt so Google shows its
+// account chooser even when it holds one signed-in account it would otherwise take
+// without asking: a login page sends it after a refusal, so a person refused with the
+// wrong account can pick another instead of being sent round the same loop, and under
+// "Use a different account". Any other prompt value is refused with 400.
 func (m *Method) Login() http.HandlerFunc { return m.login }
 
 // Callback completes the provider round trip and redirects as the Azure method's
@@ -248,8 +253,12 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			if err != nil {
 				return "", err
 			}
+			chooser, err := signin.SelectAccount(r)
+			if err != nil {
+				return "", errors.Wrap(err, "signin.SelectAccount()")
+			}
 
-			return authn.AuthCodeURL(ctx, w, returnURL, hint)
+			return authn.AuthCodeURL(ctx, w, returnURL, signin.LoginOptions{LoginHint: hint, SelectAccount: chooser})
 		},
 		Complete: func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*signin.Verified, error) {
 			var rawClaims json.RawMessage

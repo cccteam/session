@@ -8,6 +8,7 @@ import (
 	"github.com/cccteam/session/internal/basesession"
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/signin"
 	"github.com/go-playground/errors/v5"
 )
 
@@ -15,7 +16,7 @@ import (
 // use.
 type oidcLoginStarter interface {
 	// AuthCodeURL writes the provider's state cookie and returns the authorization URL.
-	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error)
+	AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string, options signin.LoginOptions) (string, error)
 	// LoginURL is where a refused login is sent, with ?code=.
 	LoginURL() string
 }
@@ -29,7 +30,7 @@ func oidcLogin(base *basesession.BaseSession, authn oidcLoginStarter, authentica
 		defer span.End()
 
 		returnURL := r.URL.Query().Get("returnUrl")
-		authCodeURL, err := authn.AuthCodeURL(ctx, w, returnURL)
+		authCodeURL, err := authn.AuthCodeURL(ctx, w, returnURL, signin.LoginOptions{})
 		if err != nil {
 			sessioncore.RedirectRefusedLogin(w, r, authn.LoginURL(), err)
 

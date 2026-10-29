@@ -14,6 +14,7 @@ import (
 
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
 )
 
 const (
@@ -34,7 +35,7 @@ func startLogin(t *testing.T, o *OIDC) (authURL *url.URL, callback *http.Request
 
 	ctx := t.Context()
 	rec := httptest.NewRecorder()
-	rawURL, err := o.AuthCodeURL(ctx, rec, "/app", "")
+	rawURL, err := o.AuthCodeURL(ctx, rec, "/app", signin.LoginOptions{})
 	if err != nil {
 		t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 	}
@@ -91,9 +92,11 @@ func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
 		name          string
 		workspaces    WorkspaceSet
 		loginHint     string
+		selectAccount bool
 		wantHd        string
 		wantNoHd      bool
 		wantLoginHint string
+		wantPrompt    string
 	}{
 		{name: "one Workspace with one domain hints the domain", workspaces: Workspace("test", testHostedDomain), wantHd: testHostedDomain},
 		{name: "one Workspace with several domains hints any Workspace account", workspaces: Workspace("test", testHostedDomain, "example.org"), wantHd: "*"},
@@ -102,6 +105,8 @@ func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
 		{name: "any Google account hints no domain", workspaces: AnyGoogleAccount(), wantNoHd: true},
 		{name: "named Workspaces beside any Google account hint no domain", workspaces: Workspaces(Workspace("test", testHostedDomain), AnyGoogleAccount()), wantNoHd: true},
 		{name: "a login hint rides as given", workspaces: Workspace("test", testHostedDomain), loginHint: "Pat@Example.com", wantHd: testHostedDomain, wantLoginHint: "Pat@Example.com"},
+		{name: "a request for the account chooser rides as prompt=select_account", workspaces: Workspace("test", testHostedDomain), selectAccount: true, wantHd: testHostedDomain, wantPrompt: "select_account"},
+		{name: "no request for the chooser sends no prompt", workspaces: AnyGoogleAccount(), wantNoHd: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,7 +115,7 @@ func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
 			idp := newFakeIDP(t)
 			o := newWithIssuer(oidctest.NewCookieClient(t).ForRegistration("google"), idp.Server.URL, testClientID, "test-secret", "https://app.example.com/callback", tt.workspaces)
 
-			rawURL, err := o.AuthCodeURL(t.Context(), httptest.NewRecorder(), "/app", tt.loginHint)
+			rawURL, err := o.AuthCodeURL(t.Context(), httptest.NewRecorder(), "/app", signin.LoginOptions{LoginHint: tt.loginHint, SelectAccount: tt.selectAccount})
 			if err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
@@ -124,6 +129,9 @@ func TestOIDC_AuthCodeURL_Hints(t *testing.T) {
 			}
 			if got, has := q["login_hint"]; has != (tt.wantLoginHint != "") || (has && got[0] != tt.wantLoginHint) {
 				t.Errorf("login_hint parameter = %v, want %q (present %v)", got, tt.wantLoginHint, tt.wantLoginHint != "")
+			}
+			if got, has := q["prompt"]; has != (tt.wantPrompt != "") || (has && got[0] != tt.wantPrompt) {
+				t.Errorf("prompt parameter = %v, want %q (present %v)", got, tt.wantPrompt, tt.wantPrompt != "")
 			}
 		})
 	}
@@ -186,6 +194,21 @@ func TestOIDC_Verify(t *testing.T) {
 			tokenStatus: http.StatusInternalServerError,
 			wantErr:     true,
 			wantErrPart: "Failed to exchange token",
+			wantCode:    sessioninfo.RefusedTokenExchange,
+		},
+		{
+			name:        "the provider's error answer is refused before any exchange",
+			tokenClaims: workspaceClaims,
+			tokenStatus: http.StatusInternalServerError,
+			mutateReq: func(r *http.Request) {
+				q := r.URL.Query()
+				q.Del("code")
+				q.Set("error", "access_denied")
+				q.Set("error_description", "The person canceled at the chooser")
+				r.URL.RawQuery = q.Encode()
+			},
+			wantErr:     true,
+			wantErrPart: "The provider did not complete the sign-in",
 			wantCode:    sessioninfo.RefusedTokenExchange,
 		},
 		{
