@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.15](https://github.com/cccteam/session/compare/v0.13.14...v0.13.15) (2026-10-29)
+
+
+### Features
+
+* the Google and Entra login routes accept ?prompt=select_account and pass it to the provider as its prompt, so a login page can ask for the account chooser after a refusal or under "Use a different account" instead of sending a person round the same refusal; any other prompt value is refused with 400; both Authenticator interfaces take the hints as signin.LoginOptions ([#313](https://github.com/cccteam/session/issues/313)) ([d6cfe71](https://github.com/cccteam/session/commit/d6cfe7129678d56270a6a2349c2c443b40882586))
+
+
+### Bug Fixes
+
+* the OIDC callback refuses a provider's error answer (error=access_denied when the person cancelled at its chooser) before any token exchange, so the login page is always reached with a code ([#313](https://github.com/cccteam/session/issues/313)) ([d6cfe71](https://github.com/cccteam/session/commit/d6cfe7129678d56270a6a2349c2c443b40882586))
+
+
+### Code Upgrade
+
+* **deps:** bump the go-dependencies group with 5 updates ([#312](https://github.com/cccteam/session/issues/312)) ([99d25bd](https://github.com/cccteam/session/commit/99d25bd80e42e99905cde4ba0a6fb5356a6f06e8))
+
 ## [0.13.14](https://github.com/cccteam/session/compare/v0.13.13...v0.13.14) (2026-10-28)
 
 
