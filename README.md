@@ -17,7 +17,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
   - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
-- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted by whoever signs in or signs up at it; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
+- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted by whoever signs in or signs up at it, a directory sign-in only as the invited address; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Legacy session types`: the single-method `PasswordAuth` and `OIDCAzure` of earlier releases, kept unchanged in `session/legacy` and deprecated. See the "Legacy session types" section and [docs/upgrading-to-v0.13.md](docs/upgrading-to-v0.13.md).
@@ -592,7 +592,8 @@ the password method is listed.
   "changePassword": "/api/user/password",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"]}},
+                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
+                              "accountExists": false, "hasPassword": false}},
   "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
   "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
 }
@@ -632,7 +633,11 @@ the password method is listed.
   being accepted, whether an account created from it takes the address as its
   username, and the names of the listed external registrations that could admit the
   address (`methods`, empty when none could), as `Invitation().Open()` answered them;
-  the page hides the methods not named. A page that arrives without the
+  the page hides the methods not named. `accountExists` says an account already holds
+  the invited address and `hasPassword` that it signs in with a password, so the page
+  offers that account's password form, and offers to create an account only where
+  none holds the address; the link holder may know it, since following the link
+  proved they own the address. A page that arrives without the
   mailed link's token, as it does when an external sign-in was refused and sent the
   browser back with `?code=`, reads the invitation from here and keeps showing it. The
   block is absent when the browser carries no cookie, or its invitation is dead (used,
@@ -1032,8 +1037,11 @@ An invitation is a mailed link that brings a person into the application, or int
 one of its tenants, with the roles it carries. It reaches anyone by address, and the
 actor's request is the same whether an account already holds the address or not: only
 the invitee's path differs, and the actor does not learn which. Whoever follows the
-link and signs in, by any method, or signs up with a password, accepts it: the person
-proved they read the mailbox, and the account they sign in with is theirs.
+link and signs in with a password, or signs up with one, accepts it: the person proved
+they read the mailbox, and nothing on that path could prove more. A directory sign-in
+accepts it only as the invited address: the address the directory asserts must be the
+one the invitation was mailed to, or the sign-in is refused (`invitation_address`),
+nothing consumed and the invitation left standing for the invited account.
 
 - **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Tenant,
   RoleNames, InvitedBy})` stores the invitation and mails the link; it stands for
@@ -1042,18 +1050,25 @@ proved they read the mailbox, and the account they sign in with is theirs.
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
   `Invitation().Open()`, which answers `{"email", "tenant", "expiresAt", "signUp",
-  "usernameIsEmail", "methods"}` and sets an encrypted cookie holding the token, so the
+  "usernameIsEmail", "methods", "accountExists", "hasPassword"}` and sets an encrypted cookie holding the token, so the
   sign-in that follows carries the invitation, an external round trip included. The
   page then offers the sign-in methods, and, when `signUp` is true (the password method
   is registered), an account with a password. `methods` names the listed external
   registrations that could admit the invitation's address, by the names the methods
   listing advertises them under (`[]` when none could; the password method is never
-  among them), so the page hides the buttons that would refuse the invitee. While the cookie names an invitation that
+  among them), so the page hides the buttons that would refuse the invitee; `accountExists`
+  and `hasPassword` say whether an account already holds the address and signs in with
+  a password, so the page offers that account's password form, and offers to create an
+  account only where none holds the address. While the cookie names an invitation that
   stands, the methods listing (`auth.Methods`) reports it as `invitation.standing`, so
   the page shows the invitation again when it comes back without the token, as after a
   refused external sign-in; see "What the login page is told".
 - **Accepting**: a sign-in that carries an invitation accepts it once the user is
-  known, before the sign-in policy decides, so the policy sees the membership: the
+  known, before the sign-in policy decides, so the policy sees the membership. An
+  external sign-in is first held to the address: the directory's address must be the
+  invited one, compared without regard to case, or the sign-in is refused before
+  anything is read or written (`invitation_address`, the login page naming the invited
+  address), the invitation standing for the account it was sent to. Then the
   invitation is consumed, the user takes its address when they hold no verified one,
   and the application's hook grants what it names. Only a sign-in the resolution
   admitted consumes it: one the account rules refuse or hold for a confirmation, one
@@ -1800,6 +1815,7 @@ table is the wire contract:
 | `not_invited` | `RefusedNotInvited` | Auth: under the invited-users-only account rule, no user was created for the identity's sign-in name. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: under the invited-users-only account rule, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
+| `invitation_address` | `RefusedInvitationAddress` | Auth: a directory sign-in carried an invitation mailed to another address; the sign-in is refused before anything is read or written, the invitation left standing. The login page names the invited address and asks for a sign-in with that account. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rules refuse. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |

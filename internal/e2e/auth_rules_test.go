@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/mail"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -99,8 +101,10 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
+	recorder := &mail.Recorder{}
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
-		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
+		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
+		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
@@ -152,7 +156,7 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	t.Cleanup(server.Close)
 
 	return &rulesApp[Tx]{
-		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
+		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
 		entra:   entraIDP, google: googleIDP,
 	}
 }
@@ -284,6 +288,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "invited users only: a pre-created user is linked, one with a password confirms, and a stranger is refused with not_invited and a guest with guest_account, both without a row",
 			run:  seamRulesInvitedUsersOnly[Tx],
+		},
+		{
+			name: "an invitation carried by a directory sign-in is accepted only by the invited address: another Workspace account is refused with invitation_address, nothing written and the invitation standing; the invited address then signs in through it, provisioned under the invited-users-only rule, and the invitation is consumed",
+			run:  seamRulesInvitationAddress[Tx],
 		},
 		{
 			name: "any tenant and any Google account with open sign-up: a work or school account of a tenant the application never heard of and a Google account outside any Workspace get accounts keyed by where they came from, a personal Microsoft account is refused, and an unverified Google email is refused, each before any user is resolved",
@@ -426,6 +434,66 @@ func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be bac
 	guest := azureClaims(azureTenant, "oid-guest", "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com")
 	assertRedirect(t, a.entraSignIn(ctx, g, guest), "/login", url.Values{"code": {"guest_account"}})
 	a.assertNoRow(ctx, t, g, "visitor_gmail.com#EXT#@lakeside.onmicrosoft.com")
+}
+
+// seamRulesInvitationAddress is the scenario "an invitation carried by a directory
+// sign-in is accepted only by the invited address".
+func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	a := newRulesApp(ctx, t, be, oneOrganization(signin.InvitedUsersOnly))
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "pat@lakeside.edu"})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	token := invitationToken(t, a.mail)
+
+	// The browser opens the link: it carries the invitation from here on.
+	b := a.browser(t)
+	b.prime(ctx)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": token}, b.xsrfToken())
+
+	// Another account of the Workspace follows the link: refused as not the invited
+	// address, no account created, the invitation still standing.
+	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-kim", "kim@lakeside.edu")), "/login", url.Values{"code": {"invitation_address"}})
+	a.assertNoRow(ctx, t, b, "kim@lakeside.edu")
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != inv.ID {
+		t.Errorf("standing invitations after the refused sign-in = %v, want the one invitation still standing", standing)
+	}
+
+	// The invited address, in any letter case, accepts it: provisioned under the
+	// invited-users-only rule, signed in, the invitation consumed.
+	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-pat", "Pat@Lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, b, "Pat@Lakeside.edu")
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
+	}
+}
+
+// invitationToken is the token of the one invitation the recorder holds.
+func invitationToken(t *testing.T, recorder *mail.Recorder) string {
+	t.Helper()
+
+	messages := recorder.Messages()
+	if len(messages) != 1 {
+		t.Fatalf("mailed messages = %d, want the one invitation", len(messages))
+	}
+	m := regexp.MustCompile(`https://app\.example/login\?invitation=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[0].Text)
+	if m == nil {
+		t.Fatalf("no invitation link in the message:\n%s", messages[0].Text)
+	}
+
+	return m[1]
+}
+
+// standingInvitations lists the invitations that stand.
+func (a *authApp[Tx]) standingInvitations(ctx context.Context, t *testing.T) []*sessioninfo.Invitation {
+	t.Helper()
+
+	standing, err := a.api.Invitations(ctx)
+	if err != nil {
+		t.Fatalf("Invitations() error = %v", err)
+	}
+
+	return standing
 }
 
 // seamRulesOpenSignUp is the scenario "any tenant and any Google account with open sign-up".

@@ -125,6 +125,12 @@ type standingInvitationAnswer struct {
 	// Methods are the names of the listed external registrations that could admit the
 	// invitation's address, empty when none could.
 	Methods []string `json:"methods"`
+	// AccountExists says an account already holds the invited address, and HasPassword
+	// that it signs in with a password: the page offers that account's password form,
+	// and offers to create an account only where none holds the address. The link
+	// holder may know it, since following the link proved they own the address.
+	AccountExists bool `json:"accountExists"`
+	HasPassword   bool `json:"hasPassword"`
 }
 
 // emailAnswer is the email block of a methods answer.
@@ -220,8 +226,14 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 		return nil, nil
 	}
 
+	exists, hasPassword, err := a.invitedAccount(ctx, inv.Email)
+	if err != nil {
+		return nil, err
+	}
+
 	return &standingInvitationAnswer{
 		Email: inv.Email, Tenant: inv.Tenant, ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
+		AccountExists: exists, HasPassword: hasPassword,
 	}, nil
 }
 

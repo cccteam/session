@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cccteam/ccc"
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/mail"
+	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -208,13 +210,33 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 
 		want := map[string]any{
 			"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-			"standing": map[string]any{"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{}},
+			"standing": map[string]any{
+				"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{},
+				"accountExists": false, "hasPassword": false,
+			},
 		}
 		if diff := cmp.Diff(want, invitationBlock(t, f, invitationList, cookies)); diff != "" {
 			t.Errorf("invitation block mismatch (-want +got):\n%s", diff)
 		}
 		if got := invitationBlock(t, f, invitationList, nil); got["standing"] != nil {
 			t.Errorf("a request without the cookie after one with it got %v, want no standing invitation: the answer is not shared between requests", got["standing"])
+		}
+	})
+
+	t.Run("the standing invitation says whether an account holds the address and whether it signs in with a password", func(t *testing.T) {
+		t.Parallel()
+		f, _, links := newMailFixture(t, gomock.NewController(t))
+		cookies := openedInvitation(t, f, links)
+
+		links.holds("pat@lakeside.edu", &sessionstorage.SessionUser{ID: ccc.Must(ccc.NewUUID()), Username: "pat", PasswordHash: hashed(t, "pw")})
+		standing, _ := invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+		if standing["accountExists"] != true || standing["hasPassword"] != true {
+			t.Errorf("standing = %v, want accountExists true and hasPassword true for an account with a password", standing)
+		}
+		links.holds("PAT@lakeside.edu", &sessionstorage.SessionUser{ID: ccc.Must(ccc.NewUUID()), Username: "pat"})
+		standing, _ = invitationBlock(t, f, invitationList, cookies)["standing"].(map[string]any)
+		if standing["accountExists"] != true || standing["hasPassword"] != false {
+			t.Errorf("standing = %v, want accountExists true and hasPassword false for an account without a password", standing)
 		}
 	})
 
