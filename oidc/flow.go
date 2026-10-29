@@ -110,6 +110,16 @@ func (f *Flow) Complete(ctx context.Context, w http.ResponseWriter, r *http.Requ
 		return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidState, httpio.NewForbiddenMessage("Invalid 'state' parameter value"))
 	}
 
+	// A provider reports a sign-in it did not complete on the callback itself:
+	// error=access_denied when the person canceled at its account chooser or consent
+	// screen, org_internal when Google's internal consent screen turned an outside
+	// account away. It is refused here, after the state check, so the login page is
+	// reached with a code and no exchange of an absent code is attempted.
+	if e := r.URL.Query().Get("error"); e != "" {
+		return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedTokenExchange,
+			httpio.NewUnauthorizedMessageWithError(errors.Newf("%s: %s", e, r.URL.Query().Get("error_description")), "The provider did not complete the sign-in"))
+	}
+
 	verifier, err := cval.GetString(internalcookie.OIDCPkceVerifier)
 	if err != nil {
 		return nil, sessioninfo.NewLoginRefusal(sessioninfo.RefusedInvalidPKCE, httpio.NewForbiddenMessage("Invalid 'pkceVerifier' parameter value"))

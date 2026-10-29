@@ -15,6 +15,7 @@ import (
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
 )
 
 // jar is a browser's cookie store: a cookie written later replaces one of the same name.
@@ -75,9 +76,11 @@ func TestOIDC_StateCookie_ProvidersCoexist(t *testing.T) {
 	}
 
 	// Azure first, then Google: the Google login's state cookie is written last.
-	azureState := start(func(rec *httptest.ResponseRecorder) (string, error) { return entra.AuthCodeURL(ctx, rec, "/azure") })
+	azureState := start(func(rec *httptest.ResponseRecorder) (string, error) {
+		return entra.AuthCodeURL(ctx, rec, "/azure", signin.LoginOptions{})
+	})
 	googleState := start(func(rec *httptest.ResponseRecorder) (string, error) {
-		return google.AuthCodeURL(ctx, rec, "/google", "")
+		return google.AuthCodeURL(ctx, rec, "/google", signin.LoginOptions{})
 	})
 
 	if _, ok := browser[internalcookie.StateCookieName(cookies.CookieName, "azure")]; !ok {

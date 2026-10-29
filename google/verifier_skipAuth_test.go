@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/signin"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -70,7 +71,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
-			redirect, err := o.AuthCodeURL(ctx, rec, tt.returnURL, "")
+			redirect, err := o.AuthCodeURL(ctx, rec, tt.returnURL, signin.LoginOptions{})
 			if err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
@@ -120,7 +121,7 @@ func TestOIDC_Verify_simulatedRegistration(t *testing.T) {
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
-			if _, err := o.AuthCodeURL(ctx, rec, "/app", ""); err != nil {
+			if _, err := o.AuthCodeURL(ctx, rec, "/app", signin.LoginOptions{}); err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
 			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)
@@ -178,7 +179,7 @@ func TestOIDC_Verify_simulatedHostedDomain(t *testing.T) {
 			o := NewOIDC(oidctest.NewCookieClient(t).ForRegistration("google"), "", "", "/auth/callback", tt.workspaces)
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
-			if _, err := o.AuthCodeURL(ctx, rec, "/", ""); err != nil {
+			if _, err := o.AuthCodeURL(ctx, rec, "/", signin.LoginOptions{}); err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
 			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)

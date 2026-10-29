@@ -55,9 +55,11 @@ func (o *OIDC) simulateAs(string) {
 }
 
 // AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
-// authentication process. loginHint, when given, is passed to Google as login_hint, so
-// Google picks that account and skips its chooser.
-func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL, loginHint string) (string, error) {
+// authentication process. A login hint is passed to Google as login_hint, so Google
+// picks that account and skips its chooser; SelectAccount is passed as
+// prompt=select_account, so Google shows its chooser even when one signed-in account
+// would otherwise be taken without asking.
+func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string, options signin.LoginOptions) (string, error) {
 	// The hd parameter narrows Google's account chooser to the Workspace domain, or
 	// to Workspace accounts at large when the registration admits several. It is a UX
 	// hint only — the trusted enforcement is the hd claim check in Verify.
@@ -65,8 +67,11 @@ func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL
 	if hint, ok := o.workspaces.hdHint(); ok {
 		params = append(params, oauth2.SetAuthURLParam("hd", hint))
 	}
-	if loginHint != "" {
-		params = append(params, oauth2.SetAuthURLParam("login_hint", loginHint))
+	if options.LoginHint != "" {
+		params = append(params, oauth2.SetAuthURLParam("login_hint", options.LoginHint))
+	}
+	if options.SelectAccount {
+		params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
 	}
 	u, err := o.Begin(ctx, w, returnURL, params...)
 	if err != nil {

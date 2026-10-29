@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/signin"
 	"github.com/gofrs/uuid"
 	"github.com/google/go-cmp/cmp"
 )
@@ -36,7 +37,7 @@ func TestOIDC_Verify_simulatedRegistration(t *testing.T) {
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
-			if _, err := o.AuthCodeURL(ctx, rec, "/app"); err != nil {
+			if _, err := o.AuthCodeURL(ctx, rec, "/app", signin.LoginOptions{}); err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
 			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)
@@ -142,7 +143,7 @@ func TestOIDC_Verify_simulatedClaims(t *testing.T) {
 
 			ctx := t.Context()
 			rec := httptest.NewRecorder()
-			if _, err := o.AuthCodeURL(ctx, rec, "/app"); err != nil {
+			if _, err := o.AuthCodeURL(ctx, rec, "/app", signin.LoginOptions{}); err != nil {
 				t.Fatalf("OIDC.AuthCodeURL() error = %v", err)
 			}
 			callback := httptest.NewRequestWithContext(ctx, http.MethodGet, "/auth/callback", http.NoBody)

@@ -15,6 +15,7 @@ import (
 	"github.com/cccteam/session/signin"
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-playground/errors/v5"
+	"golang.org/x/oauth2"
 )
 
 var _ Authenticator = &OIDC{}
@@ -55,9 +56,16 @@ func (o *OIDC) simulateAs(string) {
 	// Nothing to record: the provider answers.
 }
 
-// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC authentication process
-func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string) (string, error) {
-	u, err := o.Begin(ctx, w, returnURL)
+// AuthCodeURL returns the URL to redirect to in order to initiate the OIDC
+// authentication process. SelectAccount is passed to Microsoft as
+// prompt=select_account, so it shows its account chooser even when one signed-in
+// account would otherwise be taken without asking.
+func (o *OIDC) AuthCodeURL(ctx context.Context, w http.ResponseWriter, returnURL string, options signin.LoginOptions) (string, error) {
+	var params []oauth2.AuthCodeOption
+	if options.SelectAccount {
+		params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
+	}
+	u, err := o.Begin(ctx, w, returnURL, params...)
 	if err != nil {
 		return "", errors.Wrap(err, "oidc.Flow.Begin()")
 	}

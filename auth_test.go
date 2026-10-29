@@ -1272,7 +1272,7 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			name:   "a local return path rides to the provider",
 			target: "/azure/login?returnUrl=" + url.QueryEscape("/reports?id=1"),
 			prepare: func(authn *mock_azure.MockAuthenticator) {
-				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/reports?id=1").Return("https://idp/authorize?state=s", nil)
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/reports?id=1", signin.LoginOptions{}).Return("https://idp/authorize?state=s", nil)
 			},
 			wantStatus:   http.StatusFound,
 			wantLocation: "https://idp/authorize?state=s",
@@ -1298,10 +1298,24 @@ func TestAuth_ExternalLogin(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:   "a request for the account chooser rides to the provider",
+			target: "/azure/login?returnUrl=%2Fhome&prompt=select_account",
+			prepare: func(authn *mock_azure.MockAuthenticator) {
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/home", signin.LoginOptions{SelectAccount: true}).Return("https://idp/authorize?state=s", nil)
+			},
+			wantStatus:   http.StatusFound,
+			wantLocation: "https://idp/authorize?state=s",
+		},
+		{
+			name:       "another prompt value is refused",
+			target:     "/azure/login?prompt=none",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:   "a provider that cannot start the login sends the browser back with a code",
 			target: "/azure/login",
 			prepare: func(authn *mock_azure.MockAuthenticator) {
-				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "").Return("", errors.New("discovery failed"))
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "", signin.LoginOptions{}).Return("", errors.New("discovery failed"))
 			},
 			wantStatus:   http.StatusFound,
 			wantLocation: "/login?code=internal_error",
@@ -1609,7 +1623,7 @@ func TestAuth_GoogleLogin(t *testing.T) {
 			name:   "a login hint rides to Google as given",
 			target: "/google/login?returnUrl=%2Fhome&login_hint=" + url.QueryEscape("Pat@Example.com"),
 			prepare: func(authn *mock_google.MockAuthenticator) {
-				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/home", "Pat@Example.com").Return("https://accounts/authorize?state=s", nil)
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "/home", signin.LoginOptions{LoginHint: "Pat@Example.com"}).Return("https://accounts/authorize?state=s", nil)
 			},
 			wantStatus:   http.StatusFound,
 			wantLocation: "https://accounts/authorize?state=s",
@@ -1618,7 +1632,7 @@ func TestAuth_GoogleLogin(t *testing.T) {
 			name:   "no login hint sends none",
 			target: "/google/login",
 			prepare: func(authn *mock_google.MockAuthenticator) {
-				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "", "").Return("https://accounts/authorize?state=s", nil)
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "", signin.LoginOptions{}).Return("https://accounts/authorize?state=s", nil)
 			},
 			wantStatus:   http.StatusFound,
 			wantLocation: "https://accounts/authorize?state=s",
@@ -1626,6 +1640,20 @@ func TestAuth_GoogleLogin(t *testing.T) {
 		{
 			name:       "a login hint with a space is refused",
 			target:     "/google/login?login_hint=" + url.QueryEscape("pat smith"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "a request for the account chooser rides to Google beside the hint",
+			target: "/google/login?prompt=select_account&login_hint=" + url.QueryEscape("pat@example.com"),
+			prepare: func(authn *mock_google.MockAuthenticator) {
+				authn.EXPECT().AuthCodeURL(gomock.Any(), gomock.Any(), "", signin.LoginOptions{LoginHint: "pat@example.com", SelectAccount: true}).Return("https://accounts/authorize?state=s", nil)
+			},
+			wantStatus:   http.StatusFound,
+			wantLocation: "https://accounts/authorize?state=s",
+		},
+		{
+			name:       "another prompt value is refused",
+			target:     "/google/login?prompt=consent",
 			wantStatus: http.StatusBadRequest,
 		},
 		{

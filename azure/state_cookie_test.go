@@ -14,6 +14,7 @@ import (
 	internalcookie "github.com/cccteam/session/internal/cookie"
 	"github.com/cccteam/session/internal/oidctest"
 	"github.com/cccteam/session/sessioninfo"
+	"github.com/cccteam/session/signin"
 )
 
 // TestOIDC_Verify_LegacyStateCookie proves a login started before the upgrade, whose
@@ -85,7 +86,7 @@ func beginLogin(t *testing.T, browser browserJar, o *OIDC, returnURL string) str
 	t.Helper()
 
 	rec := httptest.NewRecorder()
-	raw, err := o.AuthCodeURL(t.Context(), rec, returnURL)
+	raw, err := o.AuthCodeURL(t.Context(), rec, returnURL, signin.LoginOptions{})
 	if err != nil {
 		t.Fatalf("AuthCodeURL() error = %v", err)
 	}
