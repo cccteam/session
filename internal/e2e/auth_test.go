@@ -263,6 +263,15 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		r.Group(func(r chi.Router) {
 			r.Use(auth.ValidateSession)
 			r.Get("/whoami", whoami)
+			// A signed-in person forgets this browser as a trusted device of theirs.
+			r.Post("/forget-device", func(w http.ResponseWriter, r *http.Request) {
+				if err := api.ForgetTrustedDevice(r.Context(), w); err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
 			r.Get("/session-data", func(w http.ResponseWriter, r *http.Request) {
 				data, err := api.CustomData(r.Context())
 				if err != nil {
@@ -705,6 +714,10 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a policy that requires the email code holds the password sign-in; the code mailed to the user's address completes it, a wrong code counts, a remembered browser skips the factor next time until the reset, and a copied cookie completes nothing",
 			run:  seamEmailCode[Tx],
+		},
+		{
+			name: "two people remembered on one browser switch between their accounts without the code, a third person's held sign-in forgets neither, and one forgetting the browser leaves the other remembered",
+			run:  seamTrustedDevicePerUser[Tx],
 		},
 		{
 			name: "a user without an address gives one at the step: the code goes there, and the address is written on the user verified once the code is entered",
