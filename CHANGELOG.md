@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.17](https://github.com/cccteam/session/compare/v0.13.16...v0.13.17) (2026-10-29)
+
+
+### Bug Fixes
+
+* the trusted device cookie holds one token per user, so two people who share a browser, or one person with two accounts, each stay remembered after the second factor: a sign-in reads the signing-in user's token alone, a held sign-in drops that user's entry alone, ForgetTrustedDevice forgets the session user's device and no other, at most five people per browser, and the one-token cookie of earlier releases is still read ([#317](https://github.com/cccteam/session/issues/317)) ([1e253a1](https://github.com/cccteam/session/commit/1e253a1920eadba0264d38f6219c7dea08c27c55))
+
 ## [0.13.16](https://github.com/cccteam/session/compare/v0.13.15...v0.13.16) (2026-10-29)
 
 
