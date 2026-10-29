@@ -306,7 +306,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesPolicyEveryStart[Tx],
 		},
 		{
-			name: "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, and refuses a request naming no issuer or an issuer outside the slot",
+			name: "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, refuses an issuer outside the slot, and one naming no issuer, as Entra sends it, ends the sessions under whichever of the slot's issuers carry the sid",
 			run:  seamRulesLogoutAcrossTenants[Tx],
 		},
 		{
@@ -667,7 +667,7 @@ func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, b
 	assertEventsSeen(t, again.view(ctx), "google:lakeside", "attested-by-declaration:lakeside")
 }
 
-// seamRulesLogoutAcrossTenants is the scenario "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, and refuses a request naming no issuer or an issuer outside the slot".
+// seamRulesLogoutAcrossTenants is the scenario "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, refuses an issuer outside the slot, and one naming no issuer, as Entra sends it, ends the sessions under whichever of the slot's issuers carry the sid".
 func seamRulesLogoutAcrossTenants[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
 		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.Tenant(riversideTenant)), entraAccounts: signin.MembersOfDirectory,
@@ -682,7 +682,6 @@ func seamRulesLogoutAcrossTenants[Tx any](ctx context.Context, t *testing.T, be 
 	river.view(ctx)
 
 	provider := a.browser(t)
-	provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/entra/logout?sid=sid-shared", nil)
 	provider.expect(ctx, http.StatusBadRequest, http.MethodGet, "/entra/logout?sid=sid-shared&iss="+url.QueryEscape(a.entra.TenantIssuer(otherTenant)), nil)
 	lake.view(ctx)
 	river.view(ctx)
@@ -692,6 +691,10 @@ func seamRulesLogoutAcrossTenants[Tx any](ctx context.Context, t *testing.T, be 
 	if v := river.view(ctx); v.Username != "b@riverside.edu" {
 		t.Errorf("the riverside session after lakeside's logout = %+v, want it still signed in", v)
 	}
+
+	// Entra sends the sid alone: the riverside session, under the slot's other issuer, ends.
+	provider.expect(ctx, http.StatusOK, http.MethodGet, "/entra/logout?sid=sid-shared", nil)
+	river.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 }
 
 // seamRulesListedWorkspaces is the scenario "listed Workspaces".

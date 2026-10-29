@@ -37,6 +37,7 @@ type AuthDriver interface {
 	DestroyUserSessions(ctx context.Context, userID ccc.UUID) error
 	TouchUserSignIn(ctx context.Context, userID ccc.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
+	ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error)
 	AppendAuthEvent(ctx context.Context, sessionID ccc.UUID, event *sessioninfo.AuthEvent) error
 	InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error
 	PendingSignInByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.PendingSignIn, error)

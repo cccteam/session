@@ -245,6 +245,41 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 	return nil
 }
 
+// ProviderSessionIssuers lists the distinct issuers under which live sessions carry the
+// provider's session id, sorted; a session recorded without an issuer is left out. It
+// needs the auth schema.
+func (s *SessionStorageDriver) ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return nil, errors.New("ProviderSessionIssuers needs the auth schema: use Auth storage")
+	}
+
+	stmt := spanner.NewStatement(fmt.Sprintf(`
+		SELECT DISTINCT ProviderSessionIssuer
+		FROM %s
+		WHERE Expired = FALSE AND ProviderSessionId = @sid AND ProviderSessionIssuer IS NOT NULL AND ProviderSessionIssuer != ''
+		ORDER BY ProviderSessionIssuer`, s.sessionTableName))
+	stmt.Params["sid"] = providerSessionID
+
+	var issuers []string
+	err := s.spanner.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var issuer string
+		if err := row.Column(0, &issuer); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+		issuers = append(issuers, issuer)
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return issuers, nil
+}
+
 // authEventRow is one auth event row as the events query returns it.
 type authEventRow struct {
 	Method     string             `spanner:"Method"`

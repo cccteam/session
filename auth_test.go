@@ -598,7 +598,7 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 	})
 
-	t.Run("a registration serving several issuers scopes a front-channel logout by the issuer the request names, and refuses one that names none", func(t *testing.T) {
+	t.Run("a registration serving several issuers scopes a front-channel logout by the issuer the request names, and one naming none, as Entra sends it, by the declared issuers live sessions carry the sid under", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
@@ -612,8 +612,18 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 			},
 		})
 
-		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9", nil, nil); rr.Code != http.StatusBadRequest {
-			t.Errorf("FrontChannelLogout() naming no issuer status = %d, want 400", rr.Code)
+		// Entra sends the sid alone: the sessions under the declared issuers the sid is
+		// recorded under end, a session under an undeclared issuer stays.
+		f.store.EXPECT().ProviderSessionIssuers(gomock.Any(), "sid-9").Return([]string{"https://evil/hilltop", "https://login/hilltop", "https://login/valley"}, nil)
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://login/hilltop", "sid-9").Return(nil)
+		f.store.EXPECT().DestroySessionsByProviderSessionID(gomock.Any(), "https://login/valley", "sid-9").Return(nil)
+		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9", nil, nil); rr.Code != http.StatusOK {
+			t.Errorf("FrontChannelLogout() naming no issuer status = %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		// A sid no live session carries ends nothing and is still 200.
+		f.store.EXPECT().ProviderSessionIssuers(gomock.Any(), "sid-unknown").Return(nil, nil)
+		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-unknown", nil, nil); rr.Code != http.StatusOK {
+			t.Errorf("FrontChannelLogout() for an unknown sid status = %d, want 200: %s", rr.Code, rr.Body.String())
 		}
 		if rr := f.serve(h.FrontChannelLogout, http.MethodGet, "/any/logout?sid=sid-9&iss="+url.QueryEscape("https://evil/hilltop"), nil, nil); rr.Code != http.StatusBadRequest {
 			t.Errorf("FrontChannelLogout() naming an issuer outside the set status = %d, want 400", rr.Code)

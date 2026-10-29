@@ -217,6 +217,44 @@ func (s *SessionStorageDriver) DestroySessionsByProviderSessionID(ctx context.Co
 	return nil
 }
 
+// ProviderSessionIssuers lists the distinct issuers under which live sessions carry the
+// provider's session id, sorted; a session recorded without an issuer is left out. It
+// needs the auth schema.
+func (s *SessionStorageDriver) ProviderSessionIssuers(ctx context.Context, providerSessionID string) ([]string, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return nil, errors.New("ProviderSessionIssuers needs the auth schema: use Auth storage")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT "ProviderSessionIssuer"
+		FROM %s
+		WHERE "Expired" = FALSE AND "ProviderSessionId" = $1 AND "ProviderSessionIssuer" IS NOT NULL AND "ProviderSessionIssuer" <> ''
+		ORDER BY "ProviderSessionIssuer"`, s.sessionTable())
+
+	rows, err := s.conn.Query(ctx, query, providerSessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Queryer.Query()")
+	}
+	defer rows.Close()
+
+	var issuers []string
+	for rows.Next() {
+		var issuer string
+		if err := rows.Scan(&issuer); err != nil {
+			return nil, errors.Wrap(err, "pgx.Rows.Scan()")
+		}
+		issuers = append(issuers, issuer)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "pgx.Rows.Err()")
+	}
+
+	return issuers, nil
+}
+
 // readAuthEvents reads a session's auth events, oldest first.
 func (s *SessionStorageDriver) readAuthEvents(ctx context.Context, sessionID ccc.UUID) ([]sessioninfo.AuthEvent, error) {
 	ctx, span := tracer.Start(ctx)
