@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.19](https://github.com/cccteam/session/compare/v0.13.18...v0.13.19) (2026-10-30)
+
+
+### Features
+
+* an invitation is accepted only by the account it was sent to on every path: a password sign-in or an acceptance by hand by an account that holds another address is refused with `invitation_address` (403 for the acceptance by hand), the invitation left standing; an account with no address still accepts by the link ([#321](https://github.com/cccteam/session/issues/321)) ([b084d29](https://github.com/cccteam/session/commit/b084d29a6664ffa96f496e91fe2425a3c34ba3eb))
+
 ## [0.13.18](https://github.com/cccteam/session/compare/v0.13.17...v0.13.18) (2026-10-29)
 
 
