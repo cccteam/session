@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,11 +42,20 @@ type FakeIDP struct {
 	TokenClaims func() map[string]any
 	// TokenStatus, when non-zero, makes the token endpoint fail with that status.
 	TokenStatus int
+	// tokenRequests are the token endpoint's requests as they arrived, oldest first.
+	tokenRequests []TokenRequest
 	// Mint, when set, serializes the next token from its claims in place of the
 	// provider's own signing: a token under a key the provider never published
 	// (SignedBy), without a signature (Unsigned) or under another algorithm
 	// (SignedHS256).
 	Mint func(claims map[string]any) string
+}
+
+// TokenRequest is one request the token endpoint received: its Authorization header
+// and its form, which say how the client authenticated and what it exchanged.
+type TokenRequest struct {
+	Authorization string
+	Form          url.Values
 }
 
 // signingKey is one of the provider's keys with its id.
@@ -73,8 +83,8 @@ func NewFakeIDP(t *testing.T, clientID string) *FakeIDP {
 		})
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) { f.serveKeys(w) })
-	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
-		f.serveToken(w, func(map[string]any) string { return f.Server.URL })
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		f.serveToken(w, r, func(map[string]any) string { return f.Server.URL })
 	})
 
 	f.Server = httptest.NewServer(mux)
@@ -125,10 +135,22 @@ func (f *FakeIDP) serveKeys(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(set)
 }
 
+// TokenRequests are the token endpoint's requests so far, oldest first.
+func (f *FakeIDP) TokenRequests() []TokenRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]TokenRequest(nil), f.tokenRequests...)
+}
+
 // serveToken answers the token endpoint: a failure when TokenStatus says so, otherwise
 // an ID token of the claims the test case builds, with the issuer defaultIssuer gives
 // them, the audience and an expiry an hour out filled in unless already present.
-func (f *FakeIDP) serveToken(w http.ResponseWriter, defaultIssuer func(claims map[string]any) string) {
+func (f *FakeIDP) serveToken(w http.ResponseWriter, r *http.Request, defaultIssuer func(claims map[string]any) string) {
+	_ = r.ParseForm()
+	f.mu.Lock()
+	f.tokenRequests = append(f.tokenRequests, TokenRequest{Authorization: r.Header.Get("Authorization"), Form: r.PostForm})
+	f.mu.Unlock()
 	if f.TokenStatus != 0 {
 		http.Error(w, "token endpoint failure", f.TokenStatus)
 

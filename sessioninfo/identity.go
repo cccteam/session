@@ -22,6 +22,9 @@ const (
 	MethodGoogle AuthMethod = "google"
 	// MethodWorkOS is WorkOS SSO (SAML or OIDC brokered by WorkOS).
 	MethodWorkOS AuthMethod = "workos"
+	// MethodOIDC is a generic OpenID Connect provider, known by its issuer alone
+	// (session/oidc): an identity gateway, Okta, Keycloak.
+	MethodOIDC AuthMethod = "oidc"
 	// MethodImpersonation records that a session was established by impersonation.
 	// Its AuthEvent.Connection is the actor.
 	MethodImpersonation AuthMethod = "impersonation"
@@ -116,8 +119,8 @@ func AttestationOf(amr []string, declared bool) Attestation {
 }
 
 // ThroughDirectory reports whether the method signs a person in through a directory:
-// Microsoft Entra ID, Google Workspace and WorkOS, whose identities carry the directory
-// as their connection (Identity.Connection, and AuthEvent.Connection on the session's
+// Microsoft Entra ID, Google Workspace, WorkOS and a generic OpenID Connect provider,
+// whose identities carry the directory as their connection (Identity.Connection, and AuthEvent.Connection on the session's
 // first auth event). A password, a session the application starts for a user it
 // authenticated itself, an impersonation, a link confirmation and a step the
 // application records under its own name are not. A tenant's declaration admits a
@@ -125,7 +128,7 @@ func AttestationOf(amr []string, declared bool) Attestation {
 // signin.TenantPolicy.
 func (m AuthMethod) ThroughDirectory() bool {
 	switch m {
-	case MethodAzure, MethodGoogle, MethodWorkOS:
+	case MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC:
 		return true
 	default:
 		return false
@@ -141,10 +144,12 @@ type Identity struct {
 	// Connection scopes the Subject. It is the WorkOS connection ID for MethodWorkOS,
 	// the tenant ID (tid) for MethodAzure, and the registration's configured
 	// Connection, the application's own name for the Workspace organization, for
-	// MethodGoogle. It is empty for MethodPassword.
+	// MethodGoogle, and the registration's Connection, the application's name for the
+	// provider (its issuer URL by default), for MethodOIDC. It is empty for MethodPassword.
 	Connection string
 	// Subject is the upstream subject. It is the WorkOS profile idp_id, the Azure oid,
-	// the Google sub, or the user ID (as a string) for MethodPassword.
+	// the Google sub, the provider's sub for MethodOIDC, or the user ID (as a string)
+	// for MethodPassword.
 	Subject string
 	// Email is the email address asserted by the method, if any.
 	Email string

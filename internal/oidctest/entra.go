@@ -48,7 +48,7 @@ func NewFakeEntra(t *testing.T, clientID string) *FakeIDP {
 		case "discovery/v2.0/keys":
 			f.serveKeys(w)
 		case "oauth2/v2.0/token":
-			f.serveToken(w, func(claims map[string]any) string {
+			f.serveToken(w, r, func(claims map[string]any) string {
 				if tid, ok := claims["tid"].(string); ok && tid != "" {
 					return f.TenantIssuer(tid)
 				}

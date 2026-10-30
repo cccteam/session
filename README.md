@@ -103,7 +103,8 @@ ALTER TABLE "Sessions"
 ## Auth sessions (multiple sign-in methods)
 
 `Auth[SessionData, UserData, Tx]` is one session that any registered sign-in method can
-establish: password, Microsoft Entra ID (Azure), Google Workspace and WorkOS SSO. An
+establish: password, Microsoft Entra ID (Azure), Google Workspace, WorkOS SSO and any
+OpenID Connect provider known by its issuer. An
 application mounts one cookie, one session table and one middleware chain, and every
 session belongs to a **user**, a `SessionUsers` record, by its ID. The password
 method checks the user's password; an external method produces a verified
@@ -114,7 +115,8 @@ the store, and the rules the application gives the `Auth` and its methods are ty
 
 Each redirect-based method is its own package (`session/azure`, `session/google`;
 `session/workos` waits under `internal` until v0.13.1), built on the `session/signin`
-contract and the shared `session/oidc` machinery; an application imports the packages of the methods it offers and registers
+contract and the shared `session/oidc` machinery, which also holds the generic OpenID
+Connect method for a provider with nothing vendor-specific about it; an application imports the packages of the methods it offers and registers
 each with its `SignIn` function and `Config`.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
@@ -122,6 +124,7 @@ each with its `SignIn` function and `Config`.
 | `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=`, `?prompt=select_account` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
 | `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
+| `oidc` | `oidc.SignIn(auth, name, rule, &oidc.Config{...})` → `*oidc.Method`: `Login`, `Callback` | (`Config.Connection`, the issuer URL by default; `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `signin.RoleSync(manager)` (the `roles` claim) or `signin.DisableRoleSync()` |
 | `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
@@ -490,8 +493,9 @@ duplicate pattern: these are wiring mistakes, found when the application starts.
   or one Workspace; open sign-up (`signin.OpenSignUp`) on a registration that serves
   one or several named organizations; members of the directory with any tenant,
   personal accounts, any Workspace or any Google account and no rule of the
-  application's own; cookie or session options passed to `PasswordSignIn` instead of
-  `NewAuth`.
+  application's own; a generic OpenID Connect registration without an `Issuer`, with
+  one that is not an absolute URL, or without its role sync slot; cookie or session
+  options passed to `PasswordSignIn` instead of `NewAuth`.
 
 ### Routes
 
@@ -605,7 +609,8 @@ the password method is listed.
   to) and the method's callback brings it back. The kinds are
   `signin.KindPassword` and `signin.KindRedirect`.
 - `name` is the registration's name on the `Auth`, `method` the method behind it
-  (`password`, `azure`, `google`, `workos`), for a page that shows a provider's mark.
+  (`password`, `azure`, `google`, `workos`, `oidc`), for a page that shows a provider's
+  mark.
 - `label` is the application's wording for the method.
 - `path`, the pending paths and `changePassword` are the application's: the list is
   written where the routes are wired, so the paths the page is told are the paths the
@@ -1521,6 +1526,46 @@ to `NewOIDCAzure` wraps it in `session.RoleSync(manager)`, and
 `session.DisableUserRoleManagement()` becomes `session.DisableRoleSync()`, which also
 disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
 `google.RoleSync`, in the `session/google` package.
+
+## Generic OpenID Connect
+
+A provider with nothing vendor-specific about it, an identity gateway, Okta or
+Keycloak, is a method of the `Auth` session too, registered with
+`oidc.SignIn(auth, name, rule, &oidc.Config{...})` from the `session/oidc` package. The
+Entra and Google methods exist because their tokens carry a tenant or a Workspace the
+method must check against the registration's slot; this one checks the issuer alone,
+which discovery reads the provider's configuration from and every ID token must carry.
+The round trip is the same authorization code flow with PKCE the other methods share.
+
+```go
+gateway := oidc.SignIn(auth, "gateway", nil, &oidc.Config{
+    Issuer:       "https://id.example.com", // discovery at Issuer/.well-known/openid-configuration; every token carries it
+    ClientID:     "lanterns",
+    ClientSecret: "",                       // a public client: PKCE alone, the client ID in the request body
+    RedirectURL:  "https://lanterns.example.com/api/user/gateway/callback",
+    Connection:   "gateway",                // the connection every link carries; the issuer URL when empty
+    RoleSync:     signin.DisableRoleSync(), // or signin.RoleSync(manager), reconciled to the token's roles claim
+    Accounts:     signin.InvitedUsersOnly,  // members of the directory by default
+})
+r.Get("/api/user/gateway/login", gateway.Login())
+r.Get("/api/user/gateway/callback", gateway.Callback())
+```
+
+The identity is keyed by the registration's `Connection` and the token's `sub`. Its
+sign-in name is the `preferred_username` claim, or the `email` claim when the provider
+sends none, so the standard account rules provision and match users under it. The
+provider is the directory: whoever it authenticates is a member of it, so a first
+sign-in takes `signin.MembersOfDirectory` by default, and a registration that admits
+only pre-created users says `signin.InvitedUsersOnly`. The login route forwards
+`?login_hint=` to the provider as its `login_hint`, which a gateway reads as the
+account to sign in, and `?prompt=select_account` as its `prompt`. A provider that
+enforces a second factor at every sign-in is declared so with `Attesting: true`, and a
+sign-in through it carries the attestation by declaration; a token whose `amr` claim
+names `mfa` attests by evidence whatever the declaration (see "The second factor").
+There is no provider-initiated logout: `Logout` destroys the local session only. Under
+the `skipAuth` build tag the method is simulated like the others: the callback signs in
+`APP_<NAME>_USERNAME` with the roles `APP_<NAME>_ROLES` names, `APP_USERNAME` and
+`APP_ROLES` when those are unset, under a `sub` derived from the username.
 
 ## Microsoft Entra ID OIDC
 

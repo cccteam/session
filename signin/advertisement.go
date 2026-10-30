@@ -23,7 +23,8 @@ type Advertisement struct {
 	// Name is the name the method was registered under on the Auth: "password", or the
 	// application's name for an external registration ("google", "lakeside-entra").
 	Name string `json:"name"`
-	// Method is the method behind the registration (password, azure, google, workos).
+	// Method is the method behind the registration (password, azure, google, workos,
+	// oidc).
 	Method sessioninfo.AuthMethod `json:"method"`
 	// Kind is how the method starts: a form or a redirect.
 	Kind Kind `json:"kind"`

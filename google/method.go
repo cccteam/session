@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/cccteam/ccc/accesstypes"
 	"github.com/cccteam/httpio"
@@ -249,9 +248,9 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			return workspaces.admitsAddress(signin.AddressDomain(email))
 		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
-			hint, err := loginHint(r)
+			hint, err := signin.LoginHint(r)
 			if err != nil {
-				return "", err
+				return "", errors.Wrap(err, "signin.LoginHint()")
 			}
 			chooser, err := signin.SelectAccount(r)
 			if err != nil {
@@ -318,19 +317,4 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 // outside any Workspace without AnyGoogleAccount.
 func errNotWorkspaceMember() error {
 	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedNotWorkspaceMember, httpio.NewForbiddenMessage("User is not in a Google Workspace this sign-in admits"))
-}
-
-// maxLoginHint bounds ?login_hint=: an email address is at most 254 characters.
-const maxLoginHint = 254
-
-// loginHint reads ?login_hint=, the account Google is asked to pick, or "" when the
-// login page gave none. A hint longer than an email address can be, or carrying spaces
-// or control characters, is a login page's mistake and is refused.
-func loginHint(r *http.Request) (string, error) {
-	hint := r.URL.Query().Get("login_hint")
-	if len(hint) > maxLoginHint || strings.ContainsFunc(hint, func(c rune) bool { return c <= ' ' || c == 0x7f }) {
-		return "", httpio.NewBadRequestMessage("login_hint must be an email address or account id without spaces")
-	}
-
-	return hint, nil
 }
