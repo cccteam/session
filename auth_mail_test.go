@@ -672,8 +672,8 @@ func authInvitationCase2(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
-	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, id ccc.UUID, username string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, id ccc.UUID, username, _ string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
 			if inv.ID != links.rows[0].ID || inv.RoleNames[0] != "Admin" {
 				t.Errorf("AcceptInvitation() given %+v, want the opened invitation", inv)
 			}
@@ -696,6 +696,18 @@ func authInvitationCase2(t *testing.T) {
 	}
 	if rr := f.asUser(f.auth.Invitation().Accept(), sessionID, nil, nil); rr.Code != http.StatusNotFound {
 		t.Errorf("Accept() without an invitation = %d, want 404", rr.Code)
+	}
+
+	// The store refuses the acceptance for another address: 403 naming the invited
+	// address, the invitation standing and the browser still carrying it.
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
+		signinflow.Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, "This invitation is for pat@lakeside.edu. Sign in with that account."))
+	rr = f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
+	if rr.Code != http.StatusForbidden || decoded(t, rr)["message"] != "This invitation is for pat@lakeside.edu. Sign in with that account." {
+		t.Errorf("Accept() for another address = %d %s, want 403 naming the invited address", rr.Code, rr.Body.String())
+	}
+	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil && c.Value == "" {
+		t.Error("Accept() for another address deleted the invitation cookie, want it kept")
 	}
 }
 

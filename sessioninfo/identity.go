@@ -306,12 +306,14 @@ const (
 	// admitted, under the invited-users-only account rule, whose invitation had expired
 	// or been used by the time the sign-in accepted it.
 	RefusedInvitationExpired LoginRefusalCode = "invitation_expired"
-	// RefusedInvitationAddress is the code for a directory sign-in that carried an
-	// invitation for another address. A directory sign-in accepts an invitation only as
-	// the invited address: the address the directory asserted differs from the one the
-	// invitation was mailed to, so the sign-in is refused, the invitation left standing
-	// and nothing consumed. The login page names the invited address and asks for a
-	// sign-in with that account.
+	// RefusedInvitationAddress is the code for a sign-in or an acceptance that carried
+	// an invitation for another address. An invitation is accepted only by the account
+	// it was mailed to: the address the sign-in asserts, the directory's for an external
+	// identity and the account's own for a password one or a person signed in, differs
+	// from the invited one, so the sign-in or acceptance is refused, the invitation left
+	// standing and nothing consumed. An account that holds no address accepts by the
+	// link. The login page names the invited address and asks for a sign-in with that
+	// account.
 	RefusedInvitationAddress LoginRefusalCode = "invitation_address"
 	// RefusedGuestAccount is the code for an identity that is a guest of its directory
 	// (Identity.Guest), which the standard account rules refuse.

@@ -11,6 +11,7 @@ import (
 	"github.com/cccteam/logger"
 	"github.com/cccteam/session/cookie"
 	"github.com/cccteam/session/internal/sessioncore"
+	"github.com/cccteam/session/internal/signinflow"
 	"github.com/cccteam/session/sessioninfo"
 	"github.com/cccteam/session/sessionstorage"
 	"github.com/cccteam/session/signin"
@@ -255,9 +256,15 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("the browser carries no live invitation"))
 		}
 		user := sessioninfo.UserFromCtx(ctx)
-		if err := a.storage.AcceptInvitation(ctx, user.ID, user.Username, inv, a.acceptInvitation); err != nil {
+		if err := a.storage.AcceptInvitation(ctx, user.ID, user.Username, addressOf(user.Email), inv, a.acceptInvitation); err != nil {
 			if httpio.HasNotFound(err) {
 				a.invitationCookies.Cookie().Delete(w, a.settings.invitationCookie, a.invitationCookies.Domain)
+			}
+			// The person signed in holds another address: the invitation stands for the
+			// invited account, and the browser keeps carrying it.
+			var refusal *sessioninfo.LoginRefusal
+			if errors.As(err, &refusal) && refusal.Code() == sessioninfo.RefusedInvitationAddress {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessageWithError(err, signinflow.InvitedAddressMessage(inv)))
 			}
 
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -266,6 +273,15 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{Accepted: true})
 	})
+}
+
+// addressOf is the address a user holds, verified or not, "" for none.
+func addressOf(email *string) string {
+	if email == nil {
+		return ""
+	}
+
+	return *email
 }
 
 // invitationSignUp is Invitation().SignUp().

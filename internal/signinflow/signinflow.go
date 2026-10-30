@@ -150,12 +150,13 @@ type Rules[Tx any] struct {
 //
 // A sign-in that carries an invitation (req.Invitation) accepts it once the user is
 // known and before the policy decides, so the policy sees what the acceptance
-// granted. An external identity accepts it only as the invited address: a directory
-// sign-in whose address is not the one the invitation was mailed to is refused before
-// anything is read or written (invitation_address), the invitation left standing for
-// the invited account; a password sign-in or sign-up is not held to the address, since
-// nothing on that path could prove it, and the link itself is what the person proved.
-// Accepting it consumes the invitation and sets the user's address from it when the
+// granted. It is accepted only as the invited address: a sign-in whose address is not
+// the one the invitation was mailed to, the directory's for an external identity and
+// the account's own for a password one, is refused before anything is read or written
+// (invitation_address), the invitation left standing for the invited account. An
+// external identity that asserts no address cannot match; a password account that
+// holds no address accepts by the link, since the link is what the person proved, and
+// takes the address. Accepting it consumes the invitation and sets the user's address from it when the
 // user holds no verified address, in the resolution transaction for an external
 // identity (so a user the invitation provisioned and the consumption commit together)
 // and in a transaction of its own for a password identity; once that has committed,
@@ -185,14 +186,14 @@ func SignIn[Tx any](
 	resolved.User = nil
 	defer func() { req.UserID, req.Username, req.User = resolved.UserID, resolved.Username, resolved.User }()
 
+	if stop := invitedAddressRefusal(req); stop != nil {
+		return stop
+	}
 	source, tenant := sessioninfo.UserNamed, ""
 	switch {
 	case dbtype.IsExternal(req.Identity):
 		if rules.Account == nil && rules.Standard == "" {
 			return errors.Newf("the %s sign-in method has neither a standard account rule nor a custom one", req.Identity.Method)
-		}
-		if stop := invitedAddressRefusal(req); stop != nil {
-			return stop
 		}
 		var (
 			seats []signin.DirectorySeat
@@ -221,7 +222,7 @@ func SignIn[Tx any](
 		return errors.New("a password sign-in names its user in req.UserID")
 	default:
 		if req.Invitation != nil {
-			if err := AcceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept); err != nil && !httpio.HasNotFound(err) {
+			if err := AcceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Identity.Email, req.Invitation, rules.Accept); err != nil && !httpio.HasNotFound(err) {
 				return err
 			}
 		}
@@ -235,24 +236,43 @@ func SignIn[Tx any](
 	return decideAndInsert(ctx, d, id, insertSession, &resolved, source, tenant, rules.Policy, trusted)
 }
 
-// invitedAddressRefusal refuses an external sign-in that carries an invitation mailed
-// to another address: the directory's address, compared without regard to case and
-// surrounding space, must be the invited one, so an invitation is accepted through a
-// directory only by the account it was sent to, whoever holds the link. An identity
-// that asserts no address cannot match. Nothing is read or written: the invitation
-// stands and the login page, which still carries it, names the invited address. Nil
-// when the sign-in carries no invitation or the addresses agree.
+// invitedAddressRefusal refuses a sign-in that carries an invitation mailed to another
+// address: the address the sign-in asserts (Identity.Email: the directory's for an
+// external identity, the account's own for a password one) must be the invited one, so
+// an invitation is accepted only by the account it was sent to, whoever holds the link
+// (addressRefusal). Nothing is read or written: the invitation stands and the login
+// page, which still carries it, names the invited address. Nil when the sign-in
+// carries no invitation or the acceptance may go on.
 func invitedAddressRefusal(req *sessioninfo.NewSessionRequest) error {
-	inv := req.Invitation
-	if inv == nil {
-		return nil
-	}
-	if sameAddress(req.Identity.Email, inv.Email) {
+	if req.Invitation == nil {
 		return nil
 	}
 
-	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress,
-		fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email))
+	return addressRefusal(req.Identity.Email, !dbtype.IsExternal(req.Identity), req.Invitation)
+}
+
+// addressRefusal is the refusal (invitation_address) of an acceptance of inv by an
+// account whose address, email, is not the invited one, compared without regard to
+// case and surrounding space. An account with no address ("") may accept when
+// linkSuffices says so: a password account or a person signed in, whose only proof is
+// the link itself and who takes the invited address by accepting; a directory
+// identity that asserts no address cannot match. Nil when the acceptance may go on.
+func addressRefusal(email string, linkSuffices bool, inv *sessioninfo.Invitation) error {
+	email = strings.TrimSpace(email)
+	if email == "" && linkSuffices {
+		return nil
+	}
+	if sameAddress(email, inv.Email) {
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress, InvitedAddressMessage(inv))
+}
+
+// InvitedAddressMessage is the sentence shown for an acceptance refused for another
+// address: the invited address, and that the person signs in with that account.
+func InvitedAddressMessage(inv *sessioninfo.Invitation) string {
+	return fmt.Sprintf("This invitation is for %s. Sign in with that account.", inv.Email)
 }
 
 // sameAddress reports whether two addresses are one, without regard to case and
@@ -357,15 +377,22 @@ func seatDeclared(ctx context.Context, userID ccc.UUID, username string, seats [
 	return nil
 }
 
-// AcceptInvitation accepts inv for userID: in one transaction the invitation is
-// consumed and the user's address is set from it when the user holds no verified
-// address and no other user holds it; once that has committed, accept, nil for none,
-// grants what the invitation names, outside any transaction. inv.Accepted is set to
-// the outcome. An invitation that is no longer live (consumed, expired or revoked) is
+// AcceptInvitation accepts inv for userID, whose address is email ("" for none): in
+// one transaction the invitation is consumed and the user's address is set from it
+// when the user holds no verified address and no other user holds it; once that has
+// committed, accept, nil for none, grants what the invitation names, outside any
+// transaction. inv.Accepted is set to the outcome. The user accepts only an
+// invitation to their own address: one mailed to another address is refused (a
+// *sessioninfo.LoginRefusal, invitation_address) with nothing written, the invitation
+// left standing (addressRefusal); a user with no address accepts by the link and takes
+// the address. An invitation that is no longer live (consumed, expired or revoked) is
 // NotFound, and nothing is written; a grant that fails is the acceptor's error, with
 // the invitation consumed.
-func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID ccc.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor) error {
+func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID ccc.UUID, username, email string, inv *sessioninfo.Invitation, accept InvitationAcceptor) error {
 	inv.Accepted = false
+	if stop := addressRefusal(email, true, inv); stop != nil {
+		return stop
+	}
 	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
 		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
 			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")

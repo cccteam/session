@@ -194,14 +194,14 @@ type AuthInstance struct {
 	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (ccc.UUID, error)
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
-	Accept func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error
+	Accept func(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation) error
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
 // acceptor.
-func NewAccept[Tx any](d signinflow.Driver[Tx], cfg AuthConfig) func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error {
-	return func(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation) error {
-		if err := signinflow.AcceptInvitation(ctx, d, userID, username, inv, cfg.Accept); err != nil {
+func NewAccept[Tx any](d signinflow.Driver[Tx], cfg AuthConfig) func(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation) error {
+	return func(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation) error {
+		if err := signinflow.AcceptInvitation(ctx, d, userID, username, email, inv, cfg.Accept); err != nil {
 			return errors.Wrap(err, "signinflow.AcceptInvitation()")
 		}
 
@@ -352,7 +352,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
 		{name: "a default seat on an Auth with no seat hook fails the sign-in once the user is committed, who stays", run: testDirectorySeatHookMissing},
 		{name: "a failing invitation hook ends the sign-in and leaves the invitation and the user untouched", run: testInvitationHookFails},
-		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand", run: testInvitationAcceptedByHand},
+		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand, each only for the address the account holds", run: testInvitationAcceptedByHand},
 		{name: "a token is read back by its hash with everything it carried, and a user's live tokens are listed newest first", run: testTokenRoundTrip},
 		{name: "a token is touched at the database's time, revoked once by its user alone, its family with it, and every token of a user at once", run: testTokenTouchAndRevoke},
 		{name: "an expired token is neither read, listed, touched nor revoked", run: testTokenExpired},

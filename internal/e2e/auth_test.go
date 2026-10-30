@@ -247,6 +247,7 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// The invitation a mailed link carries is opened here, so the sign-in that
 		// follows carries it.
 		r.Post("/invitation", auth.Invitation().Open())
+		r.Post("/invitation/accept", auth.Invitation().Accept())
 		routesWithMail(r, auth)
 		// The application's MFA step: here it accepts anything, which is what the
 		// scenarios need; a real one checks a code first.

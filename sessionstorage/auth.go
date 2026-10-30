@@ -283,7 +283,7 @@ type AuthStore[Tx any] interface {
 	// the application's hook, grants what the invitation names, outside any
 	// transaction; nil for none. An invitation that is no longer live is NotFound,
 	// and nothing is written.
-	AcceptInvitation(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error
+	AcceptInvitation(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error
 }
 
 // MailLink is a row of the mail links table: one single-use link the library mailed.
@@ -449,11 +449,11 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 }
 
 // AcceptInvitation implements AuthStore.
-func (a *Auth[Tx]) AcceptInvitation(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+func (a *Auth[Tx]) AcceptInvitation(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := signinflow.AcceptInvitation(ctx, a.flow, userID, username, inv, accept); err != nil {
+	if err := signinflow.AcceptInvitation(ctx, a.flow, userID, username, email, inv, accept); err != nil {
 		return errors.Wrap(err, "signinflow.AcceptInvitation()")
 	}
 
