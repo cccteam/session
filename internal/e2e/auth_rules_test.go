@@ -466,6 +466,27 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
 		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
 	}
+
+	// A person signed in accepts by hand only an invitation to their own address: one
+	// for another address is refused, the invitation left standing; their own, in any
+	// letter case, is accepted.
+	other, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "sam@lakeside.edu"})
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, b.xsrfToken())
+	b.expect(ctx, http.StatusForbidden, http.MethodPost, "/invitation/accept", nil, b.xsrfToken())
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != other.ID {
+		t.Errorf("standing invitations after the refused acceptance = %v, want the other address's still standing", standing)
+	}
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "PAT@lakeside.edu"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, b.xsrfToken())
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/accept", nil, b.xsrfToken())
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != other.ID {
+		t.Errorf("standing invitations after the acceptance by hand = %v, want only the other address's", standing)
+	}
 }
 
 // invitationToken is the token of the one invitation the recorder holds.
@@ -476,9 +497,29 @@ func invitationToken(t *testing.T, recorder *mail.Recorder) string {
 	if len(messages) != 1 {
 		t.Fatalf("mailed messages = %d, want the one invitation", len(messages))
 	}
-	m := regexp.MustCompile(`https://app\.example/login\?invitation=([A-Za-z0-9_-]+)`).FindStringSubmatch(messages[0].Text)
+
+	return tokenInMessage(t, messages[0].Text)
+}
+
+// lastInvitationToken is the token of the invitation the recorder received last.
+func lastInvitationToken(t *testing.T, recorder *mail.Recorder) string {
+	t.Helper()
+
+	messages := recorder.Messages()
+	if len(messages) == 0 {
+		t.Fatal("mailed messages = 0, want an invitation")
+	}
+
+	return tokenInMessage(t, messages[len(messages)-1].Text)
+}
+
+// tokenInMessage is the invitation token in a mailed message's link.
+func tokenInMessage(t *testing.T, text string) string {
+	t.Helper()
+
+	m := regexp.MustCompile(`https://app\.example/login\?invitation=([A-Za-z0-9_-]+)`).FindStringSubmatch(text)
 	if m == nil {
-		t.Fatalf("no invitation link in the message:\n%s", messages[0].Text)
+		t.Fatalf("no invitation link in the message:\n%s", text)
 	}
 
 	return m[1]

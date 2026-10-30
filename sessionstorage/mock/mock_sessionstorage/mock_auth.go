@@ -47,17 +47,17 @@ func (m *MockAuthStore[Tx]) EXPECT() *MockAuthStoreMockRecorder[Tx] {
 }
 
 // AcceptInvitation mocks base method.
-func (m *MockAuthStore[Tx]) AcceptInvitation(ctx context.Context, userID ccc.UUID, username string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+func (m *MockAuthStore[Tx]) AcceptInvitation(ctx context.Context, userID ccc.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AcceptInvitation", ctx, userID, username, inv, accept)
+	ret := m.ctrl.Call(m, "AcceptInvitation", ctx, userID, username, email, inv, accept)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AcceptInvitation indicates an expected call of AcceptInvitation.
-func (mr *MockAuthStoreMockRecorder[Tx]) AcceptInvitation(ctx, userID, username, inv, accept any) *gomock.Call {
+func (mr *MockAuthStoreMockRecorder[Tx]) AcceptInvitation(ctx, userID, username, email, inv, accept any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcceptInvitation", reflect.TypeOf((*MockAuthStore[Tx])(nil).AcceptInvitation), ctx, userID, username, inv, accept)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcceptInvitation", reflect.TypeOf((*MockAuthStore[Tx])(nil).AcceptInvitation), ctx, userID, username, email, inv, accept)
 }
 
 // ActivateUser mocks base method.

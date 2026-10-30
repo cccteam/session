@@ -345,7 +345,9 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 	}
 
 	return a.signIn(ctx, w, &signInAttempt{
-		identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()},
+		// The account's own address is the identity's: an invitation the sign-in carries
+		// is accepted only when it was mailed to it (signinflow.SignIn).
+		identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String(), Email: addressOf(user.Email), EmailVerified: user.EmailVerified()},
 		reason:   sessioninfo.ReasonLogin,
 		userID:   user.ID,
 		username: user.Username,

@@ -726,7 +726,7 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 	alex := createUser(ctx, t, in.Driver, "alex")
 	alexLink := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	inv := invitationOf(alexLink)
-	if err := in.Accept(ctx, alex.ID, alex.Username, inv); err != nil {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "", inv); err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
 	if !inv.Accepted {
@@ -734,7 +734,37 @@ func testInvitationAcceptedByHand(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	assertEmail(t, "the user who accepted by hand", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
 	assertAccepted(t, rec, "accepted:alex@lakeside.edu", alex.ID.String()+" alex  Admin")
-	if err := in.Accept(ctx, alex.ID, alex.Username, invitationOf(alexLink)); !httpio.HasNotFound(err) {
+	if err := in.Accept(ctx, alex.ID, alex.Username, "", invitationOf(alexLink)); !httpio.HasNotFound(err) {
 		t.Errorf("second Accept() error = %v, want NotFound: an invitation is accepted once", err)
 	}
+
+	// An account that holds an address accepts only an invitation to that address, by
+	// hand and by a password sign-in alike: one mailed to another address is refused
+	// (invitation_address), nothing consumed and nothing granted; the account's own
+	// address, in any letter case, is accepted. An account with no address accepts by
+	// the link, as alex did.
+	kim, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "kim", Email: strPtr("kim@lakeside.edu")}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	otherLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
+	other := invitationOf(otherLink)
+	assertRefused(t, in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", other), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	assertInvitationKept(ctx, t, in, rec, otherLink, other)
+	req = &sessioninfo.NewSessionRequest{
+		Reason: sessioninfo.ReasonLogin, Username: kim.Username, UserID: kim.ID,
+		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: kim.ID.String(), Email: "kim@lakeside.edu"}, Invitation: invitationOf(otherLink),
+	}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedInvitationAddress, signin.ErrInvitationAddress)
+	assertInvitationKept(ctx, t, in, rec, otherLink, req.Invitation)
+	assertEmail(t, "the user refused for another address", mustUser(ctx, t, in.Driver, kim.ID), strPtr("kim@lakeside.edu"), false)
+	ownLink := insertInvitation(ctx, t, in.Driver, "Kim@Lakeside.edu", "", []string{"Admin"}, tokenHash(4))
+	own := invitationOf(ownLink)
+	if err := in.Accept(ctx, kim.ID, kim.Username, "kim@lakeside.edu", own); err != nil {
+		t.Fatalf("Accept() of the account's own address error = %v", err)
+	}
+	if !own.Accepted {
+		t.Error("Invitation.Accepted = false for the account's own address, want accepted")
+	}
+	assertAccepted(t, rec, "accepted:Kim@Lakeside.edu", kim.ID.String()+" kim  Admin")
 }
