@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.20](https://github.com/cccteam/session/compare/v0.13.19...v0.13.20) (2026-10-31)
+
+
+### Features
+
+* a generic OpenID Connect sign-in method, oidc.SignIn, for a provider known by its issuer alone: discovery, the shared authorization code flow with PKCE, the identity keyed by the registration's connection and the token's subject, the preferred username as the sign-in name, an optional client secret (a public client exchanges its code with the client ID alone), the roles claim under role synchronization, a declared second factor, and the login hint and account chooser forwarded from the login route; sessioninfo.MethodOIDC names it and signin.LoginHint reads the hint for the Google method too ([#323](https://github.com/cccteam/session/issues/323)) ([d8ef813](https://github.com/cccteam/session/commit/d8ef81347926cca13e17358aae00e64b2ae0f07c))
+
 ## [0.13.19](https://github.com/cccteam/session/compare/v0.13.18...v0.13.19) (2026-10-30)
 
 
