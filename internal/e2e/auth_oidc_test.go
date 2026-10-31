@@ -18,6 +18,7 @@ import (
 	"github.com/cccteam/session/azure"
 	"github.com/cccteam/session/google"
 	"github.com/cccteam/session/internal/oidctest"
+	"github.com/cccteam/session/oidc"
 	"github.com/cccteam/session/signin"
 	"github.com/go-chi/chi/v5"
 )
@@ -48,6 +49,9 @@ type oidcApp[Tx any] struct {
 	// googleRiverside is another Workspace: a second registration of the Google method,
 	// under its own connection name.
 	googleRiverside *oidctest.FakeIDP
+	// gateway is a provider with nothing vendor-specific about it, behind the generic
+	// OpenID Connect method as a public client admitting pre-created users only.
+	gateway *oidctest.FakeIDP
 }
 
 func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidcApp[Tx] {
@@ -59,6 +63,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	riversideIDP := oidctest.NewFakeEntra(t, "riverside-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
+	gatewayIDP := oidctest.NewFakeIDP(t, "gateway-client")
 
 	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
@@ -87,6 +92,10 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	})
 	google.IssuerURL = issuer
 	googleIssuerMu.Unlock()
+	gatewayMethod := oidc.SignIn[Tx](auth, "gateway", nil, &oidc.Config{
+		Issuer: gatewayIDP.Server.URL, ClientID: "gateway-client", RedirectURL: "https://app.example/gateway/callback", Connection: "gateway",
+		RoleSync: signin.DisableRoleSync(), Accounts: signin.InvitedUsersOnly,
+	})
 
 	r := chi.NewRouter()
 	mountAuth(r, auth, func(r chi.Router) {
@@ -99,13 +108,15 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 		r.Get("/google/callback", googleMethod.Callback())
 		r.Get("/google-riverside/login", googleRiversideMethod.Login())
 		r.Get("/google-riverside/callback", googleRiversideMethod.Callback())
+		r.Get("/gateway/login", gatewayMethod.Login())
+		r.Get("/gateway/callback", gatewayMethod.Callback())
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
 
 	return &oidcApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
-		azure:   azureIDP, google: googleIDP, riverside: riversideIDP, googleRiverside: googleRiversideIDP,
+		azure:   azureIDP, google: googleIDP, riverside: riversideIDP, googleRiverside: googleRiversideIDP, gateway: gatewayIDP,
 	}
 }
 
@@ -156,6 +167,79 @@ func googleClaimsAt(domain, sub, email string) map[string]any {
 }
 
 // TestAuthSeams_AzureAndGoogle runs the Azure and Google scenarios on each backend.
+func TestAuthSeams_GenericProvider(t *testing.T) {
+	t.Parallel()
+
+	t.Run(postgresBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runGenericProviderSeams(t, postgresBackend)
+	})
+	t.Run(spannerBackend.name, func(t *testing.T) {
+		t.Parallel()
+		runGenericProviderSeams(t, spannerBackend)
+	})
+}
+
+// runGenericProviderSeams drives the generic OpenID Connect method as an identity
+// gateway's application uses it: a public client, pre-created password-less users, the
+// provider's preferred username as the sign-in name.
+func runGenericProviderSeams[Tx any](t *testing.T, be backend[Tx]) {
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, a *oidcApp[Tx])
+	}{
+		{
+			name: "the provider's identity reaches the pre-created user under its preferred username, by the registration's connection and the subject; a stranger is refused and a repeat sign-in asks nothing",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				cadet, err := a.api.CreateSessionUser(ctx, &session.CreateUserRequest{Username: "cadet"})
+				if err != nil {
+					t.Fatalf("CreateSessionUser(cadet) error = %v", err)
+				}
+
+				b := a.browser(t)
+				assertRedirect(t, b.oidcSignIn(ctx, a.gateway, "/gateway", gatewayClaims("p-cadet", "cadet", "cadet@lakeside.edu")), "/home", url.Values{})
+				v := b.view(ctx)
+				if v.UserID != cadet.String() || v.Username != "cadet" {
+					t.Errorf("session user = %s %q, want the pre-created cadet %s", v.UserID, v.Username, cadet)
+				}
+				assertEventsSeen(t, v, "oidc:gateway")
+
+				// No user was created for the stranger, so invited users only refuses them.
+				other := a.browser(t)
+				assertRedirect(t, other.oidcSignIn(ctx, a.gateway, "/gateway", gatewayClaims("p-nobody", "nobody", "nobody@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+				if a.db.hasUser(ctx, t, "nobody") {
+					t.Error("a user was created for the refused stranger")
+				}
+
+				// The link is keyed by the subject: a changed address or name changes nothing.
+				again := a.browser(t)
+				assertRedirect(t, again.oidcSignIn(ctx, a.gateway, "/gateway", gatewayClaims("p-cadet", "cadet", "renamed@lakeside.edu")), "/home", url.Values{})
+				if got := again.view(ctx).UserID; got != cadet.String() {
+					t.Errorf("repeat sign-in user = %s, want cadet %s", got, cadet)
+				}
+				// Another subject under the same preferred username is another identity: it
+				// matches the pre-created user by name but is refused, since cadet is linked.
+				if links, err := a.api.Identities(ctx, cadet); err != nil || len(links) != 1 {
+					t.Errorf("Identities(cadet) = %d links, %v; want the gateway link alone", len(links), err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			tt.run(ctx, t, newOIDCApp(ctx, t, be))
+		})
+	}
+}
+
+// gatewayClaims are the claims a generic provider issues: the subject, the preferred
+// username the standard account rules match users by, and an address.
+func gatewayClaims(sub, preferredUsername, email string) map[string]any {
+	return map[string]any{"sub": sub, "preferred_username": preferredUsername, "email": email, "email_verified": true, "name": preferredUsername}
+}
+
 func TestAuthSeams_AzureAndGoogle(t *testing.T) {
 	t.Parallel()
 

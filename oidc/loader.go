@@ -32,7 +32,9 @@ type loader struct {
 
 // New creates a new OIDC loader for the provider at issuerURL, whose discovery
 // document must name that issuer and whose tokens must carry it. scopes is the OAuth2
-// scope set requested at authorization time; it must include the openid scope.
+// scope set requested at authorization time; it must include the openid scope. An
+// empty clientSecret is a public client, which authenticates the code exchange with
+// its client ID alone.
 func New(issuerURL, clientID, clientSecret, redirectURL string, scopes []string) Loader {
 	return &loader{
 		issuerURL:    issuerURL,
@@ -112,6 +114,13 @@ func (l *loader) newProvider(ctx context.Context) error {
 		return errors.Wrap(err, "gooidc.NewProvider()")
 	}
 
+	endpoint := newProvider.Endpoint()
+	if l.clientSecret == "" {
+		// A public client has no secret to send: the code exchange carries the client ID
+		// in the request body alone, never an authorization header with an empty password.
+		endpoint.AuthStyle = oauth2.AuthStyleInParams
+	}
+
 	l.provider = &provider{
 		provider:        newProvider,
 		skipIssuerCheck: l.sharedEndpoint,
@@ -119,7 +128,7 @@ func (l *loader) newProvider(ctx context.Context) error {
 			ClientID:     l.clientID,
 			ClientSecret: l.clientSecret,
 			RedirectURL:  l.redirectURL,
-			Endpoint:     newProvider.Endpoint(),
+			Endpoint:     endpoint,
 			Scopes:       l.scopes,
 		},
 	}

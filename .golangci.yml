@@ -186,6 +186,12 @@ linters:
           - tagliatelle
         path: google/verifier(_skipAuth)?(_test)?\.go|google/method\.go
         text: email_verified
+      # The generic method reads OpenID Connect's standard claims, whose names are
+      # snake_case on the wire (preferred_username, email_verified).
+      - linters:
+          - tagliatelle
+        path: oidc/method\.go
+        text: preferred_username|email_verified
       # The WorkOS API's wire format is snake_case.
       - linters:
           - tagliatelle

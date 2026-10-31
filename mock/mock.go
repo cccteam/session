@@ -3,6 +3,7 @@ package mock
 
 //go:generate mockgen -source ../azure/authenticator.go -destination mock_azure/mock_authenticator.go
 //go:generate mockgen -source ../google/authenticator.go -destination mock_google/mock_authenticator.go
+//go:generate mockgen -source ../oidc/authenticator.go -destination mock_oidc/mock_authenticator.go
 //go:generate mockgen -source ../signin/rolemanager.go -destination mock_signin/mock_rolemanager.go
 //go:generate mockgen -source ../session_iface.go -destination mock_session/mock_session_iface.go
 //go:generate mockgen -source ../internal/cookie/cookie_iface.go -destination mock_cookie/mock_cookie_iface.go
