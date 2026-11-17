@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.21](https://github.com/cccteam/session/compare/v0.13.20...v0.13.21) (2026-11-17)
+
+
+### Code Upgrade
+
+* **deps:** Go 1.27.4; net/http GO-2026-6859 fixed ([#329](https://github.com/cccteam/session/issues/329)) ([d585f30](https://github.com/cccteam/session/commit/d585f303a7e0ee3265d40b8a393b847d0bc34714))
+
 ## [0.13.20](https://github.com/cccteam/session/compare/v0.13.19...v0.13.20) (2026-10-31)
 
 
